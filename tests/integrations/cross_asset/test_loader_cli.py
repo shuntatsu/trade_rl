@@ -141,7 +141,7 @@ def test_loader_parses_exactly_the_raw_bytes_it_digest_verified(
     original = store.read_raw(record)
     rows = original.splitlines(keepends=True)
     assert len(rows) > 2 and b"," in rows[1]
-    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\\n"
+    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\n"
     tampered = b"".join(rows)
     assert tampered != original
     target = tmp_path / str(record["path"])

@@ -36,9 +36,7 @@ def test_verified_snapshot_rejects_oversize_before_consuming_or_copying_it(
     source = _ObservedBytes(payload)
 
     @contextmanager
-    def fake_open_regular_binary(
-        _path: Path, *, field: str
-    ) -> Iterator[io.BytesIO]:
+    def fake_open_regular_binary(_path: Path, *, field: str) -> Iterator[io.BytesIO]:
         assert field == "snapshot"
         yield source
 
@@ -122,8 +120,6 @@ def test_verified_snapshot_preserves_exact_and_negative_size_digest_contracts(
     if scenario == "exact":
         assert invoke() == payload
     else:
-        error = (
-            "snapshot size" if scenario == "short" else "snapshot"
-        )
+        error = "snapshot size" if scenario == "short" else "snapshot"
         with pytest.raises(ValueError, match=error):
             invoke()

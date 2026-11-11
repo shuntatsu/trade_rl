@@ -667,7 +667,10 @@ def test_raw_reader_rejects_leaf_symlink_swapped_at_descriptor_open(
     payload = b"synthetic immutable source bytes"
     target.write_bytes(payload)
     parked = target.with_name("parked.csv")
-    record = {"path": "raw/fred/DGS10.csv", "sha256": hashlib.sha256(payload).hexdigest()}
+    record = {
+        "path": "raw/fred/DGS10.csv",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
     real_open = os.open
     swapped = False
 

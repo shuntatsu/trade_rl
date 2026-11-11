@@ -115,22 +115,28 @@ class ArchiveDirFetcher:
         # This static screen is not an atomic defence against directory swaps.
         # Cached reads already reject links in the *absolute* parent chain;
         # writes must apply the same rule, including above the configured root.
-        for parent in self._directory.absolute().parents:
-            if parent.is_symlink() or parent.is_junction():
-                raise CarryOperationalHalt(
-                    f"archive cache directory is a symlink or junction: {url}",
-                    {"kind": "cache_directory_link", "url": url},
-                )
-        ancestor = self._directory
-        parts = target.parent.relative_to(ancestor).parts
-        for component in (None, *parts):
-            if component is not None:
-                ancestor = ancestor / component
-            if ancestor.is_symlink() or ancestor.is_junction():
-                raise CarryOperationalHalt(
-                    f"archive cache directory is a symlink or junction: {url}",
-                    {"kind": "cache_directory_link", "url": url},
-                )
+        try:
+            for parent in self._directory.absolute().parents:
+                if parent.is_symlink() or parent.is_junction():
+                    raise CarryOperationalHalt(
+                        f"archive cache directory is a symlink or junction: {url}",
+                        {"kind": "cache_directory_link", "url": url},
+                    )
+            ancestor = self._directory
+            parts = target.parent.relative_to(ancestor).parts
+            for component in (None, *parts):
+                if component is not None:
+                    ancestor = ancestor / component
+                if ancestor.is_symlink() or ancestor.is_junction():
+                    raise CarryOperationalHalt(
+                        f"archive cache directory is a symlink or junction: {url}",
+                        {"kind": "cache_directory_link", "url": url},
+                    )
+        except OSError as error:
+            raise CarryOperationalHalt(
+                f"archive cache directory metadata could not be read: {url}",
+                {"kind": "cache_directory_probe_failed", "url": url},
+            ) from error
 
     @staticmethod
     def _read_cached(path: Path, url: str) -> bytes:
@@ -149,13 +155,19 @@ class ArchiveDirFetcher:
     def fetch(self, url: str) -> FetchResult:
         path = self._path(url)
         self._reject_linked_cache_directories(path, url)
-        if path.is_symlink():
+        try:
+            if path.is_symlink():
+                raise CarryOperationalHalt(
+                    f"archive cache symlink is not trusted: {url}",
+                    {"kind": "cache_symlink", "url": url},
+                )
+            if path.is_file():
+                return FetchResult(status=200, body=self._read_cached(path, url))
+        except OSError as error:
             raise CarryOperationalHalt(
-                f"archive cache symlink is not trusted: {url}",
-                {"kind": "cache_symlink", "url": url},
-            )
-        if path.is_file():
-            return FetchResult(status=200, body=self._read_cached(path, url))
+                f"archive cache entry metadata could not be read: {url}",
+                {"kind": "cache_read_failed", "url": url},
+            ) from error
         if self._inner is None:
             return FetchResult(status=OFFLINE_MISS_STATUS, body=None)
         result = self._inner.fetch(url)
@@ -194,7 +206,14 @@ class ArchiveDirFetcher:
             except FileExistsError as error:
                 # Only the already-published cache winner can be returned.
                 # VisionArchiveSource separately validates its official checksum.
-                if not path.is_file() or path.is_symlink():
+                try:
+                    regular_winner = not path.is_symlink() and path.is_file()
+                except OSError as probe_error:
+                    raise CarryOperationalHalt(
+                        f"archive cache publication conflict: {url}",
+                        {"kind": "cache_publication_conflict", "url": url},
+                    ) from probe_error
+                if not regular_winner:
                     raise CarryOperationalHalt(
                         f"archive cache publication conflict: {url}",
                         {"kind": "cache_publication_conflict", "url": url},

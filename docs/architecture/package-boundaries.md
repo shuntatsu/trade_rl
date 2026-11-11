@@ -873,6 +873,15 @@ Raw data may carry third-party restrictions: it lives only under the git-ignored
 
 `fetch` writes exact bytes to `data/cross_asset/raw/<source>/<key>/<UTC stamp>_<sha8>.<ext>` and appends canonical JSON lines to `data/cross_asset/manifest.jsonl` (source URL, fetch/capture time, SHA-256, size, row count, first/last dates, status). New fetch/capture stamps retain **six UTC fractional digits**, including `.000000Z` for an exact second, and raw filenames include this precision. An identical refetch records `unchanged` and preserves the original vintage's `captured_at`; changed bytes create a new immutable vintage and revision summary. `load_cross_asset_features(..., as_of=...)` selects vintages by parsed timezone-aware **microsecond-exact** timestamps, not lexicographically sorted/truncated seconds. Previously stored stamps without a decimal point were truncated by legacy code and are **not** proof of capture at the start of the second: `as_of` admits them conservatively only from the *next* whole second. This preserves historical raw files and manifests rather than retroactively inventing precision; legacy mixed-vintage order inside one second remains unknowable. The input provenance digest `cross_asset_input_provenance_v2` binds raw SHA-256, original captured timestamp and the conservative second-only handling rule; unlike the former digest, two same-byte captures at different times have distinct provenance. CLI `as_of`/build time evidence also retains microseconds. These changes are prospective code contracts, not a rewrite of existing artifacts or a claim of historical first-release vintages.
 
+**Verified parse snapshot.** Cross-asset observations read each selected raw
+file once, verify the SHA-256 of **those exact bytes** against the admitted
+manifest entry, and pass the same immutable byte buffer to the source parser.
+A verification read followed by an unverified second read is forbidden: a
+source file changed between checks must not introduce a new value under the
+old manifest digest. Missing or mismatched raw bytes halt the loader; source
+verification does not upgrade latest-at-capture values to historical
+first-release point-in-time evidence.
+
 ### Revision risk and default membership
 
 Each catalog series has `revision_risk` (`low`, `possible` or `unknown`) and a `revision_evidence` note. **Only `low` series produce columns by default**, per-series and composite alike: a `possible` or `unknown` series has no column in the frame unless it is named in `opt_in_series` (CLI `build --opt-in KEY,...`). The frame records the opt-in set and, in `column_sources`, the series behind every column.

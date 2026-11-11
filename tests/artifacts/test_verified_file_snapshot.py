@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -112,6 +115,50 @@ def test_verified_artifact_read_rejects_symlinked_directory_ancestor(
             ):
                 pytest.fail("a symlinked parent must not yield a private copy")
 
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(os, "mkfifo") or not getattr(os, "O_NONBLOCK", 0),
+    reason="POSIX FIFO nonblocking open required",
+)
+@pytest.mark.parametrize("force_portable_fallback", (False, True))
+def test_verified_open_rejects_fifo_without_waiting_for_writer(
+    tmp_path: Path,
+    force_portable_fallback: bool,
+) -> None:
+    """A FIFO must be type-rejected before a blocking O_RDONLY can wait."""
+
+    fifo = tmp_path / "untrusted-named-pipe"
+    os.mkfifo(fifo)
+    script = (
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "from trade_rl.artifacts.verified_file import open_regular_binary\n"
+        "if sys.argv[2] == 'fallback':\n"
+        "    os.supports_dir_fd = frozenset()\n"
+        "try:\n"
+        "    with open_regular_binary(Path(sys.argv[1]), field='FIFO evidence'):\n"
+        "        raise AssertionError('a FIFO is not a regular file')\n"
+        "except ValueError as error:\n"
+        "    assert 'regular file' in str(error), str(error)\n"
+    )
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(fifo),
+                "fallback" if force_portable_fallback else "native",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("FIFO open blocked before the regular-file type check")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert fifo.is_fifo()
 
 def test_verified_artifact_read_keeps_regular_nested_parents_working(
     tmp_path: Path,

@@ -190,7 +190,6 @@ def test_v2_funding_evidence_rejects_tampered_event_price_rate() -> None:
         funding_evidence.FundingEvidenceArtifact.from_mapping(v2_mapping)
 
 
-
 @pytest.mark.parametrize("sign", (1, -1))
 @pytest.mark.parametrize(
     ("field", "expected_field"),

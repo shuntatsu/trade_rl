@@ -114,7 +114,10 @@ class FundingBoundaryEvidence:
             raise ValueError("funding boundary evidence vectors must have equal length")
         if any(not _finite_without_overflow(value) for value in self.signed_quantities):
             raise ValueError("signed_quantities must be finite")
-        if any(not _finite_without_overflow(value) or value <= 0.0 for value in self.mark_prices):
+        if any(
+            not _finite_without_overflow(value) or value <= 0.0
+            for value in self.mark_prices
+        ):
             raise ValueError("mark_prices must be finite and positive")
         if any(
             not _finite_without_overflow(value) or value <= 0.0
@@ -126,7 +129,10 @@ class FundingBoundaryEvidence:
         if self.funding_price_rates is not None:
             if len(self.funding_price_rates) != size:
                 raise ValueError("funding_price_rates must match symbol count")
-            if any(not _finite_without_overflow(value) for value in self.funding_price_rates):
+            if any(
+                not _finite_without_overflow(value)
+                for value in self.funding_price_rates
+            ):
                 raise ValueError("funding_price_rates must be finite")
         for name, value in (
             ("funding_amount", self.funding_amount),

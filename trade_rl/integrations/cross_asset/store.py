@@ -221,6 +221,11 @@ class CrossAssetStore:
         destination = self.manifest_path
         if not destination.exists() and not destination.is_symlink():
             return []
+        # A pre-existing FIFO/device may block in os.open(O_RDONLY) before
+        # the no-follow descriptor helper can fstat it. Reject statically
+        # before entering the opener; later hostile swaps remain out of scope.
+        if not destination.is_file():
+            raise ValueError("cross-asset manifest must be a regular file")
         records: list[dict[str, object]] = []
         # The checked descriptor guards the entire read from leaf symlinks
         # and, on supported POSIX, pins directory ancestors during opening.

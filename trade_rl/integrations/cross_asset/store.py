@@ -258,7 +258,9 @@ class CrossAssetStore:
         # Open the literal path by the shared no-follow regular-file helper,
         # keeping descriptor-pinned ancestor protection on supported POSIX.
         # Portable fallback retains static, not atomic, ancestor checks.
-        with open_regular_binary(self.root / relative, field="cross-asset raw file") as handle:
+        with open_regular_binary(
+            self.root / relative, field="cross-asset raw file"
+        ) as handle:
             return handle.read()
 
     def verify_raw(self, record: Mapping[str, object]) -> bool:

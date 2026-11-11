@@ -315,7 +315,9 @@ def test_two_identical_raw_publishers_both_reuse_the_exclusive_winner(
     barrier = Barrier(2)
 
     def concurrent_link(staging: str | Path, destination: str | Path) -> None:
-        assert Path(destination) == target
+        # Do not capture unrelated links from other test or runtime threads.
+        if Path(destination) != target:
+            return real_link(staging, destination)
         barrier.wait(timeout=10)
         real_link(staging, destination)
 
@@ -335,8 +337,12 @@ def test_two_identical_raw_publishers_both_reuse_the_exclusive_winner(
     assert not list(target.parent.glob(f".{target.name}.part-*"))
 
 
+@pytest.mark.parametrize(
+    "unsupported_errno",
+    sorted({errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP}),
+)
 def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durability(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unsupported_errno: int
 ) -> None:
     """Some POSIX filesystems reject directory fsync, not file fsync."""
 
@@ -350,7 +356,7 @@ def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durabil
         nonlocal directory_attempts
         if stat.S_ISDIR(os.fstat(fd).st_mode):
             directory_attempts += 1
-            raise OSError(errno.EINVAL, "directory fsync unsupported")
+            raise OSError(unsupported_errno, "directory fsync unsupported")
         real_fsync(fd)
 
     monkeypatch.setattr(os, "fsync", reject_directory_fsync)
@@ -360,6 +366,36 @@ def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durabil
     assert directory_attempts == 1
     assert (tmp_path / relative).read_bytes() == _COLLIDING_RAW[0]
     assert digest == hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+
+
+def test_raw_write_propagates_unexpected_directory_fsync_eio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected I/O error is not silently treated as unsupported fsync."""
+
+    if os.name != "posix":
+        pytest.skip("directory fsync specific to POSIX")
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_fsync = os.fsync
+    seen = 0
+
+    def fail_directory_fsync(fd: int) -> None:
+        nonlocal seen
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            seen += 1
+            raise OSError(errno.EIO, "persistent directory I/O failure")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fail_directory_fsync)
+    with pytest.raises(OSError, match="persistent directory I/O failure") as failure:
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+    assert failure.value.errno == errno.EIO
+    assert seen == 1
+    # Exclusive publication already succeeded; it must remain unmodified, but
+    # the failed call must not report normal success or invent durability.
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
 
 
 def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(

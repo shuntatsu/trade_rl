@@ -303,3 +303,63 @@ def test_distinct_series_cannot_share_legacy_origin_clock(
     assert loaded[0]["captured_at"] == origin["fetched_at"]
     assert loaded[1]["captured_at"] == second["fetched_at"]
     assert loaded[2]["captured_at"] == second["fetched_at"]
+
+
+def test_legacy_multiple_raw_origins_resolve_independently_of_record_order(
+    tmp_path: Path,
+) -> None:
+    """One series may have two vintages; neither may borrow the other's capture."""
+
+    a = {
+        "schema": "cross_asset_manifest_v1",
+        "key": "DGS10",
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/a.csv",
+        "sha256": "a" * 64,
+    }
+    a_late = {**a, "fetched_at": "2025-07-12T12:00:00Z"}
+    b = {
+        **a,
+        "fetched_at": "2025-07-11T12:00:00Z",
+        "path": "raw/fred/DGS10/b.csv",
+        "sha256": "b" * 64,
+    }
+    a_recheck = {**a, "fetched_at": "2025-07-13T12:00:00Z", "status": "unchanged"}
+    b_recheck = {**b, "fetched_at": "2025-07-14T12:00:00Z", "status": "unchanged"}
+    # Manifest order does not define the earliest captured_at: both vintages
+    # must find their own minimum even when an earlier receipt is listed last.
+    rows = (a_late, b, a, b_recheck, a_recheck)
+    store = CrossAssetStore(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        "".join(json.dumps(record, sort_keys=True) + "\n" for record in rows),
+        encoding="utf-8",
+    )
+    found = store.read_manifest()
+    for index in (0, 2, 4):
+        assert found[index]["captured_at"] == a["fetched_at"]
+    for index in (1, 3):
+        assert found[index]["captured_at"] == b["fetched_at"]
+    at_a = latest_records(found, as_of=SECOND + timedelta(seconds=1))
+    assert at_a["DGS10"]["sha256"] == a["sha256"]
+    at_b = latest_records(found, as_of=SECOND + timedelta(days=1, seconds=1))
+    assert at_b["DGS10"]["sha256"] == b["sha256"]
+
+
+@pytest.mark.parametrize("bad_key", ["", "  "])
+def test_usable_manifest_rejects_blank_series_key(tmp_path: Path, bad_key: str) -> None:
+    store = CrossAssetStore(tmp_path)
+    record = {
+        "schema": "cross_asset_manifest_v1",
+        "key": bad_key,
+        "status": "ok",
+        "fetched_at": "2025-07-10T12:00:00Z",
+        "path": "raw/fred/DGS10/raw.csv",
+        "sha256": "a" * 64,
+    }
+    (tmp_path / "manifest.jsonl").write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="raw provenance"):
+        store.read_manifest()

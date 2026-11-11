@@ -153,7 +153,7 @@ def _raw_identity(record: Mapping[str, object], number: int) -> tuple[str, str, 
     digest = record.get("sha256")
     if (
         not isinstance(key, str)
-        or not key
+        or not key.strip()
         or not isinstance(path, str)
         or not path
         or not isinstance(digest, str)
@@ -179,21 +179,21 @@ def _resolve_legacy_capture_times(
     for number, record in enumerate(records, start=1):
         if record.get("status") != "ok":
             continue
-        key = _raw_identity(record, number)
+        origin_id = _raw_identity(record, number)
         # Prefer an already-recorded first capture over the time of a later
         # refetch of those same bytes in a mixed legacy/modern manifest.
         stamp = str(record.get("captured_at") or record["fetched_at"])
         # A legacy raw file can be referenced by more than one "ok" entry.
         # The capture authority is the earliest occurrence, not the last one.
-        if key not in origins or parse_utc(stamp) < parse_utc(origins[key]):
-            origins[key] = stamp
+        if origin_id not in origins or parse_utc(stamp) < parse_utc(origins[origin_id]):
+            origins[origin_id] = stamp
     for number, record in enumerate(records, start=1):
         if record.get("status") not in USABLE_STATUSES:
             continue
-        key = _raw_identity(record, number)
+        origin_id = _raw_identity(record, number)
         if record.get("captured_at"):
             continue
-        origin = origins.get(key)
+        origin = origins.get(origin_id)
         if record["status"] == "ok":
             # Repeated legacy "ok" rows can reference the same immutable raw
             # file. The first recorded capture is the authority for its bytes.

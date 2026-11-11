@@ -184,7 +184,13 @@ class CrossAssetStore:
             raise ValueError("cross-asset manifest must not be a symlink or junction")
         # O_NOFOLLOW closes the leaf-symlink swap between the static check
         # and opening the manifest on supporting platforms.
-        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        flags = (
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
         try:
             descriptor = os.open(destination, flags, 0o666)
         except OSError as error:
@@ -194,8 +200,11 @@ class CrossAssetStore:
                 ) from error
             raise
         try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError("cross-asset manifest must be a regular file")
+            if metadata.st_nlink != 1:
+                raise ValueError("cross-asset manifest must not have multiple hard links")
             with os.fdopen(descriptor, "a", encoding="utf-8", newline="\n") as handle:
                 descriptor = -1
                 handle.write(line + "\n")

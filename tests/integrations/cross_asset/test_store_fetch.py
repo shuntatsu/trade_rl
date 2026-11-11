@@ -8,9 +8,9 @@ import json
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -335,6 +335,24 @@ def test_raw_write_fails_closed_when_exclusive_links_are_unavailable(
         store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
     assert not target.exists()
     assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_exact_repeated_raw_write_reuses_verified_bytes_without_a_new_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Equal full digests are idempotent, including the original raw path."""
+    store = CrossAssetStore(tmp_path)
+    first = store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+
+    def unexpected_second_link(_source: str | Path, _target: str | Path) -> None:
+        raise AssertionError("identical raw capture must not republish")
+
+    monkeypatch.setattr(os, "link", unexpected_second_link)
+    assert (
+        store.write_raw("fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv")
+        == first
+    )
+    assert (tmp_path / first[0]).read_bytes() == _COLLIDING_RAW[0]
 
 
 def test_unsafe_series_keys_cannot_escape_the_raw_directory(tmp_path: Path) -> None:

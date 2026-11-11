@@ -283,6 +283,36 @@ def test_manifest_append_refuses_root_swapped_after_mkdir(
     assert not (outside / "manifest.jsonl").exists()
 
 
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(os, "O_NOFOLLOW"),
+    reason="POSIX no-follow manifest open required",
+)
+def test_manifest_append_rejects_leaf_symlink_inserted_at_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leaf link inserted after static checks cannot redirect an append."""
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    outside = tmp_path / "foreign-leaf"
+    outside.write_bytes(b"immutable-sentinel")
+    original_open = os.open
+    injected = False
+
+    def race_at_open(path, flags, mode=0o777, **kwargs):
+        nonlocal injected
+        if Path(path) == store.manifest_path and not injected:
+            injected = True
+            store.manifest_path.symlink_to(outside)
+        return original_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", race_at_open)
+    with pytest.raises(ValueError, match="symlink"):
+        store.append({"status": "unavailable"})
+    assert injected
+    assert store.manifest_path.is_symlink()
+    assert outside.read_bytes() == b"immutable-sentinel"
+
+
 def test_manifest_is_append_only_and_verified_on_read(tmp_path: Path) -> None:
     store = CrossAssetStore(tmp_path)
     payload = _fred("DGS10", [("2026-11-04", "4.90")])

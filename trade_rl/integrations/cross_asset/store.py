@@ -12,6 +12,7 @@ previous vintage; no new file), ``unavailable`` (source blocked or missing) or
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -148,7 +149,19 @@ class CrossAssetStore:
                 if os.name != "nt":
                     directory = os.open(target.parent, os.O_RDONLY)
                     try:
-                        os.fsync(directory)
+                        try:
+                            os.fsync(directory)
+                        except OSError as error:
+                            # macOS and some POSIX filesystems cannot fsync a
+                            # directory, even after exclusive link succeeded.
+                            # Staged file bytes were fsynced before publication;
+                            # directory durability is not guaranteed here.
+                            if error.errno not in (
+                                errno.EINVAL,
+                                errno.ENOTSUP,
+                                errno.EOPNOTSUPP,
+                            ):
+                                raise
                     finally:
                         os.close(directory)
         finally:

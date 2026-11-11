@@ -6,6 +6,7 @@ import errno
 import hashlib
 import json
 import os
+import stat
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -301,6 +302,64 @@ def test_two_colliding_raw_publishers_return_only_the_actual_winner(
     assert outcomes[0][1] == hashlib.sha256(winner_payload).hexdigest()
     assert "refusing to overwrite" in str(failures[0])
     assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_two_identical_raw_publishers_both_reuse_the_exclusive_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two same-byte writers must both succeed without a second publication."""
+
+    store = CrossAssetStore(tmp_path)
+    target = _colliding_raw_target(store)
+    real_link = os.link
+    barrier = Barrier(2)
+
+    def concurrent_link(staging: str | Path, destination: str | Path) -> None:
+        assert Path(destination) == target
+        barrier.wait(timeout=10)
+        real_link(staging, destination)
+
+    monkeypatch.setattr(os, "link", concurrent_link)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        requests = [
+            pool.submit(
+                store.write_raw, "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+            )
+            for _ in range(2)
+        ]
+        results = [request.result(timeout=15) for request in requests]
+    assert len(results) == 2
+    assert results[0] == results[1]
+    assert target.read_bytes() == _COLLIDING_RAW[0]
+    assert results[0][1] == hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
+    assert not list(target.parent.glob(f".{target.name}.part-*"))
+
+
+def test_raw_write_survives_unsupported_directory_fsync_without_claiming_durability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Some POSIX filesystems reject directory fsync, not file fsync."""
+
+    if os.name != "posix":
+        pytest.skip("directory fsync specific to POSIX")
+    store = CrossAssetStore(tmp_path)
+    real_fsync = os.fsync
+    directory_attempts = 0
+
+    def reject_directory_fsync(fd: int) -> None:
+        nonlocal directory_attempts
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            directory_attempts += 1
+            raise OSError(errno.EINVAL, "directory fsync unsupported")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", reject_directory_fsync)
+    relative, digest = store.write_raw(
+        "fred", "DGS10", T0, _COLLIDING_RAW[0], extension="csv"
+    )
+    assert directory_attempts == 1
+    assert (tmp_path / relative).read_bytes() == _COLLIDING_RAW[0]
+    assert digest == hashlib.sha256(_COLLIDING_RAW[0]).hexdigest()
 
 
 def test_raw_write_rejects_preexisting_symlink_even_if_bytes_match(

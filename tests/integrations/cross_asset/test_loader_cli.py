@@ -195,6 +195,34 @@ def test_loader_refuses_invalid_raw_before_calling_source_parser(
         load_obs_series(store, {"SP500": record})
 
 
+def test_refetch_never_calculates_revision_against_unverified_previous_bytes(
+    tmp_path: Path,
+) -> None:
+    """A tampered older vintage must be marked unreadable, not compared."""
+    store = seed_store(tmp_path)
+    previous = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    previous_path = tmp_path / str(previous["path"])
+    rows = previous_path.read_bytes().splitlines(keepends=True)
+    assert len(rows) > 2
+    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\n"
+    previous_path.write_bytes(b"".join(rows))
+
+    days = weekdays(420)
+    revised = random_walk(420, seed=0)
+    revised[300] *= 1.2
+    (latest,) = fetch_all(
+        store,
+        (series_by_key("SP500"),),
+        FakeTransport({"id=SP500": fred_payload("SP500", days, revised)}),
+        now=clock(FETCHED_AT + timedelta(days=2)),
+        sleep=lambda _s: None,
+    )
+    assert latest["status"] == "ok"
+    assert latest["revision"] == {"unreadable_previous": True}
+    assert not store.verify_raw(previous)
+    assert store.verify_raw(latest)
+
+
 def test_normalizer_statistics_come_only_from_the_fit_window(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     grid = regular_grid(

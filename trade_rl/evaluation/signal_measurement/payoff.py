@@ -58,6 +58,11 @@ def _cost(
         raise SignalMeasurementError("round_trip_cost must be a positive finite number")
     try:
         unit_cost = float(round_trip_cost)
+    except OverflowError as error:
+        raise SignalMeasurementError(
+            "round_trip_cost must be a positive finite number"
+        ) from error
+    try:
         factor = float(cost_multiplier)
         k_factor = float(k)
     except OverflowError as error:

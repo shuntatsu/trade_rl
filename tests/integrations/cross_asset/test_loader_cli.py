@@ -189,7 +189,9 @@ def test_loader_refuses_invalid_raw_before_calling_source_parser(
         raise AssertionError("unverified source must never reach the parser")
 
     monkeypatch.setitem(PARSERS, "fred", (parser_name, unexpected_parse))
-    with pytest.raises(ValueError, match="raw file for SP500 is missing or fails its digest"):
+    with pytest.raises(
+        ValueError, match="raw file for SP500 is missing or fails its digest"
+    ):
         load_obs_series(store, {"SP500": record})
 
 

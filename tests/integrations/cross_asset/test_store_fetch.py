@@ -184,6 +184,105 @@ def test_transport_and_parse_failures_are_isolated_per_series(tmp_path: Path) ->
     assert records[1]["reason"].startswith("parse")
 
 
+@pytest.mark.parametrize("linked_level", ("root", "above_root"))
+def test_manifest_append_refuses_symlinked_store_ancestor(
+    tmp_path: Path, linked_level: str
+) -> None:
+    """Even error/unavailable records must not redirect manifest writes."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    alias = tmp_path / "linked"
+    if linked_level == "root":
+        root = alias
+        foreign = outside / "manifest.jsonl"
+    else:
+        root = alias / "store"
+        (outside / "store").mkdir()
+        foreign = outside / "store" / "manifest.jsonl"
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable")
+
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).append({"status": "unavailable"})
+    assert alias.is_symlink()
+    assert not foreign.exists()
+
+
+def test_manifest_append_refuses_symlinked_leaf_without_mutating_foreign_file(
+    tmp_path: Path,
+) -> None:
+    store = CrossAssetStore(tmp_path / "store")
+    store.root.mkdir()
+    outside = tmp_path / "outside-manifest"
+    outside.write_bytes(b"foreign-file-must-remain-unchanged\\n")
+    try:
+        store.manifest_path.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks unavailable")
+
+    with pytest.raises(ValueError, match="symlink"):
+        store.append({"status": "unavailable"})
+    assert store.manifest_path.is_symlink()
+    assert outside.read_bytes() == b"foreign-file-must-remain-unchanged\\n"
+
+
+def test_manifest_reader_refuses_symlinked_leaf_and_ancestor(tmp_path: Path) -> None:
+    outside = tmp_path / "foreign"
+    outside.mkdir()
+    payload = (
+        b'{"schema":"cross_asset_manifest_v1","key":"DGS10",'
+        b'"fetched_at":"2026-11-10T05:00:00Z","status":"error"}\\n'
+    )
+    (outside / "manifest.jsonl").write_bytes(payload)
+    root = tmp_path / "store"
+    root.mkdir()
+    try:
+        (root / "manifest.jsonl").symlink_to(outside / "manifest.jsonl")
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks unavailable")
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).read_manifest()
+
+    (root / "manifest.jsonl").unlink()
+    root.rmdir()
+    root.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).read_manifest()
+    assert (outside / "manifest.jsonl").read_bytes() == payload
+
+
+def test_manifest_append_refuses_root_swapped_after_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The post-mkdir check must run before opening the append destination."""
+    root = tmp_path / "store"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    parked = tmp_path / "parked-root"
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_on_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal swapped
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == root and not swapped:
+            root.rename(parked)
+            try:
+                root.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable")
+            swapped = True
+
+    monkeypatch.setattr(Path, "mkdir", swap_on_mkdir)
+    with pytest.raises(ValueError, match="symlink"):
+        CrossAssetStore(root).append({"status": "unavailable"})
+    assert swapped
+    assert root.is_symlink()
+    assert not (outside / "manifest.jsonl").exists()
+
+
 def test_manifest_is_append_only_and_verified_on_read(tmp_path: Path) -> None:
     store = CrossAssetStore(tmp_path)
     payload = _fred("DGS10", [("2026-11-04", "4.90")])

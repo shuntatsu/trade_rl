@@ -651,6 +651,43 @@ def test_raw_reader_refuses_symlink_alias_even_for_matching_source_digest(
     assert target.read_bytes() == original
 
 
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="POSIX descriptor-relative no-follow open required",
+)
+def test_raw_reader_rejects_leaf_symlink_swapped_at_descriptor_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The last checked leaf must not redirect its opened descriptor."""
+    store = CrossAssetStore(tmp_path / "store")
+    target = store.root / "raw/fred/DGS10.csv"
+    target.parent.mkdir(parents=True)
+    payload = b"synthetic immutable source bytes"
+    target.write_bytes(payload)
+    parked = target.with_name("parked.csv")
+    record = {"path": "raw/fred/DGS10.csv", "sha256": hashlib.sha256(payload).hexdigest()}
+    real_open = os.open
+    swapped = False
+
+    def swap_at_open(path, flags, mode=0o777, **kwargs):
+        nonlocal swapped
+        if path == target.name and kwargs.get("dir_fd") is not None and not swapped:
+            target.rename(parked)
+            target.symlink_to(parked)
+            swapped = True
+        return real_open(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(os, "open", swap_at_open)
+    with pytest.raises((OSError, ValueError)):
+        store.read_raw(record)
+    assert swapped
+    assert target.is_symlink()
+    assert parked.read_bytes() == payload
+    assert not store.verify_raw(record)
+
+
 @pytest.mark.parametrize("traversing", (False, True))
 def test_raw_reader_requires_a_lexical_relative_path_without_traversal(
     tmp_path: Path, traversing: bool

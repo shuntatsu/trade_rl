@@ -160,6 +160,7 @@ def test_verified_open_rejects_fifo_without_waiting_for_writer(
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert fifo.is_fifo()
 
+
 def test_verified_artifact_read_keeps_regular_nested_parents_working(
     tmp_path: Path,
 ) -> None:

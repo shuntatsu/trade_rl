@@ -401,7 +401,11 @@ def test_legacy_duplicate_ok_reversed_order_still_uses_true_first_capture(
         encoding="utf-8",
     )
     resolved = store.read_manifest()
-    assert all(row["captured_at"] == early["fetched_at"] for row in resolved)
+    assert len(resolved) == 3
+    for record, original in zip(resolved, (late, early, unchanged), strict=True):
+        for field in ("key", "path", "sha256", "fetched_at", "status"):
+            assert record[field] == original[field]
+        assert record["captured_at"] == early["fetched_at"]
 
 
 @pytest.mark.parametrize("bad_key", ["", "  "])
@@ -505,4 +509,8 @@ def test_legacy_first_capture_is_independent_of_duplicate_ok_record_order(
         encoding="utf-8",
     )
     resolved = store.read_manifest()
-    assert all(row["captured_at"] == early["fetched_at"] for row in resolved)
+    assert len(resolved) == 3
+    for record, original in zip(resolved, (early, late, unchanged), strict=True):
+        for field in ("key", "path", "sha256", "fetched_at", "status"):
+            assert record[field] == original[field]
+        assert record["captured_at"] == early["fetched_at"]

@@ -330,6 +330,93 @@ def test_unusable_rows_never_open_a_position() -> None:
     assert policy.summary()["entries"] == 0
 
 
+# -- a stop exit that fills only in part -------------------------------------------------
+
+# Volume from row 8 on caps every fill: 50% participation of 8 units is 4 units, so the
+# 50/6 = 8.33 unit position needs three exit fills (4, 4 and 1/3).
+PARTIAL_EXIT_COST = replace(ExecutionCostConfig.zero(), max_participation_rate=0.5)
+
+
+def partial_exit_dataset(bars: list[Bar]) -> MarketDataset:
+    dataset = _dataset({"AAA": bars})
+    volume = np.full(dataset.volume.shape, 1.0e12)
+    volume[8:] = 8.0
+    return replace(dataset, identity_payload_json=None, volume=volume)
+
+
+def replay_partial_exit(
+    bars: list[Bar],
+) -> tuple[SharedCashPortfolioReplayResult, TrendStopPortfolioPolicy]:
+    dataset = partial_exit_dataset(bars)
+    policy = TrendStopPortfolioPolicy(dataset, _config())
+    result = run_shared_portfolio_replay(
+        dataset,
+        policy,
+        start_index=0,
+        stop_index=dataset.n_bars - 1,
+        initial_capital=10_000.0,
+        execution_cost=PARTIAL_EXIT_COST,
+        capture_ledger_evidence=True,
+    )
+    return result, policy
+
+
+def test_a_partial_stop_exit_is_one_event_and_finishes_through_a_gap() -> None:
+    bars = FLAT_BARS + [BREAKOUT] + RUN_UP + GAP_DOWN + [(97.0, 98.0, 96.0, 97.0)] * 4
+    result, policy = replay_partial_exit(bars)
+
+    # Hand arithmetic: 50/6 units bought at 103; the stop (101) fires on row 7 and the
+    # exit fills 4 units at the row-8 open 94, 4 at 97 and the last 1/3 at 97.
+    quantity = Fraction(50, 6)
+    _assert_fills(
+        result,
+        [
+            (4, 0, quantity),
+            (7, 0, Fraction(-4)),
+            (8, 0, Fraction(-4)),
+            (9, 0, -(quantity - 8)),
+        ],
+    )
+    realized = 4 * (94 - 103) + 4 * (97 - 103) + (quantity - 8) * (97 - 103)
+    assert realized == -62
+    assert float(result.book.portfolio_value) == pytest.approx(9938.0, abs=1e-6)
+    assert all(Fraction(value) == 0 for value in result.book.exact_quantities)
+    # One stop event for the whole position, however many exit fills it took; the
+    # partly filled position is re-proposed as an exit, never held.
+    assert len(policy.stop_events) == 1 and policy.summary()["stop_exits"] == 1
+    assert [d.proposal_weights for d in result.decisions[7:10]] == [(0.0,)] * 3
+    assert all(not d.effective_hold_symbols for d in result.decisions[7:10])
+
+
+def test_a_partial_stop_exit_continues_after_the_price_recovers_above_the_stop() -> (
+    None
+):
+    wick = [
+        (109.0, 109.0, 100.0, 107.0),  # row 7: wick through 101, close 107
+        (108.0, 109.0, 106.0, 108.0),  # row 8: recovered, no longer below the level
+        (109.0, 110.0, 107.0, 109.0),
+        (109.0, 110.0, 107.0, 109.0),
+        (109.0, 110.0, 107.0, 109.0),
+    ]
+    bars = FLAT_BARS + [BREAKOUT] + RUN_UP + wick
+    result, policy = replay_partial_exit(bars)
+
+    quantity = Fraction(50, 6)
+    _assert_fills(
+        result,
+        [
+            (4, 0, quantity),
+            (7, 0, Fraction(-4)),
+            (8, 0, Fraction(-4)),
+            (9, 0, -(quantity - 8)),
+        ],
+    )
+    # The stop fired once, so the remainder is exited although row 8 is above the stop.
+    assert all(Fraction(value) == 0 for value in result.book.exact_quantities)
+    assert len(policy.stop_events) == 1
+    assert [d.proposal_weights for d in result.decisions[7:10]] == [(0.0,)] * 3
+
+
 # -- causality ----------------------------------------------------------------------
 
 

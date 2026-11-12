@@ -8,13 +8,13 @@ local Binance Vision cache of native 4h / 1d klines and funding archives, built 
 unchanged ``build_binance_market_dataset`` and never any network access.
 
 Neither path reads a price into this module's logic: it only validates the roster, the
-bar cadence and the hard data boundary.
+bar cadence and the hard data boundary. The roster is the eleven protocol symbols with
+no exclusion path: a missing symbol is INVALID, never a smaller roster.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -53,80 +53,15 @@ def _ns(text: str) -> int:
     return int(np.datetime64(text, "ns").astype(np.int64))
 
 
-class RosterTooSmallError(ValueError):
-    """The recorded exclusions leave fewer than ``min_symbols``: the run is INVALID."""
+class IncompleteRosterError(ValueError):
+    """The Dataset lacks a roster symbol: the run is INVALID, never a reduced roster."""
 
-
-@dataclass(frozen=True)
-class SymbolExclusion:
-    """Evidence that one roster symbol has no archive (never a transient failure)."""
-
-    symbol: str
-    url: str
-    http_status: int
-
-    def to_mapping(self) -> dict[str, object]:
-        return {"symbol": self.symbol, "url": self.url, "http_status": self.http_status}
-
-
-_ARCHIVE_PREFIX = "https://data.binance.vision/"
-
-
-def parse_exclusions(
-    raw: object, protocol: TrendStopProtocol
-) -> tuple[SymbolExclusion, ...]:
-    """Strictly parse missing-archive exclusion records.
-
-    Only an HTTP 404 for a Binance Vision archive URL of that symbol is evidence of a
-    missing archive. Transient fetch failures, cache misses and malformed or checksum
-    errors are not representable here: they must halt the run, never exclude a symbol.
-    """
-
-    if raw is None:
-        return ()
-    if not isinstance(raw, (list, tuple)):
-        raise ValueError("exclusions must be a list of records")
-    parsed: list[SymbolExclusion] = []
-    for record in raw:
-        if not isinstance(record, Mapping) or set(record) != {
-            "symbol",
-            "url",
-            "http_status",
-        }:
-            raise ValueError("an exclusion needs exactly symbol, url and http_status")
-        symbol, url, status = record["symbol"], record["url"], record["http_status"]
-        if symbol not in protocol.symbols:
-            raise ValueError(f"excluded symbol is not in the roster: {symbol!r}")
-        if symbol == protocol.benchmark_symbol:
-            raise ValueError("the benchmark symbol cannot be excluded")
-        if (
-            not isinstance(url, str)
-            or not url.startswith(_ARCHIVE_PREFIX)
-            or f"/{symbol}/" not in url
-        ):
-            raise ValueError(
-                f"exclusion evidence for {symbol} must be its Binance Vision archive URL"
-            )
-        if (
-            isinstance(status, bool)
-            or not isinstance(status, int)
-            or status != protocol.exclusion_http_status
-        ):
-            raise ValueError(
-                f"exclusion for {symbol} needs HTTP {protocol.exclusion_http_status}; "
-                "any other failure must halt the run"
-            )
-        parsed.append(SymbolExclusion(symbol, url, status))
-    if len({item.symbol for item in parsed}) != len(parsed):
-        raise ValueError("duplicate exclusion records")
-    return tuple(parsed)
-
-
-def active_symbols(
-    protocol: TrendStopProtocol, exclusions: Sequence[SymbolExclusion] = ()
-) -> tuple[str, ...]:
-    excluded = {item.symbol for item in exclusions}
-    return tuple(symbol for symbol in protocol.symbols if symbol not in excluded)
+    def __init__(self, missing: Sequence[str]) -> None:
+        self.missing = tuple(sorted(missing))
+        super().__init__(
+            "roster symbols missing from the Dataset (no exclusions exist; the run "
+            f"is INVALID): {list(self.missing)}"
+        )
 
 
 def load_exported_dataset(path: str | Path) -> MarketDataset:
@@ -136,18 +71,14 @@ def load_exported_dataset(path: str | Path) -> MarketDataset:
 
 
 def validate_study_dataset(
-    dataset: MarketDataset,
-    protocol: TrendStopProtocol,
-    timeframe: str,
-    exclusions: Sequence[SymbolExclusion] = (),
+    dataset: MarketDataset, protocol: TrendStopProtocol, timeframe: str
 ) -> tuple[str, ...]:
     """Check roster, cadence, warm-up and the data boundary; return the symbols used.
 
-    The roster must be complete: the Dataset symbols plus the recorded exclusions must
-    equal the preregistered roster exactly. A symbol absent without a recorded
-    missing-archive exclusion is refused (``ValueError``); fewer than ``min_symbols``
-    remaining raises :class:`RosterTooSmallError` so the caller can write an INVALID
-    result.
+    The roster is exactly ``protocol.symbols``: there is no exclusion path and no
+    minimum roster size. A Dataset missing any roster symbol raises
+    :class:`IncompleteRosterError` so the caller writes an INVALID result (no replay,
+    no rejection of the rule); a symbol outside the roster is refused (``ValueError``).
 
     The boundary check is on the loaded data, not only on the requested window: a
     Dataset holding any bar that closes after ``data_end_exclusive`` is refused even if
@@ -169,41 +100,25 @@ def validate_study_dataset(
         raise ValueError(f"Dataset cadence is not a regular {timeframe} grid")
     if int(stamps[0]) > _ns(protocol.evaluation_start):
         raise ValueError("Dataset starts after the evaluation start (no warm-up)")
+    if len(set(dataset.symbols)) != len(dataset.symbols):
+        raise ValueError("Dataset holds duplicate symbols")
     unknown = sorted(set(dataset.symbols) - set(protocol.symbols))
     if unknown:
         raise ValueError(f"Dataset holds symbols outside the roster: {unknown}")
-    excluded = {item.symbol for item in exclusions}
-    present_excluded = sorted(excluded & set(dataset.symbols))
-    if present_excluded:
-        raise ValueError(
-            f"symbols recorded as excluded are present in the Dataset: {present_excluded}"
-        )
-    unrecorded = sorted(set(protocol.symbols) - excluded - set(dataset.symbols))
-    if unrecorded:
-        raise ValueError(
-            "roster symbols absent without a recorded missing-archive exclusion "
-            f"(URL and HTTP {protocol.exclusion_http_status}): {unrecorded}"
-        )
+    missing = sorted(set(protocol.symbols) - set(dataset.symbols))
+    if missing:
+        raise IncompleteRosterError(missing)
     if protocol.benchmark_symbol not in dataset.symbols:
         raise ValueError("the benchmark symbol must be part of the Dataset")
-    if len(dataset.symbols) < protocol.min_symbols:
-        raise RosterTooSmallError(
-            f"Dataset has {len(dataset.symbols)} symbols; at least "
-            f"{protocol.min_symbols} are required"
-        )
     return tuple(dataset.symbols)
 
 
-def plan_vision_cache(
-    protocol: TrendStopProtocol,
-    timeframe: str,
-    exclusions: Sequence[SymbolExclusion] = (),
-) -> Any:
+def plan_vision_cache(protocol: TrendStopProtocol, timeframe: str) -> Any:
     """The Vision archives a fallback build needs (pure; touches no network)."""
 
     return plan_binance_vision_cache(
         market=BinanceMarket.USDS_M,
-        symbols=active_symbols(protocol, exclusions),
+        symbols=protocol.symbols,
         intervals=(timeframe,),
         start_time=_utc(protocol.data_start),
         end_time=_utc(protocol.data_end_exclusive),
@@ -216,7 +131,6 @@ def build_dataset_from_transport(
     transport: Any,
     *,
     evidence: Mapping[str, object],
-    exclusions: Sequence[SymbolExclusion] = (),
 ) -> MarketDataset:
     """Build with the unchanged Binance builder from any Vision-shaped transport."""
 
@@ -224,7 +138,7 @@ def build_dataset_from_transport(
         raise ValueError(f"unsupported timeframe: {timeframe}")
     built = build_binance_market_dataset(
         market=BinanceMarket.USDS_M,
-        symbols=active_symbols(protocol, exclusions),
+        symbols=protocol.symbols,
         interval=timeframe,
         start_time=_utc(protocol.data_start),
         end_time=_utc(protocol.data_end_exclusive),
@@ -234,7 +148,7 @@ def build_dataset_from_transport(
         execution_economics=ExecutionEconomicsProfile(name=ECONOMICS_PROFILE_NAME),
         gap_policy=BinanceGapPolicy.NON_TRADABLE_ROWS,
     )
-    validate_study_dataset(built.dataset, protocol, timeframe, exclusions)
+    validate_study_dataset(built.dataset, protocol, timeframe)
     return built.dataset
 
 
@@ -244,13 +158,12 @@ def build_vision_dataset(
     *,
     cache_root: Path,
     exchange_info_dir: Path,
-    exclusions: Sequence[SymbolExclusion] = (),
 ) -> MarketDataset:
     """Fallback: build from a complete local Vision cache; never uses the network."""
 
     if timeframe not in _BAR_NS:
         raise ValueError(f"unsupported timeframe: {timeframe}")
-    plan = plan_vision_cache(protocol, timeframe, exclusions)
+    plan = plan_vision_cache(protocol, timeframe)
     require_complete_binance_vision_cache(plan, cache_root=cache_root)
     frozen = FrozenBinanceExchangeInfoTransport(exchange_info_dir, delegate=None)
     transport = BaseIntervalAggregatingTransport(
@@ -266,18 +179,13 @@ def build_vision_dataset(
             "schema_version": "trend_stop_vision_fallback_v1",
             "timeframe": timeframe,
             "network": "never",
-            "exclusions": [item.to_mapping() for item in exclusions],
         },
-        exclusions=exclusions,
     )
 
 
 __all__ = [
-    "RosterTooSmallError",
-    "SymbolExclusion",
-    "active_symbols",
+    "IncompleteRosterError",
     "build_dataset_from_transport",
-    "parse_exclusions",
     "build_vision_dataset",
     "load_exported_dataset",
     "plan_vision_cache",

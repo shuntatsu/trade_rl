@@ -6,15 +6,23 @@ calls the replay, and measures the ledger it returns. It refuses, before any rep
 
 * a missing or malformed G4 authorization URL;
 * a window or Dataset that reaches past the exploratory boundary (2026-07-31);
-* a Dataset whose roster, cadence or warm-up violates the protocol.
+* a Dataset whose cadence or warm-up violates the protocol, or that holds a symbol
+  outside the roster;
+* a working tree that is dirty (the result records the code it ran);
+
+and it writes an INVALID result, with no replay, for a Dataset that lacks any roster
+symbol (there is no exclusion path and no reduced roster).
 """
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from fractions import Fraction
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -34,8 +42,7 @@ from trade_rl.evaluation.replay import (
     run_shared_portfolio_replay,
 )
 from trade_rl.evaluation.trend_stop_study.data import (
-    RosterTooSmallError,
-    SymbolExclusion,
+    IncompleteRosterError,
     validate_study_dataset,
 )
 from trade_rl.evaluation.trend_stop_study.metrics import (
@@ -140,14 +147,117 @@ def window_rows(dataset: MarketDataset, protocol: TrendStopProtocol) -> tuple[in
     )
 
 
-def _git_head() -> str | None:
+class CodeProvenanceError(ValueError):
+    """The code that would run cannot be identified, or it is not this checkout."""
+
+
+class DirtyWorkingTreeError(CodeProvenanceError):
+    """The working tree has uncommitted or untracked files: refuse to run."""
+
+
+@dataclass(frozen=True)
+class CodeProvenance:
+    """The code a result was produced by.
+
+    ``git_head`` and ``trade_rl_tree`` (the Git tree id of ``trade_rl/`` at HEAD) name
+    the committed code; ``dirty`` is true if ``git status`` lists any change or
+    untracked file; ``module_digest`` hashes the raw bytes of every ``trade_rl`` module
+    loaded when the record is captured (each must lie under the checkout), so an
+    installed copy that differs from the checkout cannot hide.
+    """
+
+    git_head: str
+    trade_rl_tree: str
+    dirty: bool
+    module_digest: str
+    module_count: int
+
+    def require_clean(self) -> None:
+        if self.dirty:
+            raise DirtyWorkingTreeError(
+                "refusing to run from a dirty working tree: commit or remove every "
+                "change and untracked file so the result names the exact code"
+            )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "git_head": self.git_head,
+            "trade_rl_tree": self.trade_rl_tree,
+            "dirty": self.dirty,
+            "module_digest": self.module_digest,
+            "module_count": self.module_count,
+        }
+
+
+def repository_root() -> Path:
+    """The checkout root that holds this ``trade_rl`` package."""
+
+    return Path(__file__).resolve().parents[3]
+
+
+def _git(root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+            ["git", *args], cwd=root, capture_output=True, text=True, check=True
         )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return completed.stdout.strip() or None
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise CodeProvenanceError(
+            f"cannot read the Git state of {root}: the code must run from a clean "
+            "Git checkout"
+        ) from error
+    return completed.stdout
+
+
+def git_state(root: Path) -> tuple[str, str, bool]:
+    """``(HEAD commit, tree id of trade_rl/ at HEAD, dirty)`` of the checkout."""
+
+    head = _git(root, "rev-parse", "HEAD").strip()
+    tree = _git(root, "rev-parse", "HEAD:trade_rl").strip()
+    status = _git(root, "status", "--porcelain", "--untracked-files=all")
+    return head, tree, bool(status.strip())
+
+
+def loaded_module_digest(
+    root: Path, modules: Mapping[str, Any] | None = None
+) -> tuple[str, int]:
+    """SHA-256 over the loaded ``trade_rl`` module files; each must lie under ``root``."""
+
+    loaded = sys.modules if modules is None else modules
+    entries: list[list[str]] = []
+    resolved_root = root.resolve()
+    for name in sorted(loaded):
+        if name != "trade_rl" and not name.startswith("trade_rl."):
+            continue
+        file = getattr(loaded[name], "__file__", None)
+        if not file:
+            continue
+        path = Path(file).resolve()
+        if not path.is_relative_to(resolved_root):
+            raise CodeProvenanceError(
+                f"module {name} is loaded from {path}, outside the checkout "
+                f"{resolved_root}"
+            )
+        entries.append([name, hashlib.sha256(path.read_bytes()).hexdigest()])
+    if not entries:
+        raise CodeProvenanceError("no trade_rl module is loaded from the checkout")
+    return hashlib.sha256(canonical_json_bytes(entries)).hexdigest(), len(entries)
+
+
+def capture_code_provenance(
+    root: Path | None = None, modules: Mapping[str, Any] | None = None
+) -> CodeProvenance:
+    """Identify the running code from Git and the loaded modules (never the network)."""
+
+    base = repository_root() if root is None else root
+    head, tree, dirty = git_state(base)
+    digest, count = loaded_module_digest(base, modules)
+    return CodeProvenance(
+        git_head=head,
+        trade_rl_tree=tree,
+        dirty=dirty,
+        module_digest=digest,
+        module_count=count,
+    )
 
 
 def _dev_protocol(protocol: TrendStopProtocol) -> DevStudyProtocol:
@@ -393,10 +503,11 @@ def causality_probe(
 def _invalid_result(
     protocol: TrendStopProtocol,
     authorization: str,
-    exclusions: Sequence[SymbolExclusion],
+    provenance: CodeProvenance,
     reason: str,
+    missing_symbols: Sequence[str],
 ) -> dict[str, Any]:
-    """The INVALID outcome for a roster below ``min_symbols``; no cell is replayed."""
+    """The INVALID outcome for an incomplete roster; no cell is replayed."""
 
     return {
         "schema_version": RESULT_SCHEMA,
@@ -405,13 +516,15 @@ def _invalid_result(
         "reason": reason,
         "protocol_digest": protocol_digest(protocol),
         "g4_authorization_url": authorization,
-        "git_head": _git_head(),
-        "exclusions": [item.to_mapping() for item in exclusions],
+        "code": provenance.to_mapping(),
+        "missing_symbols": list(missing_symbols),
         "prior_exposure": list(PRIOR_EXPOSURE),
         "passing_configurations": [],
         "stop_rule_triggered": False,
         "notes": [
-            "INVALID is not NO_WINNER: no replay was run and no rule is rejected"
+            "INVALID is not NO_WINNER: no replay was run and no rule is rejected",
+            "the roster has no exclusion path: a missing archive is INVALID, never a "
+            "reduced roster",
         ],
     }
 
@@ -425,33 +538,42 @@ def run_study(
     protocol: TrendStopProtocol = PROTOCOL,
     *,
     g4_authorization_url: str | None,
-    exclusions: Sequence[SymbolExclusion] = (),
+    code_provenance: CodeProvenance,
     progress: Progress | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, np.ndarray]]:
     """Run every cell. Returns ``(result, cells, equity_arrays)``.
 
     ``cells`` maps a cell name to its summary mapping; ``result`` holds the gate and
-    label. Nothing here writes to disk.
+    label. Nothing here writes to disk. ``code_provenance`` names the code that runs
+    (:func:`capture_code_provenance`); a dirty tree is refused before any replay.
     """
 
     say = progress or (lambda message: None)
     authorization = validate_authorization_url(g4_authorization_url)
+    code_provenance.require_clean()
     check_protocol_window(protocol)
     if set(datasets) != set(protocol.timeframes):
         raise ValueError(
             "a Dataset is required for exactly the preregistered timeframes"
         )
     used_symbols: dict[str, tuple[str, ...]] = {}
-    too_small: str | None = None
+    incomplete: list[IncompleteRosterError] = []
     for timeframe in protocol.timeframes:
         try:
             used_symbols[timeframe] = validate_study_dataset(
-                datasets[timeframe], protocol, timeframe, exclusions
+                datasets[timeframe], protocol, timeframe
             )
-        except RosterTooSmallError as error:
-            too_small = too_small or str(error)
-    if too_small is not None:
-        return _invalid_result(protocol, authorization, exclusions, too_small), {}, {}
+        except IncompleteRosterError as error:
+            incomplete.append(error)
+    if incomplete:
+        missing = sorted({name for error in incomplete for name in error.missing})
+        return (
+            _invalid_result(
+                protocol, authorization, code_provenance, str(incomplete[0]), missing
+            ),
+            {},
+            {},
+        )
 
     cells: dict[str, dict[str, Any]] = {}
     outcomes: dict[tuple[str, str, str, str], CellOutcome] = {}
@@ -459,10 +581,11 @@ def run_study(
     for timeframe in protocol.timeframes:
         dataset = datasets[timeframe]
         start_index, stop_index = window_rows(dataset, protocol)
-        say(f"{timeframe}: causality probe")
-        causality[timeframe] = causality_probe(
-            dataset, protocol, protocol.variants[0], start_index=start_index
-        )
+        for variant in protocol.variants:
+            say(f"{timeframe}: {variant.name} causality probe")
+            causality[f"{timeframe}__{variant.name}"] = causality_probe(
+                dataset, protocol, variant, start_index=start_index
+            )
         for scenario in SCENARIOS:
             for arm in (ARM_BTC_BUY_AND_HOLD, ARM_EQUAL_WEIGHT_BUY_AND_HOLD):
                 say(f"{timeframe}: {arm} / {scenario}")
@@ -500,7 +623,7 @@ def run_study(
             validity = (
                 _cell_valid(base.summary)
                 and _cell_valid(stressed.summary)
-                and bool(causality[timeframe]["passed"])
+                and bool(causality[f"{timeframe}__{variant.name}"]["passed"])
             )
             configurations[f"{timeframe}__{variant.name}"] = evaluate_configuration(
                 base.summary,
@@ -517,8 +640,8 @@ def run_study(
         "protocol_digest": protocol_digest(protocol),
         "protocol": protocol.canonical_payload(),
         "g4_authorization_url": authorization,
-        "git_head": _git_head(),
-        "exclusions": [item.to_mapping() for item in exclusions],
+        "code": code_provenance.to_mapping(),
+        "roster": list(protocol.symbols),
         "prior_exposure": list(PRIOR_EXPOSURE),
         "datasets": {
             timeframe: {
@@ -552,8 +675,15 @@ def run_study(
 
 __all__ = [
     "CellOutcome",
+    "CodeProvenance",
+    "CodeProvenanceError",
+    "DirtyWorkingTreeError",
     "SingleSymbolBuyAndHold",
+    "capture_code_provenance",
     "causality_probe",
+    "git_state",
+    "loaded_module_digest",
+    "repository_root",
     "run_benchmark_cell",
     "run_rule_cell",
     "run_study",

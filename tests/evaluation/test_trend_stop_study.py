@@ -7,6 +7,8 @@ data, network or venue access is involved.
 from __future__ import annotations
 
 import json
+import subprocess
+import types
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -15,7 +17,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from tests.evaluation.trend_stop_support import AUTHORIZATION_URL, synthetic_dataset
+from tests.evaluation.trend_stop_support import (
+    AUTHORIZATION_URL,
+    CLEAN_PROVENANCE,
+    DIRTY_PROVENANCE,
+    synthetic_dataset,
+)
 from tests.strategies.test_trend_stop import (
     BREAKOUT,
     FLAT_BARS,
@@ -23,15 +30,16 @@ from tests.strategies.test_trend_stop import (
     RUN_UP,
     _config,
     _dataset,
+    partial_exit_dataset,
+    replay_partial_exit,
 )
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
-from trade_rl.evaluation.trend_stop_study import cli, metrics, runner
+from trade_rl.evaluation.trend_stop_study import cli, metrics, protocol, runner
+from trade_rl.evaluation.trend_stop_study import data as study_data
 from trade_rl.evaluation.trend_stop_study.data import (
-    RosterTooSmallError,
-    SymbolExclusion,
+    IncompleteRosterError,
     build_dataset_from_transport,
     build_vision_dataset,
-    parse_exclusions,
     plan_vision_cache,
     validate_study_dataset,
 )
@@ -42,6 +50,7 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
     PROTOCOL,
     SCENARIO_BASE,
     SCENARIO_COST_X2,
+    SUPERSEDES_PROTOCOL_DIGEST,
     VARIANTS,
     check_protocol_window,
     hard_risk,
@@ -51,12 +60,12 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
     validate_authorization_url,
 )
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.strategies.portfolio import PortfolioTargetProposal
 from trade_rl.strategies.rules.trend_stop import TrendStopPortfolioPolicy
 
 SMALL = replace(
     PROTOCOL,
     symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT"),
-    min_symbols=3,
     evaluation_start="2021-03-01T00:00:00",
     evaluation_end="2021-08-01T00:00:00",
     data_end_exclusive="2021-08-01T00:00:00",
@@ -112,6 +121,26 @@ def test_protocol_is_frozen_before_any_data_and_has_at_most_two_variants() -> No
         replace(PROTOCOL, initial_stop_atr=2.5)
     )
     json.dumps(PROTOCOL.canonical_payload(), allow_nan=False)
+
+
+def test_revision_2_has_no_exclusion_or_reduced_roster_surface() -> None:
+    fields = set(PROTOCOL.canonical_payload())
+    assert not {name for name in fields if "exclusion" in name or "min_symbols" in name}
+    assert PROTOCOL.roster_policy == "complete_roster_no_exclusions"
+    assert PROTOCOL.roster_decision_url.endswith("#issuecomment-6818495567")
+    assert PROTOCOL.causality_probe_scope == "every_timeframe_and_variant"
+    assert PROTOCOL.schema_version == "trend_stop_study_protocol_v2"
+    assert PROTOCOL.study_id == "trend_stop_tsmom_20261113"
+    # Revision 2 is a new frozen protocol, never the digest of revision 1.
+    assert PROTOCOL.supersedes_protocol_digest == SUPERSEDES_PROTOCOL_DIGEST
+    assert protocol_digest(PROTOCOL) != SUPERSEDES_PROTOCOL_DIGEST
+    joined = " ".join(PROTOCOL.deviations)
+    assert "no exclusion path" in joined and "INVALID" in joined
+    assert not hasattr(study_data, "parse_exclusions")
+    assert not hasattr(study_data, "SymbolExclusion")
+    assert not hasattr(study_data, "active_symbols")
+    assert "docs/research/trend-stop-protocol.md" not in (protocol.__doc__ or "")
+    assert (Path(__file__).parents[2] / "docs/specs/trend-following-stops.md").is_file()
 
 
 def test_scenario_costs_double_every_trading_cost_but_not_the_base() -> None:
@@ -173,7 +202,12 @@ def test_runner_requires_a_wellformed_g4_authorization_url(url: Any) -> None:
     with pytest.raises(ValueError, match="G4 authorization"):
         validate_authorization_url(url)
     with pytest.raises(ValueError, match="G4 authorization"):
-        runner.run_study(_small_datasets(), SMALL, g4_authorization_url=url)
+        runner.run_study(
+            _small_datasets(),
+            SMALL,
+            g4_authorization_url=url,
+            code_provenance=CLEAN_PROVENANCE,
+        )
 
 
 def test_authorization_url_shape_accepts_issue_and_pull_comments() -> None:
@@ -198,23 +232,42 @@ def test_refusals_happen_before_any_cell_is_replayed(
     monkeypatch.setattr(runner, "causality_probe", forbidden)
 
     with pytest.raises(ValueError, match="G4 authorization"):
-        runner.run_study(_small_datasets(), SMALL, g4_authorization_url=None)
+        runner.run_study(
+            _small_datasets(),
+            SMALL,
+            g4_authorization_url=None,
+            code_provenance=CLEAN_PROVENANCE,
+        )
     with pytest.raises(ValueError, match="exploratory data boundary"):
         runner.run_study(
             _small_datasets(),
             replace(SMALL, evaluation_end="2021-08-02T00:00:00"),
             g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=CLEAN_PROVENANCE,
         )
     with pytest.raises(ValueError, match="holds bars after"):
         runner.run_study(
             _small_datasets("2021-08-02T00:00:00"),
             SMALL,
             g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=CLEAN_PROVENANCE,
         )
     partial = _small_datasets()
     del partial["1d"]
     with pytest.raises(ValueError, match="exactly the preregistered timeframes"):
-        runner.run_study(partial, SMALL, g4_authorization_url=AUTHORIZATION_URL)
+        runner.run_study(
+            partial,
+            SMALL,
+            g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=CLEAN_PROVENANCE,
+        )
+    with pytest.raises(runner.DirtyWorkingTreeError, match="dirty working tree"):
+        runner.run_study(
+            _small_datasets(),
+            SMALL,
+            g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=DIRTY_PROVENANCE,
+        )
 
 
 def test_cli_refuses_without_authorization_and_never_loads_data(
@@ -236,9 +289,41 @@ def test_cli_refuses_without_authorization_and_never_loads_data(
     assert not out.exists()
 
 
-def test_cli_refuses_a_non_empty_output_and_missing_datasets(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_cli_refuses_a_dirty_working_tree_before_loading_data(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("data was loaded from a dirty working tree")
+
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: DIRTY_PROVENANCE)
+    monkeypatch.setattr(cli, "load_exported_dataset", forbidden)
+    monkeypatch.setattr(cli, "build_vision_dataset", forbidden)
+    out = tmp_path / "out"
+
+    code = cli.main(
+        [
+            "--output-dir",
+            str(out),
+            "--g4-authorization-url",
+            AUTHORIZATION_URL,
+            "--dataset-4h",
+            str(tmp_path / "unused"),
+        ]
+    )
+
+    assert code == 2
+    assert "dirty working tree" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_cli_refuses_a_non_empty_output_and_missing_datasets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
     occupied = tmp_path / "occupied"
     occupied.mkdir()
     (occupied / "keep.txt").write_text("existing", encoding="utf-8")
@@ -296,8 +381,8 @@ def test_dataset_validation_accepts_the_regular_roster_grid() -> None:
 def test_dataset_validation_rejects_roster_cadence_warmup_and_boundary() -> None:
     with pytest.raises(ValueError, match="symbols outside the roster"):
         _check(symbols=("BTCUSDT", "ETHUSDT", "XRPUSDT"))
-    with pytest.raises(RosterTooSmallError, match="at least"):
-        _check(min_symbols=4)
+    with pytest.raises(IncompleteRosterError, match="XRPUSDT"):
+        _check(symbols=(*SMALL.symbols, "XRPUSDT"))
     with pytest.raises(ValueError, match="benchmark symbol"):
         _check(benchmark_symbol="BNBUSDT")
     with pytest.raises(ValueError, match="cadence"):
@@ -576,7 +661,10 @@ def test_bonferroni_bootstrap_separates_a_real_drift_from_noise() -> None:
 
 def test_run_study_writes_every_cell_and_refuses_to_overwrite(tmp_path: Path) -> None:
     result, cells, equity = runner.run_study(
-        _small_datasets(), SMALL, g4_authorization_url=AUTHORIZATION_URL
+        _small_datasets(),
+        SMALL,
+        g4_authorization_url=AUTHORIZATION_URL,
+        code_provenance=CLEAN_PROVENANCE,
     )
 
     expected_cells = {
@@ -599,6 +687,9 @@ def test_run_study_writes_every_cell_and_refuses_to_overwrite(tmp_path: Path) ->
         for variant in SMALL.variants
     }
     assert all(item["passed"] for item in result["causality_probe"].values())
+    assert result["code"] == CLEAN_PROVENANCE.to_mapping()
+    assert result["roster"] == list(SMALL.symbols)
+    assert "exclusions" not in result and "git_head" not in result
     for name, cell in cells.items():
         assert cell["reconciliation"]["passed"], name
         assert cell["terminated"] == [], name
@@ -732,11 +823,11 @@ def test_every_gated_metric_is_read_from_the_adjusted_cell_fields() -> None:
     assert "engine_" not in gate.split("def select_label")[0].split('"""')[2]
 
 
-# -- M1: roster completeness -------------------------------------------------------------
+# -- M1: the roster is complete or the run is INVALID ------------------------------------
 
 
-def _nine_of_eleven() -> Any:
-    symbols = tuple(s for s in PROTOCOL.symbols if s not in ("DOTUSDT", "LTCUSDT"))
+def _ten_of_eleven(missing: str = "DOTUSDT") -> Any:
+    symbols = tuple(s for s in PROTOCOL.symbols if s != missing)
     return synthetic_dataset(
         "1d",
         symbols,
@@ -745,67 +836,78 @@ def _nine_of_eleven() -> Any:
     )
 
 
-def _record(symbol: str, status: int = 404) -> dict[str, Any]:
-    return {
-        "symbol": symbol,
-        "url": "https://data.binance.vision/data/futures/um/monthly/klines/"
-        f"{symbol}/1d/{symbol}-1d-2021-01.zip",
-        "http_status": status,
-    }
+def test_a_ten_of_eleven_dataset_is_not_a_valid_roster() -> None:
+    with pytest.raises(IncompleteRosterError, match="DOTUSDT") as caught:
+        validate_study_dataset(_ten_of_eleven(), PROTOCOL, "1d")
+    assert caught.value.missing == ("DOTUSDT",)
+    # The benchmark is part of the roster: a missing BTC archive is INVALID, too.
+    with pytest.raises(IncompleteRosterError, match="BTCUSDT"):
+        validate_study_dataset(_ten_of_eleven("BTCUSDT"), PROTOCOL, "1d")
+    # A complete roster passes.
+    complete = synthetic_dataset(
+        "1d",
+        PROTOCOL.symbols,
+        first_close="2021-01-02T00:00:00",
+        last_close="2021-08-01T00:00:00",
+    )
+    assert validate_study_dataset(complete, PROTOCOL, "1d") == PROTOCOL.symbols
 
 
-def test_a_nine_of_eleven_dataset_without_reasons_is_refused() -> None:
-    with pytest.raises(ValueError, match="absent without a recorded"):
-        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d")
-    # Even an empty exclusion list is not a reason.
-    with pytest.raises(ValueError, match="DOTUSDT.*LTCUSDT"):
-        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions=())
+def test_no_exclusion_or_reduced_roster_parameter_exists_anywhere() -> None:
+    import inspect
 
-
-def test_recorded_missing_archive_exclusions_complete_the_roster() -> None:
-    exclusions = parse_exclusions([_record("DOTUSDT"), _record("LTCUSDT")], PROTOCOL)
-    used = validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions)
-    assert len(used) == 9
-    # A recorded exclusion for only one of the two absentees still refuses.
-    with pytest.raises(ValueError, match="LTCUSDT"):
-        validate_study_dataset(_nine_of_eleven(), PROTOCOL, "1d", exclusions[:1])
-    # An excluded symbol must really be absent.
-    with pytest.raises(ValueError, match="present in the Dataset"):
-        validate_study_dataset(
-            _nine_of_eleven(), PROTOCOL, "1d", (SymbolExclusion("BTCUSDT", "u", 404),)
+    for function in (
+        runner.run_study,
+        validate_study_dataset,
+        plan_vision_cache,
+        build_vision_dataset,
+        build_dataset_from_transport,
+        cli._load_datasets,
+    ):
+        assert not [
+            name
+            for name in inspect.signature(function).parameters
+            if "exclu" in name or "min_symbols" in name
+        ], function.__name__
+    with pytest.raises(TypeError):
+        validate_study_dataset(  # type: ignore[call-arg]
+            _ten_of_eleven(), PROTOCOL, "1d", exclusions=()
+        )
+    with pytest.raises(TypeError):
+        runner.run_study(  # type: ignore[call-arg]
+            _small_datasets(),
+            SMALL,
+            g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=CLEAN_PROVENANCE,
+            exclusions=(),
         )
 
 
-@pytest.mark.parametrize(
-    "record",
-    [
-        _record("DOTUSDT", 503),  # transient failure: must halt
-        _record("DOTUSDT", 429),
-        {**_record("DOTUSDT"), "http_status": True},
-        {**_record("DOTUSDT"), "url": "https://example.com/DOTUSDT/x.zip"},
-        {**_record("DOTUSDT"), "url": _record("LTCUSDT")["url"]},
-        {**_record("DOTUSDT"), "reason": "cache miss"},
-        {"symbol": "DOTUSDT", "http_status": 404},
-        _record("BTCUSDT"),  # the benchmark can never be excluded
-        _record("XXXUSDT"),
-    ],
-)
-def test_only_an_http_404_for_the_symbols_archive_can_exclude_it(
-    record: dict[str, Any],
+@pytest.mark.parametrize("flag", ["--exclusions", "--exclude", "--min-symbols"])
+def test_the_cli_accepts_no_exclusion_option(
+    tmp_path: Path, flag: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with pytest.raises(ValueError):
-        parse_exclusions([record], PROTOCOL)
+    help_text = cli.build_parser().format_help()
+    assert "exclusion" not in help_text and "min-symbols" not in help_text
+    records = tmp_path / "exclusions.json"
+    records.write_text("[]", encoding="utf-8")
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(
+            [
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--g4-authorization-url",
+                AUTHORIZATION_URL,
+                flag,
+                str(records),
+            ]
+        )
+    assert stopped.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
 
 
-def test_exclusion_lists_are_strict() -> None:
-    with pytest.raises(ValueError, match="duplicate"):
-        parse_exclusions([_record("DOTUSDT"), _record("DOTUSDT")], PROTOCOL)
-    with pytest.raises(ValueError):
-        parse_exclusions({"symbol": "DOTUSDT"}, PROTOCOL)
-    assert parse_exclusions(None, PROTOCOL) == ()
-
-
-def test_fewer_than_the_minimum_symbols_writes_an_invalid_result(
+def test_an_incomplete_roster_writes_an_invalid_result_and_replays_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -814,41 +916,320 @@ def test_fewer_than_the_minimum_symbols_writes_an_invalid_result(
     monkeypatch.setattr(runner, "run_rule_cell", forbidden)
     monkeypatch.setattr(runner, "run_benchmark_cell", forbidden)
     monkeypatch.setattr(runner, "causality_probe", forbidden)
-    # The 3-symbol datasets are complete but short of the minimum.
-    protocol = replace(SMALL, min_symbols=4)
+    # The 3-symbol datasets lack the fourth roster symbol: no reduced roster is run.
+    protocol = replace(SMALL, symbols=(*SMALL.symbols, "XRPUSDT"))
 
     result, cells, equity = runner.run_study(
-        _small_datasets(), protocol, g4_authorization_url=AUTHORIZATION_URL
+        _small_datasets(),
+        protocol,
+        g4_authorization_url=AUTHORIZATION_URL,
+        code_provenance=CLEAN_PROVENANCE,
     )
 
     assert result["status"] == result["label"] == "INVALID"
-    assert "at least 4" in result["reason"]
+    assert result["missing_symbols"] == ["XRPUSDT"]
+    assert "no exclusions exist" in result["reason"]
     assert result["stop_rule_triggered"] is False  # INVALID is not NO_WINNER
     assert cells == {} and equity == {}
     assert result["protocol_digest"] == protocol_digest(protocol)
+    assert result["code"] == CLEAN_PROVENANCE.to_mapping()
+    assert "exclusions" not in result
     written = cli.write_outputs(tmp_path / "invalid", result, cells, equity)
     assert [path.name for path in written] == ["result.json"]
     stored = json.loads(written[0].read_text(encoding="utf-8"))
     assert stored["label"] == "INVALID" and stored["prior_exposure"]
 
 
-def test_the_result_carries_exclusions_and_the_prior_exposure_disclosure() -> None:
-    result, _, _ = runner.run_study(
-        _small_datasets(), SMALL, g4_authorization_url=AUTHORIZATION_URL
+def test_the_cli_writes_an_invalid_result_for_a_ten_of_eleven_dataset(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_load(path: object) -> Any:
+        timeframe = "4h" if str(path).endswith("4h") else "1d"
+        symbols = tuple(s for s in PROTOCOL.symbols if s != "DOTUSDT")
+        first = "2021-01-01T04:00:00" if timeframe == "4h" else "2021-01-02T00:00:00"
+        return synthetic_dataset(
+            timeframe, symbols, first_close=first, last_close="2021-08-01T00:00:00"
+        )
+
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    monkeypatch.setattr(cli, "load_exported_dataset", fake_load)
+    out = tmp_path / "out"
+
+    code = cli.main(
+        [
+            "--output-dir",
+            str(out),
+            "--g4-authorization-url",
+            AUTHORIZATION_URL,
+            "--dataset-4h",
+            "x/4h",
+            "--dataset-1d",
+            "x/1d",
+        ]
     )
-    assert result["exclusions"] == []
+
+    assert code == 3
+    assert "label=INVALID" in capsys.readouterr().out
+    stored = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert stored["label"] == "INVALID"
+    assert stored["missing_symbols"] == ["DOTUSDT"]
+    assert not (out / "cells").exists() or not any((out / "cells").iterdir())
+
+
+def test_the_result_carries_the_roster_and_the_prior_exposure_disclosure() -> None:
+    result, _, _ = runner.run_study(
+        _small_datasets(),
+        SMALL,
+        g4_authorization_url=AUTHORIZATION_URL,
+        code_provenance=CLEAN_PROVENANCE,
+    )
+    assert result["roster"] == list(SMALL.symbols)
     joined = " ".join(result["prior_exposure"])
     for needle in ("realdata_20260713_signal_metadata", "Phase 2", "M34"):
         assert needle in joined
     assert any("haircut-adjusted" in note for note in result["notes"])
 
 
-def test_vision_plan_drops_a_recorded_exclusion_and_nothing_else() -> None:
-    exclusion = parse_exclusions([_record("DOTUSDT")], PROTOCOL)
-    plan = plan_vision_cache(PROTOCOL, "1d", exclusion)
-    assert not any("/DOTUSDT/" in url for url in plan.urls)
-    assert all(
-        any(f"/{symbol}/" in url for url in plan.urls)
-        for symbol in PROTOCOL.symbols
-        if symbol != "DOTUSDT"
+def test_the_vision_plan_always_covers_the_whole_roster() -> None:
+    plan = plan_vision_cache(PROTOCOL, "1d")
+    for symbol in PROTOCOL.symbols:
+        assert any(f"/{symbol}/" in url for url in plan.urls), symbol
+
+
+# -- B1: one causality probe per variant and timeframe -----------------------------------
+
+
+def _leaky_factory(leaky_entry_bars: int) -> Any:
+    """A policy factory whose ``leaky_entry_bars`` variant peeks 20 bars ahead."""
+
+    class Leaky(TrendStopPortfolioPolicy):
+        def decide_portfolio(self, snapshot: Any) -> PortfolioTargetProposal:
+            proposal = super().decide_portfolio(snapshot)
+            ahead = min(snapshot.index + 20, self._close.shape[0] - 1)
+            peek = self._close[ahead, 0] > self._close[snapshot.index, 0]
+            weights = list(proposal.target_weights)
+            weights[0] = 0.10 if peek else 0.05
+            holds = tuple(i for i in proposal.hold_current_quantity_symbols if i != 0)
+            return PortfolioTargetProposal(
+                target_weights=tuple(weights), hold_current_quantity_symbols=holds
+            )
+
+    def factory(dataset: Any, config: Any) -> TrendStopPortfolioPolicy:
+        cls = (
+            Leaky if config.entry_bars == leaky_entry_bars else TrendStopPortfolioPolicy
+        )
+        return cls(dataset, config)
+
+    return factory
+
+
+def test_every_variant_gets_its_own_probe_and_its_own_criterion_8() -> None:
+    result, _, _ = runner.run_study(
+        _small_datasets(),
+        SMALL,
+        g4_authorization_url=AUTHORIZATION_URL,
+        code_provenance=CLEAN_PROVENANCE,
     )
+
+    expected = {
+        f"{timeframe}__{variant.name}"
+        for timeframe in SMALL.timeframes
+        for variant in SMALL.variants
+    }
+    assert set(result["causality_probe"]) == expected
+    for name, probe in result["causality_probe"].items():
+        assert name.endswith(probe["variant"]), name
+        assert probe["passed"] and probe["pre_cut_has_positions"], name
+    assert set(result["configurations"]) == expected
+    assert all(
+        item["criteria"]["validity"]["passed"]
+        for item in result["configurations"].values()
+    )
+
+
+@pytest.mark.parametrize("leaky_bars", [20, 55])
+def test_a_leaky_variant_fails_only_its_own_criterion_8(
+    leaky_bars: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "TrendStopPortfolioPolicy", _leaky_factory(leaky_bars))
+
+    result, _, _ = runner.run_study(
+        _small_datasets(),
+        SMALL,
+        g4_authorization_url=AUTHORIZATION_URL,
+        code_provenance=CLEAN_PROVENANCE,
+    )
+
+    for timeframe in SMALL.timeframes:
+        for variant in SMALL.variants:
+            name = f"{timeframe}__{variant.name}"
+            leaks = variant.entry_bars == leaky_bars
+            probe = result["causality_probe"][name]
+            assert probe["variant"] == variant.name
+            assert probe["passed"] is not leaks, name
+            assert probe["identical_pre_cut_trace"] is not leaks, name
+            validity = result["configurations"][name]["criteria"]["validity"]
+            assert validity["passed"] is not leaks, name
+            if leaks:
+                assert result["configurations"][name]["passed"] is False
+                assert name not in result["passing_configurations"]
+
+
+# -- code provenance and the dirty-tree refusal ---------------------------------------
+
+
+def _git_repo(root: Path) -> None:
+    root.mkdir()
+    (root / "trade_rl").mkdir()
+    (root / "trade_rl" / "a.py").write_text("X = 1\n", encoding="utf-8")
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "x",
+        ],
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+
+def test_git_state_names_the_commit_the_code_tree_and_the_dirty_state(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    _git_repo(root)
+    head, tree, dirty = runner.git_state(root)
+    expected_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True
+    ).stdout.strip()
+    expected_tree = subprocess.run(
+        ["git", "rev-parse", "HEAD:trade_rl"], cwd=root, capture_output=True, text=True
+    ).stdout.strip()
+    assert (head, tree, dirty) == (expected_head, expected_tree, False)
+    assert len(head) == len(tree) == 40
+
+    (root / "trade_rl" / "a.py").write_text("X = 2\n", encoding="utf-8")
+    assert runner.git_state(root)[2] is True
+    subprocess.run(["git", "checkout", "-q", "."], cwd=root, check=True)
+    assert runner.git_state(root)[2] is False
+    (root / "trade_rl" / "new.py").write_text("Y = 1\n", encoding="utf-8")
+    assert runner.git_state(root)[2] is True  # an untracked file is dirty, too
+
+    with pytest.raises(runner.CodeProvenanceError, match="Git"):
+        runner.git_state(tmp_path)  # not a repository
+
+
+def test_the_loaded_module_digest_binds_bytes_and_refuses_foreign_code(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "checkout"
+    (root / "trade_rl").mkdir(parents=True)
+    first = root / "trade_rl" / "a.py"
+    first.write_text("X = 1\n", encoding="utf-8")
+
+    def module(path: Path) -> types.ModuleType:
+        item = types.ModuleType("m")
+        item.__file__ = str(path)
+        return item
+
+    modules = {"trade_rl.a": module(first), "numpy": module(tmp_path / "ignored.py")}
+    digest, count = runner.loaded_module_digest(root, modules)
+    assert count == 1 and len(digest) == 64
+    assert runner.loaded_module_digest(root, modules) == (digest, 1)
+    first.write_text("X = 2\n", encoding="utf-8")
+    assert runner.loaded_module_digest(root, modules)[0] != digest
+
+    foreign = tmp_path / "site-packages" / "b.py"
+    foreign.parent.mkdir()
+    foreign.write_text("Z = 1\n", encoding="utf-8")
+    with pytest.raises(runner.CodeProvenanceError, match="outside the checkout"):
+        runner.loaded_module_digest(root, {**modules, "trade_rl.b": module(foreign)})
+    with pytest.raises(runner.CodeProvenanceError, match="no trade_rl module"):
+        runner.loaded_module_digest(root, {"numpy": module(first)})
+
+
+def test_capture_describes_the_running_checkout() -> None:
+    provenance = runner.capture_code_provenance()
+    mapping = provenance.to_mapping()
+    assert set(mapping) == {
+        "git_head",
+        "trade_rl_tree",
+        "dirty",
+        "module_digest",
+        "module_count",
+    }
+    assert len(provenance.git_head) == len(provenance.trade_rl_tree) == 40
+    assert len(provenance.module_digest) == 64 and provenance.module_count > 10
+    assert isinstance(provenance.dirty, bool)
+    json.dumps(mapping, allow_nan=False)
+
+
+def test_a_dirty_provenance_is_refused_before_any_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a replay ran from a dirty working tree")
+
+    monkeypatch.setattr(runner, "run_rule_cell", forbidden)
+    monkeypatch.setattr(runner, "run_benchmark_cell", forbidden)
+    monkeypatch.setattr(runner, "causality_probe", forbidden)
+    with pytest.raises(runner.DirtyWorkingTreeError):
+        runner.run_study(
+            _small_datasets(),
+            SMALL,
+            g4_authorization_url=AUTHORIZATION_URL,
+            code_provenance=DIRTY_PROVENANCE,
+        )
+
+
+# -- a stop exit that fills in several parts --------------------------------------------
+
+
+def _stop_audit_of(bars: list[tuple[float, float, float, float]]) -> Any:
+    dataset = partial_exit_dataset(bars)
+    result, policy = replay_partial_exit(bars)
+    assert result.ledger_evidence is not None
+    return metrics.stop_exit_audit(
+        result.ledger_evidence.intervals.intervals,
+        policy.stop_events,
+        dataset.resolved_array("contract_multipliers"),
+    )
+
+
+def test_the_haircut_audit_counts_a_partly_filled_stop_exit_once() -> None:
+    gap = FLAT_BARS + [BREAKOUT] + RUN_UP + GAP_DOWN
+    audit, by_fill = _stop_audit_of(gap + [(97.0, 98.0, 96.0, 97.0)] * 4)
+    # Every fill (94, 97, 97) is worse than the stop level 101: no haircut.
+    assert audit["n_stop_exits"] == audit["n_resolved"] == 1
+    assert audit["haircut_usdt"] == 0.0 and by_fill == {}
+    average = (4 * 94 + 4 * 97 + (50 / 6 - 8) * 97) / (50 / 6)
+    assert audit["mean_adverse_gap_pct"] == pytest.approx(
+        100.0 * (101.0 - average) / 101.0
+    )
+
+    wick = [
+        (109.0, 109.0, 100.0, 107.0),
+        (108.0, 109.0, 106.0, 108.0),
+        (109.0, 110.0, 107.0, 109.0),
+        (109.0, 110.0, 107.0, 109.0),
+        (109.0, 110.0, 107.0, 109.0),
+    ]
+    audit, by_fill = _stop_audit_of(FLAT_BARS + [BREAKOUT] + RUN_UP + wick)
+    # Fills at 108, 109 and 109 are 7, 8 and 8 above the stop level 101: the haircut is
+    # the summed improvement over every closing fill of the one stop event.
+    expected = 4 * 7 + 4 * 8 + (50 / 6 - 8) * 8
+    assert audit["n_stop_exits"] == audit["n_resolved"] == 1
+    assert audit["n_fill_better_than_stop"] == 1
+    assert audit["haircut_usdt"] == pytest.approx(expected, abs=1e-6)
+    assert sum(by_fill.values()) == pytest.approx(expected, abs=1e-6)
+    assert [position for position, _ in by_fill] == [7, 8, 9]

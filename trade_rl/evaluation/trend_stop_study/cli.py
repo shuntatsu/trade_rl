@@ -1,8 +1,10 @@
 """Command line entry for the trend-stop study (writes new files only).
 
-Nothing is tunable here: the protocol module fixes every parameter. The command
-refuses to start without a well-formed G4 authorization comment URL, refuses a
-non-empty output directory, and never touches the network.
+Nothing is tunable here: the protocol module fixes every parameter, including the
+complete eleven-symbol roster (there is no exclusion option). The command refuses to
+start without a well-formed G4 authorization comment URL, refuses a non-empty output
+directory, refuses to run from a dirty Git working tree, and never touches the
+network.
 """
 
 from __future__ import annotations
@@ -18,17 +20,18 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.evaluation.trend_stop_study.data import (
-    SymbolExclusion,
     build_vision_dataset,
     load_exported_dataset,
-    parse_exclusions,
 )
 from trade_rl.evaluation.trend_stop_study.protocol import (
     PROTOCOL,
     TrendStopProtocol,
     validate_authorization_url,
 )
-from trade_rl.evaluation.trend_stop_study.runner import run_study
+from trade_rl.evaluation.trend_stop_study.runner import (
+    capture_code_provenance,
+    run_study,
+)
 
 
 def _json_bytes(value: object) -> bytes:
@@ -87,15 +90,6 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"published {timeframe} Dataset artifact (market-store export output)",
         )
     parser.add_argument(
-        "--exclusions",
-        type=Path,
-        help=(
-            "JSON list of {symbol, url, http_status} missing-archive records (HTTP "
-            "404 for the symbol's Binance Vision archive URL); any other failure "
-            "halts the run and is never an exclusion"
-        ),
-    )
-    parser.add_argument(
         "--vision-cache",
         type=Path,
         help="fallback: complete local Binance Vision cache (never the network)",
@@ -109,9 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _load_datasets(
-    args: argparse.Namespace,
-    protocol: TrendStopProtocol,
-    exclusions: tuple[SymbolExclusion, ...] = (),
+    args: argparse.Namespace, protocol: TrendStopProtocol
 ) -> dict[str, MarketDataset]:
     datasets: dict[str, MarketDataset] = {}
     for timeframe in protocol.timeframes:
@@ -124,7 +116,6 @@ def _load_datasets(
                 timeframe,
                 cache_root=args.vision_cache,
                 exchange_info_dir=args.exchange_info_dir,
-                exclusions=exclusions,
             )
         else:
             raise ValueError(
@@ -146,17 +137,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("refusing to overwrite an existing study output", file=sys.stderr)
         return 2
     try:
-        exclusions: tuple[SymbolExclusion, ...] = ()
-        if args.exclusions is not None:
-            exclusions = parse_exclusions(
-                json.loads(args.exclusions.read_text(encoding="utf-8")), PROTOCOL
-            )
-        datasets = _load_datasets(args, PROTOCOL, exclusions)
+        provenance = capture_code_provenance()
+        provenance.require_clean()
+        datasets = _load_datasets(args, PROTOCOL)
         result, cells, equity = run_study(
             datasets,
             PROTOCOL,
             g4_authorization_url=authorization,
-            exclusions=exclusions,
+            code_provenance=provenance,
             progress=lambda message: print(message, flush=True),
         )
     except ValueError as error:

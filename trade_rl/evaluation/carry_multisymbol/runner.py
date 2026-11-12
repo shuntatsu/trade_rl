@@ -273,6 +273,24 @@ def _cell(
     return summary
 
 
+def _publish_once(path: Path, value: object) -> None:
+    """Write a stage record once; on resume it must reproduce exactly.
+
+    A resumed run recomputes the inclusion and the data manifest. If they differ from
+    the first run's record the data or the source changed under the run, which is an
+    integrity failure: halt rather than overwrite the evidence.
+    """
+    if not path.is_file():
+        _write_json(path, value)
+        return
+    existing = json.loads(path.read_text(encoding="utf-8"))
+    if existing != json.loads(json.dumps(value)):
+        raise CarryIntegrityHalt(
+            f"{path.name} differs from the record of the first run",
+            {"kind": "resume_record_mismatch", "file": path.name},
+        )
+
+
 def _archive_stale_halt(root: Path) -> None:
     stale = root / "halt.json"
     if stale.is_file():
@@ -344,7 +362,7 @@ def run_screen(
             for s in protocol.CANDIDATES
             if loaded[s].pair is None
         }
-        _write_json(
+        _publish_once(
             root / "inclusion.json",
             {
                 "admitted": list(admitted),
@@ -353,7 +371,7 @@ def run_screen(
                 "symbols": {s: loaded[s].facts for s in sorted(loaded)},
             },
         )
-        _write_json(
+        _publish_once(
             root / "data-manifest.json",
             {
                 "archives": data.evidence(),

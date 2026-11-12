@@ -291,8 +291,9 @@ def validate_window(start: datetime, end: datetime) -> None:
             raise ValueError("window bounds must be timezone-aware")
     if end.astimezone(UTC) > WINDOW_END:
         raise ValueError(
-            f"window end {end.isoformat()} is after the last admissible instant "
-            f"{WINDOW_END.isoformat()}; data from 2026-08-01 is FS1 warm-up or "
+            f"window end {end.isoformat()} is after the exclusive end "
+            f"{WINDOW_END.isoformat()} (the last admissible bar opens "
+            "2026-07-31T23:00Z); data from 2026-08-01 is FS1 warm-up or "
             "sealed data and is refused unconditionally"
         )
     if start.astimezone(UTC) != WINDOW_START or end.astimezone(UTC) != WINDOW_END:

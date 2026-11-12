@@ -109,8 +109,10 @@ admissible bar opens 2026-07-31T23:00Z. It adds the 2022 bear/negative-funding
 regime to the 2023-2024 regime of the BTC/ETH screens, because the counter-hypothesis
 is that the premium was a 2023-2024 regime effect. Sub-periods are the calendar
 years 2022, 2023, 2024, 2025 and 2026 (seven months). The window is part of the
-protocol: the runner accepts exactly this `--start/--end` and refuses a window ending
-after 2026-07-31 with a distinct embargo message.
+protocol: the runner accepts exactly this `--start 2022-01-01 --end 2026-08-01`. The end
+is the exclusive instant 2026-08-01T00:00Z (the last admissible bar opens
+2026-07-31T23:00Z); any end after that instant is refused with a distinct embargo
+message, and any other start or end is refused as not the registered window.
 
 **Strategy, unchanged.** `FundingCarryBot`: monthly equal-notional matched-quantity
 spot-long / perpetual-short targets from the first usable bar, a real exit on the
@@ -181,9 +183,12 @@ premium that the delta-neutral pair collects) and the independent oracle. Its di
 is **UNREVIEWED** and `economic_execution_authorized=false`: no independent review has
 been posted. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the
-production sizing, cost or funding code. The packet's heads bind a wider code list than
-the screen modules (the shared parser, checksum, planner, embargo, dataset, data,
-simulation and strategy code), pinned by `tests/evaluation/test_carry_multisymbol_packet.py`.
+production sizing, cost or funding code. The packet's heads bind the computed static import
+closure of the screen entry points (the screen, the carry replay and the command line,
+with every module they import, lazy imports and package facades included), resolved
+from the packet head by `tests/evaluation/test_carry_multisymbol_packet.py`: a change
+to any file in that closure after the head fails the test until the packet is re-pinned
+and re-reviewed.
 
 ## Data source and runbook
 

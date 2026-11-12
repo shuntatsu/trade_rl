@@ -14,6 +14,7 @@ decided from caller-declared metadata. Redirects are never followed.
 
 from __future__ import annotations
 
+import http.client
 import time
 import urllib.error
 import urllib.request
@@ -104,7 +105,10 @@ class VisionFetcher:
                     return FetchResult(status=last_status, body=None)
             except RedirectRefused:
                 raise
-            except (TimeoutError, urllib.error.URLError):
+            except (TimeoutError, OSError, http.client.HTTPException):
+                # connection resets, a body cut short (IncompleteRead) and other
+                # transient transport faults are retried and then reported as
+                # status 0, never raised as an unclassified error
                 last_status = 0
             if attempt + 1 < self._attempts and self._backoff > 0:
                 time.sleep(self._backoff * (2**attempt))

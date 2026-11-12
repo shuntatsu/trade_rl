@@ -727,6 +727,32 @@ def test_run_is_resumable_and_does_not_recompute_finished_cells(
     assert again["cells"] == first["cells"] and again["outcome"] == first["outcome"]
 
 
+def test_a_resumed_run_that_recomputes_a_different_inclusion_halts(
+    tiny, tmp_path
+) -> None:
+    runner.run_screen(request(tmp_path), screen_data(FakeSource()))
+    root = tmp_path / "screen"
+    before = (root / "inclusion.json").read_bytes()
+    gap_ms = int(datetime(2022, 1, 4, 5, tzinfo=UTC).timestamp() * 1000)
+    changed = FakeSource(holes={(StoreMarket.USDS_M, "XRPUSDT"): {gap_ms}})
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        runner.run_screen(request(tmp_path), screen_data(changed))
+    assert caught.value.evidence == {
+        "kind": "resume_record_mismatch",
+        "file": "inclusion.json",
+    }
+    assert (root / "inclusion.json").read_bytes() == before  # never overwritten
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "integrity" and marker["resumable"] is False
+
+
+def test_a_resumed_run_with_identical_records_is_accepted(tiny, tmp_path) -> None:
+    first = runner.run_screen(request(tmp_path), screen_data(FakeSource()))
+    again = runner.run_screen(request(tmp_path), screen_data(FakeSource()))
+    assert again["outcome"] == first["outcome"]
+    assert not (tmp_path / "screen" / "halt.json").exists()
+
+
 def test_resume_refuses_other_data_other_authorization_or_foreign_roots(
     tiny, tmp_path
 ) -> None:

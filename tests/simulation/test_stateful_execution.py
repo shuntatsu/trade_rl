@@ -306,7 +306,9 @@ def test_stateful_existing_subnormal_exposure_admission_under_strict_numpy(
     )
     # Set up the real stateful runtime before entering strict NumPy mode:
     # BookState cloning is a separate accounting contract covered in #1144.
-    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime = StatefulExecutionRuntime.create(
+        executor, book, OrderBookState.empty()
+    )
     runtime.submit_intents((_intent(executor, signed_order),))
     runtime.initialize_metrics()
     context = SimpleNamespace(

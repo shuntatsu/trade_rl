@@ -10,8 +10,22 @@ run on real data and no price path, return or PnL of it was computed to write th
 document. That is narrower than "unexposed": the universe and window were read by
 earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
 result). The machine-readable G0-G3 author packet is
-[`report/trend-stop-research-assurance-20261110.json`](../../report/trend-stop-research-assurance-20261110.json);
-its review status is `UNREVIEWED` until an independent, authenticated review is posted.
+[`report/trend-stop-research-assurance-20261113.json`](../../report/trend-stop-research-assurance-20261113.json);
+its review status is `UNREVIEWED` until a review of its exact digest and heads is
+posted.
+
+Revision 2 (2026-11-13). Review 5870390989 of PR #1201 blocked revision 1 (packet
+`report/trend-stop-research-assurance-20261110.json`, digest `894fedb0...`, protocol
+digest `f57f2d6d...`, kept as historical evidence): the causality probe ran for one
+variant only, operator-supplied roster exclusions were unchecked, and later changes to
+imported code were not covered. Revision 2 runs one probe per variant and timeframe,
+removes the exclusion path (owner decision, issue #810 comment 6818495567: all eleven
+coins, no exclusions, a missing archive makes the run `INVALID`), records the code
+digest and refuses a dirty tree, and has a new packet pinned to this revision's code.
+Frozen protocol digest of revision 2:
+`1bcf0b0129d373fdcfb5edb855a5f363e4d665710c97c237d607b5ea29bce439`. The packet digest
+is pinned in `tests/evaluation/test_trend_stop_v2_packet.py` and named in the pull
+request.
 
 Step 1 (this document, software only): does the rule have positive expectancy after
 costs, funding and hard risk? Step 2 (design note only, section 9): only if step 1 is
@@ -38,7 +52,7 @@ on top of the rule.
 
 | Item | Value |
 |---|---|
-| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Chosen by name and listing date, not from any return of this rule (prior exposure of the universe: section 5a). The roster must be complete: a symbol may be absent only with a recorded exclusion, an HTTP 404 for that symbol's Binance Vision archive URL (`--exclusions` JSON of `{symbol, url, http_status}`). A transient fetch failure, cache miss or malformed/checksum error halts the run and never excludes a symbol; a Dataset missing a symbol without a record is refused. Fewer than 8 remaining writes an `INVALID` result (no replay, no rejection of the rule). |
+| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Chosen by name and listing date, not from any return of this rule (prior exposure of the universe: section 5a). The roster is exactly these eleven symbols: there is no exclusion path, no minimum roster size and no CLI option for either. A Dataset missing any roster symbol (for example a missing archive) writes an `INVALID` result with no replay (no rejection of the rule); a symbol outside the roster, a cadence or warm-up violation, or a transient fetch failure, cache miss or malformed/checksum error halts the run. |
 | Timeframes | 4h and 1d, native bars, one decision per bar |
 | Signal | Donchian breakout, long and short. Entry: close beyond the prior N-bar extremum (current bar excluded). Signal exit: close beyond the prior M-bar opposite extremum. Opposite entry signal reverses. |
 | Variants (at most 2) | `donchian_20_10` (N=20, M=10) and `donchian_55_20` (N=55, M=20), Turtle conventions in bars; never tuned |
@@ -78,6 +92,9 @@ decision-layer rule that uses the existing order, fill, cost and accounting path
    (un-haircut) values stay in each cell as `engine_*` for reference and are never
    gated. Adverse gaps are never credited back. The haircut is computed from the raw
    order events and the policy's stop log, not from the policy's own accounting.
+   A fired stop keeps working until the position is flat: if the exit fills only in part
+   (participation cap), the remainder is exited at every later decision even when the
+   price has recovered above the stop level, and the whole exit is one stop event.
 4. Limits: the entry reference is the observed fill-bar open (slippage is not in the
    stop distance); a stop touched and recovered inside a bar is charged at the level but
    the intrabar path after it is unknown; orders still working on the next bar (partial
@@ -86,7 +103,12 @@ decision-layer rule that uses the existing order, fill, cost and accounting path
 ## 4. Pass / fail, multiple testing and stop rule
 
 Four configurations (2 variants x 2 timeframes) are tested; Bonferroni adjusts the
-bootstrap level to `0.05 / 4`. A configuration is `DEVELOPMENT_PROMISING` only if every
+bootstrap level to `0.05 / 4`. The bootstrap interval is two-sided with coverage
+`1 - 0.05/4` (0.625% in each tail, so the endpoints are the 0.625% and 99.375%
+percentiles of the resampled annualised mean daily net return); criterion 7 reads only
+its lower endpoint, which makes it a one-sided test of "mean above zero" at the 0.625%
+level, stricter than a one-sided test at `0.05/4`. This is the frozen statistic and is
+not changed here. A configuration is `DEVELOPMENT_PROMISING` only if every
 criterion holds (base = repo costs, `cost_x2` = doubled costs):
 
 1. net return > 0 in base and in `cost_x2` (haircut-adjusted; includes funding);
@@ -99,12 +121,14 @@ criterion holds (base = repo costs, `cost_x2` = doubled costs):
 7. lower end of the Bonferroni-adjusted moving-block bootstrap interval of the
    annualised mean daily net return is above 0 (base);
 8. validity: ledger reconciliation passed in both scenarios, no termination, terminal
-   flat, and the pre-cut future-perturbation probe is byte-identical with positions held.
+   flat, and the pre-cut future-perturbation probe of **that configuration's own
+   variant and timeframe** is byte-identical with positions held (one probe per
+   (timeframe, variant) pair; a leaky variant fails only its own criterion 8).
 
 The study label is `DEVELOPMENT_PROMISING` if at least one configuration passes and
 `NO_WINNER` otherwise. It never selects a winner among passing configurations. **Stop
-rule:** on `NO_WINNER` this line stops: no re-tuning of N, k, the stop model, the
-universe or the timeframes on this window, and step 2 is not started. On
+rule:** on `NO_WINNER` this line stops: no re-tuning of the channel lengths N and M,
+the ATR stop multiples, the stop model, the universe or the timeframes on this window, and step 2 is not started. On
 `DEVELOPMENT_PROMISING` the only authorized next action is a separate request (new
 protocol, G0-G2 review, owner authorization) for step 2 or for an unused-data protocol.
 
@@ -162,10 +186,15 @@ than denied. Any pass must be read with that in mind.
   path through the real executor and compares every equity step with `Fraction`
   arithmetic done by hand (entry 103, trailing stop 101, gap exit 94, loss 75). The
   wick-and-recover path is checked against the hand haircut in
-  `tests/evaluation/test_trend_stop_study.py`.
+  `tests/evaluation/test_trend_stop_study.py`. A stop exit that fills in three parts
+  (4, 4 and 1/3 units under a participation cap), after a gap and after a recovery
+  above the stop, is checked fill by fill, for a single stop event and for the summed
+  haircut.
 - Sign: the short side is the exact mirror image of the long side.
 - Time: perturbing every bar after a cut leaves earlier decisions byte-identical, in the
-  unit test and in the runner's real-data probe.
+  unit test and in the runner's real-data probe, which runs for every variant and
+  timeframe (a test shows a variant that peeks 20 bars ahead fails its own probe and
+  its own criterion 8 and not the other variant's).
 - Risk: simultaneous entries are scaled to the gross cap; positions are held without
   churn; risk per trade equals 0.5% of equity at the stop distance.
 - Mutation check performed on the strategy tests: removing the stop trigger, the
@@ -183,16 +212,20 @@ than denied. Any pass must be read with that in mind.
 | Rule, indicators, stop state machine, policy | `trade_rl/strategies/rules/trend_stop.py` |
 | Frozen protocol, costs, hard risk, authorization-URL check | `trade_rl/evaluation/trend_stop_study/protocol.py` |
 | Metrics, closed cycles, stop haircut, gate | `.../trend_stop_study/metrics.py` |
-| Multi-symbol runner (every cell), causality probe | `.../trend_stop_study/runner.py` |
+| Multi-symbol runner (every cell), per-variant causality probe, code provenance | `.../trend_stop_study/runner.py` |
 | Dataset loading / validation / Vision fallback | `.../trend_stop_study/data.py` |
 | CLI (write-once outputs) | `python -m trade_rl.evaluation.trend_stop_study` |
 
 The runner refuses, before any replay, a missing or malformed G4 authorization URL
 (`https://github.com/shuntatsu/trade_rl/<issues|pull>/<n>#issuecomment-<id>`; only the
 shape is checked, the owner lease remains a human gate), a window or Dataset reaching
-past 2026-07-31, a roster that is incomplete without recorded 404 exclusions, a
-cadence mismatch, and a non-empty output directory. A roster below 8 symbols writes an
-`INVALID` result instead. Every
+past 2026-07-31, a symbol outside the roster, a cadence mismatch, a non-empty output
+directory and a dirty Git working tree (the run must name the exact code). A Dataset
+that lacks any roster symbol writes an `INVALID` result instead. The result records
+`code`: the Git HEAD, the tree id of `trade_rl/` at HEAD, the dirty flag (false for any
+run that proceeds) and a digest over the raw bytes of every loaded `trade_rl` module,
+each of which must lie under the checkout. There is no registry of runs: a repeat into
+a new output directory is possible, and the owner's one-run rule is procedural. Every
 cell is written as its own JSON file (`cells/<timeframe>__<arm>__<scenario>.json`) with
 `equity.npz` and `result.json`.
 
@@ -213,8 +246,9 @@ complete local Binance Vision cache of native 4h and 1d klines and funding archi
 with the unchanged builder and never uses the network. Check whether another branch
 has added a shared multi-symbol 4h/1d bar loader before extending `data.py`.
 
-Expected runtime: about 20 minutes single process (12 000 4h rows x 11 symbols is about
-2 minutes per replay cell and the 1d cells take seconds). Latency stress is not run:
+Expected runtime: about 25 minutes single process (12 000 4h rows x 11 symbols is about
+2 minutes per replay cell, the four per-variant probes replay the pre-cut window twice
+each, and the 1d cells take seconds). Latency stress is not run:
 `order_latency_bars` 0 and 1 are the same next-open fill in this engine, and 2 or more
 cancels a still-working entry on every re-proposal (the policy would have to preserve
 pending orders as the decision-value policies do).
@@ -283,5 +317,10 @@ No reward term references stop outcomes.
 No real price, return or PnL of this rule was computed (the prior exposure of the
 universe and window by other work is disclosed in section 5a), no order or venue call
 exists, FS1, warm-up, unused and final data are untouched, and no existing strategy, default or artifact changed.
-Passing CI authorizes nothing: a G4 run needs the owner's authorization and an
-independent review of the packet.
+Passing CI authorizes nothing: a G4 run needs the owner's authorization and a review
+of the packet's exact digest and heads. For this revision the owner decided (issue #810
+comment 6818495567) that the same-account route (a fresh Claude Haiku 5.5 agent posting
+from the owner's account, model independence only, not principal independence) covers
+the packet whose digest this revision's pull request names; the route is
+operator-enforced, `tools.research_assurance_github` still rejects same-principal
+reviews and the packet stays `UNREVIEWED` for the tooling.

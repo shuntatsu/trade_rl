@@ -31,7 +31,10 @@ from trade_rl.integrations.market_store.contracts import (
     Universe,
     ms_from_utc,
 )
-from trade_rl.integrations.market_store.ingest import FetchResult
+from trade_rl.integrations.market_store.ingest import (
+    RESPONSE_TOO_LARGE_STATUS,
+    FetchResult,
+)
 from trade_rl.integrations.market_store.parse import ArchiveContentError
 from trade_rl.integrations.market_store.plan import plan_ingestion
 
@@ -70,6 +73,23 @@ def test_source_verifies_each_archive_and_records_its_evidence() -> None:
         entry["archive_sha256"] == hashlib.sha256(fetcher.files[spec.url]).hexdigest()
     )
     assert entry["checksum_url"] == f"{spec.url}.CHECKSUM"
+
+
+def test_funding_read_end_is_exclusive_like_the_klines() -> None:
+    plan = january_plan()
+    source = VisionArchiveSource(fetcher_for(plan), plan)
+    start_ms = ms_from_utc(START)
+    events = [
+        row.funding_time_ms
+        for row in source.read_funding(
+            StoreMarket.USDS_M, "SOLUSDT", start_ms, ms_from_utc(END)
+        )
+    ]
+    boundary = events[5]
+    before = source.read_funding(StoreMarket.USDS_M, "SOLUSDT", start_ms, boundary)
+    assert [row.funding_time_ms for row in before] == events[:5]
+    after = source.read_funding(StoreMarket.USDS_M, "SOLUSDT", start_ms, boundary + 1)
+    assert [row.funding_time_ms for row in after] == events[:6]
 
 
 def read_spot(source, symbol="SOLUSDT"):
@@ -149,6 +169,25 @@ def test_persistent_transient_failures_halt_after_a_bounded_retry(status) -> Non
         "attempts": 3,
     }
     assert fetcher.requested.count(spec.url) == 3
+
+
+def test_an_oversize_response_is_a_resumable_halt_and_is_not_retried() -> None:
+    plan = january_plan()
+    fetcher = fetcher_for(plan)
+    spec = next(s for s in plan.specs if s.market is StoreMarket.SPOT)
+    fetcher.fail(spec.url, RESPONSE_TOO_LARGE_STATUS)
+    source = VisionArchiveSource(fetcher, plan, max_attempts=3, sleep=no_sleep)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        read_spot(source)
+    assert not isinstance(caught.value, CarryCoverageError)
+    assert caught.value.resumable is True
+    assert caught.value.evidence == {
+        "kind": "response_too_large",
+        "url": spec.url,
+        "status": RESPONSE_TOO_LARGE_STATUS,
+        "attempts": 1,
+    }
+    assert fetcher.requested.count(spec.url) == 1
 
 
 def test_a_transient_failure_that_clears_is_retried_to_success() -> None:
@@ -342,7 +381,9 @@ def test_pair_loader_builds_the_unchanged_raw_series_contract() -> None:
     assert bool(spot.tradable.all()) and bool(perp.tradable.all())
     np.testing.assert_array_equal(spot.close, perp.close)
     assert not spot.funding_event_count.any()
-    assert perp.funding_event_count.sum() == 6
+    # events at +8h, +16h, ... +40h; the one at +0h settles before the first bar and
+    # the one at T1 (+48h) is outside the exclusive window end
+    assert perp.funding_event_count.sum() == 5
     np.testing.assert_array_equal(perp.available_at, perp.timestamps)
 
 
@@ -469,6 +510,17 @@ def test_a_missing_first_bar_cannot_be_explained_by_a_halt() -> None:
             ListSource(spot_skip=(0,)),
             halts=((T0, datetime(2023, 3, 24, 2, tzinfo=UTC)),),
         )
+
+
+def test_a_funding_event_exactly_at_the_window_end_never_enters_the_series() -> None:
+    end_ms = ms_from_utc(T1)
+    extra = FundingRow(funding_time_ms=end_ms, rate=Decimal("0.5"))
+    _spot, perp = load(RowsSource(funding=lambda rows: [*rows, extra]))
+    assert float(np.max(np.abs(perp.funding_rate))) == pytest.approx(0.0001)
+    assert perp.funding_event_count.sum() == 5
+    inside = FundingRow(funding_time_ms=end_ms - 1, rate=Decimal("0.0002"))
+    _spot, perp = load(RowsSource(funding=lambda rows: [*rows, inside]))
+    assert perp.funding_event_count.sum() == 6
 
 
 def test_a_funding_gap_is_a_coverage_fact() -> None:

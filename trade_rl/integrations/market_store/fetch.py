@@ -26,7 +26,10 @@ from trade_rl.integrations.market_store.archive_url import (
     check_url_fetchable,
 )
 from trade_rl.integrations.market_store.embargo import EmbargoPolicy
-from trade_rl.integrations.market_store.ingest import FetchResult
+from trade_rl.integrations.market_store.ingest import (
+    RESPONSE_TOO_LARGE_STATUS,
+    FetchResult,
+)
 
 USER_AGENT = "trade-rl/0.3 market-store public-market-data"
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
@@ -95,9 +98,10 @@ class VisionFetcher:
                         )
                     body = response.read(self._max_bytes + 1)
                     if len(body) > self._max_bytes:
-                        raise RuntimeError(
-                            f"response exceeds {self._max_bytes} bytes: {url}"
-                        )
+                        # a result like any other failed fetch, never an unclassified
+                        # error: the caller halts (resumably) without learning
+                        # anything about the data, and the same URL is not retried
+                        return FetchResult(status=RESPONSE_TOO_LARGE_STATUS, body=None)
                     return FetchResult(status=int(response.status), body=body)
             except urllib.error.HTTPError as error:
                 last_status = int(error.code)

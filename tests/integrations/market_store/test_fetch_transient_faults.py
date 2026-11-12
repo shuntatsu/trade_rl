@@ -17,7 +17,8 @@ from tests.integrations.market_store.test_url_gate import (
     Response,
     fetcher_with,
 )
-from trade_rl.integrations.market_store.fetch import RedirectRefused
+from trade_rl.integrations.market_store.fetch import RedirectRefused, VisionFetcher
+from trade_rl.integrations.market_store.ingest import RESPONSE_TOO_LARGE_STATUS
 
 URL = f"{SPOT}-2021-01.zip"
 
@@ -69,3 +70,18 @@ def test_a_redirect_is_still_raised_not_retried() -> None:
     with pytest.raises(RedirectRefused):
         fetcher_with(opener).fetch(URL)
     assert len(opener.calls) == 1
+
+
+def test_an_oversize_response_is_a_status_not_an_unclassified_error() -> None:
+    opener = Opener(lambda url: Response(url, body=b"x" * 11))
+    fetcher = VisionFetcher(retry_backoff_seconds=0.0, max_bytes=10, _opener=opener)
+    result = fetcher.fetch(URL)
+    assert (result.status, result.body) == (RESPONSE_TOO_LARGE_STATUS, None)
+    # deterministic, so it is not retried
+    assert len(opener.calls) == 1
+
+
+def test_a_response_at_the_byte_bound_is_still_accepted() -> None:
+    opener = Opener(lambda url: Response(url, body=b"x" * 10))
+    fetcher = VisionFetcher(retry_backoff_seconds=0.0, max_bytes=10, _opener=opener)
+    assert fetcher.fetch(URL).status == 200

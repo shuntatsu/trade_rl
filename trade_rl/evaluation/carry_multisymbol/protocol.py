@@ -310,8 +310,10 @@ def lease_text(*, code_commit: str) -> str:
         f"screen run of protocol digest {protocol_digest()} at code commit "
         f"{code_commit} on known-used Tier D Binance Vision data in "
         f"[{WINDOW_START.isoformat()}, {WINDOW_END.isoformat()}). The result is "
-        "exploratory and carries no edge claim. No orders, no keys, no FS1 warm-up, "
-        "sealed or other unused data, and no live use are authorized."
+        "exploratory and carries no edge claim. The coverage-only stage and any "
+        "resume on the same output directory are part of that one run. No orders, no "
+        "keys, no FS1 warm-up, sealed or other unused data, and no live use are "
+        "authorized."
     )
 
 

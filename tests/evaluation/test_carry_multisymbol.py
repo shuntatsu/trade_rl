@@ -32,6 +32,7 @@ from trade_rl.integrations.market_store.contracts import (
     KlineRow,
     StoreMarket,
 )
+from trade_rl.integrations.market_store.ingest import RESPONSE_TOO_LARGE_STATUS
 
 HOUR = 3_600_000
 G4_URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-1234567890"
@@ -176,6 +177,10 @@ def test_lease_text_names_digest_commit_window_and_the_limits() -> None:
         "No orders, no keys",
     ):
         assert needle in text
+    # one authorization covers the coverage-only stage and every resume
+    assert "coverage-only stage" in text
+    assert "same output directory" in text
+    assert "part of that one run" in text
 
 
 # --- decision rule ---------------------------------------------------------------------
@@ -311,6 +316,16 @@ def test_too_few_admitted_symbols_is_inconclusive_not_a_pass_or_a_fail() -> None
     result = decision.decide(ADMITTED[:5], {s: "x" for s in ADMITTED[5:]}, {})
     assert result["outcome"] == decision.INCONCLUSIVE
     assert "portfolio_pass" not in result
+
+
+def test_inconclusive_universe_is_terminal_for_this_protocol() -> None:
+    result = decision.decide(ADMITTED[:5], {s: "x" for s in ADMITTED[5:]}, {})
+    assert result["outcome"] == decision.INCONCLUSIVE
+    assert result["terminal_for_protocol"] is True
+    assert result["rerun_with_a_different_universe_allowed"] is False
+    assert "new protocol version" in str(result["reason"])
+    other = decision.decide(ADMITTED, {}, grid(ADMITTED))
+    assert "terminal_for_protocol" not in other
 
 
 def test_reference_arms_are_descriptive_only() -> None:
@@ -522,6 +537,27 @@ def test_inclusion_rule_uses_only_coverage_and_volume(tiny, tmp_path) -> None:
     assert inclusion["symbols"]["SOLUSDT"]["admitted"] is True
 
 
+def test_an_inconclusive_universe_ends_the_run_and_cannot_be_reopened(
+    tiny, tmp_path
+) -> None:
+    source = FakeSource(low_volume={"BNBUSDT", "XRPUSDT"})
+    first = runner.run_screen(request(tmp_path), screen_data(source))
+    root = tmp_path / "screen"
+    assert first["outcome"] == decision.INCONCLUSIVE
+    assert first["terminal_for_protocol"] is True
+    written = (root / "decision.json").read_text("utf-8")
+    calls = source.calls
+    for coverage_only in (False, True):
+        with pytest.raises(FileExistsError, match="INCONCLUSIVE_UNIVERSE") as caught:
+            runner.run_screen(
+                request(tmp_path, coverage_only=coverage_only), screen_data(source)
+            )
+        assert "new protocol version" in str(caught.value)
+    assert source.calls == calls  # nothing was read again
+    assert (root / "decision.json").read_text("utf-8") == written
+    assert not (root / "halt.json").exists()
+
+
 def test_a_malformed_archive_aborts_the_run_instead_of_excluding_a_symbol(
     tiny, tmp_path
 ) -> None:
@@ -596,6 +632,20 @@ def test_persistent_server_errors_halt_with_a_resumable_marker(tiny, tmp_path) -
     marker = halt_marker(tmp_path)
     assert marker["kind"] == "operational" and marker["resumable"] is True
     assert marker["evidence"]["status"] == 503 and marker["evidence"]["attempts"] == 3
+    assert not (tmp_path / "screen" / "decision.json").exists()
+
+
+def test_an_oversize_response_halts_with_a_resumable_marker(tiny, tmp_path) -> None:
+    fetcher = archives_fetcher()
+    for url in list(fetcher.files):
+        if "/spot/" in url and "SOLUSDT" in url and not url.endswith(".CHECKSUM"):
+            fetcher.fail(url, RESPONSE_TOO_LARGE_STATUS)
+    data, _ = archive_data(fetcher)
+    with pytest.raises(CarryOperationalHalt):
+        runner.run_screen(request(tmp_path), data)
+    marker = halt_marker(tmp_path)
+    assert marker["kind"] == "operational" and marker["resumable"] is True
+    assert marker["evidence"]["kind"] == "response_too_large"
     assert not (tmp_path / "screen" / "decision.json").exists()
 
 

@@ -40,6 +40,11 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
 
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     directory_flag = getattr(os, "O_DIRECTORY", 0)
+    # A read-only FIFO open waits for a writer before fstat can reject it.
+    # Nonblocking applies only to POSIX leaf opens; regular reads are unaffected.
+    leaf_flags = os.O_RDONLY | nofollow
+    if os.name == "posix":
+        leaf_flags |= getattr(os, "O_NONBLOCK", 0)
     if (
         os.name == "posix"
         and nofollow
@@ -62,7 +67,7 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
                 parent_fd = next_fd
             # Even a concurrent replacement of an ancestor cannot redirect the
             # opened descriptor chain outside the inspected directory objects.
-            return os.open(source.name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+            return os.open(source.name, leaf_flags, dir_fd=parent_fd)
         finally:
             os.close(parent_fd)
 
@@ -72,7 +77,7 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
     for ancestor in source.parents:
         if ancestor.is_symlink() or ancestor.is_junction():
             raise ValueError(f"{field} parent must not contain a symlink or junction")
-    return os.open(source, os.O_RDONLY | nofollow)
+    return os.open(source, leaf_flags)
 
 
 @contextmanager

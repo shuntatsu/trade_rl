@@ -59,11 +59,14 @@ def _fake_cell(raw_days: int, demeaned_days: int) -> DecisionCellEvidence:
     ((10**40, 1400), (1400, 10**500)),
 )
 def test_provenance_rejects_impossible_development_day_counts(
-    raw_days: int, demeaned_days: int
+    raw_days: int,
+    demeaned_days: int,
 ) -> None:
     """A claimant must not make a short frozen window contain aeons of days."""
 
-    with pytest.raises(SignalDiagnosisProtocolError, match="eligible-day count exceeds"):
+    with pytest.raises(
+        SignalDiagnosisProtocolError, match="eligible-day count exceeds"
+    ):
         _check_provenance(
             (_fake_cell(raw_days, demeaned_days),),
             default_signal_diagnosis_protocol(),

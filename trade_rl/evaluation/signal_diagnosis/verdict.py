@@ -273,9 +273,7 @@ def _check_provenance(
     start = datetime.fromisoformat(
         protocol.data.evaluation_start.replace("Z", "+00:00")
     )
-    finish = datetime.fromisoformat(
-        protocol.data.evaluation_end.replace("Z", "+00:00")
-    )
+    finish = datetime.fromisoformat(protocol.data.evaluation_end.replace("Z", "+00:00"))
     max_days = (finish.date() - start.date()).days + 1
     for cell in cells:
         claimed = cell.p_value_provenance

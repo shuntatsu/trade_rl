@@ -23,12 +23,16 @@ removes the exclusion path (owner decision, issue #810 comment 6818495567: all e
 coins, no exclusions, a missing archive makes the run `INVALID`), records the code
 digest and refuses a dirty tree, and has a new packet pinned to this revision's code.
 Frozen protocol digest of revision 2:
-`1cc11a584402079df50f8e2ad8c20cfcf166ea4c3ecc9a60f06c39946bdab6f7`. The packet digest
+`2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda`. The packet digest
 is pinned in `tests/evaluation/test_trend_stop_v2_packet.py` and named in the pull
 request. Reviews 5879836463 and 5879837718 of that pull request (the same-account
 route) blocked its first head because an incomplete Vision cache halted with a
 traceback instead of the `INVALID` stated here (the digests above are those of the
 fixed head), and noted that a reversal while a fired stop is pending was unspecified.
+Reviews 5880408681 and 5880409010 then blocked the next head because a missing
+exchange-information snapshot ended in a traceback and because the outcome depended on
+the order of the two timeframes; both are fixed here and the digests above are those of
+the fixed head.
 
 Step 1 (this document, software only): does the rule have positive expectancy after
 costs, funding and hard risk? Step 2 (design note only, section 9): only if step 1 is
@@ -239,9 +243,15 @@ the venue answers HTTP 404 for a Vision URL, the transport records a
 other HTTP failure, a timeout and an offline miss record nothing, a later successful
 download removes the record, and a malformed record is never read as a 404. The
 record is a file, not an authenticated venue receipt, so it can only turn a run
-`INVALID` and can never produce a reduced roster. Every other data failure
-(absent, empty or checksum-failing archive, unreadable Dataset) makes the CLI exit 2
-with a message and no result; it never ends in a traceback. The result records
+`INVALID` and can never produce a reduced roster. The CLI decides in one
+evidence pass over every archive of both timeframes and funding before it builds any
+Dataset, so valid 404 evidence anywhere is `INVALID` whatever the order of the
+timeframes or the other gaps. Every other data or metadata failure (absent, empty or
+checksum-failing archive, a missing exchange-information snapshot, an unreadable or
+corrupt Dataset, any other exception raised while loading data) makes the CLI exit 2
+with a message naming the exception type and no result; it never ends in a traceback.
+Forward acquisition does not ignore the `.missing.json` sidecar: it reports it as an
+unexpected cache member and fails closed. The result records
 `code`: the Git HEAD, the tree id of `trade_rl/` at HEAD, the dirty flag (false for any
 run that proceeds) and a digest over the raw bytes of every loaded `trade_rl` module,
 each of which must lie under the checkout. There is no registry of runs: a repeat into

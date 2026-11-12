@@ -33,12 +33,12 @@ REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-202611
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "46b24d5aba693a697416979bee68b15304ba69b89b55fe975705069c51d86072"
+PINNED_DIGEST = "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
 REVISION_1_PACKET_DIGEST = (
     "894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64"
 )
 PINNED_PROTOCOL_DIGEST = (
-    "1cc11a584402079df50f8e2ad8c20cfcf166ea4c3ecc9a60f06c39946bdab6f7"
+    "2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda"
 )
 DECISION_ID = "6818495567"
 # The bound code is the static import closure of these entry points (module-level and
@@ -251,6 +251,8 @@ def test_packet_carries_the_prior_exposure_disclosures_and_the_review_route() ->
     assert "halts, writes no result and does not consume the run" in stop_rule
     assert "can never produce a reduced roster" in limitations
     assert "5879836463" in limitations and "5879837718" in limitations
+    assert "5880408681" in limitations and "5880409010" in limitations
+    assert "unexpected cache member" in limitations
 
 
 def test_documents_name_the_packet_and_the_protocol_digest() -> None:
@@ -284,6 +286,9 @@ def test_spec_states_the_registered_rules_of_revision_2() -> None:
         "binance_vision_missing_archive_v1",
         "missing without that evidence (not yet downloaded",
         "never ends in a traceback",
+        "evidence pass over every archive of both timeframes and funding",
+        "whatever the order of the timeframes",
+        "does not ignore the `.missing.json` sidecar",
         "dirty Git working tree",
         "There is no registry of runs",
         "same-account route",

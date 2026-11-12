@@ -19,6 +19,7 @@ MODULES = {
     "checksum.py",
     "cli.py",
     "archive_url.py",
+    "carry_source.py",
     "contracts.py",
     "embargo.py",
     "export.py",

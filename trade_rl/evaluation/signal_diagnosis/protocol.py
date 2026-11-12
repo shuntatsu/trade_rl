@@ -1591,8 +1591,8 @@ def _reference_payload() -> dict[str, object]:
             "improvement over the drift baseline)",
             "tail": TAIL_ONE_SIDED_POSITIVE,
             "p_value_source": "the p_value_one_sided of ewc_mean_test "
-            "(trade_rl.evaluation.signal_measurement) applied to the daily increment "
-            "series in day order: the equal-weighted cosine test, t = mean / "
+            "(the SD1 measurement tools, significance module) applied to the daily "
+            "increment series in day order: the equal-weighted cosine test, t = mean / "
             "sqrt(omega / n_days) with omega the average of the squared projections "
             "sqrt(2 / n_days) * sum_t x_t * cos(pi * j * (t - 1/2) / n_days) for j = 1 "
             "to nu, referred to the upper tail of a Student-t law with nu degrees of "

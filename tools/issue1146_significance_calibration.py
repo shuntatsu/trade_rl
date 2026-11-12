@@ -77,6 +77,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -412,8 +413,8 @@ def structural_panel(
         shocks = 0.25 * rng.standard_normal(days)
         log_vol = np.empty(days)
         log_vol[0] = shocks[0] / math.sqrt(1.0 - 0.95**2)
-        for day in range(1, days):
-            log_vol[day] = 0.95 * log_vol[day - 1] + shocks[day]
+        for step in range(1, days):
+            log_vol[step] = 0.95 * log_vol[step - 1] + shocks[step]
         returns = returns * np.exp(np.repeat(log_vol, _HOURS))[:, None]
     cumulative = np.concatenate([np.zeros((1, _SYMBOLS)), np.cumsum(returns, axis=0)])
     decisions = _WARMUP_DAYS * _HOURS + np.arange(n_days * _HOURS)
@@ -860,7 +861,7 @@ def reviewer_construction(replicates: int, *, workers: int = 1) -> tuple[float, 
 
 
 def _cell(pair: object, digits: int = 3) -> str:
-    mean, se = pair  # type: ignore[misc]
+    mean, se = cast("tuple[float, float]", pair)
     return f"{mean:.{digits}f} ± {se:.{digits}f}"
 
 

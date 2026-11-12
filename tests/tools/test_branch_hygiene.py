@@ -572,6 +572,42 @@ def test_transient_workflow_count_mismatch_restarts_the_complete_roster(
     ]
 
 
+def test_bounded_backoff_recovers_after_three_transient_incomplete_rosters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    attempts = 0
+    sleeps: list[float] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        nonlocal attempts
+        assert method == "GET" and suffix == "actions/runs" and query is not None
+        status = query["status"]
+        if status == "requested":
+            attempts += 1
+            # GitHub may briefly report a count larger than the returned page.
+            # A partial snapshot is never accepted as a branch deletion permit.
+            return {
+                "total_count": 2 if attempts <= 3 else 1,
+                "workflow_runs": [
+                    {"id": 1, "status": status, "head_branch": "feature/stable"}
+                ],
+            }
+        return {"total_count": 0, "workflow_runs": []}
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", sleeps.append)
+    assert api.active_workflow_branch_names() == frozenset({"feature/stable"})
+    assert attempts == 4
+    assert sleeps == [0.2, 0.4, 0.8]
+
+
 def test_persistent_workflow_count_mismatch_still_refuses_all_refs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -600,7 +636,7 @@ def test_persistent_workflow_count_mismatch_still_refuses_all_refs(
     monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
     with pytest.raises(RuntimeError, match="pagination is incomplete"):
         api.active_workflow_branch_names()
-    assert calls == 3
+    assert calls == 5
 
 
 def test_malformed_workflow_entry_is_not_hidden_by_snapshot_retries(

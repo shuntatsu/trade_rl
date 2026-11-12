@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
 )
-PINNED_DIGEST = "0afdd81cbf766b855924a7ed97b2bf25e71029ba77d6904ba2056753d43bd66d"
+PINNED_DIGEST = "d1d71d0ce61f672339b1cb44238c0d78929fe898cb0c2b9a63aec3cc805ac541"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -278,3 +278,47 @@ def test_exposure_candidate_provenance_and_bch_are_disclosed_everywhere() -> Non
     assert "data-blind" in forbidden and "controlled error rate" in forbidden
     text = json.dumps(packet())
     assert "mutation" not in text
+
+
+def test_hypothesis_prose_states_the_pinned_cell_rule_exactly() -> None:
+    thesis = packet()["thesis"]
+    hypothesis = thesis["hypothesis"]
+    # decision.cell_passes: the every-sub-period clause is the base cell's alone
+    assert "base cell only" in hypothesis
+    assert "full-period net return" in hypothesis
+    for stress in ("2x cost", "one hour of entry delay", "10x lower participation"):
+        assert stress in hypothesis
+    assert "in every calendar sub-period 2022 to 2026 and under" not in hypothesis
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "base cell only" in spec
+    assert "the stress cells are not required to be positive in every" in spec
+
+
+def test_inconclusive_universe_is_terminal_in_the_packet_the_spec_and_the_code() -> (
+    None
+):
+    thesis = packet()["thesis"]
+    assert "INCONCLUSIVE_UNIVERSE" in thesis["stop_rule"]
+    assert "terminal for this protocol" in thesis["stop_rule"]
+    assert "terminal for this protocol" in packet()["claims"]["decision_rule"]
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "`INCONCLUSIVE_UNIVERSE`, which is terminal for this protocol" in spec
+    assert "never rerun" in spec
+
+
+def test_one_authorization_covers_the_coverage_stage_and_every_resume() -> None:
+    sentence = (
+        "The coverage-only stage and any resume on the same output directory "
+        "are part of that one run."
+    )
+    assert sentence in protocol.lease_text(code_commit="a" * 40)
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert sentence in spec
+    action = packet()["claims"]["next_authorized_action"]
+    assert "coverage-only stage" in action and "resume" in action
+
+
+def test_spec_states_the_exclusive_funding_end_and_the_oversize_halt() -> None:
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "a funding event at exactly 2026-08-01T00:00Z is excluded" in spec
+    assert "larger than the fetcher's byte bound" in spec

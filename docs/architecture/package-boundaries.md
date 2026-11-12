@@ -172,11 +172,14 @@ economics for a protocol-declared USDT universe of up to eleven pairs under its 
 `funding_carry_multisymbol_development_v1` identity, plus `parse_carry_perp_rows`
 (strict hourly perpetual rows) and `CarryCoverageError` (a documented absence only: an HTTP 404 on a planned archive or a
 gap no declared halt explains, with its URL/status evidence; it is the only error that
-may exclude a symbol). Server errors, transport failures, timeouts (bounded retry) and
-offline cache misses raise the resumable `CarryOperationalHalt`; a checksum mismatch, a
+may exclude a symbol). Server errors, transport failures, timeouts (bounded retry), an
+oversize response (`RESPONSE_TOO_LARGE_STATUS`, not retried) and offline cache misses raise
+the resumable `CarryOperationalHalt`; a checksum mismatch, a
 malformed archive and duplicated, unordered or malformed rows raise `CarryIntegrityHalt`.
 The runner leaves a `halt.json` marker for either (and for any unexpected error) and
 writes no decision, so a halt can never become an exclusion or `INCONCLUSIVE_UNIVERSE`.
+That outcome is terminal for the protocol: the runner refuses to reopen an output
+directory holding it. The window end is exclusive for funding events as for klines.
 `evaluation/carry.py` accepts any even leg count from two to twenty-two for the same
 alternating spot/perpetual layout. `evaluation/carry_multisymbol/` owns the
 pre-registered protocol constants and digest (`protocol.py`), the pure decision rule

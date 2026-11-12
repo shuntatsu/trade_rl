@@ -33,12 +33,12 @@ REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-202611
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "68965ce47e023d8a398e2ea1bb03df90e7e9d26f40f3ffefdaad7a283fd3a8ca"
+PINNED_DIGEST = "46b24d5aba693a697416979bee68b15304ba69b89b55fe975705069c51d86072"
 REVISION_1_PACKET_DIGEST = (
     "894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64"
 )
 PINNED_PROTOCOL_DIGEST = (
-    "1bcf0b0129d373fdcfb5edb855a5f363e4d665710c97c237d607b5ea29bce439"
+    "1cc11a584402079df50f8e2ad8c20cfcf166ea4c3ecc9a60f06c39946bdab6f7"
 )
 DECISION_ID = "6818495567"
 # The bound code is the static import closure of these entry points (module-level and
@@ -245,8 +245,12 @@ def test_packet_carries_the_prior_exposure_disclosures_and_the_review_route() ->
     assert "not result-blind about its universe and window" in limitations
     assert "UNREVIEWED for the tooling" in limitations
     assert "No economic result, real price or return was read" not in text
-    # Nothing in the packet may allow an exclusion any more.
-    assert "HTTP 404" not in text and "fewer than 8" not in text
+    # A 404 only ever makes the run INVALID; nothing in the packet allows an exclusion.
+    assert "HTTP 404" in text and "fewer than 8" not in text
+    stop_rule = packet()["thesis"]["stop_rule"]
+    assert "halts, writes no result and does not consume the run" in stop_rule
+    assert "can never produce a reduced roster" in limitations
+    assert "5879836463" in limitations and "5879837718" in limitations
 
 
 def test_documents_name_the_packet_and_the_protocol_digest() -> None:
@@ -274,6 +278,12 @@ def test_spec_states_the_registered_rules_of_revision_2() -> None:
         'one-sided test of "mean above zero" at the 0.625% level',
         "the channel lengths N and M, the ATR stop multiples",
         "A fired stop keeps working until the position is flat",
+        "The stop exit takes precedence over a reversal",
+        "no entry is made in either direction",
+        "HTTP 404 evidence",
+        "binance_vision_missing_archive_v1",
+        "missing without that evidence (not yet downloaded",
+        "never ends in a traceback",
         "dirty Git working tree",
         "There is no registry of runs",
         "same-account route",
@@ -325,6 +335,8 @@ def test_the_static_closure_covers_every_shared_dependency_of_the_study() -> Non
         "trade_rl/simulation/__init__.py",
         "trade_rl/risk/pretrade.py",
         "trade_rl/integrations/binance/dataset.py",
+        "trade_rl/integrations/binance/cache.py",
+        "trade_rl/integrations/binance/transport.py",
         "trade_rl/artifacts/canonical.py",
     ):
         assert needed in bound, needed

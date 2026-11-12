@@ -23,9 +23,12 @@ removes the exclusion path (owner decision, issue #810 comment 6818495567: all e
 coins, no exclusions, a missing archive makes the run `INVALID`), records the code
 digest and refuses a dirty tree, and has a new packet pinned to this revision's code.
 Frozen protocol digest of revision 2:
-`1bcf0b0129d373fdcfb5edb855a5f363e4d665710c97c237d607b5ea29bce439`. The packet digest
+`1cc11a584402079df50f8e2ad8c20cfcf166ea4c3ecc9a60f06c39946bdab6f7`. The packet digest
 is pinned in `tests/evaluation/test_trend_stop_v2_packet.py` and named in the pull
-request.
+request. Reviews 5879836463 and 5879837718 of that pull request (the same-account
+route) blocked its first head because an incomplete Vision cache halted with a
+traceback instead of the `INVALID` stated here (the digests above are those of the
+fixed head), and noted that a reversal while a fired stop is pending was unspecified.
 
 Step 1 (this document, software only): does the rule have positive expectancy after
 costs, funding and hard risk? Step 2 (design note only, section 9): only if step 1 is
@@ -52,7 +55,7 @@ on top of the rule.
 
 | Item | Value |
 |---|---|
-| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Chosen by name and listing date, not from any return of this rule (prior exposure of the universe: section 5a). The roster is exactly these eleven symbols: there is no exclusion path, no minimum roster size and no CLI option for either. A Dataset missing any roster symbol (for example a missing archive) writes an `INVALID` result with no replay (no rejection of the rule); a symbol outside the roster, a cadence or warm-up violation, or a transient fetch failure, cache miss or malformed/checksum error halts the run. |
+| Universe | BTC, ETH, BNB, ADA, LINK, DOGE, DOT, AVAX, LTC, SOL, XRP (USDT-margined perpetuals). Chosen by name and listing date, not from any return of this rule (prior exposure of the universe: section 5a). The roster is exactly these eleven symbols: there is no exclusion path, no minimum roster size and no CLI option for either. A Dataset missing any roster symbol, or a Vision-cache archive with recorded HTTP 404 evidence (below), writes an `INVALID` result with no replay (no rejection of the rule). An archive missing without that evidence (not yet downloaded, a transient fetch failure, an empty file, a failed content check) is an operational halt: the CLI exits non-zero with a message naming what is absent, writes no result and does not consume the run. A symbol outside the roster or a cadence or warm-up violation also halts. |
 | Timeframes | 4h and 1d, native bars, one decision per bar |
 | Signal | Donchian breakout, long and short. Entry: close beyond the prior N-bar extremum (current bar excluded). Signal exit: close beyond the prior M-bar opposite extremum. Opposite entry signal reverses. |
 | Variants (at most 2) | `donchian_20_10` (N=20, M=10) and `donchian_55_20` (N=55, M=20), Turtle conventions in bars; never tuned |
@@ -95,6 +98,11 @@ decision-layer rule that uses the existing order, fill, cost and accounting path
    A fired stop keeps working until the position is flat: if the exit fills only in part
    (participation cap), the remainder is exited at every later decision even when the
    price has recovered above the stop level, and the whole exit is one stop event.
+   The stop exit takes precedence over a reversal: on the bar a stop fires, and while
+   its exit is pending, no entry is made in either direction (an opposite breakout
+   signal included) until the position is flat; from the first flat decision the
+   normal re-entry rules apply (the stopped direction stays blocked until its signal
+   has been absent, the opposite direction may enter at once).
 4. Limits: the entry reference is the observed fill-bar open (slippage is not in the
    stop distance); a stop touched and recovered inside a bar is charged at the level but
    the intrabar path after it is unknown; orders still working on the next bar (partial
@@ -189,7 +197,8 @@ than denied. Any pass must be read with that in mind.
   `tests/evaluation/test_trend_stop_study.py`. A stop exit that fills in three parts
   (4, 4 and 1/3 units under a participation cap), after a gap and after a recovery
   above the stop, is checked fill by fill, for a single stop event and for the summed
-  haircut.
+  haircut. A stop and an opposite breakout on one bar, and an opposite breakout while
+  a partly filled stop exit is pending, open nothing until the position is flat.
 - Sign: the short side is the exact mirror image of the long side.
 - Time: perturbing every bar after a cut leaves earlier decisions byte-identical, in the
   unit test and in the runner's real-data probe, which runs for every variant and
@@ -221,7 +230,18 @@ The runner refuses, before any replay, a missing or malformed G4 authorization U
 shape is checked, the owner lease remains a human gate), a window or Dataset reaching
 past 2026-07-31, a symbol outside the roster, a cadence mismatch, a non-empty output
 directory and a dirty Git working tree (the run must name the exact code). A Dataset
-that lacks any roster symbol writes an `INVALID` result instead. The result records
+that lacks any roster symbol, or a Vision cache that lacks an archive with recorded
+HTTP 404 evidence, writes an `INVALID` result instead (naming the symbol, URL, status
+and time of each such archive). The evidence is written by the download step: when
+the venue answers HTTP 404 for a Vision URL, the transport records a
+`<entry>.missing.json` sidecar next to the cache entry (schema
+`binance_vision_missing_archive_v1`: URL, status 404, observed time, downloader); any
+other HTTP failure, a timeout and an offline miss record nothing, a later successful
+download removes the record, and a malformed record is never read as a 404. The
+record is a file, not an authenticated venue receipt, so it can only turn a run
+`INVALID` and can never produce a reduced roster. Every other data failure
+(absent, empty or checksum-failing archive, unreadable Dataset) makes the CLI exit 2
+with a message and no result; it never ends in a traceback. The result records
 `code`: the Git HEAD, the tree id of `trade_rl/` at HEAD, the dirty flag (false for any
 run that proceeds) and a digest over the raw bytes of every loaded `trade_rl` module,
 each of which must lie under the checkout. There is no registry of runs: a repeat into

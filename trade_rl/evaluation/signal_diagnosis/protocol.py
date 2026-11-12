@@ -613,14 +613,19 @@ class SignificanceSpec:
         """
 
         days = _exact_int(n_days, "n_days", minimum=0)
+        # The protocol promises an integer-exact floor. Never seed the root
+        # with floating point or iterate once per estimated rounding error.
         bound = self.terms_square_multiplier * days * days
         cube = self.terms_cube_multiplier
-        terms = round((bound / cube) ** (1.0 / 3.0))
-        while cube * terms**3 > bound:
-            terms -= 1
-        while cube * (terms + 1) ** 3 <= bound:
-            terms += 1
-        return terms
+        lower = 0
+        upper = 1 << ((bound.bit_length() + 2) // 3)
+        while lower + 1 < upper:
+            middle = (lower + upper) // 2
+            if cube * middle**3 <= bound:
+                lower = middle
+            else:
+                upper = middle
+        return lower
 
 
 @dataclass(frozen=True, slots=True)

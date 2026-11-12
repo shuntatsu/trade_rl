@@ -34,13 +34,19 @@ def ewc_terms(n_days: int) -> int:
 
     if isinstance(n_days, bool) or not isinstance(n_days, int) or n_days < 0:
         raise SignalMeasurementError("n_days must be a non-negative integer")
+    # Exact cubic-root floor: integer-only binary search, O(log(n_days)).
+    # A floating estimate plus one-step corrections may require billions of
+    # steps for a huge but syntactically valid Python integer.
     bound = 8 * n_days * n_days
-    terms = round(0.4 * n_days ** (2.0 / 3.0))
-    while 125 * terms**3 > bound:
-        terms -= 1
-    while 125 * (terms + 1) ** 3 <= bound:
-        terms += 1
-    return terms
+    lower = 0
+    upper = 1 << ((bound.bit_length() + 2) // 3)
+    while lower + 1 < upper:
+        middle = (lower + upper) // 2
+        if 125 * middle**3 <= bound:
+            lower = middle
+        else:
+            upper = middle
+    return lower
 
 
 def _beta_continued_fraction(a: float, b: float, x: float) -> float:

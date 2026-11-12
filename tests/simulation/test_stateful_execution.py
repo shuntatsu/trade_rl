@@ -127,9 +127,7 @@ def test_unmarketable_limit_open_projection_underflow_rejects_before_order_state
     )
     executor = _executor(dataset)
     book = BookState.zero(1, 1_000.0, np.array([tiny_price]), np.array([tiny_price]))
-    runtime = StatefulExecutionRuntime.create(
-        executor, book, OrderBookState.empty()
-    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
     runtime.submit_intents(
         (_intent(executor, -1.0, order_type=OrderType.LIMIT, limit_price=1e200),)
     )
@@ -306,9 +304,7 @@ def test_stateful_existing_subnormal_exposure_admission_under_strict_numpy(
     )
     # Set up the real stateful runtime before entering strict NumPy mode:
     # BookState cloning is a separate accounting contract covered in #1144.
-    runtime = StatefulExecutionRuntime.create(
-        executor, book, OrderBookState.empty()
-    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
     runtime.submit_intents((_intent(executor, signed_order),))
     runtime.initialize_metrics()
     context = SimpleNamespace(
@@ -1899,7 +1895,6 @@ def test_cancel_and_replace_emits_cancellation_before_replacement_submission() -
         range(len(second.order_events))
     )
 
-
 def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
     """Reject a finite reservation whose cash leg cannot be represented."""
     prices = np.ones((6, 1))
@@ -1918,7 +1913,9 @@ def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
         peak_value=1e308,
         contract_multipliers=np.array([1e308]),
     )
-    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime = StatefulExecutionRuntime.create(
+        executor, book, OrderBookState.empty()
+    )
     runtime.submit_intents((_intent(executor, -0.2),))
     runtime.initialize_metrics()
     context = SimpleNamespace(

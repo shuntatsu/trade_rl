@@ -465,6 +465,26 @@ def request(tmp_path, **overrides):
     return runner.ScreenRequest(**values)
 
 
+def test_huge_but_finite_source_decimal_cannot_fake_liquidity(
+    tiny,
+) -> None:
+    """Finite Decimal input can project to float infinity at the data boundary."""
+    from dataclasses import replace
+
+    class OversizedQuoteSource(FakeSource):
+        def read_klines(self, market, symbol, interval, start_ms, end_ms):
+            rows = super().read_klines(market, symbol, interval, start_ms, end_ms)
+            return [replace(row, quote_volume=Decimal("1e400")) for row in rows]
+
+    data = screen_data(OversizedQuoteSource())
+    medians = data.lookback_median_volumes("SOLUSDT")
+    assert set(medians) == {"spot", "usds_m"}
+    assert all(math.isinf(value) for value in medians.values())
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        runner._load_symbol(data, "SOLUSDT")
+    assert caught.value.evidence["kind"] == "invalid_lookback_liquidity"
+
+
 def test_full_run_writes_every_cell_and_a_decision(tiny, tmp_path) -> None:
     source = FakeSource()
     result = runner.run_screen(request(tmp_path), screen_data(source))

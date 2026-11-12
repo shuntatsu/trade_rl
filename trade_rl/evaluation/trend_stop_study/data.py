@@ -57,14 +57,6 @@ def _ns(text: str) -> int:
     return int(np.datetime64(text, "ns").astype(np.int64))
 
 
-# Every failure a data load can raise; the CLI maps each to INVALID or a halt.
-DATA_LOAD_ERRORS: tuple[type[Exception], ...] = (
-    ValueError,
-    OSError,
-    BinanceTransportError,
-)
-
-
 @dataclass(frozen=True)
 class MissingArchive:
     """A roster archive the venue answered HTTP 404 for, with the recorded evidence."""
@@ -208,48 +200,65 @@ def _archive_symbol(protocol: TrendStopProtocol, url: str) -> str:
     return matches[0]
 
 
-def classify_vision_cache(
-    protocol: TrendStopProtocol, timeframe: str, *, cache_root: Path
+def classify_vision_caches(
+    protocol: TrendStopProtocol, timeframes: Sequence[str], *, cache_root: Path
 ) -> None:
-    """Return if the cache is complete; otherwise raise INVALID or an operational halt.
+    """One evidence pass over every archive of every timeframe (klines and funding).
 
-    * A missing archive with recorded HTTP 404 evidence (written by the download step
-      when the venue answered 404) raises :class:`IncompleteRosterError`: INVALID and
-      terminal. It takes precedence over any other gap.
-    * Any other gap (not yet downloaded, empty, failed content check, unreadable
+    Returns if the cache is complete. Otherwise, before anything is decided:
+
+    * any missing archive with recorded HTTP 404 evidence (written by the download
+      step when the venue answered 404), in any timeframe, raises
+      :class:`IncompleteRosterError`: INVALID and terminal, whatever the build order
+      and whatever other gaps exist;
+    * else any gap (not yet downloaded, empty, failed content check, unreadable
       evidence) raises :class:`IncompleteArchiveCacheError`: a resumable halt that
       writes no result.
     """
 
-    plan = plan_vision_cache(protocol, timeframe)
-    report = inspect_binance_vision_cache(plan, cache_root=cache_root)
-    if report.complete:
-        return
-    evidenced: list[MissingArchive] = []
-    absent: list[str] = []
-    for url in report.missing_urls:
-        try:
-            record = read_missing_archive_evidence(
-                vision_cache_path(cache_root, url), url
-            )
-        except BinanceTransportError:
-            record = None  # unreadable evidence is not a 404: the operator repairs it
-        if record is None:
-            absent.append(url)
-        else:
-            evidenced.append(
-                MissingArchive(
+    evidenced: dict[str, MissingArchive] = {}
+    absent: dict[str, None] = {}
+    empty: dict[str, None] = {}
+    invalid: dict[str, None] = {}
+    for timeframe in timeframes:
+        plan = plan_vision_cache(protocol, timeframe)
+        report = inspect_binance_vision_cache(plan, cache_root=cache_root)
+        for url in report.missing_urls:
+            try:
+                record = read_missing_archive_evidence(
+                    vision_cache_path(cache_root, url), url
+                )
+            except BinanceTransportError:
+                record = (
+                    None  # unreadable evidence is not a 404: the operator repairs it
+                )
+            if record is None:
+                absent[url] = None
+            else:
+                evidenced[url] = MissingArchive(
                     symbol=_archive_symbol(protocol, url),
                     url=url,
                     http_status=int(str(record["http_status"])),
                     observed_at=str(record["observed_at"]),
                 )
-            )
+        empty.update(dict.fromkeys(report.empty_urls))
+        invalid.update(dict.fromkeys(report.invalid_urls))
     if evidenced:
-        raise IncompleteRosterError({item.symbol for item in evidenced}, evidenced)
-    raise IncompleteArchiveCacheError(
-        absent=absent, empty=report.empty_urls, invalid=report.invalid_urls
-    )
+        raise IncompleteRosterError(
+            {item.symbol for item in evidenced.values()}, list(evidenced.values())
+        )
+    if absent or empty or invalid:
+        raise IncompleteArchiveCacheError(
+            absent=list(absent), empty=list(empty), invalid=list(invalid)
+        )
+
+
+def classify_vision_cache(
+    protocol: TrendStopProtocol, timeframe: str, *, cache_root: Path
+) -> None:
+    """:func:`classify_vision_caches` for one timeframe."""
+
+    classify_vision_caches(protocol, (timeframe,), cache_root=cache_root)
 
 
 def build_dataset_from_transport(
@@ -285,13 +294,29 @@ def build_vision_dataset(
     *,
     cache_root: Path,
     exchange_info_dir: Path,
+    cache_verified: bool = False,
 ) -> MarketDataset:
-    """Fallback: build from a complete local Vision cache; never uses the network."""
+    """Fallback: build from a complete local Vision cache; never uses the network.
+
+    ``cache_verified`` is true when the caller already ran
+    :func:`classify_vision_caches` over every timeframe (the CLI does, so no timeframe
+    order can change the outcome); otherwise this timeframe's cache is classified.
+    A missing or unreadable exchange-information snapshot is an operational halt.
+    """
 
     if timeframe not in _BAR_NS:
         raise ValueError(f"unsupported timeframe: {timeframe}")
-    classify_vision_cache(protocol, timeframe, cache_root=cache_root)
+    if not cache_verified:
+        classify_vision_cache(protocol, timeframe, cache_root=cache_root)
     frozen = FrozenBinanceExchangeInfoTransport(exchange_info_dir, delegate=None)
+    try:
+        frozen.load_exchange_information_snapshot(market=BinanceMarket.USDS_M)
+    except Exception as error:  # the snapshot is metadata, never a missing archive
+        raise OperationalDataError(
+            f"the exchange-information snapshot in {exchange_info_dir} is missing or "
+            f"unreadable ({type(error).__name__}: {error}); no result was written, "
+            "provide the frozen snapshot and rerun"
+        ) from error
     transport = BaseIntervalAggregatingTransport(
         BinancePublicTransport(cache_root=cache_root, allow_network=False),
         exchange_information=frozen,
@@ -310,13 +335,13 @@ def build_vision_dataset(
 
 
 __all__ = [
-    "DATA_LOAD_ERRORS",
     "IncompleteArchiveCacheError",
     "IncompleteRosterError",
     "MissingArchive",
     "OperationalDataError",
     "build_dataset_from_transport",
     "classify_vision_cache",
+    "classify_vision_caches",
     "build_vision_dataset",
     "load_exported_dataset",
     "plan_vision_cache",

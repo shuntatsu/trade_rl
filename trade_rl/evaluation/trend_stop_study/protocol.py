@@ -112,7 +112,10 @@ DEVIATIONS: Final = (
     "(URL, status, time, written by the download step), writes an INVALID result with "
     "no replay; an archive missing without such evidence (not yet downloaded, "
     "transient failure, empty, failed content check) halts with no result and does "
-    "not consume the run",
+    "not consume the run; one evidence pass over every archive of both timeframes and "
+    "funding decides first, so valid 404 evidence anywhere is INVALID whatever the "
+    "build order or other gaps, and a missing exchange-information snapshot or any "
+    "other data or metadata failure is a halt, never a traceback",
     "the future-perturbation probe runs for every (timeframe, variant) pair and "
     "validity criterion 8 of each configuration uses its own probe",
     "prior exposure of the universe and window is disclosed in PRIOR_EXPOSURE",

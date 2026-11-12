@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import subprocess
 import types
+import zipfile
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -43,6 +44,7 @@ from trade_rl.evaluation.trend_stop_study.data import (
     build_dataset_from_transport,
     build_vision_dataset,
     classify_vision_cache,
+    classify_vision_caches,
     plan_vision_cache,
     validate_study_dataset,
 )
@@ -62,7 +64,7 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
     trend_config,
     validate_authorization_url,
 )
-from trade_rl.integrations.binance import vision_cache_path
+from trade_rl.integrations.binance import BinanceTransportError, vision_cache_path
 from trade_rl.integrations.binance.cache import (
     missing_archive_evidence_path,
     write_missing_archive_evidence,
@@ -1429,3 +1431,203 @@ def test_the_cli_maps_an_unreadable_dataset_to_a_halt(
     captured = capsys.readouterr()
     assert code == 2 and "halted, no result written" in captured.err
     assert "Traceback" not in captured.err and not out.exists()
+
+
+# -- one evidence pass: the outcome never depends on the timeframe order -----------------
+
+
+def _first_url(timeframe: str, symbol: str, kind: str) -> str:
+    return next(
+        u for u in _vision_urls(timeframe) if f"/{symbol}/" in u and f"/{kind}/" in u
+    )
+
+
+def _vision_cli_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record: list[str]
+) -> tuple[int, Path]:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    cache.mkdir()
+    for url in record:
+        _record_404(cache, url)
+    return _cli_vision(cache, out), out
+
+
+@pytest.mark.parametrize("evidenced_timeframe", ["4h", "1d"])
+def test_a_404_in_either_timeframe_is_invalid_whatever_the_build_order(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    evidenced_timeframe: str,
+) -> None:
+    # The other timeframe's archives are merely absent (not downloaded).
+    url = _first_url(evidenced_timeframe, "ADAUSDT", "klines")
+    code, out = _vision_cli_case(tmp_path, monkeypatch, [url])
+
+    assert code == 3, capsys.readouterr().err
+    stored = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert stored["label"] == "INVALID" and stored["missing_symbols"] == ["ADAUSDT"]
+    assert [item["url"] for item in stored["missing_archives"]] == [url]
+
+
+def test_404_evidence_in_both_timeframes_and_funding_names_every_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    urls = [
+        _first_url("1d", "LTCUSDT", "klines"),
+        _first_url("4h", "DOGEUSDT", "klines"),
+        _first_url("4h", "SOLUSDT", "fundingRate"),
+    ]
+    code, out = _vision_cli_case(tmp_path, monkeypatch, urls)
+
+    assert code == 3
+    stored = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert stored["missing_symbols"] == ["DOGEUSDT", "LTCUSDT", "SOLUSDT"]
+    assert sorted(item["url"] for item in stored["missing_archives"]) == sorted(urls)
+
+
+def test_a_404_wins_over_a_checksum_failure_and_absent_archives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    corrupt = _first_url("4h", "BTCUSDT", "klines")
+    binary = vision_cache_path(cache, corrupt)
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"corrupt")
+    binary.with_suffix(".json").write_text("{}", encoding="utf-8")
+    evidenced = _first_url("1d", "XRPUSDT", "klines")
+    _record_404(cache, evidenced)
+
+    assert _cli_vision(cache, out) == 3
+
+    stored = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert stored["missing_symbols"] == ["XRPUSDT"]
+
+
+def test_without_404_evidence_gaps_in_both_timeframes_halt_with_one_union(
+    tmp_path: Path,
+) -> None:
+    union = set(_vision_urls("4h")) | set(_vision_urls("1d"))
+    with pytest.raises(IncompleteArchiveCacheError) as caught:
+        classify_vision_caches(PROTOCOL, ("4h", "1d"), cache_root=tmp_path)
+    assert set(caught.value.absent) == union
+    assert len(caught.value.absent) == len(union)  # the shared funding URLs once
+
+
+def test_a_404_in_the_second_timeframe_is_found_before_the_first_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a Dataset was built before the evidence pass finished")
+
+    monkeypatch.setattr(cli, "build_vision_dataset", forbidden)
+    code, out = _vision_cli_case(
+        tmp_path, monkeypatch, [_first_url("1d", "AVAXUSDT", "klines")]
+    )
+    assert code == 3 and (out / "result.json").is_file()
+
+
+# -- no data or metadata failure ends in a traceback -----------------------------------
+
+
+def test_a_missing_exchange_information_snapshot_is_a_halt_not_a_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    monkeypatch.setattr(cli, "classify_vision_caches", lambda *a, **k: None)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    info = tmp_path / "info"
+    cache.mkdir()
+    info.mkdir()
+
+    code = cli.main(
+        [
+            "--output-dir",
+            str(out),
+            "--g4-authorization-url",
+            AUTHORIZATION_URL,
+            "--vision-cache",
+            str(cache),
+            "--exchange-info-dir",
+            str(info),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "exchange-information snapshot" in captured.err
+    assert "RuntimeError" in captured.err and "Traceback" not in captured.err
+    assert not out.exists()
+    with pytest.raises(OperationalDataError, match="exchange-information"):
+        build_vision_dataset(
+            PROTOCOL,
+            "4h",
+            cache_root=cache,
+            exchange_info_dir=info,
+            cache_verified=True,
+        )
+
+
+_INJECTED = [
+    RuntimeError("frozen metadata cache is incomplete"),
+    ValueError("bad value"),
+    OSError("disk"),
+    FileNotFoundError("gone"),
+    PermissionError("denied"),
+    KeyError("field"),
+    IndexError("row"),
+    EOFError("short"),
+    zipfile.BadZipFile("not a zip"),
+    UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"),
+    json.JSONDecodeError("bad json", "{", 1),
+    OverflowError("big"),
+    ZeroDivisionError("zero"),
+    AssertionError("invariant"),
+    MemoryError("memory"),
+    BinanceTransportError("transport"),
+]
+
+
+@pytest.mark.parametrize(
+    "error", _INJECTED, ids=[type(item).__name__ for item in _INJECTED]
+)
+@pytest.mark.parametrize("stage", ["dataset", "cache_pass", "build", "run"])
+def test_no_injected_failure_ever_ends_in_a_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    error: Exception,
+) -> None:
+    def boom(*args: object, **kwargs: object) -> Any:
+        raise error
+
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    out = tmp_path / "out"
+    argv = ["--output-dir", str(out), "--g4-authorization-url", AUTHORIZATION_URL]
+    if stage == "dataset":
+        monkeypatch.setattr(cli, "load_exported_dataset", boom)
+        argv += ["--dataset-4h", "x", "--dataset-1d", "y"]
+    else:
+        argv += ["--vision-cache", str(tmp_path), "--exchange-info-dir", str(tmp_path)]
+        if stage == "cache_pass":
+            monkeypatch.setattr(cli, "classify_vision_caches", boom)
+        else:
+            monkeypatch.setattr(cli, "classify_vision_caches", lambda *a, **k: None)
+            monkeypatch.setattr(cli, "build_vision_dataset", boom)
+    if stage == "run":
+        monkeypatch.setattr(cli, "load_exported_dataset", lambda path: object())
+        monkeypatch.setattr(cli, "run_study", boom)
+        argv = argv[:4] + ["--dataset-4h", "x", "--dataset-1d", "y"]
+
+    code = cli.main(argv)
+
+    captured = capsys.readouterr()
+    assert code == 2, captured
+    assert type(error).__name__ in captured.err
+    assert "halted, no result written" in captured.err
+    assert "Traceback" not in captured.err and "label=" not in captured.out
+    assert not out.exists()  # no result: the single run is not consumed

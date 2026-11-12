@@ -20,9 +20,9 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.evaluation.trend_stop_study.data import (
-    DATA_LOAD_ERRORS,
     IncompleteRosterError,
     build_vision_dataset,
+    classify_vision_caches,
     load_exported_dataset,
 )
 from trade_rl.evaluation.trend_stop_study.protocol import (
@@ -108,22 +108,35 @@ def build_parser() -> argparse.ArgumentParser:
 def _load_datasets(
     args: argparse.Namespace, protocol: TrendStopProtocol
 ) -> dict[str, MarketDataset]:
+    """Load both timeframes; the outcome never depends on the timeframe order.
+
+    Every timeframe's source is resolved first, then one evidence pass classifies every
+    Vision-cache archive of every fallback timeframe (valid HTTP 404 evidence anywhere
+    is INVALID, any other gap is a halt), and only then is any Dataset built.
+    """
+
+    paths = {tf: getattr(args, f"dataset_{tf}") for tf in protocol.timeframes}
+    fallback = args.vision_cache is not None and args.exchange_info_dir is not None
+    for timeframe, path in paths.items():
+        if path is None and not fallback:
+            raise ValueError(
+                f"no {timeframe} Dataset: pass --dataset-{timeframe} or both "
+                "--vision-cache and --exchange-info-dir"
+            )
+    cache_timeframes = [tf for tf, path in paths.items() if path is None]
+    if cache_timeframes:
+        classify_vision_caches(protocol, cache_timeframes, cache_root=args.vision_cache)
     datasets: dict[str, MarketDataset] = {}
-    for timeframe in protocol.timeframes:
-        path = getattr(args, f"dataset_{timeframe}")
+    for timeframe, path in paths.items():
         if path is not None:
             datasets[timeframe] = load_exported_dataset(path)
-        elif args.vision_cache is not None and args.exchange_info_dir is not None:
+        else:
             datasets[timeframe] = build_vision_dataset(
                 protocol,
                 timeframe,
                 cache_root=args.vision_cache,
                 exchange_info_dir=args.exchange_info_dir,
-            )
-        else:
-            raise ValueError(
-                f"no {timeframe} Dataset: pass --dataset-{timeframe} or both "
-                "--vision-cache and --exchange-info-dir"
+                cache_verified=True,
             )
     return datasets
 
@@ -168,11 +181,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             error.archives,
         )
         cells, equity = {}, {}
-    except DATA_LOAD_ERRORS as error:
-        # Every other data failure (an archive not downloaded, a failed content
-        # check, an unreadable Dataset) is an operational halt: no result is written
-        # and the single run is not consumed.
-        print(f"halted, no result written: {error}", file=sys.stderr)
+    except Exception as error:
+        # Every other failure while loading data or metadata (an archive not
+        # downloaded, a failed content check, a missing exchange-information
+        # snapshot, an unreadable Dataset, a corrupt archive, ...) is an operational
+        # halt: no result is written, the single run is not consumed and the process
+        # never ends in a traceback. The exception type is named in the message.
+        print(
+            f"halted, no result written ({type(error).__name__}): {error}",
+            file=sys.stderr,
+        )
         return 2
     write_outputs(output_dir, result, cells, equity)
     print(f"label={result['label']} passing={result['passing_configurations']}")

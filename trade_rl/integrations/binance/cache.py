@@ -28,7 +28,13 @@ _MISSING_ARCHIVE_FIELDS = frozenset(
 
 
 def missing_archive_evidence_path(cache_path: Path) -> Path:
-    """Sidecar that records an HTTP 404 for the archive that would live at ``cache_path``."""
+    """Sidecar that records an HTTP 404 for the archive that would live at ``cache_path``.
+
+    Consumers do not ignore it: the cache inspectors above look only at ``.bin`` files,
+    but forward acquisition deliberately reports any unplanned cache member, this
+    sidecar included, as ``archives_unexpected`` (fail closed). The trend-stop study is
+    the consumer that reads it.
+    """
 
     return cache_path.with_suffix(".missing.json")
 

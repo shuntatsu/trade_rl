@@ -30,6 +30,8 @@ from trade_rl.simulation.stateful.execution import (
 )
 from trade_rl.strategies.carry import CarryConfig, FundingCarryBot
 
+MAX_CARRY_PAIRS = 11
+
 
 def futures_collateral(
     cash: float, quantities: np.ndarray, prices: np.ndarray
@@ -103,7 +105,8 @@ def _validate_replay(
 ) -> None:
     if (
         not dataset.identity_verified
-        or dataset.n_symbols not in {2, 4}
+        or dataset.n_symbols % 2
+        or not 2 <= dataset.n_symbols <= 2 * MAX_CARRY_PAIRS
         or any(
             dataset.symbols[i].removesuffix(":spot")
             != dataset.symbols[i + 1].removesuffix(":perp")

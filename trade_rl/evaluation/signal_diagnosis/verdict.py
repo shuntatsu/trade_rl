@@ -274,7 +274,8 @@ def _check_provenance(
         protocol.data.evaluation_start.replace("Z", "+00:00")
     )
     finish = datetime.fromisoformat(protocol.data.evaluation_end.replace("Z", "+00:00"))
-    max_days = (finish.date() - start.date()).days + 1
+    # Frozen endpoints are UTC midnights; [start, end) excludes end's date.
+    max_days = (finish.date() - start.date()).days
     for cell in cells:
         claimed = cell.p_value_provenance
         if claimed.procedure_id != significance.procedure_id:

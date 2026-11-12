@@ -1939,4 +1939,3 @@ def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
     assert runtime.book.cash == 1.7e308
     assert runtime.fill_count == 0
     assert runtime.order_book.active_orders == ()
-

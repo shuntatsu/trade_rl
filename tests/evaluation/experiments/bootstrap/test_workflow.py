@@ -185,6 +185,85 @@ def test_existing_output_is_rejected_without_mutation(
     assert {entry.name for entry in output.iterdir()} == {"keep.txt"}
 
 
+def test_bootstrap_never_replaces_competing_empty_root_after_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claim the output after bootstrap's last check but before its rename."""
+    _install_fakes(monkeypatch)
+    from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
+
+    output = tmp_path / "canonical-m2"
+    real_inspect = workflow_module.inspect_canonical_m2_bootstrap
+    real_is_symlink = Path.is_symlink
+    validated = False
+    competitor_created = False
+
+    def inspect_staging(root: str | Path) -> CanonicalM2BootstrapResult:
+        nonlocal validated
+        verified = real_inspect(root)
+        assert Path(root).name.startswith(".canonical-m2.staging-")
+        validated = True
+        return verified
+
+    def race_after_last_output_check(path: Path) -> bool:
+        nonlocal competitor_created
+        was_symlink = real_is_symlink(path)
+        if path == output and validated and not competitor_created:
+            # The enclosing `output.exists() or output.is_symlink()` still
+            # evaluates false: the contender appears *inside* the latter call.
+            assert not output.exists()
+            output.mkdir()
+            competitor_created = True
+        return was_symlink
+
+    monkeypatch.setattr(
+        workflow_module, "inspect_canonical_m2_bootstrap", inspect_staging
+    )
+    monkeypatch.setattr(Path, "is_symlink", race_after_last_output_check)
+    with pytest.raises(FileExistsError):
+        bootstrap_canonical_m2_study(_config_path(tmp_path), output)
+
+    assert competitor_created, "the late TOCTOU interleaving did not run"
+    assert output.is_dir() and not tuple(output.iterdir())
+    assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
+
+
+def test_bootstrap_publication_rejects_race_inside_exclusive_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The filesystem rename itself must reject a late competing empty root."""
+    _install_fakes(monkeypatch)
+    from trade_rl.artifacts import atomic_write
+
+    output = tmp_path / "canonical-m2"
+    original_rename = atomic_write._rename_directory_no_replace
+    raced = False
+
+    def rename_after_competitor_appears(staging: Path, target: Path) -> None:
+        nonlocal raced
+        if target == output:
+            assert not raced
+            assert not output.exists()
+            assert staging.is_dir()
+            output.mkdir()
+            raced = True
+        original_rename(staging, target)
+
+    # The rival appears *after* atomic_rename_directory's initial target
+    # existence check, at the exclusive OS rename boundary.
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_no_replace", rename_after_competitor_appears
+    )
+    with pytest.raises(FileExistsError):
+        bootstrap_canonical_m2_study(_config_path(tmp_path), output)
+
+    assert raced, "bootstrap did not reach its exclusive rename boundary"
+    assert output.is_dir() and not tuple(output.iterdir())
+    assert not tuple(tmp_path.glob(".canonical-m2.staging-*"))
+
+
 def test_mid_bootstrap_failure_leaves_no_final_or_staging_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

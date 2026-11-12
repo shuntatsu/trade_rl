@@ -127,7 +127,9 @@ def test_unmarketable_limit_open_projection_underflow_rejects_before_order_state
     )
     executor = _executor(dataset)
     book = BookState.zero(1, 1_000.0, np.array([tiny_price]), np.array([tiny_price]))
-    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime = StatefulExecutionRuntime.create(
+        executor, book, OrderBookState.empty()
+    )
     runtime.submit_intents(
         (_intent(executor, -1.0, order_type=OrderType.LIMIT, limit_price=1e200),)
     )
@@ -1895,6 +1897,7 @@ def test_cancel_and_replace_emits_cancellation_before_replacement_submission() -
         range(len(second.order_events))
     )
 
+
 def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
     """Reject a finite reservation whose cash leg cannot be represented."""
     prices = np.ones((6, 1))
@@ -1924,7 +1927,9 @@ def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
         minimum_notional=np.zeros(1),
     )
 
-    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(runtime, context)
+    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+        runtime, context
+    )
 
     assert accepted == []
     assert [(event.event_type, event.reason) for event in runtime.events] == [

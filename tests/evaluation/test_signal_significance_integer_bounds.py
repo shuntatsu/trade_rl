@@ -73,6 +73,30 @@ def test_provenance_rejects_impossible_development_day_counts(
         )
 
 
+@pytest.mark.parametrize(
+    ("raw_days", "demeaned_days"),
+    ((2039, 2038), (2038, 2039)),
+)
+def test_half_open_development_window_excludes_its_terminal_day(
+    raw_days: int,
+    demeaned_days: int,
+) -> None:
+    """2026-08-01 is not another eligible day of [2021-01-01, 2026-08-01)."""
+
+    protocol = default_signal_diagnosis_protocol()
+    assert protocol.data.evaluation_start == "2021-01-01T00:00:00Z"
+    assert protocol.data.evaluation_end == "2026-08-01T00:00:00Z"
+    with pytest.raises(
+        SignalDiagnosisProtocolError, match="eligible-day count exceeds"
+    ):
+        _check_provenance((_fake_cell(raw_days, demeaned_days),), protocol)
+
+
+def test_full_2038_development_days_remain_admissible() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    _check_provenance((_fake_cell(2038, 2038),), protocol)
+
+
 def test_normal_provenance_day_counts_still_validate() -> None:
     _check_provenance(
         (_fake_cell(1400, 1400),),

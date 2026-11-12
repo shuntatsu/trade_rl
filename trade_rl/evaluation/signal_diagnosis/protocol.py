@@ -178,6 +178,23 @@ def _registry_instant(text: str) -> datetime:
     return datetime.fromisoformat(text).replace(tzinfo=UTC)
 
 
+def _integer_cube_root(value: int) -> int:
+    """The largest integer ``r`` with ``r**3 <= value``, in logarithmic time.
+
+    Integer Newton iteration from a power of two above the root; it terminates for
+    every non-negative integer however large, with no floating point.
+    """
+
+    if value < 2:
+        return value
+    root = 1 << ((value.bit_length() + 2) // 3)
+    while True:
+        better = (2 * root + value // (root * root)) // 3
+        if better >= root:
+            return root
+        root = better
+
+
 def _iso_z(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
@@ -614,13 +631,9 @@ class SignificanceSpec:
 
         days = _exact_int(n_days, "n_days", minimum=0)
         bound = self.terms_square_multiplier * days * days
-        cube = self.terms_cube_multiplier
-        terms = round((bound / cube) ** (1.0 / 3.0))
-        while cube * terms**3 > bound:
-            terms -= 1
-        while cube * (terms + 1) ** 3 <= bound:
-            terms += 1
-        return terms
+        # nu**3 is an integer, so cube * nu**3 <= bound exactly when
+        # nu**3 <= floor(bound / cube); no floating point decides a degree of freedom.
+        return _integer_cube_root(bound // self.terms_cube_multiplier)
 
 
 @dataclass(frozen=True, slots=True)
@@ -948,6 +961,33 @@ class SignalDiagnosisProtocol:
             raise _fail("the replay cap must equal the candidate cap")
         if tuple(self.verdict_labels) != VERDICT_LABELS:
             raise _fail("verdict_labels must be the four preregistered labels")
+
+    def max_series_days(self) -> int:
+        """Most daily increments a series can have: the calendar days of the window.
+
+        A series holds at most one value per UTC day of the half-open evaluation
+        window, so a larger count is not a count of that window's days.
+        """
+
+        start = _parse_z(self.data.evaluation_start, "evaluation_start")
+        end = _parse_z(self.data.evaluation_end, "evaluation_end")
+        span = end - start
+        return span.days + (1 if span % timedelta(days=1) else 0)
+
+    def cosine_terms_for(self, n_days: int) -> int:
+        """``significance.cosine_terms`` for a series of the evaluation window.
+
+        A count above ``max_series_days()`` fails closed with a typed error.
+        """
+
+        days = _exact_int(n_days, "n_days", minimum=0)
+        if days > self.max_series_days():
+            # The count is not printed: converting a huge int to text can itself fail.
+            raise _fail(
+                f"a series of {days.bit_length()} bits exceeds the "
+                f"{self.max_series_days()} days of the evaluation window"
+            )
+        return self.significance.cosine_terms(days)
 
     def _validate_significance(self) -> None:
         """The BH family is the decision cells; both estimators cover label overlap.

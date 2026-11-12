@@ -34,13 +34,22 @@ def ewc_terms(n_days: int) -> int:
 
     if isinstance(n_days, bool) or not isinstance(n_days, int) or n_days < 0:
         raise SignalMeasurementError("n_days must be a non-negative integer")
-    bound = 8 * n_days * n_days
-    terms = round(0.4 * n_days ** (2.0 / 3.0))
-    while 125 * terms**3 > bound:
-        terms -= 1
-    while 125 * (terms + 1) ** 3 <= bound:
-        terms += 1
-    return terms
+    # nu**3 is an integer, so 125 nu**3 <= 8 n**2 exactly when nu**3 <= floor(8 n**2 / 125);
+    # no floating point decides a degree of freedom and any size of n is cheap.
+    return _integer_cube_root(8 * n_days * n_days // 125)
+
+
+def _integer_cube_root(value: int) -> int:
+    """The largest integer ``r`` with ``r**3 <= value``, by integer Newton iteration."""
+
+    if value < 2:
+        return value
+    root = 1 << ((value.bit_length() + 2) // 3)
+    while True:
+        better = (2 * root + value // (root * root)) // 3
+        if better >= root:
+            return root
+        root = better
 
 
 def _beta_continued_fraction(a: float, b: float, x: float) -> float:

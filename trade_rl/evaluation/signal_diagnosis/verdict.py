@@ -278,7 +278,7 @@ def _check_provenance(
             ("raw", claimed.raw_n_days, cell.rank_ic_p_value),
             ("demeaned", claimed.demeaned_n_days, cell.demeaned_p_value),
         ):
-            if significance.cosine_terms(n_days) < 1 and p_value != 1.0:
+            if protocol.cosine_terms_for(n_days) < 1 and p_value != 1.0:
                 raise _fail(
                     f"cell {cell.cell_id}: the {target} series has {n_days} eligible "
                     "day(s), which cannot reject under the frozen procedure, so its "

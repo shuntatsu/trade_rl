@@ -1894,3 +1894,46 @@ def test_cancel_and_replace_emits_cancellation_before_replacement_submission() -
     assert tuple(event.sequence for event in second.order_events) == tuple(
         range(len(second.order_events))
     )
+
+def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
+    """Reject a finite reservation whose cash leg cannot be represented."""
+    prices = np.ones((6, 1))
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.array([1e308]),
+    )
+    executor = _executor(dataset, max_leverage=1.0)
+    book = BookState(
+        quantities=np.array([-0.7]),
+        cash=1.7e308,
+        mark_prices=np.array([1.0]),
+        peak_value=1e308,
+        contract_multipliers=np.array([1e308]),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents((_intent(executor, -0.2),))
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([1.0]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+
+    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(runtime, context)
+
+    assert accepted == []
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("rejected", "unrepresentable_notional"),
+    ]
+    assert runtime.rejected_count == 1
+    assert runtime.book.quantities.tolist() == [-0.7]
+    assert runtime.book.cash == 1.7e308
+    assert runtime.fill_count == 0
+    assert runtime.order_book.active_orders == ()
+

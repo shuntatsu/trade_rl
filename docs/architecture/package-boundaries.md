@@ -199,9 +199,11 @@ reads or writes, matching the cached-read no-follow boundary. On a successful
 cache miss, the directory screen runs again after the injected fetch and after
 parent creation, before staging bytes. This refuses directory links planted at either callback
 boundary, but path-based checks are not atomic against an actively concurrent
-directory replacement. Metadata inspection errors on cache directories,
-cached entries and raced publication winners are typed operational halts, never
-an offline cache miss or missing-data exclusion. Filesystems without hard-link
+directory replacement. Metadata inspection errors on cache directories, cached entries,
+raced publication winners and private-stage cleanup are typed operational halts,
+never an offline cache miss or missing-data exclusion. A stage cleanup failure
+after an existing typed publication halt is retained as a diagnostic note,
+not used to overwrite the primary publication failure. Filesystems without hard-link
 support fail closed as operational halts; there is no ordinary rename, copy-overwrite or shared
 `.part` fallback. These are cache publication and source integrity properties,
 not economic evaluation or market-data authorization.

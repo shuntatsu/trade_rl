@@ -24,6 +24,7 @@ unordered or malformed row raise :class:`CarryIntegrityHalt`. Halts never exclud
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -225,8 +226,22 @@ class ArchiveDirFetcher:
                     {"kind": "cache_publication_failed", "url": url},
                 ) from error
             finally:
+                pending_error = sys.exception()
                 if temporary is not None:
-                    temporary.unlink(missing_ok=True)
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError as cleanup_error:
+                        # Preserve the original typed publication failure; a
+                        # secondary cleanup defect must not replace its cause.
+                        if isinstance(pending_error, CarryOperationalHalt):
+                            pending_error.add_note(
+                                f"archive cache staging cleanup failed: {url}"
+                            )
+                        else:
+                            raise CarryOperationalHalt(
+                                f"archive cache staging cleanup failed: {url}",
+                                {"kind": "cache_cleanup_failed", "url": url},
+                            ) from cleanup_error
         return result
 
 

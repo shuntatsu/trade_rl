@@ -11,7 +11,11 @@ from typing import Protocol
 def _require_finite_real(value: object, *, name: str) -> None:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise TypeError(f"{name} must be a real numeric value")
-    if not math.isfinite(float(value)):
+    try:
+        numeric = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{name} must be finite") from error
+    if not math.isfinite(numeric):
         raise ValueError(f"{name} must be finite")
 
 

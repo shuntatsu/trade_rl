@@ -40,6 +40,11 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
 
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     directory_flag = getattr(os, "O_DIRECTORY", 0)
+    # A read-only FIFO open waits for a writer before fstat can reject it.
+    # Nonblocking applies only to POSIX leaf opens; regular reads are unaffected.
+    leaf_flags = os.O_RDONLY | nofollow
+    if os.name == "posix":
+        leaf_flags |= getattr(os, "O_NONBLOCK", 0)
     if (
         os.name == "posix"
         and nofollow
@@ -62,7 +67,7 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
                 parent_fd = next_fd
             # Even a concurrent replacement of an ancestor cannot redirect the
             # opened descriptor chain outside the inspected directory objects.
-            return os.open(source.name, os.O_RDONLY | nofollow, dir_fd=parent_fd)
+            return os.open(source.name, leaf_flags, dir_fd=parent_fd)
         finally:
             os.close(parent_fd)
 
@@ -72,7 +77,7 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
     for ancestor in source.parents:
         if ancestor.is_symlink() or ancestor.is_junction():
             raise ValueError(f"{field} parent must not contain a symlink or junction")
-    return os.open(source, os.O_RDONLY | nofollow)
+    return os.open(source, leaf_flags)
 
 
 @contextmanager
@@ -118,9 +123,13 @@ def read_verified_bytes(
     size = 0
     with open_regular_binary(path, field=field) as handle:
         while True:
-            chunk = handle.read(1024 * 1024)
+            # Read at most one byte past the declared boundary so an oversized
+            # source is refused before consuming or buffering the excess.
+            chunk = handle.read(min(1024 * 1024, expected_size_bytes - size + 1))
             if not chunk:
                 break
+            if size + len(chunk) > expected_size_bytes:
+                raise ValueError(f"{field} size mismatch")
             chunks.append(chunk)
             digest.update(chunk)
             size += len(chunk)
@@ -162,9 +171,17 @@ def verified_private_copy(
             target.open("xb") as destination,
         ):
             while True:
-                chunk = source.read(1024 * 1024)
+                read_limit = 1024 * 1024
+                if expected_size_bytes is not None:
+                    read_limit = min(read_limit, expected_size_bytes - copied + 1)
+                chunk = source.read(read_limit)
                 if not chunk:
                     break
+                if (
+                    expected_size_bytes is not None
+                    and copied + len(chunk) > expected_size_bytes
+                ):
+                    raise ValueError(f"{field} size changed during verified copy")
                 destination.write(chunk)
                 digest.update(chunk)
                 copied += len(chunk)

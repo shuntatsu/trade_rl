@@ -181,6 +181,7 @@ def test_only_permanent_workflows_remain() -> None:
         "retire-merged-pr-branches.yml",
         "ci.yml",
         "deploy-guide.yml",
+        "m1-optional-platform-coverage.yml",
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
         "ppo-normalization-execution.yml",

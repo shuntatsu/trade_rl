@@ -342,7 +342,6 @@ def test_cell_summary_round_trips_and_derives_the_pass_flag() -> None:
 # --- synthetic row source and a full tiny run -------------------------------------------
 
 
-
 @pytest.mark.parametrize(
     "bad_medians",
     [

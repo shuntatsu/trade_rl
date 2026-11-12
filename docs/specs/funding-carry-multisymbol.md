@@ -189,7 +189,7 @@ states the counter-hypothesis (a 2023-2024 regime effect that fees and basis ris
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`c2430f761b28684b42621c85288489cb106cd99e13b4ec4ffb20ed254c4222a7` and its status
+`baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
 review of this exact digest and these heads. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the

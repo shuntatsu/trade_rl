@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from trade_rl.simulation.execution import MarketExecutor
 
 
+class _UnrepresentableReservationError(ValueError):
+    """The projected reservation cannot preserve a finite account state."""
+
+
 @dataclass(slots=True)
 class _AdmissionBookProjection:
     """Small mutable book view for sequential same-bar admission checks."""
@@ -87,12 +91,15 @@ class _AdmissionBookProjection:
         cash_after = self.cash - (
             quantity * price * float(self.contract_multipliers[symbol_index])
         )
-        equity = _require_finite_post_update_equity(
-            cash=cash_after,
-            quantities=proposed,
-            marks=self.mark_prices,
-            multipliers=self.contract_multipliers,
-        )
+        try:
+            equity = _require_finite_post_update_equity(
+                cash=cash_after,
+                quantities=proposed,
+                marks=self.mark_prices,
+                multipliers=self.contract_multipliers,
+            )
+        except ValueError as exc:
+            raise _UnrepresentableReservationError(str(exc)) from exc
         self.quantities = proposed
         self.cash = cash_after
         if not self.insolvent and equity <= 0.0:
@@ -229,8 +236,33 @@ class StatefulOrderTransitionProcessor:
                 ),
                 allow_over_cap_reduce_only=processing_open_over_cap,
             )
-            if not decision.accepted:
-                reason = decision.reason or "admission_rejected"
+            # Reserve before recording eligibility: an unrepresentable cash or
+            # inventory projection must reject without an eligible event.
+            reservation_failed = False
+            if decision.accepted:
+                admitted = decision.admitted_quantity
+                projected_position = projected_book.quantities[symbol]
+                is_closing = projected_position * admitted < 0.0 and abs(
+                    admitted
+                ) <= abs(projected_position)
+                if not is_closing:
+                    try:
+                        projected_book.apply_admitted_order(
+                            symbol_index=symbol,
+                            quantity=admitted,
+                            price=float(context.open_prices[symbol]),
+                        )
+                    except _UnrepresentableReservationError:
+                        # The projector validates the proposed book before
+                        # mutating it, so a rejected reservation leaves all
+                        # earlier accepted reservations intact.
+                        reservation_failed = True
+            if not decision.accepted or reservation_failed:
+                reason = (
+                    "unrepresentable_notional"
+                    if reservation_failed
+                    else decision.reason or "admission_rejected"
+                )
                 if order.status in {
                     OrderStatus.TRIGGERED,
                     OrderStatus.PARTIALLY_FILLED,
@@ -269,11 +301,6 @@ class StatefulOrderTransitionProcessor:
                     processing_index=processing_index,
                 )
             accepted.append(current)
-            admitted = decision.admitted_quantity
-            projected_position = projected_book.quantities[symbol]
-            is_closing = projected_position * admitted < 0.0 and abs(admitted) <= abs(
-                projected_position
-            )
             # Reserve inventory only for recovery orders admitted while the
             # processing-open book is already over cap. Under-cap passes keep
             # their existing priority projection and fill-time expiry behavior.
@@ -289,15 +316,6 @@ class StatefulOrderTransitionProcessor:
                     remaining_positions[symbol] = (
                         remaining + decision.admitted_exact_quantity
                     )
-            # No closing order, including an under-cap close, releases gross
-            # leverage headroom until an actual fill. Approving a new opening
-            # on an unfilled close would make later fills exceed the cap.
-            if not is_closing:
-                projected_book.apply_admitted_order(
-                    symbol_index=symbol,
-                    quantity=admitted,
-                    price=float(context.open_prices[symbol]),
-                )
         return accepted
 
     def expire_attempted_remainders(

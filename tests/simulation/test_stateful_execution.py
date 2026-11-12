@@ -84,6 +84,7 @@ def _intent(
     expiry_index: int | None = None,
     time_in_force: TimeInForce = TimeInForce.GTC,
     target_identity: str = "target-1",
+    submission_reference_price: float = 100.0,
 ) -> OrderIntent:
     return OrderIntent.create(
         dataset_id=executor.dataset.dataset_id,
@@ -98,7 +99,7 @@ def _intent(
         submit_index=submit_index,
         eligible_index=eligible_index,
         expiry_index=expiry_index,
-        submission_reference_price=100.0,
+        submission_reference_price=submission_reference_price,
         decision_equity=1_000.0,
     )
 
@@ -1915,7 +1916,7 @@ def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
         contract_multipliers=np.array([1e308]),
     )
     runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
-    runtime.submit_intents((_intent(executor, -0.2),))
+    runtime.submit_intents((_intent(executor, -0.2, submission_reference_price=1.0),))
     runtime.initialize_metrics()
     context = SimpleNamespace(
         processing_index=1,

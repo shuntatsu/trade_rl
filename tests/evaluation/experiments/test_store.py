@@ -10,6 +10,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 
@@ -105,6 +106,72 @@ def test_json_publish_fails_closed_when_exclusive_links_are_unsupported(
 
     assert not (store.root / "plan.json").exists()
     assert not list(store.root.glob(".plan.json.staging-*"))
+
+
+def test_json_publish_reports_post_commit_cleanup_failure_without_losing_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed staging unlink cannot make the committed file look unpublished."""
+    store = StudyStore(tmp_path / "study")
+    payload = {"study": "canonical"}
+    target = store.root / "plan.json"
+    original_unlink = Path.unlink
+
+    def deny_staging_cleanup(path: Path, missing_ok: bool = False) -> None:
+        if path.name.startswith(".plan.json.staging-"):
+            raise PermissionError(errno.EACCES, "injected staging cleanup refusal")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_staging_cleanup)
+    with pytest.raises(
+        PublishedArtifactCleanupError, match="published.*cleanup failed"
+    ) as error:
+        store.publish_json_once("plan.json", payload)
+
+    assert isinstance(error.value.__cause__, PermissionError)
+    assert target.read_bytes() == canonical_json_bytes(payload)
+    assert len(list(store.root.glob(".plan.json.staging-*"))) == 1
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"different": True})
+    assert target.read_bytes() == canonical_json_bytes(payload)
+
+
+@pytest.mark.parametrize("link_failure", ("competing_target", "unsupported_link"))
+def test_json_publish_cleanup_failure_preserves_primary_link_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, link_failure: str
+) -> None:
+    """A secondary unlink error must not conceal the failed publication reason."""
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    original_unlink = Path.unlink
+
+    def deny_staging_cleanup(path: Path, missing_ok: bool = False) -> None:
+        if path.name.startswith(".plan.json.staging-"):
+            raise PermissionError(errno.EACCES, "injected staging cleanup refusal")
+        original_unlink(path, missing_ok=missing_ok)
+
+    def fail_link(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+        if link_failure == "competing_target":
+            target.write_bytes(b"owner")
+            raise FileExistsError(errno.EEXIST, "late owner")
+        raise OSError(errno.ENOTSUP, "links unavailable")
+
+    monkeypatch.setattr(Path, "unlink", deny_staging_cleanup)
+    monkeypatch.setattr(os, "link", fail_link)
+    if link_failure == "competing_target":
+        with pytest.raises(
+            InvalidExperimentStateError, match="already exists"
+        ) as error:
+            store.publish_json_once("plan.json", {"study": "canonical"})
+        assert isinstance(error.value.__cause__, FileExistsError)
+        assert target.read_bytes() == b"owner"
+    else:
+        with pytest.raises(OSError, match="links unavailable") as error:
+            store.publish_json_once("plan.json", {"study": "canonical"})
+        assert error.value.errno == errno.ENOTSUP
+        assert not target.exists()
+
+    assert len(list(store.root.glob(".plan.json.staging-*"))) == 1
 
 
 def test_publish_directory_once_removes_failed_staging(tmp_path: Path) -> None:

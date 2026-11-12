@@ -19,6 +19,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
 )
 
 _LOCK_NAME = ".mutation.lock"
@@ -176,9 +177,23 @@ class StudyStore:
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 ) from error
-        finally:
-            if staging.exists() or staging.is_symlink():
+        except BaseException:
+            try:
                 staging.unlink(missing_ok=True)
+            except OSError:
+                # Preserve the primary publication failure; staging may remain.
+                pass
+            raise
+
+        # The canonical target is already committed. Do not turn a cleanup
+        # error into an ambiguous ordinary publication failure (or retry it).
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError as error:
+            raise PublishedArtifactCleanupError(
+                f"Study artifact was published, but staging cleanup failed: {relative}; "
+                "do not retry publication"
+            ) from error
         return target
 
     def read_json(self, relative: str | Path) -> dict[str, object]:

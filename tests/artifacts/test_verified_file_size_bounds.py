@@ -98,24 +98,22 @@ def test_verified_snapshot_preserves_exact_and_negative_size_digest_contracts(
         b"some other synthetic bytes" if scenario == "wrong_digest" else payload
     ).hexdigest()
 
-    if operation == "read":
-        def invoke() -> bytes:
+    def invoke() -> bytes:
+        if operation == "read":
             return verified_file.read_verified_bytes(
                 artifact,
                 expected_digest=expected_digest,
                 expected_size_bytes=expected_size,
                 field="snapshot",
             )
-    else:
-        def invoke() -> bytes:
-            with verified_file.verified_private_copy(
-                artifact,
-                expected_digest=expected_digest,
-                expected_size_bytes=expected_size,
-                field="snapshot",
-                filename="private.bin",
-            ) as private_copy:
-                return private_copy.read_bytes()
+        with verified_file.verified_private_copy(
+            artifact,
+            expected_digest=expected_digest,
+            expected_size_bytes=expected_size,
+            field="snapshot",
+            filename="private.bin",
+        ) as private_copy:
+            return private_copy.read_bytes()
 
     if scenario == "exact":
         assert invoke() == payload

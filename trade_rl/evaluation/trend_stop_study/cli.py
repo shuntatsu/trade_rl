@@ -20,6 +20,8 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.evaluation.trend_stop_study.data import (
+    DATA_LOAD_ERRORS,
+    IncompleteRosterError,
     build_vision_dataset,
     load_exported_dataset,
 )
@@ -30,6 +32,7 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 )
 from trade_rl.evaluation.trend_stop_study.runner import (
     capture_code_provenance,
+    invalid_result,
     run_study,
 )
 
@@ -139,6 +142,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         provenance = capture_code_provenance()
         provenance.require_clean()
+    except ValueError as error:
+        print(f"halted before any data was read: {error}", file=sys.stderr)
+        return 2
+    cells: dict[str, dict[str, Any]]
+    equity: dict[str, np.ndarray]
+    try:
         datasets = _load_datasets(args, PROTOCOL)
         result, cells, equity = run_study(
             datasets,
@@ -147,8 +156,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             code_provenance=provenance,
             progress=lambda message: print(message, flush=True),
         )
-    except ValueError as error:
-        print(error, file=sys.stderr)
+    except IncompleteRosterError as error:
+        # A roster symbol or an archive with recorded HTTP 404 evidence is missing:
+        # INVALID and terminal for this protocol, never a reduced roster.
+        result = invalid_result(
+            PROTOCOL,
+            authorization,
+            provenance,
+            str(error),
+            error.missing,
+            error.archives,
+        )
+        cells, equity = {}, {}
+    except DATA_LOAD_ERRORS as error:
+        # Every other data failure (an archive not downloaded, a failed content
+        # check, an unreadable Dataset) is an operational halt: no result is written
+        # and the single run is not consumed.
+        print(f"halted, no result written: {error}", file=sys.stderr)
         return 2
     write_outputs(output_dir, result, cells, equity)
     print(f"label={result['label']} passing={result['passing_configurations']}")

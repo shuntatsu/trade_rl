@@ -14,7 +14,8 @@ no exclusion path: a missing symbol is INVALID, never a smaller roster.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,11 +29,14 @@ from trade_rl.evaluation.trend_stop_study.protocol import TrendStopProtocol
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
+    BinanceTransportError,
     BinanceTransportMode,
     FrozenBinanceExchangeInfoTransport,
+    inspect_binance_vision_cache,
     plan_binance_vision_cache,
-    require_complete_binance_vision_cache,
+    vision_cache_path,
 )
+from trade_rl.integrations.binance.cache import read_missing_archive_evidence
 from trade_rl.integrations.binance.dataset import (
     BinanceGapPolicy,
     build_binance_market_dataset,
@@ -53,14 +57,85 @@ def _ns(text: str) -> int:
     return int(np.datetime64(text, "ns").astype(np.int64))
 
 
-class IncompleteRosterError(ValueError):
-    """The Dataset lacks a roster symbol: the run is INVALID, never a reduced roster."""
+# Every failure a data load can raise; the CLI maps each to INVALID or a halt.
+DATA_LOAD_ERRORS: tuple[type[Exception], ...] = (
+    ValueError,
+    OSError,
+    BinanceTransportError,
+)
 
-    def __init__(self, missing: Sequence[str]) -> None:
+
+@dataclass(frozen=True)
+class MissingArchive:
+    """A roster archive the venue answered HTTP 404 for, with the recorded evidence."""
+
+    symbol: str
+    url: str
+    http_status: int
+    observed_at: str
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "url": self.url,
+            "http_status": self.http_status,
+            "observed_at": self.observed_at,
+        }
+
+
+class IncompleteRosterError(ValueError):
+    """A roster symbol is missing: the run is INVALID, never a reduced roster.
+
+    Raised for a Dataset that lacks a roster symbol and for a Vision cache that lacks
+    an archive whose HTTP 404 is recorded (``archives``). It is terminal for this
+    protocol: the caller writes an INVALID result and replays nothing.
+    """
+
+    def __init__(
+        self, missing: Iterable[str], archives: Sequence[MissingArchive] = ()
+    ) -> None:
         self.missing = tuple(sorted(missing))
+        self.archives = tuple(archives)
+        detail = ""
+        if self.archives:
+            detail = "; HTTP 404 recorded for " + ", ".join(
+                f"{item.url} ({item.http_status} at {item.observed_at})"
+                for item in self.archives
+            )
         super().__init__(
-            "roster symbols missing from the Dataset (no exclusions exist; the run "
-            f"is INVALID): {list(self.missing)}"
+            "roster symbols missing (no exclusions exist; the run is INVALID): "
+            f"{list(self.missing)}{detail}"
+        )
+
+
+class OperationalDataError(ValueError):
+    """A data failure that is not evidence of a missing archive: halt, write no result.
+
+    The run is not consumed: the operator completes or repairs the cache and reruns.
+    """
+
+
+class IncompleteArchiveCacheError(OperationalDataError):
+    """Archives are absent, empty or fail their content check, with no 404 on record."""
+
+    def __init__(
+        self,
+        *,
+        absent: Sequence[str],
+        empty: Sequence[str],
+        invalid: Sequence[str],
+    ) -> None:
+        self.absent = tuple(absent)
+        self.empty = tuple(empty)
+        self.invalid = tuple(invalid)
+        shown = [*self.absent, *self.empty, *self.invalid][:5]
+        super().__init__(
+            "the Binance Vision cache is incomplete and this is NOT evidence of a "
+            f"missing archive (absent={len(self.absent)} empty={len(self.empty)} "
+            f"failed content check={len(self.invalid)}); no result was written. The "
+            "operator must complete or repair the download (a recorded HTTP 404 "
+            "would make the run INVALID instead) and rerun. First archives: "
+            + ", ".join(shown)
         )
 
 
@@ -125,6 +200,58 @@ def plan_vision_cache(protocol: TrendStopProtocol, timeframe: str) -> Any:
     )
 
 
+def _archive_symbol(protocol: TrendStopProtocol, url: str) -> str:
+    parts = url.split("/")
+    matches = [symbol for symbol in protocol.symbols if symbol in parts]
+    if len(matches) != 1:
+        raise OperationalDataError(f"cannot attribute the archive to one symbol: {url}")
+    return matches[0]
+
+
+def classify_vision_cache(
+    protocol: TrendStopProtocol, timeframe: str, *, cache_root: Path
+) -> None:
+    """Return if the cache is complete; otherwise raise INVALID or an operational halt.
+
+    * A missing archive with recorded HTTP 404 evidence (written by the download step
+      when the venue answered 404) raises :class:`IncompleteRosterError`: INVALID and
+      terminal. It takes precedence over any other gap.
+    * Any other gap (not yet downloaded, empty, failed content check, unreadable
+      evidence) raises :class:`IncompleteArchiveCacheError`: a resumable halt that
+      writes no result.
+    """
+
+    plan = plan_vision_cache(protocol, timeframe)
+    report = inspect_binance_vision_cache(plan, cache_root=cache_root)
+    if report.complete:
+        return
+    evidenced: list[MissingArchive] = []
+    absent: list[str] = []
+    for url in report.missing_urls:
+        try:
+            record = read_missing_archive_evidence(
+                vision_cache_path(cache_root, url), url
+            )
+        except BinanceTransportError:
+            record = None  # unreadable evidence is not a 404: the operator repairs it
+        if record is None:
+            absent.append(url)
+        else:
+            evidenced.append(
+                MissingArchive(
+                    symbol=_archive_symbol(protocol, url),
+                    url=url,
+                    http_status=int(str(record["http_status"])),
+                    observed_at=str(record["observed_at"]),
+                )
+            )
+    if evidenced:
+        raise IncompleteRosterError({item.symbol for item in evidenced}, evidenced)
+    raise IncompleteArchiveCacheError(
+        absent=absent, empty=report.empty_urls, invalid=report.invalid_urls
+    )
+
+
 def build_dataset_from_transport(
     protocol: TrendStopProtocol,
     timeframe: str,
@@ -163,8 +290,7 @@ def build_vision_dataset(
 
     if timeframe not in _BAR_NS:
         raise ValueError(f"unsupported timeframe: {timeframe}")
-    plan = plan_vision_cache(protocol, timeframe)
-    require_complete_binance_vision_cache(plan, cache_root=cache_root)
+    classify_vision_cache(protocol, timeframe, cache_root=cache_root)
     frozen = FrozenBinanceExchangeInfoTransport(exchange_info_dir, delegate=None)
     transport = BaseIntervalAggregatingTransport(
         BinancePublicTransport(cache_root=cache_root, allow_network=False),
@@ -184,8 +310,13 @@ def build_vision_dataset(
 
 
 __all__ = [
+    "DATA_LOAD_ERRORS",
+    "IncompleteArchiveCacheError",
     "IncompleteRosterError",
+    "MissingArchive",
+    "OperationalDataError",
     "build_dataset_from_transport",
+    "classify_vision_cache",
     "build_vision_dataset",
     "load_exported_dataset",
     "plan_vision_cache",

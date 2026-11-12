@@ -37,9 +37,12 @@ from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.evaluation.trend_stop_study import cli, metrics, protocol, runner
 from trade_rl.evaluation.trend_stop_study import data as study_data
 from trade_rl.evaluation.trend_stop_study.data import (
+    IncompleteArchiveCacheError,
     IncompleteRosterError,
+    OperationalDataError,
     build_dataset_from_transport,
     build_vision_dataset,
+    classify_vision_cache,
     plan_vision_cache,
     validate_study_dataset,
 )
@@ -58,6 +61,11 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
     scenario_cost,
     trend_config,
     validate_authorization_url,
+)
+from trade_rl.integrations.binance import vision_cache_path
+from trade_rl.integrations.binance.cache import (
+    missing_archive_evidence_path,
+    write_missing_archive_evidence,
 )
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.portfolio import PortfolioTargetProposal
@@ -1233,3 +1241,191 @@ def test_the_haircut_audit_counts_a_partly_filled_stop_exit_once() -> None:
     assert audit["haircut_usdt"] == pytest.approx(expected, abs=1e-6)
     assert sum(by_fill.values()) == pytest.approx(expected, abs=1e-6)
     assert [position for position, _ in by_fill] == [7, 8, 9]
+
+
+# -- the Vision fallback: a recorded 404 is INVALID, anything else is a halt ---------------
+
+
+def _vision_urls(timeframe: str = "4h") -> list[str]:
+    return list(plan_vision_cache(PROTOCOL, timeframe).urls)
+
+
+def _record_404(cache: Path, url: str) -> None:
+    write_missing_archive_evidence(
+        vision_cache_path(cache, url), url=url, downloader="test"
+    )
+
+
+def _cli_vision(cache: Path, out: Path) -> int:
+    return cli.main(
+        [
+            "--output-dir",
+            str(out),
+            "--g4-authorization-url",
+            AUTHORIZATION_URL,
+            "--vision-cache",
+            str(cache),
+            "--exchange-info-dir",
+            str(cache),
+        ]
+    )
+
+
+def test_a_cache_archive_with_a_recorded_404_is_invalid_and_names_the_evidence(
+    tmp_path: Path,
+) -> None:
+    url = next(u for u in _vision_urls() if "/DOTUSDT/" in u and "/klines/" in u)
+    _record_404(tmp_path, url)
+
+    with pytest.raises(IncompleteRosterError) as caught:
+        classify_vision_cache(PROTOCOL, "4h", cache_root=tmp_path)
+
+    error = caught.value
+    assert error.missing == ("DOTUSDT",)
+    (archive,) = error.archives
+    assert (archive.symbol, archive.url, archive.http_status) == ("DOTUSDT", url, 404)
+    assert archive.observed_at.endswith("+00:00")
+    assert "INVALID" in str(error) and url in str(error)
+
+
+def test_a_funding_archive_404_is_invalid_too(tmp_path: Path) -> None:
+    url = next(u for u in _vision_urls("1d") if "fundingRate" in u and "/SOLUSDT/" in u)
+    _record_404(tmp_path, url)
+    with pytest.raises(IncompleteRosterError) as caught:
+        classify_vision_cache(PROTOCOL, "1d", cache_root=tmp_path)
+    assert caught.value.missing == ("SOLUSDT",)
+
+
+def test_an_archive_missing_without_404_evidence_is_a_resumable_halt(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(IncompleteArchiveCacheError) as caught:
+        classify_vision_cache(PROTOCOL, "4h", cache_root=tmp_path)
+
+    error = caught.value
+    assert not isinstance(error, IncompleteRosterError)
+    assert isinstance(error, OperationalDataError)
+    assert len(error.absent) == len(_vision_urls()) and not error.empty
+    assert "NOT evidence of a missing archive" in str(error)
+    assert "complete or repair the download" in str(error)
+
+
+def test_unreadable_404_evidence_is_a_halt_not_a_404(tmp_path: Path) -> None:
+    url = _vision_urls()[0]
+    path = missing_archive_evidence_path(vision_cache_path(tmp_path, url))
+    path.parent.mkdir(parents=True)
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(IncompleteArchiveCacheError):
+        classify_vision_cache(PROTOCOL, "4h", cache_root=tmp_path)
+
+
+def test_a_checksum_mismatch_is_a_halt(tmp_path: Path) -> None:
+    url = _vision_urls()[0]
+    binary = vision_cache_path(tmp_path, url)
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"archive bytes")
+    binary.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "acquired_at": "2026-11-13T00:00:00+00:00",
+                "downloader": "test",
+                "etag": None,
+                "last_modified": None,
+                "schema_version": "binance_vision_raw_cache_v1",
+                "sha256": "0" * 64,
+                "size_bytes": len(b"archive bytes"),
+                "url": url,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(IncompleteArchiveCacheError) as caught:
+        classify_vision_cache(PROTOCOL, "4h", cache_root=tmp_path)
+    assert caught.value.invalid == (url,)
+
+
+def test_the_cli_writes_an_invalid_result_for_a_recorded_404(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    url = next(u for u in _vision_urls() if "/DOTUSDT/" in u and "/klines/" in u)
+    _record_404(cache, url)  # every other archive is merely absent: the 404 decides
+
+    code = _cli_vision(cache, out)
+
+    assert code == 3
+    assert "label=INVALID" in capsys.readouterr().out
+    stored = json.loads((out / "result.json").read_text(encoding="utf-8"))
+    assert stored["label"] == stored["status"] == "INVALID"
+    assert stored["missing_symbols"] == ["DOTUSDT"]
+    (archive,) = stored["missing_archives"]
+    assert archive["url"] == url and archive["http_status"] == 404
+    assert archive["symbol"] == "DOTUSDT" and archive["observed_at"]
+    assert stored["stop_rule_triggered"] is False and stored["code"]
+    assert not any((out / "cells").iterdir()) and not (out / "equity.npz").exists()
+
+
+def test_the_cli_halts_without_a_result_for_an_unevidenced_missing_archive(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    cache.mkdir()
+
+    code = _cli_vision(cache, out)
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "halted, no result written" in captured.err
+    assert "complete or repair the download" in captured.err
+    assert "Traceback" not in captured.err and "label=" not in captured.out
+    assert not out.exists()  # the single run is not consumed
+
+
+def test_the_cli_halts_on_a_checksum_mismatch_without_a_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    cache, out = tmp_path / "cache", tmp_path / "out"
+    url = _vision_urls()[0]
+    binary = vision_cache_path(cache, url)
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"corrupt")
+    binary.with_suffix(".json").write_text("{}", encoding="utf-8")
+
+    code = _cli_vision(cache, out)
+
+    captured = capsys.readouterr()
+    assert code == 2 and "failed content check=1" in captured.err
+    assert "Traceback" not in captured.err and not out.exists()
+
+
+def test_the_cli_maps_an_unreadable_dataset_to_a_halt(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN_PROVENANCE)
+    out = tmp_path / "out"
+    code = cli.main(
+        [
+            "--output-dir",
+            str(out),
+            "--g4-authorization-url",
+            AUTHORIZATION_URL,
+            "--dataset-4h",
+            str(tmp_path / "missing-dataset"),
+            "--dataset-1d",
+            str(tmp_path / "missing-dataset"),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 2 and "halted, no result written" in captured.err
+    assert "Traceback" not in captured.err and not out.exists()

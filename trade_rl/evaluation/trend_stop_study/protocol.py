@@ -90,8 +90,9 @@ DEVIATIONS: Final = (
     "return of this rule; survivorship bias and prior exposure are declared limitations",
     "stop model: bar-extreme touch evaluated on the completed bar, exit at the next "
     "open (no intrabar fill at the stop price); fills better than the stop level are "
-    "removed by the preregistered stop haircut; a fired stop keeps exiting until the "
-    "position is flat, so a partly filled stop exit is one stop event",
+    "removed by the preregistered stop haircut; a fired stop takes precedence over a "
+    "reversal and keeps exiting until the position is flat (no entry in either "
+    "direction meanwhile), so a partly filled stop exit is one stop event",
     "order_latency_bars 0 and 1 are the same next-open fill in this engine and >= 2 "
     "needs pending-order-preserving proposals, so no latency-stress cell is run",
     "entry price for the stop is the observed fill-bar open, not the realized average "
@@ -107,8 +108,11 @@ DEVIATIONS: Final = (
     "haircut is a first-order multiplicative adjustment, not a re-simulation",
     "the roster is exactly the eleven symbols with no exclusion path and no reduced "
     "roster (owner decision, issue #810 comment 6818495567): a Dataset missing any "
-    "roster symbol writes an INVALID result with no replay, and any other data "
-    "failure halts the run",
+    "roster symbol, or a Binance Vision cache archive with recorded HTTP 404 evidence "
+    "(URL, status, time, written by the download step), writes an INVALID result with "
+    "no replay; an archive missing without such evidence (not yet downloaded, "
+    "transient failure, empty, failed content check) halts with no result and does "
+    "not consume the run",
     "the future-perturbation probe runs for every (timeframe, variant) pair and "
     "validity criterion 8 of each configuration uses its own probe",
     "prior exposure of the universe and window is disclosed in PRIOR_EXPOSURE",

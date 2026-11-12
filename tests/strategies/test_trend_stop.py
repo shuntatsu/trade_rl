@@ -417,6 +417,52 @@ def test_a_partial_stop_exit_continues_after_the_price_recovers_above_the_stop()
     assert [d.proposal_weights for d in result.decisions[7:10]] == [(0.0,)] * 3
 
 
+# -- a fired stop takes precedence over a reversal ---------------------------------------
+
+
+def test_a_stop_and_an_opposite_signal_on_one_bar_exit_without_reversing() -> None:
+    # Row 7 trades through the stop (low 95 <= 101) and closes at 99, below the prior
+    # three lows (100, 102, 106): a short breakout on the same bar.
+    bar7: Bar = (109.0, 109.0, 95.0, 99.0)
+    tail: list[Bar] = [(99.0, 100.0, 98.0, 99.0)] * 3
+    bars = FLAT_BARS + [BREAKOUT] + RUN_UP + [bar7] + tail
+    result, policy = _replay(_dataset({"AAA": bars}), stop_index=len(bars) - 1)
+
+    quantity = Fraction(50, 6)
+    # The stop exit is the only order: no reversal into a short position.
+    _assert_fills(result, [(4, 0, quantity), (7, 0, -quantity)])
+    assert result.decisions[7].proposal_weights == (0.0,)
+    assert policy.summary()["reversals"] == 0 and policy.summary()["stop_exits"] == 1
+
+
+def test_no_reversal_while_a_partly_filled_stop_exit_is_pending() -> None:
+    gap = [
+        (109.0, 109.0, 95.0, 101.0),  # row 7: the stop fires (low 95 <= 101)
+        (94.0, 96.0, 90.0, 92.0),  # row 8: still pending, and a short breakout
+        (92.0, 93.0, 91.0, 92.0),
+        (92.0, 93.0, 91.0, 92.0),
+        (92.0, 93.0, 91.0, 92.0),
+    ]
+    bars = FLAT_BARS + [BREAKOUT] + RUN_UP + gap
+    result, policy = replay_partial_exit(bars)
+
+    quantity = Fraction(50, 6)
+    # Rows 7 to 9 only reduce the long position (4, 4 and 1/3 units); the short
+    # breakout of row 8 opens nothing until the position is flat.
+    _assert_fills(
+        result,
+        [
+            (4, 0, quantity),
+            (7, 0, Fraction(-4)),
+            (8, 0, Fraction(-4)),
+            (9, 0, -(quantity - 8)),
+        ],
+    )
+    assert [d.proposal_weights for d in result.decisions[7:10]] == [(0.0,)] * 3
+    assert all(Fraction(value) == 0 for value in result.book.exact_quantities)
+    assert policy.summary()["reversals"] == 0 and len(policy.stop_events) == 1
+
+
 # -- causality ----------------------------------------------------------------------
 
 

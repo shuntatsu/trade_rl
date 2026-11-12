@@ -43,6 +43,7 @@ from trade_rl.evaluation.replay import (
 )
 from trade_rl.evaluation.trend_stop_study.data import (
     IncompleteRosterError,
+    MissingArchive,
     validate_study_dataset,
 )
 from trade_rl.evaluation.trend_stop_study.metrics import (
@@ -500,12 +501,13 @@ def causality_probe(
     }
 
 
-def _invalid_result(
+def invalid_result(
     protocol: TrendStopProtocol,
     authorization: str,
     provenance: CodeProvenance,
     reason: str,
     missing_symbols: Sequence[str],
+    missing_archives: Sequence[MissingArchive] = (),
 ) -> dict[str, Any]:
     """The INVALID outcome for an incomplete roster; no cell is replayed."""
 
@@ -518,6 +520,7 @@ def _invalid_result(
         "g4_authorization_url": authorization,
         "code": provenance.to_mapping(),
         "missing_symbols": list(missing_symbols),
+        "missing_archives": [item.to_mapping() for item in missing_archives],
         "prior_exposure": list(PRIOR_EXPOSURE),
         "passing_configurations": [],
         "stop_rule_triggered": False,
@@ -568,8 +571,13 @@ def run_study(
     if incomplete:
         missing = sorted({name for error in incomplete for name in error.missing})
         return (
-            _invalid_result(
-                protocol, authorization, code_provenance, str(incomplete[0]), missing
+            invalid_result(
+                protocol,
+                authorization,
+                code_provenance,
+                str(incomplete[0]),
+                missing,
+                [item for error in incomplete for item in error.archives],
             ),
             {},
             {},
@@ -682,6 +690,7 @@ __all__ = [
     "capture_code_provenance",
     "causality_probe",
     "git_state",
+    "invalid_result",
     "loaded_module_digest",
     "repository_root",
     "run_benchmark_cell",

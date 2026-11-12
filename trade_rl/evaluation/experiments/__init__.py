@@ -38,6 +38,7 @@ from trade_rl.evaluation.experiments.errors import (
     ControlledExperimentError,
     ExperimentBudgetExceededError,
     InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
     StudyFrozenError,
     UncontrolledDeltaError,
 )
@@ -82,6 +83,7 @@ __all__ = [
     "FACTOR_RULES",
     "FactorRule",
     "InvalidExperimentStateError",
+    "PublishedArtifactCleanupError",
     "LoadedEvidenceSet",
     "PPO_HOLDING_DURATION_HORIZONS",
     "PPO_HOLDING_DURATION_MAX_DRAWDOWN",

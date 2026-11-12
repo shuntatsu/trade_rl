@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import errno
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
 
@@ -26,6 +29,149 @@ def test_publish_json_once_is_canonical_and_never_overwrites(tmp_path: Path) -> 
         store.publish_json_once("plan.json", {"different": True})
 
     assert published.read_bytes() == original
+
+
+@pytest.mark.parametrize("competitor_bytes", (b"", b"other publisher"))
+def test_json_publish_does_not_replace_a_late_competing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    competitor_bytes: bytes,
+) -> None:
+    """A destination appearing after the last check must win."""
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    real_is_symlink = Path.is_symlink
+    target_checks = 0
+
+    def last_check(path: Path) -> bool:
+        nonlocal target_checks
+        result = real_is_symlink(path)
+        if path == target:
+            target_checks += 1
+            if target_checks == 2:
+                assert not target.exists()
+                target.write_bytes(competitor_bytes)
+        return result
+
+    monkeypatch.setattr(Path, "is_symlink", last_check)
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"study": "canonical"})
+
+    assert target_checks == 2
+    assert target.read_bytes() == competitor_bytes
+    assert not list(store.root.glob(".plan.json.staging-*"))
+
+
+def test_json_publish_rejects_competitor_at_link_syscall(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The link itself, not an earlier existence check, enforces exclusivity."""
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    real_link = os.link
+    injected = False
+
+    def competing_link(source: os.PathLike[str], destination: os.PathLike[str]) -> None:
+        nonlocal injected
+        if Path(destination) == target:
+            assert not injected
+            assert not target.exists()
+            assert Path(source).is_file()
+            target.write_bytes(b"late owner")
+            injected = True
+        real_link(source, destination)
+
+    monkeypatch.setattr(os, "link", competing_link)
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"study": "canonical"})
+
+    assert injected
+    assert target.read_bytes() == b"late owner"
+    assert not list(store.root.glob(".plan.json.staging-*"))
+
+
+def test_json_publish_fails_closed_when_exclusive_links_are_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never fall back to an ordinary POSIX rename that can overwrite."""
+    store = StudyStore(tmp_path / "study")
+
+    def unavailable(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+        raise OSError(errno.ENOTSUP, "hard links unsupported")
+
+    monkeypatch.setattr(os, "link", unavailable)
+    with pytest.raises(OSError, match="hard links unsupported"):
+        store.publish_json_once("plan.json", {"study": "canonical"})
+
+    assert not (store.root / "plan.json").exists()
+    assert not list(store.root.glob(".plan.json.staging-*"))
+
+
+def test_json_publish_reports_post_commit_cleanup_failure_without_losing_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed staging unlink cannot make the committed file look unpublished."""
+    store = StudyStore(tmp_path / "study")
+    payload = {"study": "canonical"}
+    target = store.root / "plan.json"
+    original_unlink = Path.unlink
+
+    def deny_staging_cleanup(path: Path, missing_ok: bool = False) -> None:
+        if path.name.startswith(".plan.json.staging-"):
+            raise PermissionError(errno.EACCES, "injected staging cleanup refusal")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", deny_staging_cleanup)
+    with pytest.raises(
+        PublishedArtifactCleanupError, match="published.*cleanup failed"
+    ) as error:
+        store.publish_json_once("plan.json", payload)
+
+    assert isinstance(error.value.__cause__, PermissionError)
+    assert target.read_bytes() == canonical_json_bytes(payload)
+    assert len(list(store.root.glob(".plan.json.staging-*"))) == 1
+    with pytest.raises(InvalidExperimentStateError, match="already exists"):
+        store.publish_json_once("plan.json", {"different": True})
+    assert target.read_bytes() == canonical_json_bytes(payload)
+
+
+@pytest.mark.parametrize("link_failure", ("competing_target", "unsupported_link"))
+def test_json_publish_cleanup_failure_preserves_primary_link_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, link_failure: str
+) -> None:
+    """A secondary unlink error must not conceal the failed publication reason."""
+    store = StudyStore(tmp_path / "study")
+    target = store.root / "plan.json"
+    original_unlink = Path.unlink
+
+    def deny_staging_cleanup(path: Path, missing_ok: bool = False) -> None:
+        if path.name.startswith(".plan.json.staging-"):
+            raise PermissionError(errno.EACCES, "injected staging cleanup refusal")
+        original_unlink(path, missing_ok=missing_ok)
+
+    def fail_link(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+        if link_failure == "competing_target":
+            target.write_bytes(b"owner")
+            raise FileExistsError(errno.EEXIST, "late owner")
+        raise OSError(errno.ENOTSUP, "links unavailable")
+
+    monkeypatch.setattr(Path, "unlink", deny_staging_cleanup)
+    monkeypatch.setattr(os, "link", fail_link)
+    if link_failure == "competing_target":
+        with pytest.raises(
+            InvalidExperimentStateError, match="already exists"
+        ) as error:
+            store.publish_json_once("plan.json", {"study": "canonical"})
+        assert isinstance(error.value.__cause__, FileExistsError)
+        assert target.read_bytes() == b"owner"
+    else:
+        with pytest.raises(OSError, match="links unavailable") as error:
+            store.publish_json_once("plan.json", {"study": "canonical"})
+        assert error.value.errno == errno.ENOTSUP
+        assert not target.exists()
+
+    assert len(list(store.root.glob(".plan.json.staging-*"))) == 1
 
 
 def test_publish_directory_once_removes_failed_staging(tmp_path: Path) -> None:

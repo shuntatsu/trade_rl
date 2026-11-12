@@ -79,7 +79,7 @@ trade_rl/
 │   ├── decision_value_shallow.py
 │   ├── controls.py
 │   ├── carry.py
-│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py}
+│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py,trend_stop.py}
 │   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py,prequential.py}
 │   ├── allocation/{solver.py,cost_aware.py,buy_and_hold.py,costs.py}
 │   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
@@ -107,6 +107,7 @@ trade_rl/
     ├── ppo_risk_study.py
     ├── dev_realdata_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,cli.py,dataset_build.py,trials.py,trial_sources.py,trial_study.py,trial_cli.py,trial_labels.py,phase3_registry.py,phase3_sources.py,phase3_study.py,phase3_cli.py}
     ├── signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,significance.py,targets.py}
+    ├── trend_stop_study/{__init__.py,__main__.py,protocol.py,metrics.py,runner.py,data.py,cli.py}
     ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
     ├── forward_acquisition/{__init__.py,__main__.py,plan.py,acquire.py,seal_record.py,cli.py}
     ├── signal_diagnosis/{__init__.py,protocol.py,verdict.py}
@@ -863,6 +864,12 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 同じexact HEADのactive submitted marked `### Disposition: BLOCKED` が一つでもあれば承認より優先し、後続の同一actorによる承認でも消去しない。保留・曖昧・dismissed・古いHEAD・不整合なreceiptはfail-closedに扱う。重大な指摘事項（Medium / High）が解消され全必須CIがGreenであれば、承認済みsoftwareレビューはIntegratorによるマージ・クローズの対象となる。このGeneric receiptは `Independent Research Review` の4h PPO smoke専用review/triggerやG4 economic execution、sealed PPO、unused/final one-shot authorization、live eligibilityを代替しない。
 
 `tools/ppo_4h_gemini_review.py` は4h PPO smokeのresult-blind external-AI reviewをdefault-branch trust rootから実行する**repository-local reviewer transport**であり、`trade_rl` runtime packageやeconomic evaluatorの一部ではない。`.github/workflows/ppo-4h-gemini-review.yml` はcanonical PR comment requestを入口に、(1) targetをdataとして読むpacket生成job、(2) Gemini secretを持たずexact reviewed SHAへ固定command setを実行するCore / PPO Runtime / Human Guide verification jobs、(3) canonical packetだけを受け取るfresh secret-bearing review jobを分離する。review jobはtarget checkoutやtarget-generated executable artifactをauthorityとして受け取らず、trusted runner/workflow identity、request/tag identity、packet digest、trusted verification job identity、Gemini request/response identityをreviewer-run attestationへbindする。Gemini API key/model selectionはworkflow configurationであり、concrete model versionはprovenanceとして記録するがproduction trading/runtime schemaやvalidator allow-listへ固定しない。
+
+## Trend-with-stops study boundary
+
+`strategies/rules/trend_stop.py` は因果的なDonchian breakoutとATR stopを、numericな`PortfolioPolicy`（`TrendStopPortfolioPolicy`）として提供する純粋なstrategy-layer ownerである。fixed rosterの`MarketDataset`の完了barだけからchannel・Wilder ATR・signalを導き、risk-sized target weightとexact-quantity HOLDを提案する。stopはdecision-layerのruleであり、注文・約定・cost・funding・hard risk・accountingは既存のshared portfolio sessionに残る（bar-extreme touch → next-open exit、`bar_extreme_touch_next_open_v1`）。evaluation・simulation・integrationsをimportせず、`trade_rl.strategies` facadeへ再exportしない。
+
+`evaluation/trend_stop_study/` はこのruleのdevelopment-only multi-symbol studyだけを所有する。`protocol.py` は事前固定した全parameter・2 variant・2 timeframe・2 scenario・pass/fail基準のdigestと、G4 authorization URLの形式検査、2026-07-31を超える窓の拒否を持つ。`runner.py` は各cellを既存の`run_shared_portfolio_replay`で1回ずつ実行し、`metrics.py` がraw order eventから閉じたcycle・stop haircut・gateを再構成する。`data.py` はpublished Dataset artifact（Market Store export）とoffline Binance Vision fallbackを検証付きで読む。`WINNER`を出さず、unused-futureを開かず、account・ledger・fill modelを持たず、networkへ出ない。CLI (`python -m trade_rl.evaluation.trend_stop_study`) は新規出力のみを書き、G4 authorization URLなしでは開始しない。正本は[specs/trend-following-stops.md](../specs/trend-following-stops.md)、状態は`research/current-status.md`。
 
 ## Development real-data study boundary
 

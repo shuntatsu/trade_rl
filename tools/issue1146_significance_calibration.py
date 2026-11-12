@@ -20,7 +20,8 @@ rank-IC increments):
   one-day label overlap) and with lag equal to the 20-day block.
 * ``ewc_t``: the equal-weighted cosine (EWC) long-run variance test of Lazarus,
   Lewis, Stock and Watson (2018), ``nu = floor(0.4 n ** (2 / 3))`` cosine terms and
-  a Student-t reference with ``nu`` degrees of freedom.
+  a Student-t reference with ``nu`` degrees of freedom. This is the SD1 function
+  ``ewc_mean_test``; a test pins the vectorised version here to it.
 
 Null models. A series-level model ``x_t = u_t + theta u_{t-1}`` with ``u`` an AR(1) of
 coefficient ``phi``: ``phi`` in {0, 0.1, 0.3} is serial dependence of the increments
@@ -58,8 +59,12 @@ their powers differ by less than two standard errors. The 60-day configurations
 reproduce a reviewer's finding and are a check of the harness, not part of the rule.
 
 Run ``python -m tools.issue1146_significance_calibration --help``. ``--scale reduced``
-takes a few minutes; ``--scale full`` is the run recorded in
-``docs/research/signal-diagnosis-significance-calibration.md``.
+(500 series replicates, 500 structural, 200 reviewer-construction) takes about two
+minutes on 26 worker processes and is only a smoke of the table; ``--scale full``
+(10000 series replicates, 4000 structural, 2000 reviewer-construction) takes 15 to 25
+minutes on 26 workers and is the run whose table is recorded in the SD0 section of
+``docs/architecture/research-assurance.md``: ``--seed`` 20261111 (the default) and
+20261112, written with ``--out``. The result does not depend on ``--workers``.
 """
 
 from __future__ import annotations
@@ -79,6 +84,8 @@ from trade_rl.evaluation.signal_measurement import (
     bh_rejections,
     block_mean_interval,
     daily_ic,
+    ewc_terms,
+    student_t_sf,
 )
 
 CELLS = 16
@@ -114,59 +121,6 @@ _FAMILY_PERSISTENCE = (0.0, 0.5, 0.9, 0.97, 0.99, 0.995, 0.998, 0.999)
 
 
 # ----------------------------------------------------------------- reference laws
-
-
-def _beta_continued_fraction(a: float, b: float, x: float) -> float:
-    tiny = 1e-300
-    qab, qap, qam = a + b, a + 1.0, a - 1.0
-    c = 1.0
-    d = 1.0 - qab * x / qap
-    d = 1.0 / (d if abs(d) > tiny else tiny)
-    h = d
-    for m in range(1, 500):
-        m2 = 2 * m
-        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
-        d = 1.0 + aa * d
-        d = 1.0 / (d if abs(d) > tiny else tiny)
-        c = 1.0 + aa / c
-        c = c if abs(c) > tiny else tiny
-        h *= d * c
-        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
-        d = 1.0 + aa * d
-        d = 1.0 / (d if abs(d) > tiny else tiny)
-        c = 1.0 + aa / c
-        c = c if abs(c) > tiny else tiny
-        delta = d * c
-        h *= delta
-        if abs(delta - 1.0) < 1e-15:
-            break
-    return h
-
-
-def _regularized_incomplete_beta(a: float, b: float, x: float) -> float:
-    if x <= 0.0:
-        return 0.0
-    if x >= 1.0:
-        return 1.0
-    front = math.exp(
-        math.lgamma(a + b)
-        - math.lgamma(a)
-        - math.lgamma(b)
-        + a * math.log(x)
-        + b * math.log1p(-x)
-    )
-    if x < (a + 1.0) / (a + b + 2.0):
-        return front * _beta_continued_fraction(a, b, x) / a
-    return 1.0 - front * _beta_continued_fraction(b, a, 1.0 - x) / b
-
-
-def student_t_sf(t: float, dof: int) -> float:
-    """``P(T > t)`` for a Student-t variable with ``dof`` degrees of freedom."""
-
-    if math.isinf(t):
-        return 0.0 if t > 0 else 1.0
-    tail = 0.5 * _regularized_incomplete_beta(0.5 * dof, 0.5, dof / (dof + t * t))
-    return tail if t >= 0.0 else 1.0 - tail
 
 
 def _normal_sf(z: np.ndarray) -> np.ndarray:
@@ -299,12 +253,6 @@ def newey_west_p(
     return [_normal_sf((mean + shift) / se) for shift in shifts]
 
 
-def ewc_terms(n: int) -> int:
-    """Number of cosine terms of the EWC test: ``floor(0.4 n ** (2 / 3))``."""
-
-    return math.floor(0.4 * n ** (2.0 / 3.0))
-
-
 @lru_cache(maxsize=8)
 def _cosine_basis(n: int, terms: int) -> np.ndarray:
     t = np.arange(1, n + 1, dtype=np.float64)[:, None]
@@ -320,10 +268,17 @@ def ewc_t_p(x: np.ndarray, shifts: Sequence[np.ndarray]) -> list[np.ndarray]:
     mean = x.mean(axis=1)
     if terms < 1:
         return [np.ones(x.shape[0]) for _ in shifts]
-    projections = x @ _cosine_basis(n, terms)
+    projections = (x - mean[:, None]) @ _cosine_basis(n, terms)
     long_run = (projections * projections).mean(axis=1)
-    se = np.sqrt(np.maximum(long_run, 1e-300) / n)
-    return [_student_t_sf((mean + shift) / se, terms) for shift in shifts]
+    se = np.sqrt(long_run / n)
+    out = []
+    for shift in shifts:
+        observed = mean + shift
+        usable = (observed > 0.0) & (long_run > 0.0) & (np.ptp(x, axis=1) > 0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            p = _student_t_sf(np.where(usable, observed / se, 0.0), terms)
+        out.append(np.where(usable, p, 1.0))
+    return out
 
 
 def procedure_p_values(

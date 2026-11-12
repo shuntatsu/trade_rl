@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
 )
-PINNED_DIGEST = "c320d3ccb81e4412e67c098dfd77447e1122b15687fe066e665726388fec33d7"
+PINNED_DIGEST = "0afdd81cbf766b855924a7ed97b2bf25e71029ba77d6904ba2056753d43bd66d"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,

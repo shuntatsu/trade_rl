@@ -57,7 +57,11 @@ def test_stage_cleanup_error_is_typed_and_preserves_publication_failure(
         else "cache_cleanup_failed"
     )
     assert caught.value.evidence == {"kind": expected_kind, "url": URL}
+    assert caught.value.kind == "operational"
+    assert caught.value.resumable is True
     if mode == "publication_failed":
+        assert isinstance(caught.value.__cause__, OSError)
+        assert caught.value.__cause__.errno == errno.ENOTSUP
         assert "cleanup failed" in " ".join(getattr(caught.value, "__notes__", ()))
         assert not target.exists()
     else:

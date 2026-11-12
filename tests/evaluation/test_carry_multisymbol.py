@@ -342,6 +342,43 @@ def test_cell_summary_round_trips_and_derives_the_pass_flag() -> None:
 # --- synthetic row source and a full tiny run -------------------------------------------
 
 
+
+@pytest.mark.parametrize(
+    "bad_medians",
+    [
+        {},
+        {"spot": 2_000_000.0},  # The perpetual leg is unobserved.
+        {"usds_m": 2_000_000.0},  # The spot leg is unobserved.
+        {"spot": 2_000_000.0, "usds_m": math.nan},
+        {"spot": math.nan, "usds_m": 2_000_000.0},
+        {"spot": math.inf, "usds_m": math.inf},
+        {"spot": 2_000_000.0, "usds_m": 2_000_000.0, "other": 2_000_000.0},
+        {"spot": -1.0, "usds_m": 2_000_000.0},
+        {"spot": 10**500, "usds_m": 2_000_000.0},
+        {"spot": True, "usds_m": 2_000_000.0},
+    ],
+)
+def test_lookback_invalid_liquidity_evidence_halts_before_loading_pair(
+    bad_medians: dict[str, object],
+) -> None:
+    """Absent/nonfinite/ill-typed leg medians must not admit a symbol."""
+
+    class InvalidLiquidity:
+        def lookback_median_volumes(self, symbol: str) -> dict[str, object]:
+            assert symbol == "SOLUSDT"
+            return bad_medians
+
+        def pair(self, _symbol: str) -> None:
+            pytest.fail("invalid liquidity must halt before any window data is read")
+
+    with pytest.raises(CarryIntegrityHalt) as caught:
+        runner._load_symbol(InvalidLiquidity(), "SOLUSDT")
+    assert caught.value.kind == "integrity"
+    assert caught.value.resumable is False
+    assert caught.value.evidence["kind"] == "invalid_lookback_liquidity"
+    assert caught.value.evidence["symbol"] == "SOLUSDT"
+
+
 class FakeSource:
     """Flat-basis spot/perpetual rows for every symbol, with injectable defects."""
 

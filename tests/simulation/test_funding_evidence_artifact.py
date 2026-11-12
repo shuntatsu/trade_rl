@@ -39,6 +39,29 @@ def _boundary(
     )
 
 
+@pytest.mark.parametrize("huge", (10**500, -(10**500)))
+@pytest.mark.parametrize(
+    ("field", "is_vector"),
+    (
+        ("signed_quantities", True),
+        ("mark_prices", True),
+        ("contract_multipliers", True),
+        ("funding_rates", True),
+        ("funding_price_rates", True),
+        ("funding_amount", False),
+        ("equity_before_funding", False),
+        ("equity_after_funding", False),
+    ),
+)
+def test_direct_funding_boundary_rejects_huge_ints_with_typed_errors(
+    field: str, is_vector: bool, huge: int
+) -> None:
+    """Direct dataclass admission must not leak native float OverflowError."""
+    value = (huge,) if is_vector else huge
+    with pytest.raises(ValueError, match=field):
+        replace(_boundary(), **{field: value})
+
+
 def test_funding_evidence_artifact_round_trips_canonically() -> None:
     artifact = funding_evidence.build_funding_evidence_artifact(
         dataset_id=_DATASET_ID,

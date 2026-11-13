@@ -18,8 +18,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
-PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+PINNED_DIGEST = "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -178,6 +178,24 @@ def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
         "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
     )
     expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the preceding Carry author packet immutable after the runner repair."""
+    path = ROOT / "report" / (
+        "issue810-carry-multisymbol-research-assurance-20261113"
+        "-after1203.json"
+    )
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+    )
+    expected_head = "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
     assert old["identity"]["protocol_head"] == expected_head
     assert old["identity"]["implementation_head"] == expected_head
     verified = evaluate_assurance(old)

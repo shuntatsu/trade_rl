@@ -28,12 +28,16 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
+PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1216.json"
 REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
+PRIOR_V2_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
+PINNED_DIGEST = "94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7"
+PRIOR_V2_PACKET_DIGEST = (
+    "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
+)
 REVISION_1_PACKET_DIGEST = (
     "894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64"
 )
@@ -129,10 +133,12 @@ def bound_code_paths(head: str) -> list[str]:
     return sorted(seen)
 
 
-def _head_or_skip() -> str:
+def _require_pinned_head() -> str:
     head = packet()["identity"]["implementation_head"]
     if _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
-        pytest.skip("packet head is not in this clone (shallow checkout)")
+        pytest.fail(
+            "packet head unavailable: fetch full Git history before checking source closure"
+        )
     return head
 
 
@@ -144,6 +150,38 @@ def _flat(path: Path) -> str:
     return " ".join(path.read_text(encoding="utf-8").split())
 
 
+def test_missing_trend_packet_head_fails_instead_of_skipping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing history is a failed source proof even in a shallow checkout."""
+
+    def missing_history(*args: str) -> subprocess.CompletedProcess[str]:
+        assert args == (
+            "cat-file",
+            "-e",
+            f"{packet()['identity']['implementation_head']}^{{commit}}",
+        )
+        return subprocess.CompletedProcess(args, 1, "", "object unavailable")
+
+    monkeypatch.setattr(
+        "tests.evaluation.test_trend_stop_v2_packet._git", missing_history
+    )
+    with pytest.raises(pytest.fail.Exception, match="packet head unavailable"):
+        _require_pinned_head()
+
+
+def test_prior_v2_trend_packet_is_unchanged_and_unreviewed() -> None:
+    """A new source binding must not rewrite already reviewed historical bytes."""
+    old = json.loads(PRIOR_V2_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == PRIOR_V2_PACKET_DIGEST
+    assert old["identity"]["implementation_head"] == (
+        "b433ea8dd78f79859a09bc862b93d2459b6c86a3"
+    )
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -151,6 +189,7 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert PINNED_DIGEST != REVISION_1_PACKET_DIGEST
+    assert PINNED_DIGEST != PRIOR_V2_PACKET_DIGEST
     assert b"\r" not in PACKET_PATH.read_bytes()
     # The blocked revision stays untouched beside it.
     assert assurance_digest(json.loads(REVISION_1_PACKET_PATH.read_text("utf-8"))) == (
@@ -262,7 +301,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
-        assert "report/trend-stop-research-assurance-20261113.json" in text
+        assert "report/trend-stop-research-assurance-20261113-after1216.json" in text
         assert "UNREVIEWED" in text
     assert PINNED_DIGEST in architecture
     assert "UNREVIEWED" in architecture and DECISION_ID in architecture
@@ -308,7 +347,7 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
-    _head_or_skip()
+    _require_pinned_head()
     assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
     bound = bound_code_paths(head)
     changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
@@ -319,7 +358,7 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_study() -> None:
-    head = _head_or_skip()
+    head = _require_pinned_head()
     bound = set(bound_code_paths(head))
     for needed in (
         "trade_rl/__init__.py",

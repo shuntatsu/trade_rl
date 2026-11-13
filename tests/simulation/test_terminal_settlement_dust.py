@@ -45,7 +45,7 @@ def _dataset(
     *,
     drop: bool,
     thin_last_volume: bool = False,
-    last_open: float | None = None,
+    terminal_open_rebounds: bool = False,
 ) -> MarketDataset:
     """Prices of 100 that halve at ``DROP_ROW`` when ``drop``; lot 0.01, minimum 5."""
 
@@ -59,18 +59,19 @@ def _dataset(
     price = np.full(shape, 100.0)
     if drop:
         price[DROP_ROW:] = 50.0
+    opens = price.copy()
+    highs = price.copy()
+    if terminal_open_rebounds:
+        assert drop, "the terminal open/mark counterexample needs a prior drop"
+        opens[-1] = 100.0
+        highs[-1] = 100.0
     volume = np.full(shape, 1.0e12)
     if thin_last_volume:
         volume[-1] = 1.0e-9  # no liquidity on the terminal bar
-    open_price = price.copy()
-    high_price = price.copy()
-    if last_open is not None:
-        open_price[-1] = last_open  # the engine checks the minimum at this open
-        high_price[-1] = max(last_open, high_price[-1].max())
     fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
     fields.update(
-        open=open_price,
-        high=high_price,
+        open=opens,
+        high=highs,
         low=price.copy(),
         close=price.copy(),
         mark_price=price.copy(),
@@ -143,27 +144,6 @@ def test_dust_cannot_be_valued_without_the_cost_model() -> None:
     assert report["passed"] is False
 
 
-def test_residual_tradable_at_the_open_is_not_dust_even_if_the_mark_is_below() -> None:
-    # Reviewer probe: open 100 (notional 6 >= minimum 5), mark 50 (notional 3), and no
-    # liquidity on the terminal bar. The engine did not reject the close for the
-    # minimum notional (it saw 6 USDT at the open), so this is a stuck position.
-    dataset = _dataset(drop=True, thin_last_volume=True, last_open=100.0)
-    result = _replay(dataset)
-    ledger = result.ledger_evidence
-    assert ledger is not None
-    reasons = {
-        event.reason
-        for event in ledger.intervals.intervals[-1].order_events
-        if event.event_type != "submitted"
-    }
-    assert "below_minimum_notional" not in reasons
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
-    assert report["terminal_flat"] is False
-    assert report["terminal_dust_only"] is False
-    assert report["terminal_dust"] == []
-    assert report["passed"] is False
-
-
 def test_dust_requires_the_engine_to_have_rejected_the_close_for_the_minimum() -> None:
     # Sub-minimum at the open as well, with zero liquidity: admission rejects the
     # close for the minimum before capacity is consulted, so this is dust.
@@ -191,6 +171,69 @@ def test_a_genuine_stuck_position_still_fails() -> None:
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []
     assert report["passed"] is False
+
+
+def test_mark_dust_is_not_venue_dust_when_terminal_open_is_tradable() -> None:
+    """A liquidity-blocked 6 USDT close must not pass as 3 USDT mark dust."""
+    dataset = _dataset(
+        drop=True,
+        thin_last_volume=True,
+        terminal_open_rebounds=True,
+    )
+    result = _replay(dataset)
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    residuals = report["terminal_residual_quantities"]
+    assert set(residuals) == set(SYMBOLS)
+    for index, symbol in enumerate(SYMBOLS):
+        quantity = abs(float(Fraction(residuals[symbol])))
+        mark = float(dataset.resolved_array("mark_price")[-1, index])
+        opening = float(dataset.open[-1, index])
+        assert quantity * opening >= MINIMUM_NOTIONAL
+        assert quantity * mark < MINIMUM_NOTIONAL
+
+    # The engine refuses the close for liquidity, not for the venue minimum.
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["passed"] is False
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
+
+
+def test_classification_follows_the_engines_own_rejection_basis() -> None:
+    """Admission tests the minimum at the unrounded open, whatever tick rounding does.
+
+    Open 79 with a tick of 30: the 0.06 close is 4.74 USDT at the open (below the 5
+    minimum) although the allocator's tick-rounded price would give 5.4. The engine
+    rejects the close for ``below_minimum_notional``, so that rejection - not a
+    re-derived price bound - decides that the residual is dust.
+    """
+    original = _dataset(drop=True, thin_last_volume=True)
+    fields = {
+        field.name: getattr(original, field.name)
+        for field in dataclasses.fields(original)
+        if field.init
+    }
+    opening = original.open.copy()
+    highs = original.high.copy()
+    ticks = original.resolved_array("tick_size").copy()
+    opening[-1] = 79.0
+    highs[-1] = 79.0
+    ticks[-1] = 30.0
+    dataset = MarketDataset(
+        **{**fields, "open": opening, "high": highs, "tick_size": ticks}
+    )
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    rejections = {
+        event.reason
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    }
+    assert rejections == {"below_minimum_notional"}
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_dust_only"] is True
+    assert report["passed"] is True
 
 
 def test_runs_that_end_flat_are_unchanged_by_the_dust_valuation() -> None:

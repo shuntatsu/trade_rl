@@ -17,6 +17,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     SCOPE_REAL,
@@ -59,12 +60,14 @@ _ARRAYS = "arrays.npz"
 
 
 def _read_artifact_file(root: Path, name: str) -> bytes:
-    """Read a single regular artifact file into a stable in-memory snapshot."""
+    """Snapshot a regular artifact file through the shared no-follow fd guard.
 
-    path = root / name
-    if path.is_symlink() or not path.is_file():
-        raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
-    with path.open("rb") as stream:
+    On supported POSIX, descriptor-relative O_NOFOLLOW and fstat close the
+    pre-open leaf/ancestor swap race; the portable fallback lacks that atomicity.
+    The caller still admits manifest metadata before opening any arrays file.
+    """
+
+    with open_regular_binary(root / name, field=f"{name} artifact") as stream:
         return stream.read()
 
 

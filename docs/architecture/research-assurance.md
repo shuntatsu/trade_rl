@@ -1183,13 +1183,18 @@ Status: **pre-registered revision 2, not run**. A long/short Donchian breakout w
 - **G0.** The roster is the eleven symbols with no exclusion path (owner decision, [Issue #810 comment 6818495567](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567)); a missing archive (HTTP 404 recorded by the download step, or a Dataset lacking a symbol) makes the run `INVALID`, which is not a rejection of the rule and not a reason to rerun with another roster; an archive missing without that evidence halts, writes no result and does not consume the run. No run registry exists, so a rerun is not prevented by code. The owner did not ask for one.
 - **G2.** The future-perturbation probe runs for every (timeframe, variant) pair and each configuration's validity criterion reads its own probe; a variant that peeks 20 bars ahead fails only its own. A fired stop takes precedence over a reversal and keeps exiting until the position is flat, and a partial exit is one stop event.
 - **Code binding.** The result records the Git HEAD, the tree id of `trade_rl/`, the dirty flag and a digest of the loaded `trade_rl` modules, and the run refuses a dirty working tree. The packet is pinned to the static import closure of the study entry points by `tests/evaluation/test_trend_stop_v2_packet.py`.
-- **Packet.** `report/trend-stop-research-assurance-20261113-after1233-valuation.json` (canonical digest `fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a`, status UNREVIEWED, no PASS claimed). Its `protocol_head` and `implementation_head` are the last commit that changes the bound code; the packet is committed in a later descendant, so the pull request head is not `implementation_head` and `tools.research_assurance_github` cannot report PASS for it. Authorizing a run on later bound code requires a new packet. The latest reissue pins the finite-dust valuation guard from #1233 at source e580a91b5; prior after1233 packet digest 225178decf02ed18fbe97d42e2198daa6cef32d02235d02f4ad7f091fa8dfa00 is immutable and UNREVIEWED. This is only source provenance, with no G0-G3 review or G4 economic authority. This source-only reissue binds the terminal-dust numeric safety changes from #1233 while preserving the previous after1203 packet unchanged and UNREVIEWED. No G0-G3 approval or G4 research execution is claimed. The preceding
-  `report/trend-stop-research-assurance-20261113.json` (digest `8178da9c...`)
-  remains unchanged as an UNREVIEWED author packet. The preceding
-  `report/trend-stop-research-assurance-20261113-after1216.json` (digest `94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7`)
-  also stays unchanged and UNREVIEWED. This latest reissue additionally binds
-  the #1203 portfolio-result reader through the transitive `evaluation` facade,
-  not new trend parameters, results, G0-G3 approval or G4 authority.
+- **Packet.** `report/trend-stop-research-assurance-20261113-after1233-capacity.json` (canonical digest `1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185`,
+  status **UNREVIEWED**, no PASS claimed) pins immutable source commit
+  `67988676f` through both protocol and implementation heads.
+  The packet is a later descendant of that source, so its PR head differs from
+  its `implementation_head`; changing any transitive bound code requires
+  a new result-blind packet and review before an economic run. This update
+  records the terminal-dust max-participation capacity guard from #1233.
+  It preserves the earlier `trend-stop-research-assurance-20261113-after1233-valuation.json`
+  (digest `fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a`) unchanged and **UNREVIEWED**, along with
+  the original revision-1/revision-2 and after1216, after1203, after1233
+  author packets. No threshold, protocol, historical run, G0-G3 reviewer
+  acceptance, G4 economic execution or live authorization is changed.
 - **Review route.** The owner decided on Issue #810 (comment 6818495567) that the same-account route (a fresh Claude Haiku 5.5 agent posting from the owner's account, model independence only) covers the next trend-stop packet revision whose digest its own pull request names. That decision does not extend to any other packet. The route is operator-enforced and is **not** principal independence; the tooling still rejects a same-principal review and reports UNREVIEWED.
 - **Does not authorize** a G4 run, which needs the owner's separate authorization comment and a review of this exact digest and these heads; unused or final data; paper or live use.
 

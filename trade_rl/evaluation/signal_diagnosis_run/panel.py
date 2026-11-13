@@ -8,10 +8,13 @@ is a refusal (an exception), never a flag.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     ForbiddenEvaluationWindowError,
@@ -139,3 +142,72 @@ def admit_panel(panel: SignalPanel, protocol: SignalDiagnosisProtocol) -> None:
         )
     if not np.isfinite(panel.close).all() or bool((panel.close <= 0.0).any()):
         raise SignalDiagnosisProtocolError("close must be finite and positive")
+
+
+def admit_artifact_manifest(
+    manifest: Mapping[str, Any], protocol: SignalDiagnosisProtocol
+) -> None:
+    """Refuse a published Dataset artifact from its manifest alone, before any array.
+
+    The manifest is small JSON; no array payload is needed or read. It must hash to its
+    own ``artifact_digest`` (so every field below is authenticated), and the artifact,
+    arrays and Dataset identities and the feature-config digest must equal the pins of
+    the consumed development Dataset: bytes with those digests are that Dataset, whose
+    coverage ends at the window end by construction. The roster must be the protocol
+    roster, the clock a continuous hourly grid, and the number of bars must fit the
+    protocol window (``[start, end]`` closes hourly), so a Dataset that extends into the
+    FS1 warm-up span, the sealed window or unused data is refused from metadata. The
+    array payload is verified and every bar is checked later (``admit_panel``).
+    """
+
+    data = protocol.data
+    body = {key: value for key, value in manifest.items() if key != "artifact_digest"}
+    claimed = manifest.get("artifact_digest")
+    if type(claimed) is not str or content_digest(body) != claimed:
+        raise SignalDiagnosisProtocolError(
+            "artifact manifest does not hash to its artifact_digest"
+        )
+    scalars = manifest.get("dataset")
+    arrays = manifest.get("arrays")
+    if not isinstance(scalars, Mapping) or not isinstance(arrays, Mapping):
+        raise SignalDiagnosisProtocolError("artifact manifest is malformed")
+    pins = (
+        ("artifact_digest", claimed, data.artifact_digest),
+        ("arrays_digest", manifest.get("arrays_digest"), data.arrays_digest),
+        ("dataset_id", manifest.get("dataset_id"), data.dataset_id),
+        (
+            "feature_config_digest",
+            scalars.get("feature_config_digest"),
+            data.feature_config_digest,
+        ),
+    )
+    mismatched = [name for name, found, pinned in pins if found != pinned]
+    if mismatched:
+        raise SignalDiagnosisProtocolError(
+            f"artifact is not the pinned development Dataset: {mismatched}"
+        )
+    if tuple(scalars.get("symbols") or ()) != data.symbols:
+        raise SignalDiagnosisProtocolError("artifact symbols are not the roster")
+    if (
+        scalars.get("calendar_kind") != "continuous"
+        or scalars.get("periods_per_year") != 24 * 365
+    ):
+        raise SignalDiagnosisProtocolError("artifact is not a continuous hourly grid")
+    stamps = arrays.get("timestamps")
+    shape = stamps.get("shape") if isinstance(stamps, Mapping) else None
+    if (
+        not isinstance(shape, list | tuple)
+        or len(shape) != 1
+        or type(shape[0]) is not int
+    ):
+        raise SignalDiagnosisProtocolError("artifact manifest has no timestamps shape")
+    span = parse_instant_ns(data.evaluation_end) - parse_instant_ns(
+        data.evaluation_start
+    )
+    most_bars = span // NS_PER_HOUR + 1
+    if shape[0] > most_bars:
+        raise ForbiddenEvaluationWindowError(
+            f"artifact holds {shape[0]} bars, more than the {most_bars} of the "
+            f"protocol window ending {data.evaluation_end}: FS1 warm-up, sealed or "
+            "unused data is refused before any array is read"
+        )

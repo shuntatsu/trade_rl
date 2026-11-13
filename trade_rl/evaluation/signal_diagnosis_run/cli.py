@@ -3,13 +3,14 @@
 Nothing is tunable here: the frozen protocol fixes every parameter. The command refuses
 to start without a well-formed owner G4 authorization comment URL, refuses a non-empty
 output directory, refuses a dirty Git working tree and a missing LightGBM (both before
-any data is read), and never touches the network. The published Dataset path is read
-only after those checks.
+any data is read), and never touches the network. The published Dataset is admitted from its
+manifest and the streamed digest of its payload before the loader parses any array.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import sys
@@ -19,10 +20,14 @@ from pathlib import Path
 from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     SCOPE_REAL,
+    SignalDiagnosisProtocol,
     SignalDiagnosisProtocolError,
     default_signal_diagnosis_protocol,
 )
-from trade_rl.evaluation.signal_diagnosis_run.panel import panel_from_dataset
+from trade_rl.evaluation.signal_diagnosis_run.panel import (
+    admit_artifact_manifest,
+    panel_from_dataset,
+)
 from trade_rl.evaluation.signal_diagnosis_run.runner import (
     capture_code_provenance,
     run_signal_diagnosis,
@@ -47,6 +52,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="owner's issue / pull-request comment URL authorizing this G4 run",
     )
     return parser
+
+
+_MANIFEST = "manifest.json"
+_ARRAYS = "arrays.npz"
+_CHUNK = 1 << 20
+
+
+def admit_artifact_directory(root: Path, protocol: SignalDiagnosisProtocol) -> None:
+    """Gate a published Dataset directory before the loader parses any array.
+
+    Reads the small manifest and checks it (:func:`admit_artifact_manifest`), then
+    streams the arrays file through SHA-256 in chunks that are discarded unparsed and
+    requires the pinned arrays digest. Only an artifact whose bytes are the pinned,
+    already consumed development Dataset reaches the loader.
+    """
+
+    manifest_path, arrays_path = root / _MANIFEST, root / _ARRAYS
+    for path in (manifest_path, arrays_path):
+        if path.is_symlink() or not path.is_file():
+            raise SignalDiagnosisProtocolError(f"{path.name} is not a regular file")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise SignalDiagnosisProtocolError("artifact manifest must be a JSON object")
+    admit_artifact_manifest(manifest, protocol)
+    digest = hashlib.sha256()
+    with arrays_path.open("rb") as stream:
+        while chunk := stream.read(_CHUNK):
+            digest.update(chunk)
+    if digest.hexdigest() != protocol.data.arrays_digest:
+        raise SignalDiagnosisProtocolError(
+            "the arrays file is not the pinned development Dataset payload"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -74,6 +111,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     protocol = default_signal_diagnosis_protocol()
+    try:
+        admit_artifact_directory(args.dataset, protocol)
+    except (SignalDiagnosisProtocolError, OSError, ValueError) as error:
+        print(f"refused before any array was read: {error}", file=sys.stderr)
+        return 2
     artifact, dataset = load_published_market_dataset_artifact(args.dataset)
     manifest = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
     panel = panel_from_dataset(

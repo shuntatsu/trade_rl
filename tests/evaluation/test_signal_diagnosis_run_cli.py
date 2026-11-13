@@ -140,7 +140,6 @@ def test_a_valid_artifact_reaches_the_reader_exactly_once(
     ]
 
 
-
 def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
     """Watch the actual payload file open, not merely the Dataset decoder."""
 
@@ -196,7 +195,9 @@ def test_manifest_refusal_never_opens_arrays_payload(
                 else:
                     manifest["arrays"]["timestamps"]["shape"] = ["not-a-bar-count"]
                 body = {
-                    key: val for key, val in manifest.items() if key != "artifact_digest"
+                    key: val
+                    for key, val in manifest.items()
+                    if key != "artifact_digest"
                 }
                 manifest["artifact_digest"] = content_digest(body)
                 pinned.data.artifact_digest = manifest["artifact_digest"]

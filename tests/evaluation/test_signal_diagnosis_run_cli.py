@@ -141,9 +141,7 @@ def test_a_valid_artifact_reaches_the_reader_exactly_once(
 
 
 
-def _arrays_opens(
-    monkeypatch: pytest.MonkeyPatch, root: Path
-) -> list[Path]:
+def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
     """Watch the actual payload file open, not merely the Dataset decoder."""
 
     observed: list[Path] = []
@@ -179,7 +177,12 @@ def test_manifest_refusal_never_opens_arrays_payload(
     root = tmp_path / "artifact"
     bars = _window_bars() + 1 if case == "forbidden_window" else _window_bars()
     pinned = _build(root, bars=bars)
-    if case in {"malformed_json", "tampered_manifest", "wrong_roster", "invalid_timestamps_shape"}:
+    if case in {
+        "malformed_json",
+        "tampered_manifest",
+        "wrong_roster",
+        "invalid_timestamps_shape",
+    }:
         manifest_path = root / "manifest.json"
         if case == "malformed_json":
             manifest_path.write_bytes(b'{"invalid":')
@@ -192,7 +195,9 @@ def test_manifest_refusal_never_opens_arrays_payload(
                     manifest["dataset"]["symbols"] = ["OUTSIDE-ROSTER"]
                 else:
                     manifest["arrays"]["timestamps"]["shape"] = ["not-a-bar-count"]
-                body = {key: val for key, val in manifest.items() if key != "artifact_digest"}
+                body = {
+                    key: val for key, val in manifest.items() if key != "artifact_digest"
+                }
                 manifest["artifact_digest"] = content_digest(body)
                 pinned.data.artifact_digest = manifest["artifact_digest"]
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

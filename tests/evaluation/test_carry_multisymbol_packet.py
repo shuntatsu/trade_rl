@@ -18,8 +18,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
-PINNED_DIGEST = "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+PINNED_DIGEST = "1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -193,6 +193,21 @@ def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
         "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
     )
     expected_head = "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1226_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the already-merged lookback-liquidity author packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
+    )
+    expected_head = "c637956ce0caa9412f3d285eacfe5b7e074f10d6"
     assert old["identity"]["protocol_head"] == expected_head
     assert old["identity"]["implementation_head"] == expected_head
     verified = evaluate_assurance(old)

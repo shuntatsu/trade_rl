@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261113.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,7 +29,11 @@ PACKET_PATH = ROOT / "report" / "sd2-signal-diagnosis-research-assurance-2026111
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "ff5c8301491b9809515d8fb00b4b8395a0e065ea6bccd91a9b3172b5db986279"
+PINNED_DIGEST = "bc0163631694f42cc6fbc52ca51678e9bebe9e86efb3e9d5ca46607971b30368"
+HISTORICAL_PACKET_PATH = (
+    ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261113.json"
+)
+HISTORICAL_PINNED_DIGEST = "ff5c8301491b9809515d8fb00b4b8395a0e065ea6bccd91a9b3172b5db986279"
 PINNED_PROTOCOL_DIGEST = (
     "1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3"
 )
@@ -138,6 +142,20 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_historical_sd2_packet_remains_immutable_and_unreviewed() -> None:
+    """A rebind creates a new packet, never retroactively changes the old one."""
+
+    original = json.loads(HISTORICAL_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(original)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert assurance_digest(original) == HISTORICAL_PINNED_DIGEST
+    assert original["identity"] == {
+        "protocol_head": "4eb79f7ef6d648c67d6d5e3b0fb411df7129cbb1",
+        "implementation_head": "4eb79f7ef6d648c67d6d5e3b0fb411df7129cbb1",
+    }
+    assert result.economic_execution_authorized is False
+
+
 def test_packet_names_the_frozen_protocol_and_claims_nothing_beyond_software() -> None:
     assert (
         protocol_digest(default_signal_diagnosis_protocol()) == PINNED_PROTOCOL_DIGEST
@@ -197,7 +215,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
-        assert "report/sd2-signal-diagnosis-research-assurance-20261113.json" in text
+        assert "report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json" in text
         assert "UNREVIEWED" in text
     assert "tests/evaluation/test_signal_diagnosis_run_packet.py" in architecture
 

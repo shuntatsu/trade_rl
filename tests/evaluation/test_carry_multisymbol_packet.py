@@ -13,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.evaluation.packet_pin_rule import ClosedRun, evaluate_pin
+from tests.evaluation.packet_pin_rule import (
+    ClosedRun,
+    evaluate_pin,
+    git_blob_reader,
+)
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.carry_multisymbol import protocol
 
@@ -27,9 +31,13 @@ ARCHITECTURE_DOC = ROOT / "docs/architecture/research-assurance.md"
 # "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
 CLOSED_RUN = ClosedRun(
     run_commit="4bcb19bba27ea4bc0fccb2b2c7848965351c9e98",
+    # the packet as it existed at the run commit (implementation head 46760f49)
+    packet_path="report/issue810-carry-multisymbol-research-assurance-20261110.json",
     result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493",
     result_label="CARRY_DOES_NOT_GENERALIZE",
     protocol_digest="49d3597e3c83dd3c13d71098111075a392c3afe595e5f48edc87aad36475d961",
+    # SHA-256 over (path, blob bytes) of the 168 closure files at 46760f49 == at the run
+    content_digest="ad98afa8c2c5d12886fc9fdd8b7d156ae1b171b4afa3bfb4279e44fd0369c67a",
 )
 
 
@@ -331,6 +339,14 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
     )
 
 
+def _packet_head_at(commit: str, path: str) -> str:
+    """The implementation head the packet file named at ``commit`` (not the working tree)."""
+
+    shown = _git("show", f"{commit}:{path}")
+    assert shown.returncode == 0, shown.stderr
+    return str(json.loads(shown.stdout)["identity"]["implementation_head"])
+
+
 def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     identity = packet()["identity"]
     head = identity["protocol_head"]
@@ -338,12 +354,15 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
     problems = evaluate_pin(
-        head=head,
+        head=None,  # closed: the head is the one the packet named at the run commit
         closed_run=CLOSED_RUN,
         closure_at=bound_code_paths,
-        changed_since_head=lambda bound: _git(
-            "diff", "--name-only", head, "HEAD", "--", *bound
-        ).stdout.split(),
+        changed_since_head=lambda bound: [],
+        read_blob=git_blob_reader(ROOT),
+        is_ancestor_of_head=lambda commit: (
+            _git("merge-base", "--is-ancestor", commit, "HEAD").returncode == 0
+        ),
+        packet_head_at=_packet_head_at,
     )
     assert problems == [], problems
 

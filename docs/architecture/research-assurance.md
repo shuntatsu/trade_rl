@@ -78,8 +78,10 @@ A packet whose one authorized run is complete is a **closed packet**. Its eviden
 bound to the run commit, not to `HEAD`, so later changes to shared source (a codec, the
 funding diagnostics, a runner) do not invalidate it and it is never re-pinned or
 re-labelled. The packet pin test records the full run commit (abbreviated in the table below), the result URL, the result
-label and the protocol digest, verifies that the bound-code closure at the run commit
-equals the closure at the packet's implementation head, and asserts that no further run
+label and the protocol digest, verifies that the run commit is an ancestor of `HEAD`, that the
+bound-code closure and the SHA-256 content digest over `(path, blob bytes)` at the run
+commit equal those at the implementation head the packet named at the run (read from the
+packet file as it existed at the run commit), and asserts that no further run
 of the protocol is authorized (`tests/evaluation/packet_pin_rule.py`). A packet that has
 not run keeps the strict pin: any change to its bound code since the head fails until
 the packet is re-issued. Closed packets and their recorded runs:

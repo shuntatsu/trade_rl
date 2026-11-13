@@ -352,6 +352,66 @@ def test_huge_array_file_refuses_before_any_read(
     assert observed == []
 
 
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="bounded-read smoke requires supported POSIX descriptor opening",
+)
+def test_manifest_exact_size_ceiling_is_not_off_by_one(tmp_path: Path) -> None:
+    """Exactly 4 MiB remains admissible to the bounded raw snapshot reader."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with (root / "manifest.json").open("wb") as stream:
+        stream.truncate(4 * 1024 * 1024)
+    raw = cli._read_artifact_file(root, "manifest.json")
+    assert len(raw) == 4 * 1024 * 1024
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="bounded-read smoke requires supported POSIX descriptor opening",
+)
+def test_growing_manifest_refuses_at_byte_limit_after_initial_fstat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-fstat growth cannot make the bounded reader consume unbounded bytes."""
+
+    fake_fd = 50_000_002
+    original_fstat = os.fstat
+    requested: list[int] = []
+
+    class GrowingFile:
+        def fileno(self) -> int:
+            return fake_fd
+
+        def read(self, size: int = -1) -> bytes:
+            requested.append(size)
+            assert 0 < size <= 1024 * 1024
+            return b"x" * size
+
+    @contextmanager
+    def growing_guard(_path: Path, *, field: str) -> Any:
+        assert field.startswith("manifest.json")
+        yield GrowingFile()
+
+    def fake_fstat(fd: int) -> Any:
+        if fd == fake_fd:
+            return SimpleNamespace(st_size=0)
+        return original_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fake_fstat)
+    monkeypatch.setattr(cli, "open_regular_binary", growing_guard)
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with pytest.raises(SignalDiagnosisProtocolError, match="file size budget"):
+        cli._read_artifact_file(root, "manifest.json")
+    assert requested == [1024 * 1024] * 4 + [1]
+
+
 @pytest.mark.parametrize(
     "case",
     (

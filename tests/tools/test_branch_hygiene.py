@@ -3,235 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.branch_hygiene import (
-    RETENTION_BRANCH,
-    BranchDecision,
-    BranchInfo,
-    OpenPullRequestRefs,
-    anchor_branch_names,
-    anchor_shas,
-    apply_cleanup,
-    parse_retention_log,
-    plan_cleanup,
-    render_summary,
-)
-
-
-def test_anchor_selection_preserves_durable_refs() -> None:
-    branches = (
-        BranchInfo("main", "a" * 40, False),
-        BranchInfo("protected/release", "b" * 40, True),
-        BranchInfo("feature/open", "c" * 40, False),
-        BranchInfo("stack/base", "d" * 40, False),
-        BranchInfo("research/study", "e" * 40, False),
-        BranchInfo("seal/protocol", "f" * 40, False),
-        BranchInfo("freeze/source", "1" * 40, False),
-        BranchInfo("run/evaluation", "2" * 40, False),
-        BranchInfo(RETENTION_BRANCH, "3" * 40, False),
-        BranchInfo("verify/redundant", "4" * 40, False),
-    )
-    open_refs = (
-        OpenPullRequestRefs(
-            head_name="feature/open",
-            head_sha="c" * 40,
-            base_name="stack/base",
-            base_sha="d" * 40,
-        ),
-    )
-
-    names = anchor_branch_names(
-        branches,
-        default_branch="main",
-        open_pull_request_refs=open_refs,
-        active_workflow_branches=frozenset(),
-    )
-    shas = anchor_shas(
-        branches,
-        default_branch="main",
-        open_pull_request_refs=open_refs,
-        active_workflow_branches=frozenset(),
-    )
-
-    assert names == {
-        "main",
-        "protected/release",
-        "feature/open",
-        "stack/base",
-        RETENTION_BRANCH,
-    }
-    assert shas == {
-        "a" * 40,
-        "b" * 40,
-        "c" * 40,
-        "d" * 40,
-        "3" * 40,
-    }
-
-
-def test_cleanup_archives_every_unique_non_anchor_tip() -> None:
-    branches = (
-        BranchInfo("main", "a" * 40, False),
-        BranchInfo("feature/open", "b" * 40, False),
-        BranchInfo("stack/base", "c" * 40, False),
-        BranchInfo("verify/absorbed", "d" * 40, False),
-        BranchInfo("tmp/unique-red", "e" * 40, False),
-        BranchInfo("automation/unique", "f" * 40, False),
-        BranchInfo("feature/unique", "1" * 40, False),
-        BranchInfo("feature/merged", "2" * 40, False),
-        BranchInfo("research/evidence", "3" * 40, False),
-    )
-    open_refs = (
-        OpenPullRequestRefs(
-            head_name="feature/open",
-            head_sha="b" * 40,
-            base_name="stack/base",
-            base_sha="c" * 40,
-        ),
-    )
-    decisions = plan_cleanup(
-        branches,
-        default_branch="main",
-        open_pull_request_refs=open_refs,
-        active_workflow_branches=frozenset(),
-        reachable_from_anchors=frozenset(
-            {"a" * 40, "b" * 40, "c" * 40, "d" * 40, "2" * 40}
-        ),
-        retention_observed_at={
-            ("verify/absorbed", "d" * 40): 0,
-            ("feature/merged", "2" * 40): 0,
-        },
-        now_timestamp=10_000,
-    )
-
-    by_name = {decision.branch.name: decision for decision in decisions}
-    assert by_name["main"].reason == "default-branch"
-    assert by_name["feature/open"].reason == "open-pr-ref"
-    assert by_name["stack/base"].reason == "open-pr-ref"
-    assert by_name["research/evidence"].action == "archive-keep"
-    assert by_name["research/evidence"].reason == "first-seen-non-anchor-tip"
-    assert by_name["verify/absorbed"].action == "delete"
-    assert by_name["feature/merged"].action == "delete"
-    assert by_name["tmp/unique-red"].action == "archive-keep"
-    assert by_name["automation/unique"].action == "archive-keep"
-    assert by_name["tmp/unique-red"].reason == "first-seen-non-anchor-tip"
-    assert by_name["automation/unique"].reason == "first-seen-non-anchor-tip"
-    assert by_name["feature/unique"].action == "archive-keep"
-    assert by_name["feature/unique"].reason == "first-seen-non-anchor-tip"
-
-
-def test_fork_pr_and_active_workflow_refs_are_preserved() -> None:
-    branches = (
-        BranchInfo("main", "a" * 40, False),
-        BranchInfo("release/base", "b" * 40, False),
-        BranchInfo("verify/running", "c" * 40, False),
-    )
-    open_refs = (
-        OpenPullRequestRefs(
-            head_name=None,
-            head_sha=None,
-            base_name="release/base",
-            base_sha="b" * 40,
-        ),
-    )
-
-    decisions = plan_cleanup(
-        branches,
-        default_branch="main",
-        open_pull_request_refs=open_refs,
-        active_workflow_branches=frozenset({"verify/running"}),
-        reachable_from_anchors=frozenset({"a" * 40, "b" * 40, "c" * 40}),
-        retention_observed_at={},
-        now_timestamp=10_000,
-    )
-
-    by_name = {decision.branch.name: decision for decision in decisions}
-    assert by_name["release/base"].reason == "open-pr-ref"
-    assert by_name["verify/running"].reason == "active-workflow"
-
-
-class FakeCleanupApi:
-    def __init__(
-        self,
-        branches: tuple[BranchInfo, ...],
-        open_refs: tuple[OpenPullRequestRefs, ...] = (),
-    ) -> None:
-        self._branches = {branch.name: branch for branch in branches}
-        self._open_refs = open_refs
-        self.deleted: list[str] = []
-        self.events: list[str] = []
-
-    def branches(self) -> tuple[BranchInfo, ...]:
-        return tuple(self._branches.values())
-
-    def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
-        return self._open_refs
-
-    def active_workflow_branch_names(self) -> frozenset[str]:
-        return frozenset()
-
-    def delete_branches_with_leases(self, branches: tuple[BranchInfo, ...]) -> None:
-        names = ",".join(branch.name for branch in branches)
-        self.events.append(f"delete:{names}")
-        for branch in branches:
-            self.deleted.append(branch.name)
-            self._branches.pop(branch.name)
-
-
-def test_bulk_apply_cannot_archive_or_delete_even_with_reachable_tip() -> None:
-    main = BranchInfo("main", "a" * 40, False)
-    archived = BranchInfo("verify/unique", "b" * 40, False)
-    direct = BranchInfo("feature/merged", "c" * 40, False)
-    api = FakeCleanupApi((main, archived, direct))
-    decisions = (
-        BranchDecision(main, "keep", "default-branch"),
-        BranchDecision(archived, "archive-keep", "first-seen-non-anchor-tip"),
-        BranchDecision(direct, "delete", "tip-reachable-from-anchor"),
-    )
-
-    with pytest.raises(RuntimeError, match="bulk apply_cleanup is disabled"):
-        apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
-
-    assert api.deleted == []
-    assert api.events == []
-    assert {branch.name for branch in api.branches()} == {
-        "main",
-        archived.name,
-        direct.name,
-    }
-
-
-def test_bulk_apply_rejects_even_supplied_delete_decisions() -> None:
-    main = BranchInfo("main", "a" * 40, False)
-    original = BranchInfo("verify/redundant", "b" * 40, False)
-    moved = BranchInfo("automation/moved", "c" * 40, False)
-    protected_by_pr = BranchInfo("tmp/open", "d" * 40, False)
-    api = FakeCleanupApi(
-        (
-            main,
-            original,
-            BranchInfo(moved.name, "e" * 40, False),
-            protected_by_pr,
-        ),
-        (
-            OpenPullRequestRefs(
-                head_name=protected_by_pr.name,
-                head_sha=protected_by_pr.sha,
-                base_name="main",
-                base_sha=main.sha,
-            ),
-        ),
-    )
-    decisions = (
-        BranchDecision(original, "delete", "tip-reachable-from-anchor"),
-        BranchDecision(moved, "delete", "tip-reachable-from-anchor"),
-        BranchDecision(protected_by_pr, "delete", "tip-reachable-from-anchor"),
-    )
-
-    with pytest.raises(RuntimeError, match="bulk apply_cleanup is disabled"):
-        apply_cleanup(api, decisions, default_branch="main")  # type: ignore[arg-type]
-
-    assert api.deleted == []
-    assert api.events == []
+from tools.branch_hygiene import BranchInfo
 
 
 def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -784,32 +556,6 @@ def test_unfinished_workflow_multiple_status_pages_are_all_preserved(
     ]
 
 
-def test_dry_run_summary_does_not_claim_archival_or_grace_as_anchor() -> None:
-    decisions = (
-        BranchDecision(BranchInfo("main", "a" * 40, False), "keep", "default-branch"),
-        BranchDecision(
-            BranchInfo("tmp/first", "b" * 40, False),
-            "archive-keep",
-            "first-seen-non-anchor-tip",
-        ),
-        BranchDecision(
-            BranchInfo("tmp/grace", "c" * 40, False),
-            "keep",
-            "observation-grace-period",
-        ),
-        BranchDecision(
-            BranchInfo("tmp/unreachable", "d" * 40, False),
-            "keep",
-            "retained-tip-not-reachable",
-        ),
-    )
-    summary = render_summary(decisions, deleted=(), apply=False)
-    assert "- durable anchors kept: 1" in summary
-    assert "- first-observation archival candidates: 1" in summary
-    assert "- ref/retention mutations: none (dry-run)" in summary
-    assert "archived and kept" not in summary
-
-
 def test_branch_hygiene_cli_help_marks_apply_disabled(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -821,11 +567,38 @@ def test_branch_hygiene_cli_help_marks_apply_disabled(
     assert "--apply is disabled" in capsys.readouterr().out
 
 
-def test_apply_cli_is_blocked_without_authoritative_task_registry() -> None:
-    from tools.branch_hygiene import main
+def test_old_retention_planner_is_not_a_live_interface() -> None:
+    """Old grace/anchor/delete planners must not compete with current retirement."""
+    import tools.branch_hygiene as hygiene
 
-    with pytest.raises(RuntimeError, match="apply is disabled"):
-        main(["--repository", "owner/repo", "--apply"])
+    for obsolete in (
+        "plan_cleanup",
+        "retention_tip_observations",
+        "anchor_shas",
+        "anchor_branch_names",
+        "merged_pr_retention_title",
+        "parse_retention_log",
+        "render_summary",
+        "apply_cleanup",
+    ):
+        assert not hasattr(hygiene, obsolete), obsolete
+
+
+def test_legacy_cli_fails_before_github_api_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting --retire-merged must never load an old deletion inventory."""
+    import tools.branch_hygiene as hygiene
+
+    def reject_io(**_kwargs: object) -> None:
+        raise AssertionError("unexpected GitHub access")
+
+    monkeypatch.setattr(hygiene, "GitHubApi", reject_io)
+    for additional in ((), ("--apply",)):
+        with pytest.raises(RuntimeError, match="--retire-merged"):
+            hygiene.main(
+                ["--repository", "shuntatsu/trade_rl", "--token", "unused", *additional]
+            )
 
 
 def test_repository_root_url_has_no_trailing_slash() -> None:
@@ -842,80 +615,3 @@ def test_repository_root_url_has_no_trailing_slash() -> None:
         api._url("branches", {"page": "1"})
         == "https://api.github.test/repos/owner/repo/branches?page=1"
     )
-
-
-def test_cleanup_requires_observation_and_grace_before_delete() -> None:
-    main = BranchInfo("main", "a" * 40, False)
-    first_seen = BranchInfo("feature/first", "b" * 40, False)
-    recent = BranchInfo("feature/recent", "c" * 40, False)
-    stale = BranchInfo("feature/stale", "d" * 40, False)
-    unreachable = BranchInfo("feature/unreachable", "e" * 40, False)
-    now = 10_000
-    decisions = plan_cleanup(
-        (main, first_seen, recent, stale, unreachable),
-        default_branch="main",
-        open_pull_request_refs=(),
-        active_workflow_branches=frozenset(),
-        reachable_from_anchors=frozenset({main.sha, recent.sha, stale.sha}),
-        retention_observed_at={
-            (recent.name, recent.sha): now - 30,
-            (stale.name, stale.sha): now - 3_601,
-            (unreachable.name, unreachable.sha): now - 3_601,
-        },
-        now_timestamp=now,
-    )
-
-    by_name = {decision.branch.name: decision for decision in decisions}
-    assert by_name[first_seen.name].action == "archive-keep"
-    assert by_name[first_seen.name].reason == "first-seen-non-anchor-tip"
-    assert by_name[recent.name].action == "keep"
-    assert by_name[recent.name].reason == "observation-grace-period"
-    assert by_name[stale.name].action == "delete"
-    assert by_name[stale.name].reason == "observed-tip-reachable-from-anchor"
-    assert by_name[unreachable.name].action == "keep"
-    assert by_name[unreachable.name].reason == "retained-tip-not-reachable"
-
-
-def test_retention_log_parser_accepts_canonical_only_and_earliest_observation() -> None:
-    branch = "automation/recent"
-    sha = "a" * 40
-    title = "Retain merged PR #1096 exact source after verified normal integration"
-    canonical_late = f"{title}\n\n{branch}\t{sha}\n"
-    canonical_early = f"{title}\n\n{branch}\t{sha}\n"
-    legacy = (
-        "Observe non-anchor branch tips before cleanup grace period\n\n"
-        f"{branch}\t{sha}\n"
-    )
-    other_old = (
-        "Observe merged PR #1096 source before cleanup grace period\n\n"
-        f"{branch}\t{sha}\n"
-    )
-    payload = (
-        f"200\x1f{canonical_late}\x1e150\x1f{canonical_early}\x1e"
-        f"100\x1f{legacy}\x1e50\x1f{other_old}\x1e"
-    )
-    assert parse_retention_log(payload) == {(branch, sha): 150}
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Archive unique non-anchor branch tips before ref cleanup",
-        "Observe non-anchor branch tips before cleanup grace period",
-        "Observe merged PR #1096 source before cleanup grace period",
-        "Retain merged PR #001096 exact source after verified normal integration",
-        "Retain merged PR #1096 exact source after verified normal integration extra",
-    ],
-)
-def test_retention_log_parser_rejects_obsolete_or_ambiguous_titles(
-    message: str,
-) -> None:
-    branch = "automation/recent"
-    sha = "a" * 40
-    assert parse_retention_log(f"100\x1f{message}\n\n{branch}\t{sha}\x1e") == {}
-
-
-def test_retention_log_parser_rejects_multi_branch_record() -> None:
-    title = "Retain merged PR #1096 exact source after verified normal integration"
-    payload = f"100\x1f{title}\n\nbranch/a\t{'a' * 40}\nbranch/b\t{'b' * 40}\x1e"
-    assert parse_retention_log(payload) == {}

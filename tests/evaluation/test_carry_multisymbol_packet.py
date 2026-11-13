@@ -362,7 +362,7 @@ def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() 
     assert "closed packet" in architecture
     assert "bound to the run commit" in architecture
     assert "no further run of the protocol is authorized" in architecture
-    assert CLOSED_RUN.run_commit in architecture
+    assert CLOSED_RUN.run_commit[:8] in architecture
     assert CLOSED_RUN.result_url in architecture
     assert CLOSED_RUN.result_label in architecture
 

@@ -77,7 +77,7 @@ inspect は状態を表示するだけ、check はPASS以外で非0終了。ネ�
 A packet whose one authorized run is complete is a **closed packet**. Its evidence is
 bound to the run commit, not to `HEAD`, so later changes to shared source (a codec, the
 funding diagnostics, a runner) do not invalidate it and it is never re-pinned or
-re-labelled. The packet pin test records the run commit, the result URL, the result
+re-labelled. The packet pin test records the full run commit (abbreviated in the table below), the result URL, the result
 label and the protocol digest, verifies that the bound-code closure at the run commit
 equals the closure at the packet's implementation head, and asserts that no further run
 of the protocol is authorized (`tests/evaluation/packet_pin_rule.py`). A packet that has
@@ -86,8 +86,8 @@ the packet is re-issued. Closed packets and their recorded runs:
 
 | packet | run commit | result | label |
 |---|---|---|---|
-| multi-symbol carry screen | `4bcb19bba27ea4bc0fccb2b2c7848965351c9e98` | [Issue #810 comment 6839301493](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493) | `CARRY_DOES_NOT_GENERALIZE` |
-| trend-stop v2 development study | `a1aa8fd34467edc205ba5acbadc9d9af494206e0` | [Issue #810 comment 6841344722](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722) | `NO_WINNER` |
+| multi-symbol carry screen | `4bcb19bb` | [Issue #810 comment 6839301493](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493) | `CARRY_DOES_NOT_GENERALIZE` |
+| trend-stop v2 development study | `a1aa8fd3` | [Issue #810 comment 6841344722](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722) | `NO_WINNER` |
 
 Any new run of either protocol needs a new protocol, a new result-blind packet and owner
 authorization.

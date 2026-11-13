@@ -21,7 +21,10 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
     protocol_digest,
 )
 
-REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json"
+REPORT_PATH = "report/issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json"
+CALIBRATION_DOC = (
+    "docs/architecture/research-assurance.md (SD0 significance calibration)"
+)
 ISSUE_URL = "https://github.com/shuntatsu/trade_rl/issues/1146"
 SD1_ORACLES = (
     "planted-signal recovery",
@@ -33,6 +36,8 @@ SD1_ORACLES = (
 CITED_TESTS = (
     "tests/evaluation/test_signal_diagnosis_protocol.py",
     "tests/evaluation/test_signal_diagnosis_verdict.py",
+    "tests/evaluation/test_signal_measurement_significance.py",
+    "tests/evaluation/test_signal_measurement_calibration.py",
     "tests/integrations/market_store/test_embargo.py",
 )
 
@@ -41,7 +46,7 @@ def build_author_packet(head: str) -> dict[str, object]:
     """The SD0 G0-G2 author packet bound to ``head`` and the protocol digest."""
 
     digest = protocol_digest(default_signal_diagnosis_protocol())
-    bound = f"signal_diagnosis_protocol_v3 (SHA-256 {digest}, {REPORT_PATH})"
+    bound = f"signal_diagnosis_protocol_v4 (SHA-256 {digest}, {REPORT_PATH})"
     return {
         "schema_version": "research_assurance_v1",
         "identity": {"protocol_head": head, "implementation_head": head},
@@ -51,10 +56,10 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "predictive signal that is stable, survives removal of the same-time "
                 "cross-sectional mean (not heterogeneous market beta) and exceeds "
                 "round-trip cost, before any new learner is tried (Issue #1146, "
-                f"protocol digest {digest}), and decide whether to implement SD1 "
-                "(synthetic measurement tools and oracles) and later ask the owner "
-                "for a separate G4 lease to run SD2 (the fit-free real-data "
-                "diagnosis). Operational target: whether further decision-learning "
+                f"protocol digest {digest}), and decide whether the frozen "
+                "protocol and the SD1 synthetic measurement tools are fit to support "
+                "a later request to the owner for a separate G4 lease to run SD2 (the "
+                "fit-free real-data diagnosis). Operational target: whether further decision-learning "
                 "work on the current features (the #1025 line) is justified or new "
                 "information sources are needed. This packet authorizes no "
                 "real-data execution, fit, replay, FS1 scoring, unused or final "
@@ -142,11 +147,26 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "drift baseline with Benjamini-Hochberg adjustment (q = 0.10; Holm "
                 "FWER also reported). The p-value behind that gate is frozen in the "
                 "protocol: a one-sided test of a mean daily rank-IC increment above "
-                "zero (null: mean <= 0) by moving-block bootstrap with 20-day blocks, "
-                "which cover the one-day overlap of 24-bar labels, 2000 resamples and "
-                "seed 0; the correction is applied separately to the raw-target and "
-                "the demeaned-target p-values, each over exactly the same 16 decision "
-                "cells. Guardrails: the same increment must hold on the "
+                "zero (null: mean <= 0) by the equal-weighted cosine test, whose "
+                "long-run variance is the average of the squared projections on the "
+                "first floor(0.4 * n ** (2 / 3)) cosine functions (51 for 1460 days; "
+                "the estimate smooths over at least four days, more than the one-day "
+                "overlap of 24-bar labels) and whose statistic is referred to a "
+                "Student-t law with that many degrees of freedom; it is deterministic "
+                "(no resampling, no seed) and returns exactly 1.0 for a non-positive "
+                "mean, for fewer than four eligible days including none, and for a "
+                "constant series. The correction is applied separately to the "
+                "raw-target and the demeaned-target p-values, each over exactly the "
+                "same 16 decision cells. The test replaces the centred moving-block "
+                "bootstrap of the superseded v3 because of a result-blind synthetic "
+                f"calibration ({CALIBRATION_DOC}): at 1460 days, across serial "
+                "dependence, label overlap, heavy tails and cross-cell correlation, "
+                "the v3 bootstrap rejected a true global null in 11 to 13 percent of "
+                "families at q = 0.10 when cells were independent and its per-test "
+                "size was above nominal in every configuration, while the frozen test "
+                "stayed within three Monte Carlo standard errors of nominal in all 15 "
+                "configurations on two independent seeds at a dense-scenario power of "
+                "0.83 against 0.85 to 0.86 with independent cells. Guardrails: the same increment must hold on the "
                 "cross-sectionally demeaned target and be positive in each of the "
                 "four full calendar years 2022-2025 (each with 12 months of at least "
                 "15 valid daily increments), and a simple after-cost threshold-rule "
@@ -210,8 +230,20 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "signal that is positive in each year with probability 0.8, 4 of 4 "
                 "passes with probability 0.41 while at least 4 of 5 would pass with "
                 "0.74, so NO_SIGNAL is the likely label for a modest real effect and "
-                "the rule favours few false positives on known-used data. This packet "
-                "is UNREVIEWED"
+                "the rule favours few false positives on known-used data. Limits of "
+                "the significance calibration: it is synthetic; the null models are a "
+                "series-level AR(1) with a one-day moving-average overlap term and a "
+                "structural hourly panel with 24-bar labels, and real increments may "
+                "depend in ways neither model has (long memory, breaks, days missing "
+                "in runs), and serial dependence above an AR coefficient of 0.3 was "
+                "not studied; the Student-t reference is exact only for Gaussian white "
+                "noise and approximate otherwise; cross-cell dependence was studied "
+                "only as positive dependence, under which Benjamini-Hochberg was "
+                "conservative; the 20-day moving-block interval of the D4 payoff was "
+                "not calibrated and is the same kind of bootstrap that v3 used; the "
+                "day span of the decisive series (all out-of-sample days or the four "
+                "full years) is not restricted by the protocol text, and both 1460 "
+                "and 1948 days were calibrated. This packet is UNREVIEWED"
             ),
         },
         "mechanism": {
@@ -379,16 +411,21 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "verdict, separately for the raw and the demeaned target, "
                         "over exactly the 16 frozen decision cells from raw "
                         "one-sided p-values that carry the frozen procedure's "
-                        "provenance; an already adjusted p-value cannot be supplied"
+                        "provenance; an already adjusted p-value cannot be supplied, "
+                        "and a series too short for the frozen test (fewer than four "
+                        "days, including none) must carry a p-value of exactly 1.0"
                     ),
                     "counterexample": (
                         "A protocol with a shrunken penalty grid and a matching "
                         "digest; a payload carrying an edge, G4 or live field; a "
                         "signal cell without D4 evidence; one tampered byte; a "
                         "duplicate JSON key; p-values with foreign or missing "
-                        "provenance (another test, block length, resample count or "
-                        "seed); a protocol whose bootstrap block is shorter than the "
-                        "label overlap or whose BH family is not the decision cells"
+                        "provenance (another test, including the superseded v3 "
+                        "bootstrap); a p-value below 1.0 for a series of zero to three "
+                        "days; a protocol whose long-run variance span or bootstrap "
+                        "block is shorter than the label overlap or whose BH family is "
+                        "not the decision cells; a test that treats its variance "
+                        "estimate as known and so rejects a true null too often"
                     ),
                     "oracle": (
                         "tests/evaluation/test_signal_diagnosis_protocol.py "
@@ -400,7 +437,15 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "eligible full years, the 12-month coverage floor, refusal "
                         "of a partial start-up year, interval lower bound exactly "
                         "zero, strictly positive 2x point, candidate cap and "
-                        "ranking)"
+                        "ranking, refusal of a short series with a p-value below 1.0); "
+                        "tests/evaluation/test_signal_measurement_significance.py "
+                        "(the test against a slow reference written from the "
+                        "definition, closed-form and numerically integrated Student-t "
+                        "tails, the exact integer term rule, every fail-closed case) "
+                        "and tests/evaluation/test_signal_measurement_calibration.py "
+                        "(size, family error and power of the SD1 function on seeded "
+                        "null series at 1460 days, with the superseded bootstrap at 60 "
+                        "days as the failing control)"
                     ),
                     "known_limitations": (
                         "Software-level on synthetic inputs; a frozen digest proves "
@@ -427,8 +472,11 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "constants are cross-checked against the existing development-study "
                 "identity, the FS1 registry, the market-data store embargo, the "
                 "maintained feature-definition function (167 names), the LightGBM "
-                "constructor call and the PrequentialSchedule and "
-                "moving_block_mean_test signatures. No market value has been read or "
+                "constructor call, the PrequentialSchedule and "
+                "moving_block_mean_test signatures, and the SD1 cosine-term rule, "
+                "which must equal the protocol's for every series length. The "
+                "significance test was calibrated on seeded synthetic series only. "
+                "No market value has been read or "
                 "computed and no D0-D5 numerics are implemented, so every "
                 "evidence boolean here is false except no_development_rescue, which "
                 "the protocol budget enforces"
@@ -464,9 +512,9 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "relative to a zero-cost drift-sign policy, not a beta-adjusted alpha",
             ],
             "next_authorized_action": (
-                "SD1 synthetic measurement tools and oracles (synthetic "
-                "verification only) after an independent result-blind review of this "
-                "exact packet digest and heads. Real-data SD2 and later execution "
+                "Synthetic verification only: the SD1 measurement tools and "
+                "oracles, after an independent result-blind review of this exact "
+                "packet digest and heads. Real-data SD2 and later execution "
                 "requires a separate owner G4 lease; this packet authorizes none of "
                 "it"
             ),
@@ -478,7 +526,7 @@ def build_author_packet(head: str) -> dict[str, object]:
                 "protocol digest mismatch, an available_at violation or contact "
                 "with the FS1 warm-up span or sealed window occurs; NO_SIGNAL if no "
                 "family-by-model cell is positive and BH-significant (q = 0.10, "
-                "frozen one-sided moving-block-bootstrap p-values) on "
+                "frozen one-sided equal-weighted cosine Student-t p-values) on "
                 "both the raw and the cross-sectionally demeaned target with a "
                 "positive demeaned increment in all four eligible full years "
                 "2022-2025; SIGNAL_NOT_TRADABLE if signal cells "

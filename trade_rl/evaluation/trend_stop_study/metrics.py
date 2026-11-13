@@ -73,7 +73,14 @@ def daily_return_series(timestamps_ns: np.ndarray, equity: np.ndarray) -> np.nda
 def bootstrap_lower_bound(
     daily: np.ndarray, protocol: TrendStopProtocol
 ) -> dict[str, float]:
-    """Bonferroni-adjusted lower percentile of the annualised mean daily net return."""
+    """Bonferroni-adjusted lower percentile of the annualised mean daily net return.
+
+    The interval is two-sided: its coverage is ``1 - alpha / m`` with ``alpha / (2 m)``
+    in each tail (``m`` = ``n_configurations``), so with the frozen values the endpoints
+    are the 0.625% and 99.375% percentiles of the resampled means. Criterion 7 reads
+    only the lower endpoint, which makes it a one-sided test of "mean above zero" at
+    the 0.625% level, stricter than a one-sided Bonferroni test at ``alpha / m``.
+    """
 
     values = np.asarray(daily, dtype=np.float64).reshape(-1)
     indices = moving_block_indices(

@@ -18,8 +18,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
-PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1136.json"
+PINNED_DIGEST = "c81628496f2193171f7cf4024aa03c4bb2a8bf42da028a8fb814d2faba561dfe"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -183,6 +183,24 @@ def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
     verified = evaluate_assurance(old)
     assert verified.status == "UNREVIEWED"
     assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1203_carry_packet_is_unmodified_and_unreviewed() -> None:
+    """A later M1 source guard must not alter the earlier frozen author record."""
+    prior = json.loads(
+        (
+            ROOT
+            / "report/issue810-carry-multisymbol-research-assurance-20261113-after1203.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert assurance_digest(prior) == (
+        "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+    )
+    assert prior["identity"]["implementation_head"] == (
+        "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    )
+    check = evaluate_assurance(prior)
+    assert check.status == "UNREVIEWED" and check.economic_execution_authorized is False
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

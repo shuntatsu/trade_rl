@@ -184,14 +184,14 @@ in place.
 ## Research assurance (G0-G2)
 
 The author packet
-[`report/issue810-carry-multisymbol-research-assurance-20261113-after1203.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1203.json)
+[`report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json)
 states the counter-hypothesis (a 2023-2024 regime effect that fees and basis risk
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea` and its status
+`c81628496f2193171f7cf4024aa03c4bb2a8bf42da028a8fb814d2faba561dfe` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
-review of this exact digest and these heads. This source-only reissue binds the transitive portfolio-result reader change from #1203; the 2026-11-13 and earlier 2026-11-10 packets remain unmodified and UNREVIEWED. The oracle is a hand-computed three-pair ledger in exact rational
+review of this exact digest and these heads. This software-only source reissue additionally binds M1 #1136 order admission, reconciliation and stateful transitions, while preserving all historical packets, the pre-registered protocol and UNREVIEWED/no G4 authority. The preceding #1203 and original 2026-11-13/2026-11-10 packets remain unchanged and UNREVIEWED. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the
 production sizing, cost or funding code. The packet's heads bind the computed static import
 closure of the screen entry points (the screen, the carry replay and the command line,

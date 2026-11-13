@@ -28,13 +28,19 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1203.json"
+PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1136.json"
 REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 PRIOR_V2_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
+PRIOR_AFTER1203_PACKET_PATH = (
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1203.json"
+)
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "8fa94eba74e70147b9a2123aae50907e878457ed7c5d3e4008b97524a0c34e64"
+PINNED_DIGEST = "18204f6be46d8fe498dee6f3aea5012434e1bd664ff575dc76fe23fb950327f4"
+PRIOR_AFTER1203_PACKET_DIGEST = (
+    "8fa94eba74e70147b9a2123aae50907e878457ed7c5d3e4008b97524a0c34e64"
+)
 PRIOR_V2_PACKET_DIGEST = (
     "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
 )
@@ -197,6 +203,17 @@ def test_prior_after1216_source_reissue_is_immutable_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_prior_after1203_trend_packet_is_unmodified_and_unreviewed() -> None:
+    """Keep the previous source-bound author packet and all its frozen evidence."""
+    old = json.loads(PRIOR_AFTER1203_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == PRIOR_AFTER1203_PACKET_DIGEST
+    assert old["identity"]["implementation_head"] == (
+        "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    )
+    check = evaluate_assurance(old)
+    assert check.status == "UNREVIEWED" and check.economic_execution_authorized is False
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -205,6 +222,7 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert PINNED_DIGEST != REVISION_1_PACKET_DIGEST
     assert PINNED_DIGEST != PRIOR_V2_PACKET_DIGEST
+    assert PINNED_DIGEST != PRIOR_AFTER1203_PACKET_DIGEST
     assert b"\r" not in PACKET_PATH.read_bytes()
     # The blocked revision stays untouched beside it.
     assert assurance_digest(json.loads(REVISION_1_PACKET_PATH.read_text("utf-8"))) == (
@@ -316,7 +334,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
-        assert "report/trend-stop-research-assurance-20261113-after1203.json" in text
+        assert "report/trend-stop-research-assurance-20261113-after1136.json" in text
         assert "UNREVIEWED" in text
     assert PINNED_DIGEST in architecture
     assert "UNREVIEWED" in architecture and DECISION_ID in architecture

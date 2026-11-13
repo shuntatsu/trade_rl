@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,8 +19,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1227.json"
-PINNED_DIGEST = "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1136-1208.json"
+PINNED_DIGEST = "b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -125,7 +126,7 @@ def _require_pinned_head() -> str:
     return head
 
 
-def packet():
+def packet() -> dict[str, Any]:
     return json.loads(PACKET_PATH.read_text(encoding="utf-8"))
 
 
@@ -240,6 +241,37 @@ def test_typed_cache_cleanup_reissue_changes_only_the_bound_source_identity() ->
     assert {key: value for key, value in current.items() if key != "identity"} == {
         key: value for key, value in previous.items() if key != "identity"
     }
+
+
+def test_latest_merge_predecessors_are_immutable_unreviewed_and_economically_equal() -> (
+    None
+):
+    prior = (
+        (
+            "report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json",
+            "c81628496f2193171f7cf4024aa03c4bb2a8bf42da028a8fb814d2faba561dfe",
+            "dc8215542f271f7d72f7cf6251f45ae0e99dc1d7",
+        ),
+        (
+            "report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json",
+            "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4",
+            "f8537dc4b77414d8cdb7e1f4333c18f6e99d37de",
+        ),
+    )
+    current = packet()
+    current_economics = {
+        key: value for key, value in current.items() if key != "identity"
+    }
+    for file, digest, head in prior:
+        old = json.loads((ROOT / file).read_text(encoding="utf-8"))
+        assert assurance_digest(old) == digest
+        assert old["identity"] == {"protocol_head": head, "implementation_head": head}
+        verification = evaluate_assurance(old)
+        assert verification.status == "UNREVIEWED"
+        assert verification.economic_execution_authorized is False
+        assert {
+            key: value for key, value in old.items() if key != "identity"
+        } == current_economics
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

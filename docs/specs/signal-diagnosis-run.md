@@ -39,8 +39,9 @@ pinned artifact, arrays, Dataset and feature-config digests, declare the five-sy
 roster and a continuous hourly grid, and fit no more bars than the protocol window.
 Malformed, tampered, foreign or out-of-window manifests are refused **without opening
 `arrays.npz`**. This includes any manifest declaring FS1 warm-up, sealed or unused
-coverage. A filesystem `Path.open` spy verifies zero arrays-file opens for these
-refusals; URL, clean-tree and LightGBM checks precede even the manifest read.
+coverage. Dual filesystem open spies observe both `Path.open` and the shared descriptor-safe
+`open_regular_binary` context, proving zero arrays-file opens for these refusals;
+URL, clean-tree and LightGBM checks precede even the manifest read.
 
 Only after manifest admission does the CLI open `arrays.npz` once, hold the raw bytes
 in memory, and compare their SHA-256 to the pinned arrays digest. A payload digest
@@ -48,11 +49,20 @@ mismatch therefore **does read** those bytes once, but never decodes them. The
 Dataset decoder `data.artifacts.verified_bytes.load_dataset_from_verified_bytes` uses exactly the verified
 in-memory manifest and array bytes, without another file read; a post-verification
 directory swap cannot change what is decoded. The valid positive control checks
-one arrays-file open and identical bytes at the decoder, and the injected file-swap
-regressions preserve that boundary. The in-memory decoder lives in an isolated module instead of modifying the shared
-artifact codec (existing source-bound evidence is preserved). Parity tests compare it
-with the file loader on synthetic Dataset artifacts. This software-level check does not
-claim an atomic directory-swap defense or a bound on large payload allocations.
+one arrays-file open and identical bytes at the decoder; injected post-digest
+file-swap regressions preserve that boundary. Both initial file reads use the
+repository's `artifacts.verified_file.open_regular_binary` guard: on supported
+POSIX it opens a descriptor-relative no-follow parent directory chain and applies
+`O_NOFOLLOW` plus `fstat` to the leaf before reading bytes. Synthetic regression
+tests swap a leaf to a symlink *after* the apparent pre-open check and reject a
+linked parent directory; the old `Path.open` reader would follow those links.
+The portable fallback on systems without POSIX descriptor-relative opening does
+**not** claim atomic protection against concurrent replacement. A valid manifest
+still permits one uncapped raw arrays read before SHA-256 validation, so no
+absolute in-memory payload ceiling or authenticated Dataset provenance is claimed.
+The in-memory decoder lives in an isolated module rather than modifying the shared
+artifact codec (existing source-bound evidence is preserved). Parity tests compare
+it with the file loader on synthetic Dataset artifacts.
 Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working
 tree (untracked files included); a plan other than the protocol's; a missing LightGBM;
 a non-empty output directory. A protocol digest other than the pinned one or a Dataset

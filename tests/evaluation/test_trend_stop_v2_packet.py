@@ -19,6 +19,11 @@ from typing import Any
 
 import pytest
 
+from tests.evaluation.packet_pin_rule import (
+    ClosedRun,
+    evaluate_pin,
+    git_blob_reader,
+)
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.trend_stop_study.protocol import (
     OWNER_ROSTER_DECISION_URL,
@@ -65,6 +70,25 @@ PINNED_PROTOCOL_DIGEST = (
     "2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda"
 )
 DECISION_ID = "6818495567"
+ARCHITECTURE_DOC = ARCHITECTURE
+# The one authorized run is complete (see docs/architecture/research-assurance.md,
+# "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
+CLOSED_RUN = ClosedRun(
+    run_commit="a1aa8fd34467edc205ba5acbadc9d9af494206e0",
+    # the packet as it existed at the run commit (implementation head b433ea8d)
+    packet_path="report/trend-stop-research-assurance-20261113.json",
+    result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722",
+    result_label="NO_WINNER",
+    protocol_digest="2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda",
+    # SHA-256 over (path, blob bytes) of the 165 closure files at b433ea8d == at the run
+    content_digest="9e4eb9c5116797909cbd0827c5481c3625ddd1a25fc9e81360d458079c17705b",
+)
+
+
+def PROTOCOL_DIGEST_NOW() -> str:
+    return protocol_digest(PROTOCOL)
+
+
 # The bound code is the static import closure of these entry points (module-level and
 # lazy imports, plus the ``__init__`` of every ancestor package), resolved from the
 # immutable packet head, never from the working tree.
@@ -419,19 +443,51 @@ def test_spec_states_the_registered_rules_of_revision_2() -> None:
         )
 
 
+def _packet_head_at(commit: str, path: str) -> str:
+    """The implementation head the packet file named at ``commit`` (not the working tree)."""
+
+    shown = _git("show", f"{commit}:{path}")
+    assert shown.returncode == 0, shown.stderr
+    return str(json.loads(shown.stdout)["identity"]["implementation_head"])
+
+
 def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     identity = packet()["identity"]
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
-    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
-    bound = bound_code_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.split() == [], (
-        "re-pin the packet heads after changing the bound code"
+    problems = evaluate_pin(
+        head=None,  # closed: the head is the one the packet named at the run commit
+        closed_run=CLOSED_RUN,
+        closure_at=bound_code_paths,
+        changed_since_head=lambda bound: [],
+        read_blob=git_blob_reader(ROOT),
+        is_ancestor_of_head=lambda commit: (
+            _git("merge-base", "--is-ancestor", commit, "HEAD").returncode == 0
+        ),
+        packet_head_at=_packet_head_at,
     )
+    assert problems == [], problems
+
+
+def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() -> None:
+    # The packet is closed: its evidence is the recorded run, not HEAD.
+    if _git("cat-file", "-e", f"{CLOSED_RUN.run_commit}^{{commit}}").returncode != 0:
+        pytest.fail("closed-run commit unavailable: fetch full Git history")
+    assert (
+        _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
+        == 0
+    )
+    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.further_runs_authorized is False
+    architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
+    assert "closed packet" in architecture
+    assert "bound to the run commit" in architecture
+    assert "no further run of the protocol is authorized" in architecture
+    assert CLOSED_RUN.run_commit[:8] in architecture
+    assert CLOSED_RUN.result_url in architecture
+    assert CLOSED_RUN.result_label in architecture
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_study() -> None:

@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -57,18 +58,47 @@ def build_parser() -> argparse.ArgumentParser:
 
 _MANIFEST = "manifest.json"
 _ARRAYS = "arrays.npz"
+# Technical input budgets, not economic parameters; all reads remain one-shot.
+_MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+_MAX_ARRAYS_BYTES = 1024 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
 
 
 def _read_artifact_file(root: Path, name: str) -> bytes:
-    """Snapshot a regular artifact file through the shared no-follow fd guard.
+    """Read a bounded snapshot only through the POSIX descriptor-safe opener.
 
-    On supported POSIX, descriptor-relative O_NOFOLLOW and fstat close the
-    pre-open leaf/ancestor swap race; the portable fallback lacks that atomicity.
-    The caller still admits manifest metadata before opening any arrays file.
+    The fallback in the shared helper is intentionally not enough for SD2's
+    no-forbidden-read contract. Refuse unsupported platforms before any artifact
+    access instead of silently accepting a possible pre-open symlink swap.
     """
 
+    if (
+        os.name != "posix"
+        or not getattr(os, "O_NOFOLLOW", 0)
+        or not getattr(os, "O_DIRECTORY", 0)
+        or os.open not in os.supports_dir_fd
+    ):
+        raise SignalDiagnosisProtocolError(
+            "artifact reads require POSIX descriptor-relative no-follow support"
+        )
+    if name not in (_MANIFEST, _ARRAYS):
+        raise SignalDiagnosisProtocolError("unknown artifact filename")
+    limit = _MAX_MANIFEST_BYTES if name == _MANIFEST else _MAX_ARRAYS_BYTES
     with open_regular_binary(root / name, field=f"{name} artifact") as stream:
-        return stream.read()
+        if os.fstat(stream.fileno()).st_size > limit:
+            raise SignalDiagnosisProtocolError(f"{name} exceeds the file size budget")
+        chunks: list[bytes] = []
+        length = 0
+        while True:
+            chunk = stream.read(min(_READ_CHUNK_BYTES, limit - length + 1))
+            if not chunk:
+                return b"".join(chunks)
+            length += len(chunk)
+            if length > limit:
+                raise SignalDiagnosisProtocolError(
+                    f"{name} exceeds the file size budget"
+                )
+            chunks.append(chunk)
 
 
 def _admit_manifest_bytes(

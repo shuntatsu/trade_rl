@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from tests.evaluation.packet_pin_rule import ClosedRun, evaluate_pin
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.trend_stop_study.protocol import (
     OWNER_ROSTER_DECISION_URL,
@@ -45,6 +46,21 @@ PINNED_PROTOCOL_DIGEST = (
     "2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda"
 )
 DECISION_ID = "6818495567"
+ARCHITECTURE_DOC = ARCHITECTURE
+# The one authorized run is complete (see docs/architecture/research-assurance.md,
+# "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
+CLOSED_RUN = ClosedRun(
+    run_commit="a1aa8fd34467edc205ba5acbadc9d9af494206e0",
+    result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722",
+    result_label="NO_WINNER",
+    protocol_digest="2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda",
+)
+
+
+def PROTOCOL_DIGEST_NOW() -> str:
+    return protocol_digest(PROTOCOL)
+
+
 # The bound code is the static import closure of these entry points (module-level and
 # lazy imports, plus the ``__init__`` of every ancestor package), resolved from the
 # immutable packet head, never from the working tree.
@@ -363,13 +379,34 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
-    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
-    bound = bound_code_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.split() == [], (
-        "re-pin the packet heads after changing the bound code"
+    problems = evaluate_pin(
+        head=head,
+        closed_run=CLOSED_RUN,
+        closure_at=bound_code_paths,
+        changed_since_head=lambda bound: _git(
+            "diff", "--name-only", head, "HEAD", "--", *bound
+        ).stdout.split(),
     )
+    assert problems == [], problems
+
+
+def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() -> None:
+    # The packet is closed: its evidence is the recorded run, not HEAD.
+    if _git("cat-file", "-e", f"{CLOSED_RUN.run_commit}^{{commit}}").returncode != 0:
+        pytest.fail("closed-run commit unavailable: fetch full Git history")
+    assert (
+        _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
+        == 0
+    )
+    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.further_runs_authorized is False
+    architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
+    assert "closed packet" in architecture
+    assert "bound to the run commit" in architecture
+    assert "no further run of the protocol is authorized" in architecture
+    assert CLOSED_RUN.run_commit in architecture
+    assert CLOSED_RUN.result_url in architecture
+    assert CLOSED_RUN.result_label in architecture
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_study() -> None:

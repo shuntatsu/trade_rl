@@ -18,9 +18,9 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
-    ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
+    ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113-after1203.json"
 )
-PINNED_DIGEST = "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -169,6 +169,18 @@ def test_historical_carry_author_packet_remains_unchanged_and_unreviewed() -> No
         "46760f4948a55f37cb79bc56b89c3b477c54d6de"
     )
     assert evaluate_assurance(historical).status == "UNREVIEWED"
+
+
+def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Do not rewrite a preceding source-bound author packet after another merge."""
+    old = json.loads(
+        (ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json").read_text(encoding="utf-8")
+    )
+    assert assurance_digest(old) == "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+    assert old["identity"]["protocol_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["implementation_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert evaluate_assurance(old).status == "UNREVIEWED"
+    assert evaluate_assurance(old).economic_execution_authorized is False
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

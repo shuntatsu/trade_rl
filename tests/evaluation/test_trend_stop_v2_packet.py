@@ -28,13 +28,13 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1216.json"
+PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1203.json"
 REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 PRIOR_V2_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7"
+PINNED_DIGEST = "8fa94eba74e70147b9a2123aae50907e878457ed7c5d3e4008b97524a0c34e64"
 PRIOR_V2_PACKET_DIGEST = (
     "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
 )
@@ -182,6 +182,18 @@ def test_prior_v2_trend_packet_is_unchanged_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_prior_after1216_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the earlier source-bound author packet as immutable history."""
+    old = json.loads(
+        (ROOT / "report" / "trend-stop-research-assurance-20261113-after1216.json").read_text(encoding="utf-8")
+    )
+    assert assurance_digest(old) == "94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7"
+    assert old["identity"]["protocol_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["implementation_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert evaluate_assurance(old).status == "UNREVIEWED"
+    assert evaluate_assurance(old).economic_execution_authorized is False
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -301,7 +313,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
-        assert "report/trend-stop-research-assurance-20261113-after1216.json" in text
+        assert "report/trend-stop-research-assurance-20261113-after1203.json" in text
         assert "UNREVIEWED" in text
     assert PINNED_DIGEST in architecture
     assert "UNREVIEWED" in architecture and DECISION_ID in architecture

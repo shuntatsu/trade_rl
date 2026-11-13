@@ -33,13 +33,16 @@ appear in D2.
 
 ## 2. Refusals
 
-Before any Dataset array is read (the CLI admits the published directory from its
-small manifest and a streamed digest of its payload, then reaches the loader exactly
-once): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
+Before any Dataset array is decoded (the CLI admits the published directory from its
+small manifest and the digest of its payload, both read once into memory, then decodes
+from those same bytes and reaches the decoder exactly once; no path is opened a second
+time): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
 arrays, Dataset and feature-config digests, the five-symbol roster, a continuous hourly
 grid and no more bars than the protocol window holds, so a Dataset reaching into the FS1
 warm-up span, the sealed window or unused data is refused from metadata; the arrays file
-is hashed in discarded chunks and must equal the pinned arrays digest. A CLI-level spy
+bytes must hash to the pinned arrays digest, and the Dataset is decoded from exactly
+those bytes by `load_dataset_from_verified_bytes` (the file loader is unchanged for other
+callers), so replacing the directory after verification changes nothing. A CLI-level spy
 test proves the loader is never reached on any of these refusals, on a missing G4 URL, a
 dirty tree, a missing LightGBM or a digest mismatch, and is reached once for a valid
 input. Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working

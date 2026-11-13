@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import replace
 
 import pytest
@@ -209,6 +211,51 @@ def test_v2_funding_evidence_rejects_tampered_event_price_rate() -> None:
 
     with pytest.raises(ValueError, match="event-price rates"):
         funding_evidence.FundingEvidenceArtifact.from_mapping(v2_mapping)
+
+
+@pytest.mark.parametrize("sign", (1, -1))
+@pytest.mark.parametrize(
+    ("field", "expected_field"),
+    (
+        ("funding_amount", "funding_amount"),
+        ("funding_rates", "funding_rates[]"),
+        ("funding_price_rates", "funding_price_rates[]"),
+    ),
+)
+def test_resealed_huge_funding_numbers_have_typed_field_errors(
+    field: str,
+    expected_field: str,
+    sign: int,
+) -> None:
+    """Canonical bytes must reach numeric admission, not fail an unrelated digest."""
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+
+    boundary = _boundary()
+    if field == "funding_price_rates":
+        boundary = replace(boundary, funding_price_rates=(0.12,))
+    artifact = funding_evidence.build_funding_evidence_artifact(
+        dataset_id=_DATASET_ID,
+        execution_policy_digest=_EXECUTION_POLICY_DIGEST,
+        symbol_count=1,
+        boundaries=(boundary,),
+    )
+    payload = json.loads(artifact.raw_bytes)
+    row = payload["boundaries"][0]
+    oversized = sign * 10**500
+    if field == "funding_amount":
+        row[field] = oversized
+    else:
+        row[field][0] = oversized
+
+    resealed = canonical_json_bytes(payload) + b"\n"
+    pattern = rf"{re.escape(expected_field)} must be finite"
+    with pytest.raises(ValueError, match=pattern):
+        funding_evidence.load_funding_evidence_artifact_bytes(resealed)
+
+
+def test_funding_numeric_reader_retains_finite_large_int_conversion() -> None:
+    finite = 10**308
+    assert funding_evidence._number(finite, field="funding_rates[]") == float(finite)
 
 
 def test_empty_funding_evidence_is_explicit_and_identity_bound() -> None:

@@ -261,14 +261,16 @@ class GitHubApi:
 
     def active_workflow_branch_names(self) -> frozenset[str]:
         """Return only a complete roster; never combine pages across retries."""
-        for attempt in range(5):
+        max_attempts = 8
+        for attempt in range(max_attempts):
             try:
                 return self._active_workflow_branch_names_once()
             except _WorkflowRosterChanged:
-                if attempt == 4:
+                if attempt == max_attempts - 1:
                     raise
                 # GitHub status transitions can shift total_count while paging.
-                # Restart every status/page; total retry delay is bounded at 3 s.
+                # Restart every status/page; total retry delay is bounded at 25.4 s.
+                # Persistent inconsistency still aborts *before* any ref deletion.
                 time.sleep(0.2 * (2**attempt))
         raise AssertionError("unreachable workflow roster retry state")
 

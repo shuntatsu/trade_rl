@@ -17,10 +17,9 @@ from tools.agent_repo.research_assurance import assurance_digest, evaluate_assur
 from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = (
-    ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
-)
-PINNED_DIGEST = "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+_PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1227.json"
+PINNED_DIGEST = "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -171,6 +170,78 @@ def test_historical_carry_author_packet_remains_unchanged_and_unreviewed() -> No
     assert evaluate_assurance(historical).status == "UNREVIEWED"
 
 
+def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Do not rewrite a preceding source-bound author packet after another merge."""
+    path = ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+    )
+    expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the preceding Carry author packet immutable after the runner repair."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+    )
+    expected_head = "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1226_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the already-merged lookback-liquidity author packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
+    )
+    expected_head = "c637956ce0caa9412f3d285eacfe5b7e074f10d6"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1208_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the exclusive-cache-publish source packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213"
+    )
+    expected_head = "2182c89adf39757c9d3cad454e5eed30f059cb3c"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_typed_cache_cleanup_reissue_changes_only_the_bound_source_identity() -> None:
+    """Typed cache cleanup must not revise the prior preregistered economics."""
+    previous_path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+    previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    current = packet()
+    assert set(current) == set(previous)
+    assert current["identity"] != previous["identity"]
+    assert {key: value for key, value in current.items() if key != "identity"} == {
+        key: value for key, value in previous.items() if key != "identity"
+    }
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -228,6 +299,8 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
         "[2022-01-01, 2026-08-01)",
         "1,000,000 USDT",
         "92-day lookback",
+        "liquidity_below_threshold",
+        "invalid_lookback_liquidity",
         "K = ceil(20 x admitted / 32)",
         "K = 4, 5, 5, 6",
         "Binance Vision archives with official `.CHECKSUM` verification",

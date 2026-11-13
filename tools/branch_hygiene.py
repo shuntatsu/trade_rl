@@ -554,12 +554,11 @@ def apply_cleanup(
 ) -> tuple[str, ...]:
     """Hard-refuse the obsolete bulk deletion entry even if imported directly.
 
-    The only manual prune path is tools.verified_merged_branch_prune, which
-    checks a single closed merged PR, exact Git SHAs, active references, and
-    durable retention before invoking the conditional lease primitive.
+    The sole merged-ref retirement operation is --retire-merged --apply.
+    The retired manual prune operation is not a fallback for unknown refs.
     """
 
-    raise RuntimeError("bulk apply_cleanup is disabled; use verified merged-PR pruning")
+    raise RuntimeError("bulk apply_cleanup is disabled; use --retire-merged --apply")
 
 
 # Routine retirement never depends on the separate Coordinator enrollment,

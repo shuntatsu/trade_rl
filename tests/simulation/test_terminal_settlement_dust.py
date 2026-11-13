@@ -181,6 +181,43 @@ def test_mark_dust_is_not_venue_dust_when_terminal_open_is_tradable() -> None:
     assert report["terminal_dust_exit_cost_usdt"] == 0.0
 
 
+def test_rounding_can_make_a_below_minimum_raw_open_tradable() -> None:
+    """Never label a tradable tick-rounded 5.4 USDT close as 3 USDT dust."""
+    original = _dataset(drop=True, thin_last_volume=True)
+    fields = {
+        field.name: getattr(original, field.name)
+        for field in dataclasses.fields(original)
+        if field.init
+    }
+    opening = original.open.copy()
+    highs = original.high.copy()
+    ticks = original.resolved_array("tick_size").copy()
+    opening[-1] = 79.0
+    highs[-1] = 79.0
+    ticks[-1] = 30.0
+    dataset = MarketDataset(
+        **{
+            **fields,
+            "open": opening,
+            "high": highs,
+            "tick_size": ticks,
+        }
+    )
+    report = reconcile_ledger(_replay(dataset), dataset, PROTO, execution_cost=COST)
+    quantities = report["terminal_residual_quantities"]
+    assert set(quantities) == set(SYMBOLS)
+    for symbol in SYMBOLS:
+        quantity = abs(float(Fraction(quantities[symbol])))
+        assert quantity * 79.0 < MINIMUM_NOTIONAL
+        assert quantity * 90.0 >= MINIMUM_NOTIONAL
+        assert quantity * 50.0 < MINIMUM_NOTIONAL
+
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["passed"] is False
+
+
 def test_runs_that_end_flat_are_unchanged_by_the_dust_valuation() -> None:
     # No price drop: both 6 USDT positions are tradable at the terminal close. The
     # feature touches only the reconciliation report and the equity path; for a flat

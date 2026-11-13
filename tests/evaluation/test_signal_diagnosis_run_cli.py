@@ -276,6 +276,82 @@ def test_symlinked_artifact_directory_cannot_redirect_array_read(
         cli._read_artifact_file(alias, "arrays.npz")
 
 
+def test_unsafe_platform_capability_refuses_before_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing dirfd capability must not silently use the weaker path fallback."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    (root / "manifest.json").write_bytes(b'{"synthetic": true}')
+    monkeypatch.setattr(os, "supports_dir_fd", frozenset())
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="descriptor|no-follow"):
+        cli._read_artifact_file(root, "manifest.json")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="resource budget needs the supported POSIX descriptor path",
+)
+def test_sparse_oversize_manifest_refuses_without_materialization(
+    tmp_path: Path,
+) -> None:
+    """A malformed metadata file cannot use an uncapped raw read."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with (root / "manifest.json").open("wb") as out:
+        out.truncate(4 * 1024 * 1024 + 1)
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="size|budget|large"):
+        cli._read_artifact_file(root, "manifest.json")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="resource budget needs the supported POSIX descriptor path",
+)
+def test_huge_array_file_refuses_before_any_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fake enormous regular-file size must fail before the first byte read."""
+
+    fake_fd = 50_000_001
+    original_fstat = os.fstat
+    observed: list[str] = []
+
+    class NeverRead:
+        def fileno(self) -> int:
+            return fake_fd
+
+        def read(self, *_args: object, **_kwargs: object) -> bytes:
+            observed.append("read")
+            raise AssertionError("huge arrays payload was read before refusal")
+
+    @contextmanager
+    def fake_guard(_path: Path, *, field: str) -> Any:
+        assert field.startswith("arrays.npz")
+        yield NeverRead()
+
+    def fake_fstat(fd: int) -> Any:
+        if fd == fake_fd:
+            return SimpleNamespace(st_size=2 * 1024 * 1024 * 1024)
+        return original_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fake_fstat)
+    monkeypatch.setattr(cli, "open_regular_binary", fake_guard)
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with pytest.raises(SignalDiagnosisProtocolError, match="size|budget|large"):
+        cli._read_artifact_file(root, "arrays.npz")
+    assert observed == []
+
+
 @pytest.mark.parametrize(
     "case",
     (

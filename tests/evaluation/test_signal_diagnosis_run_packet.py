@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,20 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json"
+    / "sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "4059f82b0708014065349d7956f7c96cab9e5d6647a911d3def794dd616e435e"
+PINNED_DIGEST = "2b68a4b7b751dea113ecec54dcadf09e00c613e23e9bb6d8c0592e4b73de11b7"
+PREVIOUS_MAIN_SYNC_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json"
+)
+PREVIOUS_MAIN_SYNC_PACKET_DIGEST = (
+    "4059f82b0708014065349d7956f7c96cab9e5d6647a911d3def794dd616e435e"
+)
 PREVIOUS_CODEC_PACKET_PATH = (
     ROOT
     / "report"
@@ -164,6 +172,19 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_pre_nofollow_packet_stays_immutable_and_unreviewed() -> None:
+    """No source rebind may rewrite the predecessor's author-only evidence."""
+
+    prior = json.loads(PREVIOUS_MAIN_SYNC_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert result.economic_execution_authorized is False
+    assert assurance_digest(prior) == PREVIOUS_MAIN_SYNC_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "2939e33aebee4008a03a2026c105c8797a41826f"
+    )
+
+
 def test_pre_main_sync_packet_stays_immutable_and_unreviewed() -> None:
     """The new source binding must not retroactively change the previous packet."""
 
@@ -263,6 +284,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json"
             in text

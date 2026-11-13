@@ -187,10 +187,7 @@ def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
 
 def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
     """Keep the preceding Carry author packet immutable after the runner repair."""
-    path = ROOT / "report" / (
-        "issue810-carry-multisymbol-research-assurance-20261113"
-        "-after1203.json"
-    )
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
     old = json.loads(path.read_text(encoding="utf-8"))
     assert assurance_digest(old) == (
         "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"

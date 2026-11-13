@@ -190,7 +190,31 @@ test that forbids any import of that package from outside it still holds. The st
 package therefore owns the data side, `integrations/market_store/carry_source.py`
 (`VisionArchiveSource`, `ArchiveDirFetcher`, `CarryScreenData`): checksum-verified
 Vision archives without a database or Docker, or a populated store through the same
-`CarryRowSource` protocol. The wiring of the two sides is the repository-only command
+`CarryRowSource` protocol. `ArchiveDirFetcher` uses a distinct private staging file
+per producer and a same-filesystem exclusive hard link when publishing cached
+archive/checksum bytes; a raced existing cache file wins and is returned for
+normal downstream checksum verification without overwriting. Pre-existing or
+raced-in symlink cache entries are refused, rather than followed as cache hits.
+Cache reads reuse the existing regular-file helper: supported POSIX
+descriptor-relative no-follow opens reject a cache symlink swapped after a
+cache-hit existence check, while the portable fallback refuses static linked
+paths without claiming atomic protection against concurrent swaps. Any
+already-linked ancestor in the absolute filesystem path (including above the
+configured cache root), the cache root itself or a subdirectory is refused before
+reads or writes, matching the cached-read no-follow boundary. On a successful
+cache miss, the directory screen runs again after the injected fetch and after
+parent creation, before staging bytes. This refuses directory links planted at either callback
+boundary, but path-based checks are not atomic against an actively concurrent
+directory replacement. Metadata inspection errors on cache directories, cached entries,
+raced publication winners and private-stage cleanup are typed operational halts,
+never an offline cache miss or missing-data exclusion. A stage cleanup failure
+after an existing typed publication halt is retained as a diagnostic note,
+not used to overwrite the primary publication failure. Filesystems without hard-link
+support fail closed as operational halts; there is no ordinary rename, copy-overwrite or shared
+`.part` fallback. These are cache publication and source integrity properties,
+not economic evaluation or market-data authorization.
+
+The wiring of the two sides is the repository-only command
 `tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the
 production wheel; it requires a G4 authorization comment URL, the registered window and
 a clean checkout, and reads nothing at or after 2026-08-01.

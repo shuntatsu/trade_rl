@@ -24,6 +24,8 @@ unordered or malformed row raise :class:`CarryIntegrityHalt`. Halts never exclud
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -32,6 +34,7 @@ from typing import Protocol
 
 import numpy as np
 
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
@@ -116,18 +119,138 @@ class ArchiveDirFetcher:
             raise ValueError(f"unsafe archive path: {url}")
         return self._directory.joinpath(*parts)
 
+    def _reject_linked_cache_directories(self, target: Path, url: str) -> None:
+        # The configured root and the path components created beneath it must
+        # not already redirect writes or reads outside the selected cache root.
+        # This static screen is not an atomic defence against directory swaps.
+        # Cached reads already reject links in the *absolute* parent chain;
+        # writes must apply the same rule, including above the configured root.
+        try:
+            for parent in self._directory.absolute().parents:
+                if parent.is_symlink() or parent.is_junction():
+                    raise CarryOperationalHalt(
+                        f"archive cache directory is a symlink or junction: {url}",
+                        {"kind": "cache_directory_link", "url": url},
+                    )
+            ancestor = self._directory
+            parts = target.parent.relative_to(ancestor).parts
+            for component in (None, *parts):
+                if component is not None:
+                    ancestor = ancestor / component
+                if ancestor.is_symlink() or ancestor.is_junction():
+                    raise CarryOperationalHalt(
+                        f"archive cache directory is a symlink or junction: {url}",
+                        {"kind": "cache_directory_link", "url": url},
+                    )
+        except OSError as error:
+            raise CarryOperationalHalt(
+                f"archive cache directory metadata could not be read: {url}",
+                {"kind": "cache_directory_probe_failed", "url": url},
+            ) from error
+
+    @staticmethod
+    def _read_cached(path: Path, url: str) -> bytes:
+        # Supported POSIX dir_fd/no-follow opens pin the directory chain and
+        # reject symlink swaps after Path.is_file(). The portable fallback
+        # checks static links but cannot guarantee an atomic no-swap read.
+        try:
+            with open_regular_binary(path, field="Vision archive cache") as handle:
+                return handle.read()
+        except (OSError, ValueError) as error:
+            raise CarryOperationalHalt(
+                f"archive cache entry could not be safely read: {url}",
+                {"kind": "cache_read_failed", "url": url},
+            ) from error
+
     def fetch(self, url: str) -> FetchResult:
         path = self._path(url)
-        if path.is_file():
-            return FetchResult(status=200, body=path.read_bytes())
+        self._reject_linked_cache_directories(path, url)
+        try:
+            if path.is_symlink():
+                raise CarryOperationalHalt(
+                    f"archive cache symlink is not trusted: {url}",
+                    {"kind": "cache_symlink", "url": url},
+                )
+            if path.is_file():
+                return FetchResult(status=200, body=self._read_cached(path, url))
+        except OSError as error:
+            raise CarryOperationalHalt(
+                f"archive cache entry metadata could not be read: {url}",
+                {"kind": "cache_read_failed", "url": url},
+            ) from error
         if self._inner is None:
             return FetchResult(status=OFFLINE_MISS_STATUS, body=None)
         result = self._inner.fetch(url)
         if result.status == 200 and result.body:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_name(path.name + ".part")
-            temporary.write_bytes(result.body)
-            os.replace(temporary, path)
+            # An inner fetch may create a linked ancestor after our cache-miss
+            # check. Refuse it before mkdir can create directories outside
+            # the configured root.
+            self._reject_linked_cache_directories(path, url)
+            # Directory creation is part of cache publication and must use the
+            # same typed operational-failure boundary as staging and linking.
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                raise CarryOperationalHalt(
+                    f"archive cache publication failed: {url}",
+                    {"kind": "cache_publication_failed", "url": url},
+                ) from error
+            # Parent creation itself can be a callback/swap point. Recheck
+            # before any private stage is opened or a hard link is published.
+            # These path-based checks are not atomic under hostile concurrent
+            # directory replacement; see the architecture contract.
+            self._reject_linked_cache_directories(path, url)
+            # Every publisher owns a private staging file. A hard-link claim is
+            # exclusive even when a rival arrives after the initial cache miss;
+            # os.replace would silently overwrite that rival on POSIX.
+            temporary: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=path.parent, prefix=f".{path.name}.part-", delete=False
+                ) as handle:
+                    temporary = Path(handle.name)
+                    handle.write(result.body)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.link(temporary, path)
+            except FileExistsError as error:
+                # Only the already-published cache winner can be returned.
+                # VisionArchiveSource separately validates its official checksum.
+                try:
+                    regular_winner = not path.is_symlink() and path.is_file()
+                except OSError as probe_error:
+                    raise CarryOperationalHalt(
+                        f"archive cache publication conflict: {url}",
+                        {"kind": "cache_publication_conflict", "url": url},
+                    ) from probe_error
+                if not regular_winner:
+                    raise CarryOperationalHalt(
+                        f"archive cache publication conflict: {url}",
+                        {"kind": "cache_publication_conflict", "url": url},
+                    ) from error
+                return FetchResult(status=200, body=self._read_cached(path, url))
+            except OSError as error:
+                raise CarryOperationalHalt(
+                    f"archive cache publication failed: {url}",
+                    {"kind": "cache_publication_failed", "url": url},
+                ) from error
+            finally:
+                pending_error = sys.exception()
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError as cleanup_error:
+                        # Preserve the original typed publication failure; a
+                        # secondary cleanup defect must not replace its cause.
+                        if isinstance(pending_error, CarryOperationalHalt):
+                            pending_error.add_note(
+                                f"archive cache staging cleanup failed: {url}"
+                            )
+                        else:
+                            raise CarryOperationalHalt(
+                                f"archive cache staging cleanup failed: {url}",
+                                {"kind": "cache_cleanup_failed", "url": url},
+                            ) from cleanup_error
         return result
 
 

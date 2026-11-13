@@ -19,6 +19,11 @@ from typing import Any
 
 import pytest
 
+from tests.evaluation.packet_pin_rule import (
+    ClosedRun,
+    evaluate_pin,
+    git_blob_reader,
+)
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.trend_stop_study.protocol import (
     OWNER_ROSTER_DECISION_URL,
@@ -28,13 +33,33 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113-after1203.json"
+PACKET_PATH = (
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1233-capacity.json"
+)
 REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 PRIOR_V2_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
+PRIOR_VALUATION_PACKET_PATH = (
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1233-valuation.json"
+)
+PRIOR_AFTER1233_PACKET_PATH = (
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1233.json"
+)
+PRIOR_AFTER1203_PACKET_PATH = (
+    ROOT / "report/trend-stop-research-assurance-20261113-after1203.json"
+)
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "8fa94eba74e70147b9a2123aae50907e878457ed7c5d3e4008b97524a0c34e64"
+PINNED_DIGEST = "1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185"
+PRIOR_VALUATION_PACKET_DIGEST = (
+    "fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a"
+)
+PRIOR_AFTER1233_PACKET_DIGEST = (
+    "225178decf02ed18fbe97d42e2198daa6cef32d02235d02f4ad7f091fa8dfa00"
+)
+PRIOR_AFTER1203_PACKET_DIGEST = (
+    "8fa94eba74e70147b9a2123aae50907e878457ed7c5d3e4008b97524a0c34e64"
+)
 PRIOR_V2_PACKET_DIGEST = (
     "8178da9c823feec126ff65cb9cc53fe23fcffc085a544444b7c285b834fb077a"
 )
@@ -45,6 +70,25 @@ PINNED_PROTOCOL_DIGEST = (
     "2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda"
 )
 DECISION_ID = "6818495567"
+ARCHITECTURE_DOC = ARCHITECTURE
+# The one authorized run is complete (see docs/architecture/research-assurance.md,
+# "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
+CLOSED_RUN = ClosedRun(
+    run_commit="a1aa8fd34467edc205ba5acbadc9d9af494206e0",
+    # the packet as it existed at the run commit (implementation head b433ea8d)
+    packet_path="report/trend-stop-research-assurance-20261113.json",
+    result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722",
+    result_label="NO_WINNER",
+    protocol_digest="2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda",
+    # SHA-256 over (path, blob bytes) of the 165 closure files at b433ea8d == at the run
+    content_digest="9e4eb9c5116797909cbd0827c5481c3625ddd1a25fc9e81360d458079c17705b",
+)
+
+
+def PROTOCOL_DIGEST_NOW() -> str:
+    return protocol_digest(PROTOCOL)
+
+
 # The bound code is the static import closure of these entry points (module-level and
 # lazy imports, plus the ``__init__`` of every ancestor package), resolved from the
 # immutable packet head, never from the working tree.
@@ -197,6 +241,42 @@ def test_prior_after1216_source_reissue_is_immutable_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_prior_after1203_source_packet_remains_historical() -> None:
+    """The previous source-bound packet remains immutable and unauthorizing."""
+    prior = json.loads(PRIOR_AFTER1203_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == PRIOR_AFTER1203_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    )
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.economic_execution_authorized is False
+
+
+def test_prior_after1233_packet_is_immutable_and_unreviewed() -> None:
+    """A new valuation source guard must not replace the previous author packet."""
+    prior = json.loads(PRIOR_AFTER1233_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == PRIOR_AFTER1233_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "7c5b67e4b6a46f774ef3076e0e68eb33699bd95c"
+    )
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.economic_execution_authorized is False
+
+
+def test_prior_valuation_packet_remains_immutable_and_unreviewed() -> None:
+    """Versioned source changes do not retroactively approve prior evidence."""
+    prior = json.loads(PRIOR_VALUATION_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == PRIOR_VALUATION_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "e580a91b54468738d68b21ce5291597013b38033"
+    )
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.economic_execution_authorized is False
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -205,6 +285,9 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert PINNED_DIGEST != REVISION_1_PACKET_DIGEST
     assert PINNED_DIGEST != PRIOR_V2_PACKET_DIGEST
+    assert PINNED_DIGEST != PRIOR_AFTER1203_PACKET_DIGEST
+    assert PINNED_DIGEST != PRIOR_AFTER1233_PACKET_DIGEST
+    assert PINNED_DIGEST != PRIOR_VALUATION_PACKET_DIGEST
     assert b"\r" not in PACKET_PATH.read_bytes()
     # The blocked revision stays untouched beside it.
     assert assurance_digest(json.loads(REVISION_1_PACKET_PATH.read_text("utf-8"))) == (
@@ -316,7 +399,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
-        assert "report/trend-stop-research-assurance-20261113-after1203.json" in text
+        assert (
+            "report/trend-stop-research-assurance-20261113-after1233-capacity.json"
+            in text
+        )
         assert "UNREVIEWED" in text
     assert PINNED_DIGEST in architecture
     assert "UNREVIEWED" in architecture and DECISION_ID in architecture
@@ -357,19 +443,51 @@ def test_spec_states_the_registered_rules_of_revision_2() -> None:
         )
 
 
+def _packet_head_at(commit: str, path: str) -> str:
+    """The implementation head the packet file named at ``commit`` (not the working tree)."""
+
+    shown = _git("show", f"{commit}:{path}")
+    assert shown.returncode == 0, shown.stderr
+    return str(json.loads(shown.stdout)["identity"]["implementation_head"])
+
+
 def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     identity = packet()["identity"]
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
-    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
-    bound = bound_code_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.split() == [], (
-        "re-pin the packet heads after changing the bound code"
+    problems = evaluate_pin(
+        head=None,  # closed: the head is the one the packet named at the run commit
+        closed_run=CLOSED_RUN,
+        closure_at=bound_code_paths,
+        changed_since_head=lambda bound: [],
+        read_blob=git_blob_reader(ROOT),
+        is_ancestor_of_head=lambda commit: (
+            _git("merge-base", "--is-ancestor", commit, "HEAD").returncode == 0
+        ),
+        packet_head_at=_packet_head_at,
     )
+    assert problems == [], problems
+
+
+def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() -> None:
+    # The packet is closed: its evidence is the recorded run, not HEAD.
+    if _git("cat-file", "-e", f"{CLOSED_RUN.run_commit}^{{commit}}").returncode != 0:
+        pytest.fail("closed-run commit unavailable: fetch full Git history")
+    assert (
+        _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
+        == 0
+    )
+    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.further_runs_authorized is False
+    architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
+    assert "closed packet" in architecture
+    assert "bound to the run commit" in architecture
+    assert "no further run of the protocol is authorized" in architecture
+    assert CLOSED_RUN.run_commit[:8] in architecture
+    assert CLOSED_RUN.result_url in architecture
+    assert CLOSED_RUN.result_label in architecture
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_study() -> None:

@@ -36,6 +36,7 @@ from trade_rl.evaluation.dev_realdata_study.runner import (
     exposure_summary,
     perturb_future,
     reconcile_ledger,
+    terminal_dust_adjusted_equity,
 )
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
@@ -312,9 +313,16 @@ def summarize_cell(
     multipliers = dataset.resolved_array("contract_multipliers")
     intervals = ledger.intervals.intervals
     audit, haircut_by_fill = stop_exit_audit(intervals, stop_events, multipliers)
+    reconciliation = reconcile_ledger(
+        result, dataset, _dev_protocol(protocol), scenario_cost(protocol, scenario)
+    )
     # Every gated quantity comes from the haircut-adjusted equity path and closed
     # cycles; the engine (un-haircut) values are kept beside them as ``engine_*``.
-    equity = haircut_adjusted_equity(engine_equity, len(intervals), haircut_by_fill)
+    # Terminal dust (below the venue minimum) is valued net of its exit cost.
+    equity = terminal_dust_adjusted_equity(
+        haircut_adjusted_equity(engine_equity, len(intervals), haircut_by_fill),
+        reconciliation,
+    )
     performance = performance_summary(stamps, equity, protocol)
     engine_performance = performance_summary(stamps, engine_equity, protocol)
     closed, per_symbol = closed_trades_from_ledger(
@@ -323,7 +331,6 @@ def summarize_cell(
     engine_closed, _ = closed_trades_from_ledger(
         intervals, multipliers, dataset.symbols
     )
-    reconciliation = reconcile_ledger(result, dataset, _dev_protocol(protocol))
     diagnostics = result.diagnostics
     summary: dict[str, Any] = {
         "schema_version": CELL_SCHEMA,

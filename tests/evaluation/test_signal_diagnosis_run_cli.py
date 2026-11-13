@@ -176,7 +176,6 @@ def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
     return observed
 
 
-
 @pytest.mark.skipif(
     os.name != "posix"
     or not getattr(os, "O_NOFOLLOW", 0)

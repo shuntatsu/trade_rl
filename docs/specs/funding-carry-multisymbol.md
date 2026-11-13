@@ -228,11 +228,15 @@ anything; a second invocation on the same output directory resumes and never
 recomputes a finished cell. Cell outputs are `cells/<arm>__<treatment>.json.gz` plus a
 `.summary.json`, written for passing and failing cells alike, then `decision.json`.
 
-**Coverage versus failure.** Only a documented absence may exclude a symbol: an HTTP
-404 on an archive the plan expected, or a gap that no declared halt explains (a missing
-hourly bar, or a funding gap by the assembler's rule). Each exclusion is written to
-`inclusion.json` with its evidence (URL and status, or the gap). Everything else halts
-the run and never excludes: HTTP 5xx, 429, transport errors and timeouts are retried
+**Inclusion versus failure.** A finite, nonnegative median hourly quote turnover
+below the frozen 1,000,000 USDT threshold excludes a symbol with
+`liquidity_below_threshold`; a documented coverage absence (HTTP 404 or an unexplained
+hourly/funding gap) may also exclude it. Every exclusion is recorded in
+`inclusion.json` with its reason and evidence. Missing or extra spot/USD-M liquidity
+legs, nonfinite/negative values and ill-typed medians instead halt with
+`invalid_lookback_liquidity` before the pair is loaded. Other acquisition or
+integrity failures halt and never exclude: HTTP 5xx, 429, transport errors and
+timeouts are retried
 three times with backoff and then halt as an operational, resumable failure; a response
 larger than the fetcher's byte bound (256 MiB) halts the same way at once, without a
 retry, as `response_too_large` rather than as an unclassified error; an offline

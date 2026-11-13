@@ -257,6 +257,8 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
         "[2022-01-01, 2026-08-01)",
         "1,000,000 USDT",
         "92-day lookback",
+        "liquidity_below_threshold",
+        "invalid_lookback_liquidity",
         "K = ceil(20 x admitted / 32)",
         "K = 4, 5, 5, 6",
         "Binance Vision archives with official `.CHECKSUM` verification",

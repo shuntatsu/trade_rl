@@ -184,14 +184,14 @@ in place.
 ## Research assurance (G0-G2)
 
 The author packet
-[`report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json)
+[`report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json)
 states the counter-hypothesis (a 2023-2024 regime effect that fees and basis risk
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`c81628496f2193171f7cf4024aa03c4bb2a8bf42da028a8fb814d2faba561dfe` and its status
+`cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
-review of this exact digest and these heads. This software-only source reissue additionally binds M1 #1136 order admission, reconciliation and stateful transitions, while preserving all historical packets, the pre-registered protocol and UNREVIEWED/no G4 authority. The preceding #1203 and original 2026-11-13/2026-11-10 packets remain unchanged and UNREVIEWED. The oracle is a hand-computed three-pair ledger in exact rational
+review of this exact digest and these heads. This source-only reissue binds #1227's typed Vision cache-stage cleanup failure handling on top of #1208's write-once archive publication and the already merged #1226 fail-closed lookback-liquidity admission. The preceding after1208, after1226, after1203, 2026-11-13 and 2026-11-10 packets remain unmodified and UNREVIEWED. It does not claim descriptor-atomic protection from hostile concurrent cache-directory swaps. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the
 production sizing, cost or funding code. The packet's heads bind the computed static import
 closure of the screen entry points (the screen, the carry replay and the command line,
@@ -228,11 +228,15 @@ anything; a second invocation on the same output directory resumes and never
 recomputes a finished cell. Cell outputs are `cells/<arm>__<treatment>.json.gz` plus a
 `.summary.json`, written for passing and failing cells alike, then `decision.json`.
 
-**Coverage versus failure.** Only a documented absence may exclude a symbol: an HTTP
-404 on an archive the plan expected, or a gap that no declared halt explains (a missing
-hourly bar, or a funding gap by the assembler's rule). Each exclusion is written to
-`inclusion.json` with its evidence (URL and status, or the gap). Everything else halts
-the run and never excludes: HTTP 5xx, 429, transport errors and timeouts are retried
+**Inclusion versus failure.** A finite, nonnegative median hourly quote turnover
+below the frozen 1,000,000 USDT threshold excludes a symbol with
+`liquidity_below_threshold`; a documented coverage absence (HTTP 404 or an unexplained
+hourly/funding gap) may also exclude it. Every exclusion is recorded in
+`inclusion.json` with its reason and evidence. Missing or extra spot/USD-M liquidity
+legs, nonfinite/negative values and ill-typed medians instead halt with
+`invalid_lookback_liquidity` before the pair is loaded. Other acquisition or
+integrity failures halt and never exclude: HTTP 5xx, 429, transport errors and
+timeouts are retried
 three times with backoff and then halt as an operational, resumable failure; a response
 larger than the fetcher's byte bound (256 MiB) halts the same way at once, without a
 retry, as `response_too_large` rather than as an unclassified error; an offline

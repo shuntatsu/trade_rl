@@ -10,10 +10,16 @@ run on real data and no price path, return or PnL of it was computed to write th
 document. That is narrower than "unexposed": the universe and window were read by
 earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
 result). The current machine-readable G0-G3 author packet is
-[`report/trend-stop-research-assurance-20261113-after1233-capacity.json`](../../report/trend-stop-research-assurance-20261113-after1233-capacity.json);
-its canonical digest is `1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185`, and its status is **UNREVIEWED**.
-This result-blind, source-binding-only revision pins `67988676f`
-after the terminal-dust capacity/participation guard was added. The previous
+[`report/trend-stop-research-assurance-20261113-after1239-symbol-cap.json`](../../report/trend-stop-research-assurance-20261113-after1239-symbol-cap.json);
+its canonical digest is `9b9dcbef952962e4ed4cde8e9bc490444352eedcb5a6654f3013e6af78699c81`, and its status is **UNREVIEWED**.
+This result-blind software-source revision pins `04964e365c12` after a
+paired synthetic counterexample showed the hypothetical terminal dust exit
+was checked against the global participation ceiling but not the per-symbol
+limit at the processing bar. Valuation now refuses the residual if its full
+hypothetical close exceeds the **minimum** of both caps. The predecessor
+`report/trend-stop-research-assurance-20261113-after1233-capacity.json`
+(digest `1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185`)
+remains immutable and UNREVIEWED; the previous
 `report/trend-stop-research-assurance-20261113-after1233-valuation.json`
 (digest `fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a`) remains unmodified and UNREVIEWED.
 Earlier after1233, after1203 and after1216 packets and the original revision-2

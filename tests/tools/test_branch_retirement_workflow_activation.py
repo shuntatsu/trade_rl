@@ -1,4 +1,4 @@
-"""Check the newly registered retirement workflow without mutating GitHub."""
+"""Keep exactly one current exact-SHA retirement workflow."""
 
 from pathlib import Path
 
@@ -6,13 +6,12 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
-def test_replacement_retirement_workflow_has_fresh_path_and_same_gate() -> None:
+def test_only_active_retirement_workflow_is_shipped_with_exact_sha_gate() -> None:
     legacy = WORKFLOWS / "branch-hygiene.yml"
     replacement = WORKFLOWS / "retire-merged-pr-branches.yml"
 
-    assert legacy.is_file()
+    assert not legacy.exists()
     assert replacement.is_file()
-    assert legacy.read_bytes() == replacement.read_bytes()
 
     content = replacement.read_text(encoding="utf-8")
     assert "push:" in content

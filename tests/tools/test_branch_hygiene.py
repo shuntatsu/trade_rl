@@ -61,9 +61,9 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_branch_hygiene_workflow_runs_from_default_branch() -> None:
     repository_root = Path(__file__).resolve().parents[2]
-    workflow = (repository_root / ".github/workflows/branch-hygiene.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow = (
+        repository_root / ".github/workflows/retire-merged-pr-branches.yml"
+    ).read_text(encoding="utf-8")
 
     assert "push:" in workflow
     assert "- main" in workflow

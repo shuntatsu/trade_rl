@@ -177,7 +177,6 @@ def test_only_permanent_workflows_remain() -> None:
     workflows = ROOT / ".github" / "workflows"
     files = {path.name for path in workflows.iterdir() if path.is_file()}
     assert files == {
-        "branch-hygiene.yml",
         "retire-merged-pr-branches.yml",
         "ci.yml",
         "deploy-guide.yml",
@@ -194,6 +193,7 @@ def test_obsolete_manual_prune_path_is_not_shipped() -> None:
     assert (ROOT / "tools/branch_hygiene.py").is_file()
     for legacy in (
         ".github/workflows/prune-merged-branch.yml",
+        ".github/workflows/branch-hygiene.yml",
         "tools/verified_merged_branch_prune.py",
         "tests/tools/test_verified_merged_branch_prune.py",
     ):

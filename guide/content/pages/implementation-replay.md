@@ -94,7 +94,7 @@ proposal_weight
 
 minimum-holdによる抑制の後にもhard riskを適用するため、drawdown stopやemergency flattenは保有期間中でも縮小・全決済できます。保有期間は決められた日数まで必ず持つ保証ではありません。
 
-明示されたshared-cash terminal settlementでは、strategy roster内の実保有だけをterminal `emergency_flatten_mask`へ渡し、通常の`max_turnover`で最後のclose requestを縮小しません。通常のstrategy decisionsは引き続き同じturnover上限に従います。closeは設定済みのrisk・execution経路を通り、venue rule、liquidity、fill capacity、cost、pending orderの扱いもそのままです。容量や制約が足りなければ残数量・注文残を保持し、exact-flat validationは失敗します。venueの最小notionalもこのcloseを免除しないため、最小額を下回るまで縮んだ保有は残ります。開発用study（Phase 2とtrend-stop）のledger照合は、そのような残りをterminal dust（銘柄・正確な数量・notional・理由 `below_minimum_notional`）として記録し、markから想定exit cost（fee・spread・impact）を引いて評価し、equity pathの最終点もその分だけ下げます。`terminal_flat` はfalseのまま、残りがすべてdustなら `terminal_dust_only` がtrueで、cashとdust調整後equityが一致すれば合格します。dust以外の残り、またはcost modelなしで評価できないdustは従来どおり不合格です。
+明示されたshared-cash terminal settlementでは、strategy roster内の実保有だけをterminal `emergency_flatten_mask`へ渡し、通常の`max_turnover`で最後のclose requestを縮小しません。通常のstrategy decisionsは引き続き同じturnover上限に従います。closeは設定済みのrisk・execution経路を通り、venue rule、liquidity、fill capacity、cost、pending orderの扱いもそのままです。容量や制約が足りなければ残数量・注文残を保持し、exact-flat validationは失敗します。venueの最小notionalもこのcloseを免除しないため、最小額を下回るまで縮んだ保有は残ります。開発用study（Phase 2とtrend-stop）のledger照合は、そのような残りのうち、engine自身が最終区間でそのcloseを `below_minimum_notional` で拒否したものだけをterminal dust（銘柄・正確な数量・notional・理由 `below_minimum_notional`）として記録し（流動性不足や参加率上限など他の理由で残った保有は、markでの価値にかかわらずdustではありません）、markから想定exit cost（fee・spread・impact）を引いて評価し、equity pathの最終点もその分だけ下げます。`terminal_flat` はfalseのまま、残りがすべてdustなら `terminal_dust_only` がtrueで、cashとdust調整後equityが一致すれば合格します。dust以外の残り、またはcost modelなしで評価できないdustは従来どおり不合格です。
 
 ```text
 proposal_weight

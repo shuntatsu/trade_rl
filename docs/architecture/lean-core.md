@@ -227,8 +227,13 @@ venue minimum notional: no argument or entry point waives it, so a holding that
 decayed below it stays a position. The study ledger reconciliation
 (`dev_realdata_study.runner.reconcile_ledger`, reused by the trend-stop study)
 records such a residual as terminal dust (symbol, exact quantity, notional, reason
-`below_minimum_notional`) and values it at mark minus the modelled exit cost
-(fee, venue taker fee, spread and impact from the same cost model); the equity
+`below_minimum_notional`) only when the engine itself rejected its terminal close for
+`below_minimum_notional` (every non-submission order event of the symbol on the
+final interval carries that reason; a residual left open for any other reason, such
+as no liquidity or a participation cap, is never dust whatever its mark value), and
+values it at mark minus the modelled exit cost
+(fee, venue taker fee, spread and impact from the same cost model, with the
+executor's capacity-volume basis for participation); the equity
 path used for metrics is reduced by that cost, so an exit that could not happen is
 never credited. `terminal_flat` stays false, `terminal_dust_only` is true when
 every residual is such dust, and the reconciliation passes when cash and the

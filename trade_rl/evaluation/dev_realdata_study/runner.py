@@ -365,29 +365,49 @@ def terminal_dust(
     ledger: Any,
     dataset: MarketDataset,
     execution_cost: ExecutionCostConfig | None,
-    final_row: int,
+    final_interval: Any,
 ) -> tuple[list[dict[str, object]], list[str], bool]:
     """Classify the terminal residual positions of a ledger.
 
-    The engine enforces the venue minimum notional everywhere, so a holding that
-    decayed below it cannot be closed and stays a position. A residual is *dust*
-    when its notional at the terminal mark is below the minimum that applies to it
-    (the larger of the Dataset rule and the cost config's floor) and the cost model
-    can value its exit. Returns ``(dust, other_symbols, valued)``; every other
-    residual (a genuine stuck position) is listed in ``other_symbols``.
-    Exit cost = notional x multiplier x (fee + venue taker fee + spread
-    + impact x sqrt(participation)), the market-order rates of the executor,
-    re-derived here from the Dataset; a stochastic slippage model cannot be valued
-    deterministically, so then nothing is classified as dust.
+    The engine enforces the venue minimum notional everywhere (at the processing
+    bar's open), so a holding that decayed below it cannot be closed and stays a
+    position. A residual is *dust* only if the engine itself rejected its terminal
+    close for ``below_minimum_notional``: every non-submission order event of that
+    symbol on the final interval is a rejection / no-fill with exactly that reason.
+    A residual left open for any other reason (no liquidity, a participation cap, a
+    partial fill, a latency wait, ...) is a genuine stuck position, whatever its
+    value at the mark. Dust also needs a deterministic exit valuation, so a
+    stochastic slippage model or a missing ``execution_cost`` classifies nothing as
+    dust. Returns ``(dust, other_symbols, valued)``.
+
+    The valuation is conservative: mark value minus the exit cost, notional x
+    multiplier x (fee + venue taker fee + spread + impact x sqrt(participation)),
+    re-derived from the Dataset with the executor's market-order rates; the
+    participation uses the executor's capacity-volume basis (the processing bar, or
+    the previous completed bar when ``processing_bar_volume_capacity`` is off).
     """
 
+    final_row = int(final_interval.next_index)
     multipliers = dataset.resolved_array("contract_multipliers")
     marks = dataset.resolved_array("mark_price")[final_row]
+    opens = dataset.open[final_row]
     minimum = dataset.resolved_array("minimum_notional")[final_row]
     valued = execution_cost is not None and execution_cost.slippage_std == 0.0
-    market_notional = dataset.market_notional(
-        final_row, marks, volume=dataset.volume[final_row]
-    )
+    if execution_cost is not None and execution_cost.processing_bar_volume_capacity:
+        capacity_row, capacity_prices = final_row, opens
+    elif final_row > 0:
+        capacity_row, capacity_prices = final_row - 1, dataset.close[final_row - 1]
+    else:
+        capacity_row, capacity_prices = final_row, opens
+    market_notional = dataset.market_notional(capacity_row, capacity_prices)
+    reasons: dict[int, set[str | None]] = {}
+    for event in final_interval.order_events:
+        if event.event_type == "submitted":
+            continue
+        rejected = event.event_type in {"rejected", "no_fill"}
+        reasons.setdefault(event.symbol_index, set()).add(
+            event.reason if rejected else f"event:{event.event_type}"
+        )
     dust: list[dict[str, object]] = []
     other: list[str] = []
     for index, value in enumerate(ledger.terminal_exact_quantities):
@@ -395,18 +415,18 @@ def terminal_dust(
         if quantity == 0:
             continue
         symbol = dataset.symbols[index]
-        notional = (
-            abs(float(quantity)) * float(marks[index]) * float(multipliers[index])
-        )
-        if execution_cost is None or not valued:
+        if (
+            execution_cost is None
+            or not valued
+            or reasons.get(index) != {"below_minimum_notional"}
+        ):
             other.append(symbol)
             continue
-        threshold = max(float(minimum[index]), execution_cost.minimum_notional)
-        if not notional < threshold:
-            other.append(symbol)
-            continue
+        multiplier = float(multipliers[index])
+        notional = abs(float(quantity)) * float(marks[index]) * multiplier
+        open_notional = abs(float(quantity)) * float(opens[index]) * multiplier
         participation = (
-            notional / float(market_notional[index])
+            open_notional / float(market_notional[index])
             if float(market_notional[index]) > 0.0
             else 0.0
         )
@@ -424,11 +444,12 @@ def terminal_dust(
                 "symbol": symbol,
                 "quantity": str(quantity),
                 "notional_usdt": notional,
-                "minimum_notional_usdt": threshold,
+                "open_notional_usdt": open_notional,
+                "minimum_notional_usdt": max(
+                    float(minimum[index]), execution_cost.minimum_notional
+                ),
                 "reason": "below_minimum_notional",
-                "mark_value_usdt": float(quantity)
-                * float(marks[index])
-                * float(multipliers[index]),
+                "mark_value_usdt": float(quantity) * float(marks[index]) * multiplier,
                 "exit_cost_usdt": notional * unit_cost,
             }
         )
@@ -535,9 +556,7 @@ def reconcile_ledger(
         * float(multipliers[index])
         for index, value in enumerate(ledger.terminal_exact_quantities)
     )
-    dust, non_dust, _ = terminal_dust(
-        ledger, dataset, execution_cost, intervals[-1].next_index
-    )
+    dust, non_dust, _ = terminal_dust(ledger, dataset, execution_cost, intervals[-1])
     terminal_dust_only = bool(not terminal_flat and dust and not non_dust)
     dust_mark_value = Fraction(0)
     dust_exit_cost = 0.0

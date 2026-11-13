@@ -41,7 +41,12 @@ COST = ExecutionCostConfig(max_participation_rate=0.5)
 PROTO = dataclasses.replace(PROTOCOL, initial_capital=CAPITAL)
 
 
-def _dataset(*, drop: bool, thin_last_volume: bool = False) -> MarketDataset:
+def _dataset(
+    *,
+    drop: bool,
+    thin_last_volume: bool = False,
+    last_open: float | None = None,
+) -> MarketDataset:
     """Prices of 100 that halve at ``DROP_ROW`` when ``drop``; lot 0.01, minimum 5."""
 
     base = synthetic_dataset(
@@ -57,10 +62,15 @@ def _dataset(*, drop: bool, thin_last_volume: bool = False) -> MarketDataset:
     volume = np.full(shape, 1.0e12)
     if thin_last_volume:
         volume[-1] = 1.0e-9  # no liquidity on the terminal bar
+    open_price = price.copy()
+    high_price = price.copy()
+    if last_open is not None:
+        open_price[-1] = last_open  # the engine checks the minimum at this open
+        high_price[-1] = max(last_open, high_price[-1].max())
     fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
     fields.update(
-        open=price.copy(),
-        high=price.copy(),
+        open=open_price,
+        high=high_price,
         low=price.copy(),
         close=price.copy(),
         mark_price=price.copy(),
@@ -131,6 +141,45 @@ def test_dust_cannot_be_valued_without_the_cost_model() -> None:
     report = reconcile_ledger(_replay(dataset), dataset, PROTO)
     assert report["terminal_dust_only"] is False
     assert report["passed"] is False
+
+
+def test_residual_tradable_at_the_open_is_not_dust_even_if_the_mark_is_below() -> None:
+    # Reviewer probe: open 100 (notional 6 >= minimum 5), mark 50 (notional 3), and no
+    # liquidity on the terminal bar. The engine did not reject the close for the
+    # minimum notional (it saw 6 USDT at the open), so this is a stuck position.
+    dataset = _dataset(drop=True, thin_last_volume=True, last_open=100.0)
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    reasons = {
+        event.reason
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type != "submitted"
+    }
+    assert "below_minimum_notional" not in reasons
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["passed"] is False
+
+
+def test_dust_requires_the_engine_to_have_rejected_the_close_for_the_minimum() -> None:
+    # Sub-minimum at the open as well, with zero liquidity: admission rejects the
+    # close for the minimum before capacity is consulted, so this is dust.
+    dataset = _dataset(drop=True, thin_last_volume=True)
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    reasons = {
+        event.reason
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    }
+    assert reasons == {"below_minimum_notional"}
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_dust_only"] is True
+    assert report["passed"] is True
 
 
 def test_a_genuine_stuck_position_still_fails() -> None:

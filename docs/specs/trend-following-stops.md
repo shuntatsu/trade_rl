@@ -9,16 +9,16 @@ still make money overall, a low win rate with positive skew. This rule has not b
 run on real data and no price path, return or PnL of it was computed to write this
 document. That is narrower than "unexposed": the universe and window were read by
 earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
-result). The machine-readable G0-G3 author packet is
-[`report/trend-stop-research-assurance-20261113-after1136.json`](../../report/trend-stop-research-assurance-20261113-after1136.json);
-its review status is `UNREVIEWED` until a review of its exact digest and heads is
-posted. This source-only reissue binds M1 #1136's order admission
-and stateful execution changes; the historical `report/trend-stop-research-assurance-20261113-after1203.json` packet remains immutable and UNREVIEWED. No G4 authorization or study result is implied. This is a source-binding-only reissue after merged #1216 changed a
-transitively imported funding reader and #1203 changed the portfolio-result
-reader reached through `trade_rl.evaluation` package facades. The preceding
-`report/trend-stop-research-assurance-20261113-after1216.json` (digest `94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7`) and original
-2026-11-13 revision-2 author packet (digest `8178da9c...`) remain unchanged,
-UNREVIEWED and do not authorize a G4 economic run.
+result). The current machine-readable G0-G3 author packet is
+[`report/trend-stop-research-assurance-20261113-after1233-capacity.json`](../../report/trend-stop-research-assurance-20261113-after1233-capacity.json);
+its canonical digest is `1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185`, and its status is **UNREVIEWED**.
+This result-blind, source-binding-only revision pins `67988676f`
+after the terminal-dust capacity/participation guard was added. The previous
+`report/trend-stop-research-assurance-20261113-after1233-valuation.json`
+(digest `fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a`) remains unmodified and UNREVIEWED.
+Earlier after1233, after1203 and after1216 packets and the original revision-2
+author packet also remain immutable. No frozen protocol, historic closed result,
+G0-G3 review decision, G4 experiment, unused/final data or live authorization changes.
 
 Revision 2 (2026-11-13). Review 5870390989 of PR #1201 blocked revision 1 (packet
 `report/trend-stop-research-assurance-20261110.json`, digest `894fedb0...`, protocol

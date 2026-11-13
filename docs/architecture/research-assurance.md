@@ -72,6 +72,28 @@ inspect は状態を表示するだけ、check はPASS以外で非0終了。ネ�
 
 **重要な境界**：このmoduleが返すPASSも **economic_execution_authorized=false** であり、G4研究結果生成、unused/final dataへのアクセス、G5、本番・実取引を単独では認可しない。歴史的結果や当初の判定を上書きしない。reviewerのアカウントが別であることはプロセスの独立性の一部の検証であり、思考の独立性・モデル品質を証明するものではない。
 
+### Closed packets
+
+A packet whose one authorized run is complete is a **closed packet**. Its evidence is
+bound to the run commit, not to `HEAD`, so later changes to shared source (a codec, the
+funding diagnostics, a runner) do not invalidate it and it is never re-pinned or
+re-labelled. The packet pin test records the full run commit (abbreviated in the table below), the result URL, the result
+label and the protocol digest, verifies that the run commit is an ancestor of `HEAD`, that the
+bound-code closure and the SHA-256 content digest over `(path, blob bytes)` at the run
+commit equal those at the implementation head the packet named at the run (read from the
+packet file as it existed at the run commit), and asserts that no further run
+of the protocol is authorized (`tests/evaluation/packet_pin_rule.py`). A packet that has
+not run keeps the strict pin: any change to its bound code since the head fails until
+the packet is re-issued. Closed packets and their recorded runs:
+
+| packet | run commit | result | label |
+|---|---|---|---|
+| multi-symbol carry screen | `4bcb19bb` | [Issue #810 comment 6839301493](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493) | `CARRY_DOES_NOT_GENERALIZE` |
+| trend-stop v2 development study | `a1aa8fd3` | [Issue #810 comment 6841344722](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6841344722) | `NO_WINNER` |
+
+Any new run of either protocol needs a new protocol, a new result-blind packet and owner
+authorization.
+
 ## G0: Research Question Validity
 
 研究を実行する前に、最低限次のResearch Question Contractを明示する。
@@ -1183,13 +1205,18 @@ Status: **pre-registered revision 2, not run**. A long/short Donchian breakout w
 - **G0.** The roster is the eleven symbols with no exclusion path (owner decision, [Issue #810 comment 6818495567](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567)); a missing archive (HTTP 404 recorded by the download step, or a Dataset lacking a symbol) makes the run `INVALID`, which is not a rejection of the rule and not a reason to rerun with another roster; an archive missing without that evidence halts, writes no result and does not consume the run. No run registry exists, so a rerun is not prevented by code. The owner did not ask for one.
 - **G2.** The future-perturbation probe runs for every (timeframe, variant) pair and each configuration's validity criterion reads its own probe; a variant that peeks 20 bars ahead fails only its own. A fired stop takes precedence over a reversal and keeps exiting until the position is flat, and a partial exit is one stop event.
 - **Code binding.** The result records the Git HEAD, the tree id of `trade_rl/`, the dirty flag and a digest of the loaded `trade_rl` modules, and the run refuses a dirty working tree. The packet is pinned to the static import closure of the study entry points by `tests/evaluation/test_trend_stop_v2_packet.py`.
-- **Packet.** `report/trend-stop-research-assurance-20261113-after1136.json` (canonical digest `18204f6be46d8fe498dee6f3aea5012434e1bd664ff575dc76fe23fb950327f4`, status UNREVIEWED, no PASS claimed). Its `protocol_head` and `implementation_head` are the last commit that changes the bound code; the packet is committed in a later descendant, so the pull request head is not `implementation_head` and `tools.research_assurance_github` cannot report PASS for it. Authorizing a run on later bound code requires a new packet. The newest author packet binds M1 #1136 order admission/transition source changes; the after1203 packet (digest 8fa94eba...) remains immutable and UNREVIEWED. This is not economic admission or a new G0-G3 reviewer verdict. The preceding
-  `report/trend-stop-research-assurance-20261113.json` (digest `8178da9c...`)
-  remains unchanged as an UNREVIEWED author packet. The preceding
-  `report/trend-stop-research-assurance-20261113-after1216.json` (digest `94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7`)
-  also stays unchanged and UNREVIEWED. This latest reissue additionally binds
-  the #1203 portfolio-result reader through the transitive `evaluation` facade,
-  not new trend parameters, results, G0-G3 approval or G4 authority.
+- **Packet.** `report/trend-stop-research-assurance-20261113-after1233-capacity.json` (canonical digest `1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185`,
+  status **UNREVIEWED**, no PASS claimed) pins immutable source commit
+  `67988676f` through both protocol and implementation heads.
+  The packet is a later descendant of that source, so its PR head differs from
+  its `implementation_head`; changing any transitive bound code requires
+  a new result-blind packet and review before an economic run. This update
+  records the terminal-dust max-participation capacity guard from #1233.
+  It preserves the earlier `trend-stop-research-assurance-20261113-after1233-valuation.json`
+  (digest `fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a`) unchanged and **UNREVIEWED**, along with
+  the original revision-1/revision-2 and after1216, after1203, after1233
+  author packets. No threshold, protocol, historical run, G0-G3 reviewer
+  acceptance, G4 economic execution or live authorization is changed.
 - **Review route.** The owner decided on Issue #810 (comment 6818495567) that the same-account route (a fresh Claude Haiku 5.5 agent posting from the owner's account, model independence only) covers the next trend-stop packet revision whose digest its own pull request names. That decision does not extend to any other packet. The route is operator-enforced and is **not** principal independence; the tooling still rejects a same-principal review and reports UNREVIEWED.
 - **Does not authorize** a G4 run, which needs the owner's separate authorization comment and a review of this exact digest and these heads; unused or final data; paper or live use.
 
@@ -1853,7 +1880,7 @@ exact seal and launch procedure and what is still missing.
 
 ## Research-specific contract: multi-symbol funding carry (Track B)
 
-The current unreviewed author packet is `report/issue810-carry-multisymbol-research-assurance-20261113-after1136-1208.json` (digest `b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d`, status **UNREVIEWED**, `economic_execution_authorized=false`); the protocol is `specs/funding-carry-multisymbol.md` (`carry-multisymbol-dev-v1`). Its `protocol_head` and `implementation_head` bind the complete integrated software source snapshot: the static import closure (lazy imports and package facades included) of the screen entry points `trade_rl/evaluation/carry_multisymbol/`, `trade_rl/evaluation/carry.py` and `tools/carry_multisymbol_screen.py`, computed from the packet head by `tests/evaluation/test_carry_multisymbol_packet.py` rather than listed by hand. A merge that brings only unrelated changes does not move them, and a later change to a file in the closure fails that test until the packet is re-pinned and re-reviewed. It is a carry-outcome-blind pre-registration, not a data-blind one: earlier studies read prices (and for some symbols funding) of most candidates, as the spec's *Prior exposure* section states. This source-only reissue includes merged Carry #1208/#1227 and the M1 #1136 admission fixes; historical source packets, including the pre-#1226 snapshot, remain immutable and UNREVIEWED. The preceding 2026-11-13 packet (digest `65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd`) and prior 2026-11-10 packet remain unchanged and UNREVIEWED. The preceding after1203 packet (digest `f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea`) also remains unchanged and UNREVIEWED. This versioned source-only reissue additionally binds the exact M1 #1136 order admission and reservation source with merged Carry #1208/#1227; previous after1136/after1227 packets remain historical and UNREVIEWED. The earlier after1208 author packet (digest `1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213`), after1226 and all preceding author records stay immutable and UNREVIEWED. No path-based cache-directory check establishes atomic defence against hostile simultaneous ancestor swaps. This is not independent G0-G2 approval or G4 research-run authorization. Lean Core retrieves full Git history so the packet source-closure oracle does not silently skip. This change reads no market data and no real-data run is part of it.
+The current unreviewed author packet is `report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json` (digest `cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4`, status **UNREVIEWED**, `economic_execution_authorized=false`); the protocol is `specs/funding-carry-multisymbol.md` (`carry-multisymbol-dev-v1`). Its `protocol_head` and `implementation_head` bind the complete integrated software source snapshot: the static import closure (lazy imports and package facades included) of the screen entry points `trade_rl/evaluation/carry_multisymbol/`, `trade_rl/evaluation/carry.py` and `tools/carry_multisymbol_screen.py`, computed from the packet head by `tests/evaluation/test_carry_multisymbol_packet.py` rather than listed by hand. A merge that brings only unrelated changes does not move them, and a later change to a file in the closure fails that test until the packet is re-pinned and re-reviewed. It is a carry-outcome-blind pre-registration, not a data-blind one: earlier studies read prices (and for some symbols funding) of most candidates, as the spec's *Prior exposure* section states. The 2026-11-13 author-packet reissue binds source snapshot `81f5f7f3` after the Binance cache/transport and subsequently merged funding-reader changes. The preceding 2026-11-13 packet (digest `65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd`) and prior 2026-11-10 packet remain unchanged and UNREVIEWED. The preceding after1203 packet (digest `f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea`) also remains unchanged and UNREVIEWED. This latest source-only reissue binds #1227's typed Vision cache staging-cleanup errors on top of #1208's exclusive no-replace publication, #1226's lookback-liquidity admission fix and #1203's portfolio-result reader. The earlier after1208 author packet (digest `1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213`), after1226 and all preceding author records stay immutable and UNREVIEWED. No path-based cache-directory check establishes atomic defence against hostile simultaneous ancestor swaps. This is not independent G0-G2 approval or G4 research-run authorization. Lean Core retrieves full Git history so the packet source-closure oracle does not silently skip. This change reads no market data and no real-data run is part of it.
 
 ### G0 — question, counter-hypothesis, falsifier
 

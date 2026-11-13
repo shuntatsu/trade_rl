@@ -14,6 +14,11 @@ from typing import Any
 
 import pytest
 
+from tests.evaluation.packet_pin_rule import (
+    ClosedRun,
+    evaluate_pin,
+    git_blob_reader,
+)
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.carry_multisymbol import protocol
 
@@ -22,6 +27,25 @@ _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
 PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1136-1208.json"
 PINNED_DIGEST = "b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
+ARCHITECTURE_DOC = ROOT / "docs/architecture/research-assurance.md"
+# The one authorized run is complete (see docs/architecture/research-assurance.md,
+# "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
+CLOSED_RUN = ClosedRun(
+    run_commit="4bcb19bba27ea4bc0fccb2b2c7848965351c9e98",
+    # the packet as it existed at the run commit (implementation head 46760f49)
+    packet_path="report/issue810-carry-multisymbol-research-assurance-20261110.json",
+    result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493",
+    result_label="CARRY_DOES_NOT_GENERALIZE",
+    protocol_digest="49d3597e3c83dd3c13d71098111075a392c3afe595e5f48edc87aad36475d961",
+    # SHA-256 over (path, blob bytes) of the 168 closure files at 46760f49 == at the run
+    content_digest="ad98afa8c2c5d12886fc9fdd8b7d156ae1b171b4afa3bfb4279e44fd0369c67a",
+)
+
+
+def PROTOCOL_DIGEST_NOW() -> str:
+    return protocol.protocol_digest()
+
+
 DOCUMENTS = (
     SPEC,
     ROOT / "docs/architecture/research-assurance.md",
@@ -347,18 +371,51 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
     )
 
 
+def _packet_head_at(commit: str, path: str) -> str:
+    """The implementation head the packet file named at ``commit`` (not the working tree)."""
+
+    shown = _git("show", f"{commit}:{path}")
+    assert shown.returncode == 0, shown.stderr
+    return str(json.loads(shown.stdout)["identity"]["implementation_head"])
+
+
 def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     identity = packet()["identity"]
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
-    bound = bound_code_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.split() == [], (
-        "re-pin the packet heads after changing the bound code"
+    problems = evaluate_pin(
+        head=None,  # closed: the head is the one the packet named at the run commit
+        closed_run=CLOSED_RUN,
+        closure_at=bound_code_paths,
+        changed_since_head=lambda bound: [],
+        read_blob=git_blob_reader(ROOT),
+        is_ancestor_of_head=lambda commit: (
+            _git("merge-base", "--is-ancestor", commit, "HEAD").returncode == 0
+        ),
+        packet_head_at=_packet_head_at,
     )
+    assert problems == [], problems
+
+
+def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() -> None:
+    # The packet is closed: its evidence is the recorded run, not HEAD.
+    if _git("cat-file", "-e", f"{CLOSED_RUN.run_commit}^{{commit}}").returncode != 0:
+        pytest.fail("closed-run commit unavailable: fetch full Git history")
+    assert (
+        _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
+        == 0
+    )
+    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.further_runs_authorized is False
+    architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
+    assert "closed packet" in architecture
+    assert "bound to the run commit" in architecture
+    assert "no further run of the protocol is authorized" in architecture
+    assert CLOSED_RUN.run_commit[:8] in architecture
+    assert CLOSED_RUN.result_url in architecture
+    assert CLOSED_RUN.result_label in architecture
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_screen() -> None:

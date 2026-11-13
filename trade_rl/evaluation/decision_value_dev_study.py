@@ -2254,6 +2254,14 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     )
     max_pair_key_bytes = max(map(len, allowed_pair_keys))
     required_pair_keys = frozenset(name.encode("ascii") for name in _PAIR_KEYS)
+    # These fields are scalars in both canonical v2 and v3 receipts. A JSON
+    # container here would be rejected by the shared validator after parsing;
+    # reject it before it can expand into a large list/dict in memory.
+    scalar_pair_keys = frozenset(
+        name.encode("ascii")
+        for name in _PAIR_KEYS
+        - {"baseline", "candidate", "candidate_action", "reason_codes"}
+    )
     stack = [0x7B]  # The caller has already checked the root opening brace.
     in_string = False
     escaped = False
@@ -2273,6 +2281,7 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
     want_pair = False
     want_pair_key = False
     direct_pair_fields: set[bytes] = set()
+    pair_scalar_value_state: str | None = None
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2325,11 +2334,23 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                     if direct_key in direct_pair_fields:
                         raise ValueError("failure receipt pair key is duplicated")
                     direct_pair_fields.add(direct_key)
+                    pair_scalar_value_state = (
+                        "colon" if direct_key in scalar_pair_keys else None
+                    )
                     pair_key_start = None
                     want_pair_key = False
             continue
         if char in b" \t\r\n":
             continue
+        if pairs_depth is not None and len(stack) == pairs_depth + 1:
+            if pair_scalar_value_state == "colon" and char == 0x3A:
+                pair_scalar_value_state = "value"
+            elif pair_scalar_value_state == "value":
+                if char in (0x7B, 0x5B):
+                    raise ValueError(
+                        "failure receipt pair scalar field must not be a JSON container"
+                    )
+                pair_scalar_value_state = None
         # Remember the root count token without copying potentially huge bytes.
         if len(stack) == 1 and count_start is not None and char in (0x2C, 0x7D):
             count_span = (count_start, offset)
@@ -2349,9 +2370,14 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                     if seen_pairs:
                         raise ValueError("failure receipt pairs key is duplicated")
                     seen_pairs = True
-                    if char == 0x5B:  # [
-                        pairs_depth = len(stack) + 1
-                        want_pair = True
+                    if char != 0x5B:  # [
+                        raise ValueError("failure receipt pairs must be a JSON array")
+                    pairs_depth = len(stack) + 1
+                    want_pair = True
+                elif char in (0x7B, 0x5B):
+                    raise ValueError(
+                        "failure receipt root scalar field must not be a JSON container"
+                    )
                 root_key_is_pairs = False
                 root_key_is_count = False
         if pairs_depth is not None and len(stack) == pairs_depth:

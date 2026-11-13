@@ -10,9 +10,14 @@ run on real data and no price path, return or PnL of it was computed to write th
 document. That is narrower than "unexposed": the universe and window were read by
 earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
 result). The machine-readable G0-G3 author packet is
-[`report/trend-stop-research-assurance-20261113.json`](../../report/trend-stop-research-assurance-20261113.json);
+[`report/trend-stop-research-assurance-20261113-after1203.json`](../../report/trend-stop-research-assurance-20261113-after1203.json);
 its review status is `UNREVIEWED` until a review of its exact digest and heads is
-posted.
+posted. This is a source-binding-only reissue after merged #1216 changed a
+transitively imported funding reader and #1203 changed the portfolio-result
+reader reached through `trade_rl.evaluation` package facades. The preceding
+`report/trend-stop-research-assurance-20261113-after1216.json` (digest `94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7`) and original
+2026-11-13 revision-2 author packet (digest `8178da9c...`) remain unchanged,
+UNREVIEWED and do not authorize a G4 economic run.
 
 Revision 2 (2026-11-13). Review 5870390989 of PR #1201 blocked revision 1 (packet
 `report/trend-stop-research-assurance-20261110.json`, digest `894fedb0...`, protocol

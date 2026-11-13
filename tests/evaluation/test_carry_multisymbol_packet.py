@@ -17,10 +17,9 @@ from tools.agent_repo.research_assurance import assurance_digest, evaluate_assur
 from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = (
-    ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
-)
-PINNED_DIGEST = "baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f"
+_PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
+PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -117,15 +116,73 @@ def bound_code_paths(head: str) -> list[str]:
     return sorted(seen)
 
 
-def _head_or_skip() -> str:
+def _require_pinned_head() -> str:
     head = packet()["identity"]["implementation_head"]
     if _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
-        pytest.skip("packet head is not in this clone (shallow checkout)")
+        pytest.fail(
+            "packet head is unavailable: fetch full Git history before checking source closure"
+        )
     return head
 
 
 def packet():
     return json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+
+
+def test_missing_packet_head_fails_instead_of_silently_skipping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Required history loss must be a failed proof, not a green pytest run."""
+
+    def missing_history(*args: str) -> subprocess.CompletedProcess[str]:
+        assert args == (
+            "cat-file",
+            "-e",
+            f"{packet()['identity']['implementation_head']}^{{commit}}",
+        )
+        return subprocess.CompletedProcess(args, 1, "", "object unavailable")
+
+    monkeypatch.setattr(
+        "tests.evaluation.test_carry_multisymbol_packet._git", missing_history
+    )
+    try:
+        _require_pinned_head()
+    except pytest.skip.Exception as error:
+        pytest.fail(f"source-closure check skipped without the pinned commit: {error}")
+    except pytest.fail.Exception as error:
+        assert "packet head" in str(error)
+    else:
+        pytest.fail("missing immutable source must not satisfy the packet check")
+
+
+def test_historical_carry_author_packet_remains_unchanged_and_unreviewed() -> None:
+    """A software reissue does not overwrite the original author evidence."""
+    old_path = (
+        ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
+    )
+    historical = json.loads(old_path.read_text(encoding="utf-8"))
+    assert assurance_digest(historical) == (
+        "baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f"
+    )
+    assert historical["identity"]["implementation_head"] == (
+        "46760f4948a55f37cb79bc56b89c3b477c54d6de"
+    )
+    assert evaluate_assurance(historical).status == "UNREVIEWED"
+
+
+def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Do not rewrite a preceding source-bound author packet after another merge."""
+    path = ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+    )
+    expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
@@ -204,7 +261,7 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
-    _head_or_skip()
+    _require_pinned_head()
     bound = bound_code_paths(head)
     changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
     assert changed.returncode == 0, changed.stderr
@@ -214,7 +271,7 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_screen() -> None:
-    head = _head_or_skip()
+    head = _require_pinned_head()
     bound = set(bound_code_paths(head))
     for needed in (
         "trade_rl/__init__.py",

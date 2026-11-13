@@ -284,6 +284,7 @@ def test_unfinished_workflow_scan_rejects_inconsistent_pagination(
         }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
     with pytest.raises(RuntimeError, match=error_pattern):
         api.active_workflow_branch_names()
 
@@ -380,6 +381,58 @@ def test_bounded_backoff_recovers_after_three_transient_incomplete_rosters(
     assert sleeps == [0.2, 0.4, 0.8]
 
 
+def test_six_transient_incomplete_workflow_rosters_recover_with_fresh_complete_roster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Busy CI may shift status counts repeatedly; never reuse partial pages."""
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    attempted = 0
+    statuses_seen: list[tuple[int, str]] = []
+    sleeps: list[float] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        nonlocal attempted
+        assert method == "GET" and suffix == "actions/runs" and query is not None
+        assert query["page"] == "1"
+        status = query["status"]
+        if status == "requested":
+            attempted += 1
+        statuses_seen.append((attempted, status))
+        if attempted <= 6:
+            # A mid-transition request is not a complete proof of active refs.
+            return {
+                "total_count": 2,
+                "workflow_runs": [
+                    {"id": attempted, "status": status, "head_branch": "task/stale"}
+                ],
+            }
+        return {
+            "total_count": 1,
+            "workflow_runs": [
+                {"id": 100 + attempted, "status": status, "head_branch": "task/current"}
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", sleeps.append)
+    assert api.active_workflow_branch_names() == frozenset({"task/current"})
+    assert attempted == 7
+    assert statuses_seen == [
+        *[(attempt, "requested") for attempt in range(1, 7)],
+        *[
+            (7, status)
+            for status in ("requested", "waiting", "pending", "queued", "in_progress")
+        ],
+    ]
+    assert sleeps == [0.2, 0.4, 0.8, 1.6, 3.2, 6.4]
+
+
 def test_persistent_workflow_count_mismatch_still_refuses_all_refs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -408,7 +461,7 @@ def test_persistent_workflow_count_mismatch_still_refuses_all_refs(
     monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
     with pytest.raises(RuntimeError, match="pagination is incomplete"):
         api.active_workflow_branch_names()
-    assert calls == 5
+    assert calls == 8
 
 
 def test_malformed_workflow_entry_is_not_hidden_by_snapshot_retries(
@@ -469,6 +522,7 @@ def test_unfinished_workflow_overfull_final_page_fails_closed(
         }
 
     monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
     with pytest.raises(RuntimeError, match="pagination"):
         api.active_workflow_branch_names()
 

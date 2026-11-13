@@ -37,7 +37,9 @@ PINNED_DIGEST = "bc0163631694f42cc6fbc52ca51678e9bebe9e86efb3e9d5ca46607971b3036
 HISTORICAL_PACKET_PATH = (
     ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261113.json"
 )
-HISTORICAL_PINNED_DIGEST = "ff5c8301491b9809515d8fb00b4b8395a0e065ea6bccd91a9b3172b5db986279"
+HISTORICAL_PINNED_DIGEST = (
+    "ff5c8301491b9809515d8fb00b4b8395a0e065ea6bccd91a9b3172b5db986279"
+)
 PINNED_PROTOCOL_DIGEST = (
     "1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3"
 )
@@ -219,7 +221,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
-        assert "report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json" in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
+            in text
+        )
         assert "UNREVIEWED" in text
     assert "tests/evaluation/test_signal_diagnosis_run_packet.py" in architecture
 

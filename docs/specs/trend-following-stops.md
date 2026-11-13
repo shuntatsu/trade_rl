@@ -10,9 +10,11 @@ run on real data and no price path, return or PnL of it was computed to write th
 document. That is narrower than "unexposed": the universe and window were read by
 earlier work, listed in section 5a, and the protocol below is frozen in `trade_rl.evaluation.trend_stop_study.protocol` (digest recorded in every
 result). The machine-readable G0-G3 author packet is
-[`report/trend-stop-research-assurance-20261113-after1233.json`](../../report/trend-stop-research-assurance-20261113-after1233.json);
+[`report/trend-stop-research-assurance-20261113-after1233-valuation.json`](../../report/trend-stop-research-assurance-20261113-after1233-valuation.json);
 its review status is `UNREVIEWED` until a review of its exact digest and heads is
-posted. This source-binding reissue after #1233 preserves the prior
+posted. This source-only reissue follows the finite-dust valuation guard.
+The prior `report/trend-stop-research-assurance-20261113-after1233.json`
+remains unchanged and UNREVIEWED. No G4 run or closed result revision is authorized. This source-binding reissue after #1233 preserves the prior
 `report/trend-stop-research-assurance-20261113-after1203.json` packet.
 Neither packet authorizes G4 or changes any registered protocol or closed result. This is a source-binding-only reissue after merged #1216 changed a
 transitively imported funding reader and #1203 changed the portfolio-result

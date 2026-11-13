@@ -22,13 +22,17 @@ from a payload, validates each part and finally requires equality with the froze
 reference of the declared version, so an altered grid, threshold or window is
 rejected until a new schema version (and a new reference) exists.
 
-``signal_diagnosis_protocol_v3`` replaces the never-merged, review-blocked v1 and v2.
-Neither is loadable. v1 counted 2021 (first fit April 2021) as a full stability year,
+``signal_diagnosis_protocol_v4`` replaces v1, v2 and v3; none of them is loadable and
+none produced a result. v1 counted 2021 (first fit April 2021) as a full stability year,
 called a cross-sectional demeaning "beta removal", left the D4 "alpha" undefined and left
-the drift and beta baselines without an estimation rule. v2 fixed those but still did not
-say how the p-values behind the decisive Benjamini-Hochberg gate are produced. v3 freezes
-that procedure (test, null, tail, dependence handling, BH family) before any result
-exists; the cross-references below make the earlier defects unrepresentable.
+the drift and beta baselines without an estimation rule. v2 fixed those but did not say
+how the p-values behind the decisive Benjamini-Hochberg gate are produced. v3 froze a
+centred moving-block bootstrap for them; a synthetic calibration at protocol scale
+(``tools/issue1146_significance_calibration.py``) showed that it rejects a true null
+too often at the small levels the correction works at. v4 freezes the equal-weighted
+cosine test with a Student-t reference instead, which held its size on the same grid,
+and states what a series too short to test returns. The cross-references below make
+the earlier defects unrepresentable.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ from typing import Any, Final, Union, get_args, get_origin, get_type_hints
 from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.evaluation.forward_study.registry import Fs1Registry
 
-PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v3"
+PROTOCOL_SCHEMA: Final = "signal_diagnosis_protocol_v4"
 
 SCOPE_SYNTHETIC: Final = "synthetic_only"
 SCOPE_REAL: Final = "real_development"
@@ -172,6 +176,23 @@ def _same(value: object, expected: object, field: str) -> None:
 
 def _registry_instant(text: str) -> datetime:
     return datetime.fromisoformat(text).replace(tzinfo=UTC)
+
+
+def _integer_cube_root(value: int) -> int:
+    """The largest integer ``r`` with ``r**3 <= value``, in logarithmic time.
+
+    Integer Newton iteration from a power of two above the root; it terminates for
+    every non-negative integer however large, with no floating point.
+    """
+
+    if value < 2:
+        return value
+    root = 1 << ((value.bit_length() + 2) // 3)
+    while True:
+        better = (2 * root + value // (root * root)) // 3
+        if better >= root:
+            return root
+        root = better
 
 
 def _iso_z(moment: datetime) -> str:
@@ -563,6 +584,11 @@ class SignificanceSpec:
     one test, its null and tail, the handling of overlapping labels, and the exact
     family the correction runs over. A verdict must accept p-values only from this
     procedure.
+
+    The number of cosine terms of the long-run variance estimate is the largest
+    integer ``nu`` with ``terms_cube_multiplier * nu**3 <= terms_square_multiplier *
+    n_days**2``. With 125 and 8 that is ``floor(0.4 * n_days ** (2 / 3))`` in exact
+    integer arithmetic.
     """
 
     procedure_id: str
@@ -570,6 +596,9 @@ class SignificanceSpec:
     null_hypothesis: str
     tail: str
     p_value_source: str
+    terms_rule: str
+    terms_cube_multiplier: int
+    terms_square_multiplier: int
     dependence_rule: str
     family_rule: str
     bh_family_ids: tuple[str, ...]
@@ -581,15 +610,30 @@ class SignificanceSpec:
             "statistic",
             "null_hypothesis",
             "p_value_source",
+            "terms_rule",
             "dependence_rule",
             "family_rule",
         ):
             _text(getattr(self, name), name)
+        _exact_int(self.terms_cube_multiplier, "terms_cube_multiplier", minimum=1)
+        _exact_int(self.terms_square_multiplier, "terms_square_multiplier", minimum=1)
         _same(self.tail, TAIL_ONE_SIDED_POSITIVE, "tail")
         families = _unique_texts(self.bh_family_ids, "bh_family_ids")
         if len(families) != 2:
             raise _fail("exactly two BH families are tested: raw and demeaned target")
         _unique_texts(self.bh_family_cell_ids, "bh_family_cell_ids")
+
+    def cosine_terms(self, n_days: int) -> int:
+        """Cosine terms (Student-t degrees of freedom) for a series of ``n_days``.
+
+        Zero means the series is too short to test, so its p-value is exactly 1.0.
+        """
+
+        days = _exact_int(n_days, "n_days", minimum=0)
+        bound = self.terms_square_multiplier * days * days
+        # nu**3 is an integer, so cube * nu**3 <= bound exactly when
+        # nu**3 <= floor(bound / cube); no floating point decides a degree of freedom.
+        return _integer_cube_root(bound // self.terms_cube_multiplier)
 
 
 @dataclass(frozen=True, slots=True)
@@ -918,8 +962,40 @@ class SignalDiagnosisProtocol:
         if tuple(self.verdict_labels) != VERDICT_LABELS:
             raise _fail("verdict_labels must be the four preregistered labels")
 
+    def max_series_days(self) -> int:
+        """Most daily increments a series can have: the calendar days of the window.
+
+        A series holds at most one value per UTC day of the half-open evaluation
+        window, so a larger count is not a count of that window's days.
+        """
+
+        start = _parse_z(self.data.evaluation_start, "evaluation_start")
+        end = _parse_z(self.data.evaluation_end, "evaluation_end")
+        span = end - start
+        return span.days + (1 if span % timedelta(days=1) else 0)
+
+    def cosine_terms_for(self, n_days: int) -> int:
+        """``significance.cosine_terms`` for a series of the evaluation window.
+
+        A count above ``max_series_days()`` fails closed with a typed error.
+        """
+
+        days = _exact_int(n_days, "n_days", minimum=0)
+        if days > self.max_series_days():
+            # The count is not printed: converting a huge int to text can itself fail.
+            raise _fail(
+                f"a series of {days.bit_length()} bits exceeds the "
+                f"{self.max_series_days()} days of the evaluation window"
+            )
+        return self.significance.cosine_terms(days)
+
     def _validate_significance(self) -> None:
-        """The BH family is the decision cells; the bootstrap block covers label overlap."""
+        """The BH family is the decision cells; both estimators cover label overlap.
+
+        The long-run variance estimate of the significance test smooths over
+        ``n_days / cosine_terms`` days, and the block of the D4 payoff interval is
+        ``bootstrap.block_days``; neither may be shorter than the label overlap.
+        """
 
         expected = tuple(
             f"{family.family_id}:{model_id}"
@@ -939,6 +1015,21 @@ class SignalDiagnosisProtocol:
                 f"bootstrap.block_days {self.bootstrap.block_days} must cover the "
                 f"label overlap of {overlap_days} day(s)"
             )
+        significance = self.significance
+        for terms in range(1, 129):
+            # The shortest series with this many terms has the narrowest span.
+            needed = -(
+                -significance.terms_cube_multiplier
+                * terms**3
+                // significance.terms_square_multiplier
+            )
+            n_days = math.isqrt(needed - 1) + 1
+            if terms * overlap_days > n_days:
+                raise _fail(
+                    f"the long-run variance estimate spans {n_days}/{terms} days at "
+                    f"{n_days} days, less than the label overlap of {overlap_days} "
+                    "day(s)"
+                )
 
     def _validate_stability_years(self) -> None:
         """A full year must be fully out of sample; the years must tile the OOS span.
@@ -1386,7 +1477,7 @@ _TRANSFORMS: Final = (
 
 
 def _reference_payload() -> dict[str, object]:
-    """The frozen v3 payload, built from literals and the FS1 registry instants."""
+    """The frozen v4 payload, built from literals and the FS1 registry instants."""
 
     warmup_start = _iso_z(_WARMUP_START)
     expected_spans = _expected_spans()
@@ -1531,7 +1622,7 @@ def _reference_payload() -> dict[str, object]:
             "reported_test_families": ["decision_cells", "d2_feature_cells"],
         },
         "significance": {
-            "procedure_id": "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1",
+            "procedure_id": "equal_weighted_cosine_one_sided_t_mean_rank_ic_increment_v1",
             "statistic": "mean over the eligible UTC days of the daily rank-IC "
             "increment (measurement.increment_definition) of one decision cell on one "
             "target (raw or cross-sectionally demeaned) at the primary horizon and "
@@ -1539,17 +1630,28 @@ def _reference_payload() -> dict[str, object]:
             "null_hypothesis": "the mean daily rank-IC increment is <= 0 (no "
             "improvement over the drift baseline)",
             "tail": TAIL_ONE_SIDED_POSITIVE,
-            "p_value_source": "the p_value of moving_block_mean_test applied to the "
-            "daily increment series with block_size = bootstrap.block_days, "
-            "n_bootstrap = bootstrap.resamples and seed = bootstrap.seed: one-sided, "
-            "p = (number of centred bootstrap means >= the observed mean + 1) / "
-            "(resamples + 1) when the observed mean is positive, and exactly 1.0 when "
-            "it is not or when fewer than two days are eligible",
+            "p_value_source": "the p_value_one_sided of ewc_mean_test "
+            "(the SD1 measurement tools, significance module) applied to the daily "
+            "increment series in day order: the equal-weighted cosine test, t = mean / "
+            "sqrt(omega / n_days) with omega the average of the squared projections "
+            "sqrt(2 / n_days) * sum_t x_t * cos(pi * j * (t - 1/2) / n_days) for j = 1 "
+            "to nu, referred to the upper tail of a Student-t law with nu degrees of "
+            "freedom; deterministic, with no resampling and no seed; the p-value is "
+            "exactly 1.0 when the observed mean is not positive, when nu is zero "
+            "(fewer than four eligible days, including none) and when omega is not "
+            "positive (a constant series)",
+            "terms_rule": "nu is the largest integer with 125 * nu**3 <= 8 * "
+            "n_days**2, that is floor(0.4 * n_days ** (2 / 3)) in exact integer "
+            "arithmetic (Lazarus, Lewis, Stock and Watson 2018); it is 51 for 1460 "
+            "days and is never chosen from data",
+            "terms_cube_multiplier": 125,
+            "terms_square_multiplier": 8,
             "dependence_rule": "daily increments are dependent through overlapping "
             "labels; label_overlap_days = ceil(primary_horizon_bars * bar_hours / 24), "
-            "which is 1 for 24 one-hour bars, and bootstrap.block_days must be at "
-            "least label_overlap_days; the block length is fixed here and never "
-            "chosen from data",
+            "which is 1 for 24 one-hour bars; the long-run variance estimate smooths "
+            "over n_days / nu days, which is at least 4 and must be at least "
+            "label_overlap_days for every series length; the Student-t reference "
+            "carries the sampling error of that estimate",
             "family_rule": "Benjamini-Hochberg at multiple_testing.bh_fdr_q is applied "
             "separately to the raw-target p-values and to the demeaned-target "
             "p-values; each family is exactly the 16 decision cells listed in "
@@ -1714,7 +1816,7 @@ def protocol_from_payload(payload: Mapping[str, object]) -> SignalDiagnosisProto
 
 
 def default_signal_diagnosis_protocol() -> SignalDiagnosisProtocol:
-    """The frozen ``signal_diagnosis_protocol_v3`` object."""
+    """The frozen ``signal_diagnosis_protocol_v4`` object."""
 
     return protocol_from_payload(_reference_payload())
 

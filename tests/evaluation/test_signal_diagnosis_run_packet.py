@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,20 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json"
+    / "sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "10acf9db00b7ea594f174f0a16e7a978974ed4d483c437f1785b4afd97a094f4"
+PINNED_DIGEST = "4059f82b0708014065349d7956f7c96cab9e5d6647a911d3def794dd616e435e"
+PREVIOUS_CODEC_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json"
+)
+PREVIOUS_CODEC_PACKET_DIGEST = (
+    "10acf9db00b7ea594f174f0a16e7a978974ed4d483c437f1785b4afd97a094f4"
+)
 PREVIOUS_PACKET_PATH = (
     ROOT
     / "report"
@@ -156,6 +164,19 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_pre_main_sync_packet_stays_immutable_and_unreviewed() -> None:
+    """The new source binding must not retroactively change the previous packet."""
+
+    prior = json.loads(PREVIOUS_CODEC_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert result.economic_execution_authorized is False
+    assert assurance_digest(prior) == PREVIOUS_CODEC_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "dd4dc168070055d890b380d62f745054f88e83aa"
+    )
+
+
 def test_preceding_manifest_first_packet_is_immutable() -> None:
     """The unreviewed predecessor does not change when source closure is repaired."""
 
@@ -242,6 +263,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261113-after-main-sync.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json"
             in text

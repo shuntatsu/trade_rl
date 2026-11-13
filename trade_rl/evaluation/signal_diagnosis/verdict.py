@@ -29,8 +29,11 @@ significance procedure (``protocol.significance``) and computes the Benjamini-Ho
 adjustment itself, separately for the raw and the demeaned target, over exactly the
 frozen decision-cell family. There is no field through which an already adjusted p-value
 can be supplied, and a cell whose :class:`PValueProvenance` does not equal the frozen
-procedure and bootstrap settings is refused. The provenance is an attestation by the
-(later) runner, not a proof: a pure function cannot re-run the bootstrap.
+procedure is refused. The provenance carries the number of eligible days behind each
+p-value; a series too short for the frozen test (no cosine term, which includes zero
+days) must carry a p-value of exactly 1.0, as the SD1 test returns, or the cell is
+refused. The provenance is an attestation by the (later) runner, not a proof: a pure
+function cannot recompute the test from the saved evidence.
 """
 
 from __future__ import annotations
@@ -92,26 +95,23 @@ def bh_adjusted_p_values(p_values: Sequence[float]) -> tuple[float, ...]:
 
 @dataclass(frozen=True, slots=True)
 class PValueProvenance:
-    """Which frozen procedure produced a cell's raw p-values (runner attestation)."""
+    """Which frozen procedure produced a cell's raw p-values (runner attestation).
+
+    ``raw_n_days`` and ``demeaned_n_days`` are the eligible days of the increment
+    series behind the raw-target and the demeaned-target p-value.
+    """
 
     procedure_id: str
-    block_days: int
-    resamples: int
-    seed: int
-    n_days: int
+    raw_n_days: int
+    demeaned_n_days: int
 
     def __post_init__(self) -> None:
         if type(self.procedure_id) is not str or not self.procedure_id.strip():
             raise _fail("procedure_id must be non-empty text")
-        for name, minimum in (
-            ("block_days", 1),
-            ("resamples", 1),
-            ("seed", 0),
-            ("n_days", 0),
-        ):
+        for name in ("raw_n_days", "demeaned_n_days"):
             value = getattr(self, name)
-            if type(value) is not int or value < minimum:
-                raise _fail(f"{name} must be an integer of at least {minimum}")
+            if type(value) is not int or value < 0:
+                raise _fail(f"{name} must be a non-negative integer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,26 +264,26 @@ def decision_cell_ids(protocol: SignalDiagnosisProtocol) -> tuple[str, ...]:
 def _check_provenance(
     cells: Sequence[DecisionCellEvidence], protocol: SignalDiagnosisProtocol
 ) -> None:
-    """Refuse p-values that do not claim the frozen procedure and bootstrap settings."""
+    """Refuse p-values that do not claim the frozen procedure or contradict it."""
 
-    frozen = (
-        protocol.significance.procedure_id,
-        protocol.bootstrap.block_days,
-        protocol.bootstrap.resamples,
-        protocol.bootstrap.seed,
-    )
+    significance = protocol.significance
     for cell in cells:
         claimed = cell.p_value_provenance
-        if (
-            claimed.procedure_id,
-            claimed.block_days,
-            claimed.resamples,
-            claimed.seed,
-        ) != frozen:
+        if claimed.procedure_id != significance.procedure_id:
             raise _fail(
                 f"cell {cell.cell_id}: p-values lack the frozen procedure provenance "
-                f"{frozen}; refusing caller-supplied p-values"
+                f"{significance.procedure_id!r}; refusing caller-supplied p-values"
             )
+        for target, n_days, p_value in (
+            ("raw", claimed.raw_n_days, cell.rank_ic_p_value),
+            ("demeaned", claimed.demeaned_n_days, cell.demeaned_p_value),
+        ):
+            if protocol.cosine_terms_for(n_days) < 1 and p_value != 1.0:
+                raise _fail(
+                    f"cell {cell.cell_id}: the {target} series has {n_days} eligible "
+                    "day(s), which cannot reject under the frozen procedure, so its "
+                    f"p-value must be exactly 1.0, not {p_value}"
+                )
 
 
 def _significant_cell_ids(

@@ -163,7 +163,13 @@ def decide(
     if count < protocol.MIN_ADMITTED:
         return base | {
             "outcome": INCONCLUSIVE,
-            "reason": f"{count} admitted symbols is below the minimum {protocol.MIN_ADMITTED}",
+            "reason": (
+                f"{count} admitted symbols is below the minimum "
+                f"{protocol.MIN_ADMITTED}; terminal for this protocol: a different "
+                "universe, window or exclusion rule is a new protocol version"
+            ),
+            "terminal_for_protocol": True,
+            "rerun_with_a_different_universe_allowed": False,
         }
     required = protocol.required_symbol_passes(count)
     symbol_pass = {symbol: arm_passes(cells, symbol) for symbol in admitted}

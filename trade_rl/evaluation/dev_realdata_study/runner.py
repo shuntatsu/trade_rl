@@ -452,7 +452,13 @@ def terminal_dust(
         )
         mark_value = float(quantity) * float(marks[index]) * multiplier
         exit_cost = notional * unit_cost
-        if not math.isfinite(mark_value) or not math.isfinite(exit_cost):
+        # A hypothetical exit costing more than the entire marked position
+        # cannot be conservatively treated as valued terminal dust.
+        if (
+            not math.isfinite(mark_value)
+            or not math.isfinite(exit_cost)
+            or exit_cost > notional
+        ):
             other.append(symbol)
             continue
         dust.append(

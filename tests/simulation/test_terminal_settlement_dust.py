@@ -383,7 +383,7 @@ def test_phase2_replay_cell_with_dust_only_terminal_is_reconciled_and_haircut() 
     )
 
 
-@pytest.mark.parametrize("last_volume", (0.0, 1e-320))
+@pytest.mark.parametrize("last_volume", (0.0, 1e-320, 1e-308))
 def test_unrepresentable_dust_exit_valuation_never_passes(last_volume: float) -> None:
     """Zero/overflowing denominator cannot authorize a dust-only economic PASS."""
     dataset = _dataset(drop=True)
@@ -400,9 +400,13 @@ def test_unrepresentable_dust_exit_valuation_never_passes(last_volume: float) ->
     assert set(report["terminal_residual_quantities"]) == set(SYMBOLS)
 
 
-def test_finite_positive_volume_remains_valued_dust_control() -> None:
-    """The fail-closed guard must not reject an ordinary finite dust valuation."""
+@pytest.mark.parametrize("last_volume", (1e12, 0.12))
+def test_finite_positive_volume_remains_valued_dust_control(last_volume: float) -> None:
+    """Within capacity, a finite dust exit estimate retains its valid control."""
     dataset = _dataset(drop=True)
+    volume = np.array(dataset.volume, copy=True)
+    volume[-1, :] = last_volume
+    dataset = dataclasses.replace(dataset, volume=volume)
     report = reconcile_ledger(_replay(dataset), dataset, PROTO, execution_cost=COST)
     assert report["passed"] is True
     assert report["terminal_dust_only"] is True

@@ -184,14 +184,14 @@ in place.
 ## Research assurance (G0-G2)
 
 The author packet
-[`report/issue810-carry-multisymbol-research-assurance-20261113-after1226.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1226.json)
+[`report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json)
 states the counter-hypothesis (a 2023-2024 regime effect that fees and basis risk
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002` and its status
+`cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
-review of this exact digest and these heads. This source-only reissue binds #1226's fail-closed two-leg lookback-liquidity admission; the preceding after1203, 2026-11-13 and 2026-11-10 packets remain unmodified and UNREVIEWED. The oracle is a hand-computed three-pair ledger in exact rational
+review of this exact digest and these heads. This source-only reissue binds #1227's typed Vision cache-stage cleanup failure handling on top of #1208's write-once archive publication and the already merged #1226 fail-closed lookback-liquidity admission. The preceding after1208, after1226, after1203, 2026-11-13 and 2026-11-10 packets remain unmodified and UNREVIEWED. It does not claim descriptor-atomic protection from hostile concurrent cache-directory swaps. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the
 production sizing, cost or funding code. The packet's heads bind the computed static import
 closure of the screen entry points (the screen, the carry replay and the command line,

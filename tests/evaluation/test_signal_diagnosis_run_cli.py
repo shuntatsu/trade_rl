@@ -211,6 +211,49 @@ def test_preopen_leaf_symlink_swap_cannot_read_foreign_bytes(
     assert swapped, "the pre-open replacement was not exercised"
 
 
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="descriptor-relative O_NOFOLLOW is a POSIX-specific guarantee",
+)
+def test_parent_swap_after_fd_capture_keeps_original_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Renaming the path after a parent fd opens cannot redirect its child."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    (root / "arrays.npz").write_bytes(PAYLOAD)
+    replacement = tmp_path / "synthetic-foreign"
+    replacement.mkdir()
+    (replacement / "arrays.npz").write_bytes(b"synthetic forbidden stand-in")
+    moved = tmp_path / "original-artifact"
+    original_open = os.open
+    swapped = False
+
+    def race_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        fd = original_open(path, flags, mode, dir_fd=dir_fd)
+        if dir_fd is not None and str(path) == root.name and not swapped:
+            swapped = True
+            root.rename(moved)
+            root.symlink_to(replacement, target_is_directory=True)
+        return fd
+
+    monkeypatch.setattr(os, "open", race_open)
+    observed = cli._read_artifact_file(root, "arrays.npz")
+    assert swapped, "the artifact directory was not replaced after fd capture"
+    assert root.is_symlink()
+    assert observed == PAYLOAD  # the descriptor, not the replaced path, won
+
+
 def test_symlinked_artifact_directory_cannot_redirect_array_read(
     tmp_path: Path,
 ) -> None:

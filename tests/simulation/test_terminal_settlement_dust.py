@@ -82,7 +82,7 @@ def _dataset(
     return MarketDataset(**fields)
 
 
-def _replay(dataset: MarketDataset):
+def _replay(dataset: MarketDataset, *, execution_cost: ExecutionCostConfig = COST):
     # Two positions of 6 USDT each pass the 5 USDT entry filter.
     return run_shared_portfolio_replay(
         dataset,
@@ -90,7 +90,7 @@ def _replay(dataset: MarketDataset):
         start_index=1,
         stop_index=dataset.n_bars - 1,
         initial_capital=CAPITAL,
-        execution_cost=COST,
+        execution_cost=execution_cost,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
     )
@@ -175,6 +175,85 @@ def test_venue_minimum_rejection_does_not_override_capacity_limit() -> None:
     }
     assert reasons == {"below_minimum_notional"}
     report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
+    assert report["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("symbol_cap", "expected_dust"),
+    ((0.20, False), (0.30, True)),
+)
+def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
+    symbol_cap: float, expected_dust: bool
+) -> None:
+    """A venue-minimum rejection is not permission to exceed symbol capacity."""
+
+    base = _dataset(drop=True)
+    volume = np.array(base.volume, copy=True)
+    volume[-1, :] = 0.25
+    symbol_caps = np.full(volume.shape, 0.50, dtype=np.float64)
+    symbol_caps[-1, :] = symbol_cap  # the actual processing row, not a prior bar
+    dataset = dataclasses.replace(
+        base,
+        volume=volume,
+        max_participation_rate=symbol_caps,
+    )
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    events = ledger.intervals.intervals[-1].order_events
+    assert {
+        (event.symbol_index, event.reason)
+        for event in events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+
+    # The residual is 3 USDT at the terminal open; the market's last-bar
+    # capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
+    # participation, below the global 0.50 but above the symbol 0.20 cap.
+    assert COST.max_participation_rate == 0.50
+    assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
+    assert dataset.resolved_array("max_participation_rate")[-1, 0] == symbol_cap
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is expected_dust
+    assert report["passed"] is expected_dust
+    assert [item["symbol"] for item in report["terminal_dust"]] == (
+        list(SYMBOLS) if expected_dust else []
+    )
+    if expected_dust:
+        assert report["terminal_dust_exit_cost_usdt"] > 0.0
+    else:
+        assert report["terminal_dust_exit_cost_usdt"] == 0.0
+
+
+def test_symbol_cap_uses_processing_row_with_previous_volume_basis() -> None:
+    """Capacity volume can use a prior bar; the symbol rule cannot."""
+
+    base = _dataset(drop=True)
+    volume = np.array(base.volume, copy=True)
+    volume[-2, :] = 0.25  # prior completed bar supplies volume capacity
+    limits = np.full(volume.shape, 0.50, dtype=np.float64)
+    limits[-1, :] = 0.20  # processing bar enforces the tighter symbol rule
+    dataset = dataclasses.replace(base, volume=volume, max_participation_rate=limits)
+    cost = dataclasses.replace(COST, processing_bar_volume_capacity=False)
+    result = _replay(dataset, execution_cost=cost)
+    assert cost.max_participation_rate == 0.50
+    assert limits[-2, 0] == 0.50 and limits[-1, 0] == 0.20
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
+
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=cost)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []

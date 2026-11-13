@@ -392,6 +392,9 @@ def terminal_dust(
     marks = dataset.resolved_array("mark_price")[final_row]
     opens = dataset.open[final_row]
     minimum = dataset.resolved_array("minimum_notional")[final_row]
+    symbol_participation_limits = dataset.resolved_array("max_participation_rate")[
+        final_row
+    ]
     valued = execution_cost is not None and execution_cost.slippage_std == 0.0
     if execution_cost is not None and execution_cost.processing_bar_volume_capacity:
         capacity_row, capacity_prices = final_row, opens
@@ -438,11 +441,15 @@ def terminal_dust(
             other.append(symbol)
             continue
         participation = open_notional / capacity_notional
+        symbol_limit = float(symbol_participation_limits[index])
         # A minimum-notional rejection alone does not prove that a virtual
-        # close is liquid enough to be valued under the executor capacity cap.
+        # close is liquid enough under the same processing-row per-symbol
+        # and global capacity limits enforced by the actual fill allocator.
         if (
             not math.isfinite(participation)
-            or participation > execution_cost.max_participation_rate
+            or not math.isfinite(symbol_limit)
+            or symbol_limit <= 0.0
+            or participation > min(execution_cost.max_participation_rate, symbol_limit)
         ):
             other.append(symbol)
             continue

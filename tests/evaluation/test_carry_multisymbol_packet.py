@@ -173,14 +173,17 @@ def test_historical_carry_author_packet_remains_unchanged_and_unreviewed() -> No
 
 def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
     """Do not rewrite a preceding source-bound author packet after another merge."""
-    old = json.loads(
-        (ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json").read_text(encoding="utf-8")
+    path = ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
     )
-    assert assurance_digest(old) == "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
-    assert old["identity"]["protocol_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
-    assert old["identity"]["implementation_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
-    assert evaluate_assurance(old).status == "UNREVIEWED"
-    assert evaluate_assurance(old).economic_execution_authorized is False
+    expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

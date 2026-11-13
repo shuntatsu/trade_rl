@@ -184,14 +184,17 @@ def test_prior_v2_trend_packet_is_unchanged_and_unreviewed() -> None:
 
 def test_prior_after1216_source_reissue_is_immutable_and_unreviewed() -> None:
     """Keep the earlier source-bound author packet as immutable history."""
-    old = json.loads(
-        (ROOT / "report" / "trend-stop-research-assurance-20261113-after1216.json").read_text(encoding="utf-8")
+    path = ROOT / "report" / "trend-stop-research-assurance-20261113-after1216.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7"
     )
-    assert assurance_digest(old) == "94f9af8af37bbc022f8550c3a0ad1b642fb4b50fa51d75fb2682d93fc59714f7"
-    assert old["identity"]["protocol_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
-    assert old["identity"]["implementation_head"] == "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
-    assert evaluate_assurance(old).status == "UNREVIEWED"
-    assert evaluate_assurance(old).economic_execution_authorized is False
+    expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

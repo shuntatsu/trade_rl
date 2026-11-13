@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from trade_rl.artifacts import content_digest
+from trade_rl.data.contracts import MarketCalendarKind
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     ForbiddenEvaluationWindowError,
@@ -189,7 +190,7 @@ def admit_artifact_manifest(
     if tuple(scalars.get("symbols") or ()) != data.symbols:
         raise SignalDiagnosisProtocolError("artifact symbols are not the roster")
     if (
-        scalars.get("calendar_kind") != "continuous"
+        scalars.get("calendar_kind") != MarketCalendarKind.CONTINUOUS.value
         or scalars.get("periods_per_year") != 24 * 365
     ):
         raise SignalDiagnosisProtocolError("artifact is not a continuous hourly grid")

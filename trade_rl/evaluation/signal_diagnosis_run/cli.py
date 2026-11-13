@@ -4,7 +4,7 @@ Nothing is tunable here: the frozen protocol fixes every parameter. The command 
 to start without a well-formed owner G4 authorization comment URL, refuses a non-empty
 output directory, refuses a dirty Git working tree and a missing LightGBM (both before
 any data is read), and never touches the network. The published Dataset is admitted from its
-manifest and the streamed digest of its payload before the loader parses any array.
+manifest and the digest of its payload, both held in memory, and decoded from those same bytes.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
+from trade_rl.data.artifacts import load_dataset_from_verified_bytes
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     SCOPE_REAL,
     SignalDiagnosisProtocol,
@@ -56,34 +56,49 @@ def build_parser() -> argparse.ArgumentParser:
 
 _MANIFEST = "manifest.json"
 _ARRAYS = "arrays.npz"
-_CHUNK = 1 << 20
 
 
-def admit_artifact_directory(root: Path, protocol: SignalDiagnosisProtocol) -> None:
-    """Gate a published Dataset directory before the loader parses any array.
+def read_artifact_files(root: Path) -> tuple[bytes, bytes]:
+    """Read the manifest and the arrays file once each, unparsed, into memory.
 
-    Reads the small manifest and checks it (:func:`admit_artifact_manifest`), then
-    streams the arrays file through SHA-256 in chunks that are discarded unparsed and
-    requires the pinned arrays digest. Only an artifact whose bytes are the pinned,
-    already consumed development Dataset reaches the loader.
+    These bytes are the only copy the run ever uses: they are verified and decoded
+    from memory, and no path is opened again, so replacing the directory afterwards
+    changes nothing.
     """
 
-    manifest_path, arrays_path = root / _MANIFEST, root / _ARRAYS
-    for path in (manifest_path, arrays_path):
+    out: list[bytes] = []
+    for name in (_MANIFEST, _ARRAYS):
+        path = root / name
         if path.is_symlink() or not path.is_file():
-            raise SignalDiagnosisProtocolError(f"{path.name} is not a regular file")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
+        with path.open("rb") as stream:
+            out.append(stream.read())
+    return out[0], out[1]
+
+
+def admit_artifact_bytes(
+    manifest_bytes: bytes, arrays_bytes: bytes, protocol: SignalDiagnosisProtocol
+) -> str:
+    """Gate artifact bytes before anything is decoded; return the arrays SHA-256.
+
+    The manifest is parsed as small JSON and checked (:func:`admit_artifact_manifest`);
+    the arrays bytes, held in memory and not parsed, must hash to the pinned arrays
+    digest. Only bytes that are the pinned, already consumed development Dataset pass.
+    """
+
+    try:
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SignalDiagnosisProtocolError("artifact manifest is not JSON") from error
     if not isinstance(manifest, dict):
         raise SignalDiagnosisProtocolError("artifact manifest must be a JSON object")
     admit_artifact_manifest(manifest, protocol)
-    digest = hashlib.sha256()
-    with arrays_path.open("rb") as stream:
-        while chunk := stream.read(_CHUNK):
-            digest.update(chunk)
-    if digest.hexdigest() != protocol.data.arrays_digest:
+    digest = hashlib.sha256(arrays_bytes).hexdigest()
+    if digest != protocol.data.arrays_digest:
         raise SignalDiagnosisProtocolError(
-            "the arrays file is not the pinned development Dataset payload"
+            "the arrays bytes are not the pinned development Dataset payload"
         )
+    return digest
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -112,16 +127,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     protocol = default_signal_diagnosis_protocol()
     try:
-        admit_artifact_directory(args.dataset, protocol)
+        manifest_bytes, arrays_bytes = read_artifact_files(args.dataset)
+        arrays_digest = admit_artifact_bytes(manifest_bytes, arrays_bytes, protocol)
     except (SignalDiagnosisProtocolError, OSError, ValueError) as error:
-        print(f"refused before any array was read: {error}", file=sys.stderr)
+        print(f"refused before any array was decoded: {error}", file=sys.stderr)
         return 2
-    artifact, dataset = load_published_market_dataset_artifact(args.dataset)
-    manifest = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    # Decode from the very bytes that were verified; no path is opened again.
+    dataset, artifact_digest = load_dataset_from_verified_bytes(
+        manifest_bytes, arrays_bytes
+    )
+    del manifest_bytes, arrays_bytes
     panel = panel_from_dataset(
-        dataset,
-        artifact_digest=artifact.artifact_digest,
-        arrays_digest=str(manifest["arrays_digest"]),
+        dataset, artifact_digest=artifact_digest, arrays_digest=arrays_digest
     )
     del dataset
     try:

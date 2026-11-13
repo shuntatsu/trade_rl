@@ -13,6 +13,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -162,6 +163,21 @@ def _load_symbol(data: ScreenData, symbol: str) -> _Loaded:
         volumes = dict(data.lookback_median_volumes(symbol))
     except CarryCoverageError as error:
         return excluded("lookback_incomplete", str(error), error.evidence)
+    # The protocol requires both spot and USD-M medians. A missing leg or a
+    # nonfinite projected Decimal can otherwise bypass min(...), since NaN
+    # never compares below the liquidity threshold (and infinity looks liquid).
+    try:
+        invalid_liquidity = set(volumes) != {"spot", "usds_m"} or any(
+            isinstance(value, bool) or not math.isfinite(value) or value < 0
+            for value in volumes.values()
+        )
+    except (OverflowError, TypeError, ValueError):
+        invalid_liquidity = True
+    if invalid_liquidity:
+        raise CarryIntegrityHalt(
+            f"{symbol}: invalid or incomplete lookback liquidity evidence",
+            {"kind": "invalid_lookback_liquidity", "symbol": symbol},
+        )
     facts["lookback_median_hourly_quote_volume"] = volumes
     if min(volumes.values()) < protocol.MIN_MEDIAN_HOURLY_QUOTE_VOLUME:
         return excluded(

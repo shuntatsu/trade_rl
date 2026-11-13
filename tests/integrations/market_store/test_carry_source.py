@@ -1,5 +1,10 @@
+import errno
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -274,6 +279,326 @@ def test_archive_dir_fetcher_is_offline_by_default_and_never_mistakes_a_miss_for
     assert (result.status, result.body) == (OFFLINE_MISS_STATUS, None)
 
 
+def test_archive_dir_fetcher_rejects_preexisting_symlink_cache_entry(
+    tmp_path,
+) -> None:
+    """A cache hit must not follow a symlink outside the cache."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path / "other-owner-bytes"
+    outside.write_bytes(b"unverified cached bytes")
+    try:
+        target.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+
+    with pytest.raises(CarryOperationalHalt, match="symlink"):
+        ArchiveDirFetcher(tmp_path).fetch(spec.url)
+    assert target.is_symlink()
+    assert outside.read_bytes() == b"unverified cached bytes"
+
+
+def test_archive_cache_read_rejects_symlink_swapped_after_hit_check(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Path.is_file success must not authorize a later symlink read."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"original cache")
+    outside = tmp_path / "external-bytes"
+    outside.write_bytes(b"untrusted external bytes")
+    # Verify this filesystem can create symlinks before running the race.
+    probe = tmp_path / "symlink-probe"
+    try:
+        probe.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this filesystem")
+    probe.unlink()
+
+    real_is_file = Path.is_file
+    replaced = False
+
+    def swap_after_hit_check(path: Path) -> bool:
+        nonlocal replaced
+        hit = real_is_file(path)
+        if path == target and hit and not replaced:
+            replaced = True
+            target.unlink()
+            target.symlink_to(outside)
+        return hit
+
+    monkeypatch.setattr(Path, "is_file", swap_after_hit_check)
+    with pytest.raises(CarryOperationalHalt, match="cache"):
+        ArchiveDirFetcher(tmp_path).fetch(spec.url)
+    assert replaced and target.is_symlink()
+    assert outside.read_bytes() == b"untrusted external bytes"
+
+
+@pytest.mark.parametrize("at_root", (True, False))
+def test_cache_rejects_existing_directory_symlink_before_writing(
+    tmp_path: Path, at_root: bool
+) -> None:
+    """No cached archive may be written through a linked cache directory."""
+    spec = january_plan().specs[0]
+    outside = tmp_path / "external"
+    outside.mkdir()
+    root = tmp_path / "cache"
+    if at_root:
+        link = root
+    else:
+        root.mkdir()
+        relative = spec.url.removeprefix("https://data.binance.vision/data/")
+        link = root / relative.split("/", 1)[0]
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable on this filesystem")
+
+    class SyntheticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"synthetic archive")
+
+    with pytest.raises(CarryOperationalHalt, match="cache directory"):
+        ArchiveDirFetcher(root, SyntheticFetcher()).fetch(spec.url)
+    assert list(outside.rglob("*")) == []
+    assert link.is_symlink()
+
+
+@pytest.mark.parametrize("at_root", (True, False))
+def test_cache_rejects_directory_link_created_inside_inner_fetch(
+    tmp_path: Path, at_root: bool
+) -> None:
+    """The inner fetcher may plant an ancestor link after the initial miss."""
+    spec = january_plan().specs[0]
+    root = tmp_path / "cache"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    if at_root:
+        linked = root
+    else:
+        root.mkdir()
+        first_component = spec.url.removeprefix(
+            "https://data.binance.vision/data/"
+        ).split("/", 1)[0]
+        linked = root / first_component
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            try:
+                linked.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable on this filesystem")
+            return FetchResult(status=200, body=b"synthetic downloaded archive")
+
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, RacingFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert linked.is_symlink()
+    assert list(outside.rglob("*")) == []
+
+
+def test_cache_rejects_directory_link_swapped_after_parent_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-mkdir ancestor verification must run before staging bytes."""
+    spec = january_plan().specs[0]
+    root = tmp_path / "cache"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    fetcher = ArchiveDirFetcher(root)
+    target = fetcher._path(spec.url)
+    first_component = target.parent.relative_to(root).parts[0]
+    linked = root / first_component
+    # Populate the foreign destination's parent so an unchecked path would
+    # succeed in writing *outside* the cache, not merely raise ENOENT.
+    foreign_target = outside.joinpath(*target.relative_to(linked).parts)
+    foreign_target.parent.mkdir(parents=True, exist_ok=True)
+    parked = tmp_path / "parked-cache-component"
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_after_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal swapped
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == target.parent and not swapped:
+            linked.rename(parked)
+            try:
+                linked.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable on this filesystem")
+            swapped = True
+
+    class StaticFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            return FetchResult(status=200, body=b"synthetic downloaded archive")
+
+    monkeypatch.setattr(Path, "mkdir", swap_after_mkdir)
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, StaticFetcher()).fetch(spec.url)
+    assert swapped
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert linked.is_symlink()
+    assert not foreign_target.exists()
+    assert not list(outside.rglob("*.part-*"))
+
+
+@pytest.mark.parametrize("linked_during_fetch", (False, True))
+def test_cache_rejects_symlink_in_parent_of_configured_root(
+    tmp_path: Path, linked_during_fetch: bool
+) -> None:
+    """A linked ancestor ABOVE the cache root must never redirect publication."""
+    spec = january_plan().specs[0]
+    outside = tmp_path / "external"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-cache-parent"
+    root = linked_parent / "cache"
+
+    def plant_parent_link() -> None:
+        try:
+            linked_parent.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("directory symlinks unavailable on this filesystem")
+
+    if not linked_during_fetch:
+        plant_parent_link()
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            if linked_during_fetch:
+                plant_parent_link()
+            return FetchResult(status=200, body=b"synthetic downloaded bytes")
+
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, RacingFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert linked_parent.is_symlink()
+    assert list(outside.rglob("*")) == []
+
+
+def test_cache_rejects_parent_of_cache_root_swapped_after_mkdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late parent symlink must not make the stage escape the selected cache."""
+    spec = january_plan().specs[0]
+    linked_parent = tmp_path / "cache-parent"
+    linked_parent.mkdir()
+    root = linked_parent / "cache"
+    outside = tmp_path / "external"
+    outside.mkdir()
+    target = ArchiveDirFetcher(root)._path(spec.url)
+    foreign_target = outside.joinpath(*target.relative_to(linked_parent).parts)
+    foreign_target.parent.mkdir(parents=True)
+    parked = tmp_path / "original-cache-parent"
+
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_after_parent_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+        nonlocal swapped
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        if path == target.parent and not swapped:
+            linked_parent.rename(parked)
+            try:
+                linked_parent.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pytest.skip("directory symlinks unavailable on this filesystem")
+            swapped = True
+
+    class SyntheticFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            return FetchResult(status=200, body=b"synthetic downloaded bytes")
+
+    monkeypatch.setattr(Path, "mkdir", swap_after_parent_mkdir)
+    with pytest.raises(CarryOperationalHalt, match="cache directory") as caught:
+        ArchiveDirFetcher(root, SyntheticFetcher()).fetch(spec.url)
+    assert swapped
+    assert linked_parent.is_symlink()
+    assert caught.value.evidence["kind"] == "cache_directory_link"
+    assert not foreign_target.exists()
+    assert not list(outside.rglob("*.part-*"))
+
+
+@pytest.mark.parametrize("probe", ("is_symlink", "is_file"))
+def test_archive_cache_metadata_probe_error_is_typed_operational_halt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: str
+) -> None:
+    """An inaccessible cache entry is not an offline miss or a network retry."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    original = getattr(Path, probe)
+
+    def inaccessible(path: Path) -> bool:
+        if path == target:
+            raise PermissionError(errno.EACCES, "cache entry metadata denied")
+        return original(path)
+
+    class MustNotFetch:
+        def fetch(self, _url: str) -> FetchResult:
+            raise AssertionError("an inaccessible cache entry must not reach network")
+
+    monkeypatch.setattr(Path, probe, inaccessible)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(tmp_path, MustNotFetch()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_read_failed"
+    assert isinstance(caught.value.__cause__, PermissionError)
+
+
+def test_archive_cache_directory_metadata_probe_error_is_typed_halt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not misread an uninspectable cache directory as an empty cache."""
+    spec = january_plan().specs[0]
+    root = tmp_path / "cache"
+    original = Path.is_symlink
+
+    def inaccessible(path: Path) -> bool:
+        if path == root:
+            raise PermissionError(errno.EACCES, "cache directory metadata denied")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_symlink", inaccessible)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(root).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_directory_probe_failed"
+    assert isinstance(caught.value.__cause__, PermissionError)
+
+
+def test_archive_cache_race_winner_probe_error_is_typed_and_keeps_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link conflict with unreadable metadata is not a raw OSError."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    winner = b"independent publisher bytes"
+    original = Path.is_file
+
+    def inaccessible_winner(path: Path) -> bool:
+        if path == target and original(path):
+            raise PermissionError(errno.EACCES, "published entry metadata denied")
+        return original(path)
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(winner)
+            return FetchResult(status=200, body=b"losing downloader bytes")
+
+    monkeypatch.setattr(Path, "is_file", inaccessible_winner)
+    with pytest.raises(CarryOperationalHalt) as caught:
+        ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_publication_conflict"
+    assert isinstance(caught.value.__cause__, PermissionError)
+    assert target.read_bytes() == winner
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
 def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     plan = january_plan()
     inner = fetcher_for(plan)
@@ -290,6 +615,138 @@ def test_archive_dir_fetcher_writes_once_and_serves_from_disk(tmp_path) -> None:
     assert perp.filename == spec.filename or perp.kind is ArchiveKind.KLINES
     ArchiveDirFetcher(tmp_path, inner).fetch(perp.url)
     assert len(list(tmp_path.rglob("*.zip"))) == 2
+
+
+def test_archive_cache_late_rival_is_not_overwritten(tmp_path) -> None:
+    """A competing on-disk file wins even if it appeared inside inner.fetch."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    winner = b"concurrent publisher bytes"
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(winner)
+            return FetchResult(status=200, body=b"newly downloaded bytes")
+
+    actual = ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert actual.status == 200
+    assert actual.body == winner
+    assert target.read_bytes() == winner
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_raced_symlink_is_not_accepted_as_a_winner(
+    tmp_path,
+) -> None:
+    """A symlink introduced during an inner fetch must not win the cache race."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    outside = tmp_path / "other-owner"
+    outside.write_bytes(b"untrusted external bytes")
+
+    class RacingFetcher:
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                pytest.skip("symlinks unavailable on this filesystem")
+            return FetchResult(status=200, body=b"downloaded")
+
+    with pytest.raises(CarryOperationalHalt, match="cache publication conflict"):
+        ArchiveDirFetcher(tmp_path, RacingFetcher()).fetch(spec.url)
+    assert target.is_symlink()
+    assert outside.read_bytes() == b"untrusted external bytes"
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_concurrent_publishers_have_private_stages(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both fetchers must return the one published winner and leak no temp file."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    real_link = os.link
+    at_link = Barrier(2)
+    stages = []
+
+    def racing_link(staging, destination):
+        assert destination == target
+        stages.append(staging)
+        at_link.wait(timeout=10)
+        return real_link(staging, destination)
+
+    class StaticFetcher:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def fetch(self, url: str) -> FetchResult:
+            assert url == spec.url
+            return FetchResult(status=200, body=self.payload)
+
+    monkeypatch.setattr(os, "link", racing_link)
+    fetchers = (
+        ArchiveDirFetcher(tmp_path, StaticFetcher(b"first archive")),
+        ArchiveDirFetcher(tmp_path, StaticFetcher(b"second archive")),
+    )
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = tuple(workers.map(lambda cache: cache.fetch(spec.url), fetchers))
+    winner = target.read_bytes()
+    assert winner in {b"first archive", b"second archive"}
+    assert len(stages) == len(set(stages)) == 2
+    assert all(result.status == 200 and result.body == winner for result in results)
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_parent_creation_failure_is_an_operational_halt(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unwritable parent is resumable I/O failure, not untyped OSError."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+    original_mkdir = Path.mkdir
+
+    def deny_parent(path: Path, *args: object, **kwargs: object) -> None:
+        if path == target.parent:
+            raise PermissionError(errno.EACCES, "read-only cache parent")
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    class StaticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"downloaded archive bytes")
+
+    monkeypatch.setattr(Path, "mkdir", deny_parent)
+    with pytest.raises(
+        CarryOperationalHalt, match="cache publication failed"
+    ) as caught:
+        ArchiveDirFetcher(tmp_path, StaticFetcher()).fetch(spec.url)
+    assert caught.value.evidence["kind"] == "cache_publication_failed"
+    assert not target.exists()
+    assert not list(tmp_path.rglob("*.part-*"))
+
+
+def test_archive_cache_unsupported_exclusive_publish_halts_without_partial_cache(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lack of hard-link support is operational failure, never silent fallback."""
+    spec = january_plan().specs[0]
+    target = ArchiveDirFetcher(tmp_path)._path(spec.url)
+
+    class StaticFetcher:
+        def fetch(self, _url: str) -> FetchResult:
+            return FetchResult(status=200, body=b"readable download")
+
+    def unsupported(_src, _dst) -> None:
+        raise OSError(errno.ENOTSUP, "hard links unavailable")
+
+    monkeypatch.setattr(os, "link", unsupported)
+    with pytest.raises(CarryOperationalHalt, match="cache"):
+        ArchiveDirFetcher(tmp_path, StaticFetcher()).fetch(spec.url)
+    assert not target.exists()
+    assert not list(tmp_path.rglob("*.part-*"))
 
 
 def test_archive_dir_fetcher_does_not_cache_failures_and_refuses_odd_urls(

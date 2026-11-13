@@ -13,15 +13,38 @@ from pathlib import Path
 
 import pytest
 
+from tests.evaluation.packet_pin_rule import (
+    ClosedRun,
+    evaluate_pin,
+    git_blob_reader,
+)
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = (
-    ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
-)
-PINNED_DIGEST = "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+_PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1227.json"
+PINNED_DIGEST = "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
+ARCHITECTURE_DOC = ROOT / "docs/architecture/research-assurance.md"
+# The one authorized run is complete (see docs/architecture/research-assurance.md,
+# "Closed packets"): the packet is closed and bound to this run commit, not to HEAD.
+CLOSED_RUN = ClosedRun(
+    run_commit="4bcb19bba27ea4bc0fccb2b2c7848965351c9e98",
+    # the packet as it existed at the run commit (implementation head 46760f49)
+    packet_path="report/issue810-carry-multisymbol-research-assurance-20261110.json",
+    result_url="https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6839301493",
+    result_label="CARRY_DOES_NOT_GENERALIZE",
+    protocol_digest="49d3597e3c83dd3c13d71098111075a392c3afe595e5f48edc87aad36475d961",
+    # SHA-256 over (path, blob bytes) of the 168 closure files at 46760f49 == at the run
+    content_digest="ad98afa8c2c5d12886fc9fdd8b7d156ae1b171b4afa3bfb4279e44fd0369c67a",
+)
+
+
+def PROTOCOL_DIGEST_NOW() -> str:
+    return protocol.protocol_digest()
+
+
 DOCUMENTS = (
     SPEC,
     ROOT / "docs/architecture/research-assurance.md",
@@ -171,6 +194,78 @@ def test_historical_carry_author_packet_remains_unchanged_and_unreviewed() -> No
     assert evaluate_assurance(historical).status == "UNREVIEWED"
 
 
+def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Do not rewrite a preceding source-bound author packet after another merge."""
+    path = ROOT / "report/issue810-carry-multisymbol-research-assurance-20261113.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "65099fe95da04565f6429a4252ff9657d19acfed83c589ff1d2173abf9855afd"
+    )
+    expected_head = "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the preceding Carry author packet immutable after the runner repair."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+    )
+    expected_head = "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1226_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the already-merged lookback-liquidity author packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
+    )
+    expected_head = "c637956ce0caa9412f3d285eacfe5b7e074f10d6"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_after1208_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the exclusive-cache-publish source packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213"
+    )
+    expected_head = "2182c89adf39757c9d3cad454e5eed30f059cb3c"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_typed_cache_cleanup_reissue_changes_only_the_bound_source_identity() -> None:
+    """Typed cache cleanup must not revise the prior preregistered economics."""
+    previous_path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+    previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    current = packet()
+    assert set(current) == set(previous)
+    assert current["identity"] != previous["identity"]
+    assert {key: value for key, value in current.items() if key != "identity"} == {
+        key: value for key, value in previous.items() if key != "identity"
+    }
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -228,6 +323,8 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
         "[2022-01-01, 2026-08-01)",
         "1,000,000 USDT",
         "92-day lookback",
+        "liquidity_below_threshold",
+        "invalid_lookback_liquidity",
         "K = ceil(20 x admitted / 32)",
         "K = 4, 5, 5, 6",
         "Binance Vision archives with official `.CHECKSUM` verification",
@@ -242,18 +339,51 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
     )
 
 
+def _packet_head_at(commit: str, path: str) -> str:
+    """The implementation head the packet file named at ``commit`` (not the working tree)."""
+
+    shown = _git("show", f"{commit}:{path}")
+    assert shown.returncode == 0, shown.stderr
+    return str(json.loads(shown.stdout)["identity"]["implementation_head"])
+
+
 def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     identity = packet()["identity"]
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
     _require_pinned_head()
-    bound = bound_code_paths(head)
-    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
-    assert changed.returncode == 0, changed.stderr
-    assert changed.stdout.split() == [], (
-        "re-pin the packet heads after changing the bound code"
+    problems = evaluate_pin(
+        head=None,  # closed: the head is the one the packet named at the run commit
+        closed_run=CLOSED_RUN,
+        closure_at=bound_code_paths,
+        changed_since_head=lambda bound: [],
+        read_blob=git_blob_reader(ROOT),
+        is_ancestor_of_head=lambda commit: (
+            _git("merge-base", "--is-ancestor", commit, "HEAD").returncode == 0
+        ),
+        packet_head_at=_packet_head_at,
     )
+    assert problems == [], problems
+
+
+def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() -> None:
+    # The packet is closed: its evidence is the recorded run, not HEAD.
+    if _git("cat-file", "-e", f"{CLOSED_RUN.run_commit}^{{commit}}").returncode != 0:
+        pytest.fail("closed-run commit unavailable: fetch full Git history")
+    assert (
+        _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
+        == 0
+    )
+    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.further_runs_authorized is False
+    architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
+    assert "closed packet" in architecture
+    assert "bound to the run commit" in architecture
+    assert "no further run of the protocol is authorized" in architecture
+    assert CLOSED_RUN.run_commit[:8] in architecture
+    assert CLOSED_RUN.result_url in architecture
+    assert CLOSED_RUN.result_label in architecture
 
 
 def test_the_static_closure_covers_every_shared_dependency_of_the_screen() -> None:

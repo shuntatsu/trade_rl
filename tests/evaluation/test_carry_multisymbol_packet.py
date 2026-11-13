@@ -18,8 +18,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
-PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+PINNED_DIGEST = "dc60362da962cdc140494cea7d57d3c0c7004b96788e4fda81ecf45d3b6fd002"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -185,6 +185,21 @@ def test_prior_20261113_source_reissue_is_immutable_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_prior_after1203_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the preceding Carry author packet immutable after the runner repair."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
+    )
+    expected_head = "d01033b7594ccdda74fa5cff80f2fa36a8eaeb3a"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
@@ -242,6 +257,8 @@ def test_spec_states_the_registered_universe_window_and_thresholds() -> None:
         "[2022-01-01, 2026-08-01)",
         "1,000,000 USDT",
         "92-day lookback",
+        "liquidity_below_threshold",
+        "invalid_lookback_liquidity",
         "K = ceil(20 x admitted / 32)",
         "K = 4, 5, 5, 6",
         "Binance Vision archives with official `.CHECKSUM` verification",

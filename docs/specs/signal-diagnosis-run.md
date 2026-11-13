@@ -33,16 +33,17 @@ appear in D2.
 
 ## 2. Refusals
 
-Before any Dataset array is decoded (the CLI admits the published directory from its
-small manifest and the digest of its payload, both read once into memory, then decodes
-from those same bytes and reaches the decoder exactly once; no path is opened a second
-time): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
+Before `arrays.npz` is opened (the CLI reads `manifest.json` once and refuses from its
+metadata first; only then does it read `arrays.npz` once, verify its digest and decode
+from those same bytes, so no path is opened a second time): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
 arrays, Dataset and feature-config digests, the five-symbol roster, a continuous hourly
 grid and no more bars than the protocol window holds, so a Dataset reaching into the FS1
 warm-up span, the sealed window or unused data is refused from metadata; the arrays file
-bytes must hash to the pinned arrays digest, and the Dataset is decoded from exactly
+bytes, read only after the manifest was admitted, must hash to the pinned arrays digest, and the Dataset is decoded from exactly
 those bytes by `load_dataset_from_verified_bytes` (the file loader is unchanged for other
-callers), so replacing the directory after verification changes nothing. A CLI-level spy
+callers), so replacing the directory after verification changes nothing. File-open and decoder spy
+tests prove `arrays.npz` is never opened on a manifest or pin refusal (and once on valid
+input), and a decode error of verified bytes exits 2 with a message. A CLI-level spy
 test proves the loader is never reached on any of these refusals, on a missing G4 URL, a
 dirty tree, a missing LightGBM or a digest mismatch, and is reached once for a valid
 input. Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working

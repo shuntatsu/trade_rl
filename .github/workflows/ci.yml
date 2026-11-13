@@ -62,6 +62,9 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
+      - name: Diagnostic packet Ruff diff (temporary, without weakening gate)
+        run: uv run ruff format --diff tests/evaluation/test_signal_diagnosis_run_packet.py
+
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

@@ -372,6 +372,67 @@ def test_stateful_existing_subnormal_exposure_admission_under_strict_numpy(
     assert book.cash == 1_000.0
 
 
+@pytest.mark.parametrize(
+    "signed_position,signed_order",
+    [
+        (np.nextafter(0.0, 1.0), -0.1),
+        (-np.nextafter(0.0, 1.0), 0.1),
+        (1.0, -0.5),
+        (-1.0, 0.5),
+    ],
+)
+def test_stateful_opposite_signed_admission_never_multiplies_tiny_position(
+    signed_position: float, signed_order: float
+) -> None:
+    """An eligible order must emit its event under strict NumPy, even for dust."""
+    price = 1e308
+    prices = np.full((6, 1), price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.ones(1),
+    )
+    executor = _executor(dataset, max_leverage=1.0)
+    initial_cash = 5e307 if signed_position == 1.0 else 1.6e308
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=initial_cash,
+        mark_prices=np.array([price]),
+        peak_value=1.6e308,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents(
+        (_intent(executor, signed_order, submission_reference_price=price),)
+    )
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+
+    assert len(accepted) == 1
+    assert accepted[0].status is OrderStatus.ELIGIBLE
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("eligible", None),
+    ]
+    assert runtime.book.quantities[0] == signed_position
+    assert runtime.book.cash == initial_cash
+    assert runtime.fill_count == 0
+    assert runtime.rejected_count == 0
+
+
 @pytest.mark.parametrize("capacity_volume,expected_ratio", [(0.0, 0.0), (1.0, 1.0)])
 def test_tiny_nonzero_stateful_request_has_real_fill_ratio(
     capacity_volume: float, expected_ratio: float

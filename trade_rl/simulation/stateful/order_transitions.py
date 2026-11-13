@@ -254,9 +254,13 @@ class StatefulOrderTransitionProcessor:
             if decision.accepted:
                 admitted = decision.admitted_quantity
                 projected_position = projected_book.quantities[symbol]
-                is_closing = projected_position * admitted < 0.0 and abs(
-                    admitted
-                ) <= abs(projected_position)
+                # Compare directions without multiplying magnitudes: a valid
+                # subnormal existing position can underflow under strict NumPy
+                # even when its marked value and the order are representable.
+                opposite_sign = (projected_position > 0.0 and admitted < 0.0) or (
+                    projected_position < 0.0 and admitted > 0.0
+                )
+                is_closing = opposite_sign and abs(admitted) <= abs(projected_position)
                 if not is_closing:
                     try:
                         projected_book.apply_admitted_order(

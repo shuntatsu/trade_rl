@@ -184,12 +184,12 @@ in place.
 ## Research assurance (G0-G2)
 
 The author packet
-[`report/issue810-carry-multisymbol-research-assurance-20261110.json`](../../report/issue810-carry-multisymbol-research-assurance-20261110.json)
+[`report/issue810-carry-multisymbol-research-assurance-20261113.json`](../../report/issue810-carry-multisymbol-research-assurance-20261113.json)
 states the counter-hypothesis (a 2023-2024 regime effect that fees and basis risk
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f` and its status
+`a65c7dfd27dbc34fe5ae4dfe3f90ccbce69bb106bc70cdfd2d823340c6aa0477` and its status
 is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
 review of this exact digest and these heads. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the

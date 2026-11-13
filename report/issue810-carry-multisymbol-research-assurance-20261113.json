@@ -1,0 +1,115 @@
+{
+  "schema_version": "research_assurance_v1",
+  "identity": {
+    "protocol_head": "24ad014976a6dd69ee0aa567ab32beda6bf7e64a",
+    "implementation_head": "24ad014976a6dd69ee0aa567ab32beda6bf7e64a"
+  },
+  "thesis": {
+    "final_decision": "whether to request a separate G4 authorization for one exploratory development screen of the pre-registered multi-symbol funding-carry protocol carry-multisymbol-dev-v1 on known-used Tier D data; no run is part of this packet",
+    "hypothesis": "The BTC/ETH spot-long / USD-M-perpetual-short carry, with its entry and exit rule, costs and risk stop unchanged, earns a positive net return on the equal-weight shared portfolio of the ten pre-registered USDT pairs and on at least K = ceil(20 n / 32) of the n admitted pairs independently. An arm passes only if its base cell has a positive full-period net return and a positive net return in every calendar sub-period 2022 to 2026, and each of its three stress cells (2x cost, one hour of entry delay, 10x lower participation) has a positive full-period net return. The every-sub-period condition applies to the base cell only, not to the stress cells.",
+    "economic_mechanism": "Leveraged long demand on USD-M perpetuals pushes the perpetual above spot and the funding rate transfers cash from longs to shorts to anchor it. A delta-neutral spot-long / perpetual-short pair collects that transfer, which pays for supplying short-side liquidity, so it should exist wherever leveraged long demand does, net of the fees needed to build, resize and unwind the hedge.",
+    "counter_hypothesis": "The BTC/ETH result was a 2023-2024 regime effect (heavy long demand, positive funding). In other regimes (the 2022 deleveraging with negative funding) and on altcoins funding is lower or negative, and fees, spread, basis risk and a close-price mark proxy consume the premium, so the BTC/ETH result is not evidence for altcoins.",
+    "information_gain": "One fixed family separates 'generalizes beyond BTC/ETH and beyond 2023-2024' from 'regime-specific'. A failure of the first pre-registered family ends this line without rescue; a pass licenses only a separately pre-registered forward paper protocol.",
+    "cheapest_falsifier": "The coverage-only stage falsifies the data premise (listing age, history, liquidity, gaps) without replaying anything. The cheapest economic falsifier is the 2x-cost stress cell and, separately, the base cell's every-sub-period rule on the 2022 negative-funding regime: an arm that fails either is falsified on data already in hand, with no new data and no model.",
+    "stop_rule": "No cell, symbol, window, cost, gross or rule is changed after a cell exists. A failed family stops this line. INCONCLUSIVE_UNIVERSE (fewer than six admitted symbols) is terminal for this protocol: the universe, window and exclusion rule are never changed and the screen is never rerun on a different universe; that needs a new protocol version decided without reading returns. A software or data fault that invalidates a run is preserved and answered by a new protocol version, never repaired in place. A pass authorizes only a separately pre-registered forward paper protocol, never live use.",
+    "stage": "development",
+    "metric_proxy_rationale": "The proxy for 'does the carry earn after costs' is the sign of the ledger net return per calendar sub-period and per stress, under one shared accounting with fee, adverse execution and participation costs, signed funding, a hard 10% drawdown stop and a flat terminal state. Size is not tuned: gross is held at 0.5 and scaled only in a later forward protocol.",
+    "limitations": "All data before 2026-08-01 is known-used Tier D data, so a result is exploratory and never an edge claim or unused-data validation. Not data-blind: tests/fixtures/legacy/realdata_20260713_signal_metadata.json records a 2026-07-13 real-data run over 15 symbols (fit cutoff 2025-12-06, funding_bps among its features) that includes eight of the original nine candidates and BCHUSDT, so their price series (and funding as a feature) were read; the Issue #810 P2 development study read prices and funding events of BNB, XRP and ADA over 2021-01-01 to 2026-08-01 and a directional funding-carry tilt trial result (NO_WINNER) was seen. Funding and carry outcomes of a delta-neutral spot/perpetual pair were not computed for any candidate: a search of the repository and its history found carry replays for BTC and ETH only (a scratch run outside the repository would not appear). The protocol is therefore carry-outcome-blind, not data-blind; the candidate list came from the planner's brief and is not an independent derivation (BCHUSDT is included because no principled non-data reason to omit it exists). Perpetual-close marks, assumed fees and participation, an approximated lot step, instant wallet transfers and a single evidenced spot halt are limitations. The family threshold K uses a Markov step that assumes independent sub-period signs inside one symbol; a persistent funding regime can break that assumption so the 1/20 figure can be invalid, and the family decision is a heuristic threshold, not a controlled error rate."
+  },
+  "mechanism": {
+    "chain": [
+      "source",
+      "availability",
+      "feature_state",
+      "model_strategy",
+      "intent",
+      "order",
+      "fill",
+      "accounting",
+      "evidence",
+      "decision"
+    ],
+    "authorities": {
+      "unit": "quantity = leg notional / price on the common 0.001 lot grid; quote-notional volume; minimum notional 10",
+      "time": "completed hourly bars available at their close; the one declared spot halt is the only explained gap; the window ends before 2026-08-01 and the parser, planner and validator refuse later data",
+      "state": "realized fills and the canonical BookState; matched-hedge, collateral and drawdown checks read that same book",
+      "sign": "spot long positive, perpetual short negative; the short receives positive funding and pays negative funding; costs are debits",
+      "risk": "FundingCarryBot irreversible 10% drawdown stop plus replay_carry margin, unmatched-hedge and termination invalidation",
+      "execution": "canonical stateful executor with 1% participation of the preceding hour quote volume; no execution outside it",
+      "accounting": "one shared canonical ledger per arm; reference pairs and symbol arms use their own independent ledgers",
+      "evidence": "checksum-verified archives, content-identified datasets and write-once per-cell outputs under a hash-bound protocol"
+    },
+    "independent_oracles": {
+      "time": {
+        "statement": "Every series is a complete hourly series; only an HTTP 404 on a planned archive or a gap that no declared halt explains may exclude a symbol, and a server error, transport failure, offline cache miss, checksum mismatch or malformed, duplicated or unordered row halts the run instead; no window may end after 2026-08-01.",
+        "counterexample": "An empty offline archive cache that would exclude every symbol and end in INCONCLUSIVE_UNIVERSE; an HTTP 503 that persists; a duplicated kline row; a spot gap only partly inside the declared halt; a requested end of 2026-08-02.",
+        "oracle": "Hand-written expectations in test_carry_source.py, test_binance_carry_multisymbol.py and test_carry_multisymbol.py: the empty offline cache halts with a marker and writes no decision, persistent 5xx halts after three attempts, integrity faults halt, gaps and 404s exclude with URL/status evidence, the planner and parser raise the FS1 warm-up error, and the window validator and command line refuse a late end.",
+        "known_limitations": "Synthetic archives only; historical vendor availability (point in time) and the close-price mark proxy are not established."
+      },
+      "accounting": {
+        "statement": "N pairs share one cash book; each leg pays its fee plus adverse execution once per fill; only the short perpetual receives signed funding; final equity equals capital minus costs plus funding.",
+        "counterexample": "Three pairs with different prices and funding signs (one negative) over two funding events, entered and exited once.",
+        "oracle": "A hand-computed exact-rational ledger in test_carry_multisymbol_replay.py (quantities 5, 10 and 2; costs 7.5; funding 0.2; final equity 5992.7), derived without calling the production sizing, cost or funding code.",
+        "known_limitations": "Constant synthetic prices: no basis risk, partial fills or margin events are exercised by the oracle."
+      },
+      "evidence": {
+        "statement": "The family decision uses exactly the admitted symbols plus the portfolio, recomputes every cell pass from its summary, treats a missing cell as a failure and states that its false-positive figure n * p0 / K <= 1/20 is conditional on independent sub-period signs.",
+        "counterexample": "A failing symbol dropped after the fact, a reference arm rescuing the portfolio, a stored pass flag trusted over the numbers, and K below 4 for six symbols.",
+        "oracle": "Decision tests on hand-written summaries and a K table recomputed by hand (4, 5, 5, 6, 7 for 6 to 10 admitted symbols) with the Markov arithmetic.",
+        "known_limitations": "A persistent funding regime can make p0 far larger than 2^-5, so the 1/20 figure can be invalid and the rule is a heuristic threshold, not a controlled error rate. The suite proves the rule, not the economics."
+      }
+    },
+    "changed_boundaries": [
+      "time",
+      "accounting",
+      "evidence"
+    ]
+  },
+  "evidence": {
+    "point_in_time": false,
+    "common_accounting": true,
+    "realistic_costs": false,
+    "hard_risk": true,
+    "terminal_state": true,
+    "fit_development_unused_separated": false,
+    "multi_symbol": true,
+    "multi_period": true,
+    "controls": [
+      "cash_zero_interest",
+      "btc_eth_reference_same_window"
+    ],
+    "robustness": [
+      "double_cost",
+      "entry_delay_one_hour",
+      "participation_one_tenth",
+      "positive_in_every_calendar_sub_period"
+    ],
+    "independent_reconstruction": "Software-level only: a hand-computed three-pair exact-rational ledger and hand-written decision summaries and failure-class cases. The booleans describe what is established now: common accounting, hard risk and terminal state are enforced by the unchanged ledger; point-in-time availability, realistic costs and fit/development/unused separation are not established. No economic result exists and none was read.",
+    "no_development_rescue": true,
+    "evidence_level": "software_validity"
+  },
+  "claims": {
+    "claim_level": "software_validity",
+    "permitted": [
+      "The protocol carry-multisymbol-dev-v1 (universe, inclusion rule, window, sub-periods, costs, risk, gross, entry and exit, cell and family rules, stop rule) is fixed and hash-bound before any delta-neutral carry outcome for the candidates was computed; it is carry-outcome-blind, not data-blind",
+      "The software that assembles and replays the pre-registered universe is correct on synthetic inputs, keeps the BTC/ETH assembly byte-identical and matches a hand-computed ledger",
+      "A later run, if separately authorized, may report an exploratory known-used development result for every cell, passing or failing, relative to zero-interest cash"
+    ],
+    "forbidden": [
+      "running the screen, reading any candidate-symbol data or computing any return under this packet",
+      "describing the protocol as data-blind or price-blind, or as free of prior exposure to the candidates' price and funding series",
+      "describing the family decision as a controlled error rate",
+      "any edge, profitability, generalization or unused-data claim, including after a later pass",
+      "dropping, replacing or adding a symbol, changing the window, cost, gross, rule or threshold after a cell exists",
+      "reading, fetching or using FS1 warm-up, sealed or other unused data",
+      "treating the Docker store path or any network fetch as authorized",
+      "orders, keys, paper or live trading, production eligibility",
+      "treating this packet as reviewed or the software tests as economic evidence"
+    ],
+    "next_authorized_action": "Have this pre-registration reviewed result-blind for G0 to G2 by an independent reviewer against its exact digest and heads, then merge. Only afterwards may the owner post the G4 authorization comment (text in docs/specs/funding-carry-multisymbol.md) naming the merged commit and protocol digest 49d3597e3c83dd3c13d71098111075a392c3afe595e5f48edc87aad36475d961; that one authorization covers the coverage-only stage and every resume on the same output directory as a single run. This packet authorizes neither the review outcome, the comment nor any run.",
+    "production_eligible": false,
+    "live_trading_authorized": false,
+    "decision_rule": "Do not run the screen under this packet. A run needs an independent review of this digest and these heads with no blocking finding and a separate owner G4 authorization comment. Its outcome is CARRY_GENERALIZES_DEVELOPMENT only if the portfolio arm and at least K admitted symbol arms pass every cell, otherwise CARRY_DOES_NOT_GENERALIZE (or INCONCLUSIVE_UNIVERSE below six admitted symbols, which is terminal for this protocol); none of these is an edge claim and none is a controlled error rate.",
+    "next_action_class": "request_separate_economic_authorization"
+  }
+}

@@ -1,8 +1,8 @@
 {
   "schema_version": "research_assurance_v1",
   "identity": {
-    "protocol_head": "24ad014976a6dd69ee0aa567ab32beda6bf7e64a",
-    "implementation_head": "24ad014976a6dd69ee0aa567ab32beda6bf7e64a"
+    "protocol_head": "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9",
+    "implementation_head": "81f5f7f3d8f7d25b67cc03556986bedc9d23cbb9"
   },
   "thesis": {
     "final_decision": "whether to request a separate G4 authorization for one exploratory development screen of the pre-registered multi-symbol funding-carry protocol carry-multisymbol-dev-v1 on known-used Tier D data; no run is part of this packet",

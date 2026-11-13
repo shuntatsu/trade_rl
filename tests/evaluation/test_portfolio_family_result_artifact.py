@@ -879,6 +879,67 @@ def test_publisher_rejects_on_disk_provenance_outside_identity_pins(
     assert not (root / "result" / "manifest.json").exists()
 
 
+@pytest.mark.parametrize("huge_integer", (10**500, -(10**500)))
+def test_resealed_four_family_cash_overflow_has_typed_field_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    huge_integer: int,
+) -> None:
+    """A self-consistent reseal cannot evade the numeric validator."""
+    import hashlib
+    import json
+
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        load_four_family_portfolio_result_artifact,
+        publish_four_family_portfolio_result_artifact,
+    )
+
+    root, result, identity, provenance = _synthetic_precompletion_case(
+        tmp_path, monkeypatch
+    )
+    publish_four_family_portfolio_result_artifact(
+        root,
+        result,
+        identity,
+        before_provenance=provenance,
+        after_provenance=provenance,
+    )
+    row_path = root / "families" / "cash" / "record.json"
+    row = json.loads(row_path.read_bytes())
+    row["book"]["cash"] = huge_integer
+    row_raw = canonical_json_bytes(row)
+    row_path.write_bytes(row_raw)
+
+    manifest_path = root / "result" / "manifest.json"
+    envelope = json.loads(manifest_path.read_bytes())
+    references = envelope["payload"]["families"]
+    cash_ref = next(item for item in references if item["family"] == "cash")
+    cash_ref["sha256"] = hashlib.sha256(row_raw).hexdigest()
+    cash_ref["size_bytes"] = len(row_raw)
+    envelope["artifact_digest"] = hashlib.sha256(
+        b"trade_rl.four_family_portfolio_result_v1\0"
+        + canonical_json_bytes(envelope["payload"])
+    ).hexdigest()
+    manifest_path.write_bytes(canonical_json_bytes(envelope))
+
+    with pytest.raises(ValueError, match=r"family\.book\.cash must be finite"):
+        load_four_family_portfolio_result_artifact(
+            root,
+            expected_digest=envelope["artifact_digest"],
+            expected_identity=identity,
+        )
+
+
+def test_four_family_number_keeps_finite_large_integer_conversion() -> None:
+    from trade_rl.evaluation.runs.portfolio_family_result_artifact import (
+        _require_number,
+    )
+
+    value = 10**308
+    assert _require_number(value, "family.book.cash") == float(value)
+
+
 def test_public_result_loader_rejects_a_tampered_family_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

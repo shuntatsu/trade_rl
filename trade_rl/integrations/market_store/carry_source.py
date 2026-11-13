@@ -54,7 +54,11 @@ from trade_rl.integrations.market_store.contracts import (
     ms_from_utc,
 )
 from trade_rl.integrations.market_store.embargo import EmbargoPolicy
-from trade_rl.integrations.market_store.ingest import ArchiveFetcher, FetchResult
+from trade_rl.integrations.market_store.ingest import (
+    RESPONSE_TOO_LARGE_STATUS,
+    ArchiveFetcher,
+    FetchResult,
+)
 from trade_rl.integrations.market_store.parse import (
     ArchiveContentError,
     parse_funding_archive,
@@ -85,7 +89,12 @@ class CarryRowSource(Protocol):
     def read_funding(
         self, market: StoreMarket, symbol: str, start_ms: int, end_ms: int
     ) -> list[FundingRow]:
-        """Funding rows with ``start_ms <= funding_time <= end_ms``, ascending."""
+        """Funding rows from ``start_ms`` in ascending order.
+
+        A source may include a row at exactly ``end_ms`` (the PostgreSQL store does);
+        :func:`load_carry_pair` keeps only ``funding_time < end_ms``, because the
+        window end is exclusive for funding as it is for klines.
+        """
         ...
 
 
@@ -334,6 +343,16 @@ class VisionArchiveSource:
                     "status": OFFLINE_MISS_STATUS,
                 },
             )
+        if result.status == RESPONSE_TOO_LARGE_STATUS:
+            return CarryOperationalHalt(
+                f"response larger than the fetcher's byte bound: {url}",
+                {
+                    "kind": "response_too_large",
+                    "url": url,
+                    "status": RESPONSE_TOO_LARGE_STATUS,
+                    "attempts": attempts,
+                },
+            )
         return CarryOperationalHalt(
             f"archive unavailable (HTTP {result.status}) after {attempts} attempt(s): "
             f"{url}",
@@ -434,7 +453,7 @@ class VisionArchiveSource:
             except ArchiveContentError as error:
                 raise self._malformed(spec, error) from error
             rows.extend(
-                row for row in parsed if start_ms <= row.funding_time_ms <= end_ms
+                row for row in parsed if start_ms <= row.funding_time_ms < end_ms
             )
         return rows
 
@@ -544,7 +563,12 @@ def load_carry_pair(
     perp_rows = source.read_klines(
         StoreMarket.USDS_M, symbol, interval, start_ms, end_ms
     )
-    funding = source.read_funding(StoreMarket.USDS_M, symbol, start_ms, end_ms)
+    # the window end is exclusive for funding as for klines, whatever the source returns
+    funding = [
+        row
+        for row in source.read_funding(StoreMarket.USDS_M, symbol, start_ms, end_ms)
+        if row.funding_time_ms < end_ms
+    ]
     halts = [(ms_from_utc(lo), ms_from_utc(hi)) for lo, hi in halt_intervals]
     for market, rows, explained in (
         (StoreMarket.SPOT, spot_rows, halts),

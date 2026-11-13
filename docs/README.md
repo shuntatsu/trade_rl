@@ -40,6 +40,7 @@ python -m tools.markdown_links --check
 - Prospective carry: [specs/funding-carry-paper.md](specs/funding-carry-paper.md) / [plans/funding-carry-paper.md](plans/funding-carry-paper.md)
 - Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md](specs/funding-carry-multisymbol.md)
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
+- Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
 
 ## 情報の所有先と更新
 

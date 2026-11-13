@@ -1,8 +1,8 @@
 """Pure measurement tools of the signal diagnosis (Issue #1146, card SD1).
 
 Rank and linear IC, cross-sectional demeaning and a causal beta residual, Holm and
-Benjamini-Hochberg corrections, a block-bootstrap interval and a feature
-non-stationarity profile, the signed after-cost and drift-excess payoffs and a
+Benjamini-Hochberg corrections, a block-bootstrap interval, a one-sided
+equal-weighted cosine test of a positive mean, a feature non-stationarity profile, the signed after-cost and drift-excess payoffs and a
 future-perturbation leakage probe. The package reads no dataset or file, fits no model and
 owns no runner; it is verified on seeded synthetic markets only and says nothing
 about real data.
@@ -44,6 +44,12 @@ from trade_rl.evaluation.signal_measurement.profile import (
     SkippedProfile,
     nonstationarity_profile,
 )
+from trade_rl.evaluation.signal_measurement.significance import (
+    EwcMeanTest,
+    ewc_mean_test,
+    ewc_terms,
+    student_t_sf,
+)
 from trade_rl.evaluation.signal_measurement.targets import (
     causal_beta_residual,
     cross_sectional_demean,
@@ -55,6 +61,7 @@ __all__ = [
     "BlockMeanResult",
     "DailyIc",
     "DailyMean",
+    "EwcMeanTest",
     "LeakageProbeResult",
     "NonstationarityProfile",
     "PeriodProfile",
@@ -73,6 +80,8 @@ __all__ = [
     "daily_rank_ic_increment",
     "drift_excess_payoff",
     "drift_sign_payoff",
+    "ewc_mean_test",
+    "ewc_terms",
     "forward_log_returns",
     "future_perturbation_probe",
     "holm_adjusted",
@@ -81,5 +90,6 @@ __all__ = [
     "market_mean",
     "nonstationarity_profile",
     "rank_ic",
+    "student_t_sf",
     "utc_day_ids",
 ]

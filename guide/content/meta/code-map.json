@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "623b7d1d041277ce0f2237e31dfd70a3db59b69a20efc889515a6831eb63f521"
+      "sha256": "5ff529267cb662dfbad2acadddb573a223390dcffe56aaf900b6a9a0c974777f"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -238,7 +238,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "3f99b7c44bbd6f7fea6071d13927c3b7e0aeea5a7f56438ee2ebfac3331502e6",
+      "source_sha256": "2556d3ce6c6fdfa67206ff597d08a55b3a0db355535db860d52a4ac5f23889be",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],

@@ -59,7 +59,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "623b7d1d041277ce0f2237e31dfd70a3db59b69a20efc889515a6831eb63f521"
+      "sha256": "5ff529267cb662dfbad2acadddb573a223390dcffe56aaf900b6a9a0c974777f"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -325,7 +325,7 @@
       "id": "execute-interval",
       "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
       "kind": "method",
-      "source_sha256": "f00d7a3e7f864cfdfcba99d54e12b30e3e3ae2b7e47c024cb8d9803ff905eef1",
+      "source_sha256": "656f58fd9dbe4e89cb61886359d5bb5656b1f295b3c950db2b380af14e74fb60",
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],

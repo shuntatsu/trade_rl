@@ -53,7 +53,7 @@ def _build(
     scalars: dict[str, Any] = {
         "feature_config_digest": "4" * 64,
         "symbols": list(data.symbols),
-        "calendar_kind": "continuous",
+        "calendar_kind": "continuous_24_7",
         "periods_per_year": 8760,
     }
     body: dict[str, Any] = {
@@ -84,6 +84,7 @@ def _build(
 class Spies:
     def __init__(self) -> None:
         self.loader_calls = 0
+        self.loader_args: list[tuple[bytes, bytes]] = []
         self.run_calls = 0
 
 
@@ -91,11 +92,10 @@ class Spies:
 def spies(monkeypatch: pytest.MonkeyPatch) -> Spies:
     spy = Spies()
 
-    def loader(path: Any) -> Any:
+    def loader(manifest_bytes: bytes, arrays_bytes: bytes) -> Any:
         spy.loader_calls += 1
-        return SimpleNamespace(
-            manifest_path=Path(path) / "manifest.json", artifact_digest="a" * 64
-        ), SimpleNamespace()
+        spy.loader_args.append((manifest_bytes, arrays_bytes))
+        return SimpleNamespace(), "a" * 64
 
     def run(*args: Any, **kwargs: Any) -> SignalDiagnosisRun:
         spy.run_calls += 1
@@ -103,7 +103,7 @@ def spies(monkeypatch: pytest.MonkeyPatch) -> Spies:
             "NO_SIGNAL", {"verdict.json": {"verdict": "NO_SIGNAL"}}, {}
         )
 
-    monkeypatch.setattr(cli, "load_published_market_dataset_artifact", loader)
+    monkeypatch.setattr(cli, "load_dataset_from_verified_bytes", loader)
     monkeypatch.setattr(cli, "run_signal_diagnosis", run)
     monkeypatch.setattr(cli, "panel_from_dataset", lambda *a, **k: SimpleNamespace())
     monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN)
@@ -133,6 +133,11 @@ def test_a_valid_artifact_reaches_the_reader_exactly_once(
     assert cli.main(_argv(tmp_path)) == 0
     assert (spies.loader_calls, spies.run_calls) == (1, 1)
     assert (tmp_path / "out" / "verdict.json").is_file()
+    # the decoder is handed exactly the bytes that were verified
+    root = tmp_path / "artifact"
+    assert spies.loader_args == [
+        ((root / "manifest.json").read_bytes(), (root / "arrays.npz").read_bytes())
+    ]
 
 
 @pytest.mark.parametrize("extra_bars", [1, 24 * 40, 24 * 100])
@@ -201,7 +206,7 @@ def test_any_digest_mismatch_never_reaches_the_reader(
             "dataset": {
                 "feature_config_digest": "4" * 64,
                 "symbols": ["A"],
-                "calendar_kind": "continuous",
+                "calendar_kind": "continuous_24_7",
                 "periods_per_year": 8760,
             }
         },
@@ -209,7 +214,7 @@ def test_any_digest_mismatch_never_reaches_the_reader(
             "dataset": {
                 "feature_config_digest": "4" * 64,
                 "symbols": None,
-                "calendar_kind": "session",
+                "calendar_kind": "session_calendar",
                 "periods_per_year": 8760,
             }
         },
@@ -251,3 +256,102 @@ def test_the_real_pins_refuse_a_foreign_artifact_directory(
     (tmp_path / "artifact" / "arrays.npz").write_bytes(b"x")
     assert cli.main(_argv(tmp_path)) == 2
     assert spies.loader_calls == 0
+
+
+def _swap_after_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    evil_manifest: bytes,
+    evil_arrays: bytes,
+) -> None:
+    """Replace the artifact files right after the gate has verified their bytes."""
+
+    real = cli.admit_artifact_bytes
+
+    def racing(*args: Any, **kwargs: Any) -> str:
+        digest = real(*args, **kwargs)
+        (root / "manifest.json").write_bytes(evil_manifest)
+        (root / "arrays.npz").write_bytes(evil_arrays)
+        return digest
+
+    monkeypatch.setattr(cli, "admit_artifact_bytes", racing)
+
+
+def test_a_swap_between_verification_and_decode_is_never_parsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies
+) -> None:
+    root = tmp_path / "artifact"
+    _pin(monkeypatch, _build(root, bars=_window_bars()))
+    verified = (
+        (root / "manifest.json").read_bytes(),
+        (root / "arrays.npz").read_bytes(),
+    )
+    evil = (b'{"dataset_id": "forbidden future data"}', b"swapped payload bytes")
+    _swap_after_admission(monkeypatch, root, *evil)
+    assert cli.main(_argv(tmp_path)) == 0
+    assert spies.loader_args == [verified]  # the swapped bytes never reach the decoder
+    assert (root / "arrays.npz").read_bytes() == evil[1]  # the swap did happen
+
+
+def test_the_real_decoder_returns_the_verified_dataset_after_a_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    from tests.data.test_market_dataset_artifact import _dataset
+    from trade_rl.data import write_market_dataset_files
+
+    good = _dataset()
+    evil_dataset = dataclasses.replace(
+        good,
+        open=good.open * 1.01,
+        high=good.high * 1.01,
+        low=good.low * 1.01,
+        close=good.close * 1.01,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+    ).with_content_identity()
+    assert evil_dataset.dataset_id != good.dataset_id
+    root, evil_root = tmp_path / "artifact", tmp_path / "evil"
+    write_market_dataset_files(root, good)
+    write_market_dataset_files(evil_root, evil_dataset)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    pinned = SimpleNamespace(
+        dataset_id=manifest["dataset_id"],
+        artifact_digest=manifest["artifact_digest"],
+        arrays_digest=manifest["arrays_digest"],
+        feature_config_digest=manifest["dataset"]["feature_config_digest"],
+        symbols=tuple(manifest["dataset"]["symbols"]),
+        evaluation_start=protocol().data.evaluation_start,
+        evaluation_end=protocol().data.evaluation_end,
+    )
+    monkeypatch.setattr(
+        cli, "default_signal_diagnosis_protocol", lambda: SimpleNamespace(data=pinned)
+    )
+    monkeypatch.setattr(cli, "capture_code_provenance", lambda: CLEAN)
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: object())
+    seen: list[tuple[Any, dict[str, Any]]] = []
+
+    def panel(dataset: Any, **kwargs: Any) -> Any:
+        seen.append((dataset, kwargs))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(cli, "panel_from_dataset", panel)
+    monkeypatch.setattr(
+        cli,
+        "run_signal_diagnosis",
+        lambda *a, **k: SignalDiagnosisRun("NO_SIGNAL", {"verdict.json": {}}, {}),
+    )
+    _swap_after_admission(
+        monkeypatch,
+        root,
+        (evil_root / "manifest.json").read_bytes(),
+        (evil_root / "arrays.npz").read_bytes(),
+    )
+    assert cli.main(_argv(tmp_path)) == 0
+    dataset, kwargs = seen[0]
+    assert dataset.dataset_id == good.dataset_id  # the verified bytes were decoded
+    assert kwargs["artifact_digest"] == manifest["artifact_digest"]
+    assert kwargs["arrays_digest"] == manifest["arrays_digest"]
+    swapped = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert swapped["dataset_id"] == evil_dataset.dataset_id  # and the swap did happen

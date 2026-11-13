@@ -169,6 +169,9 @@ def execute_native_target_transition(
         if emergency_mask is None
         else tuple(int(i) for i in np.flatnonzero(emergency_mask))
     )
+    # Pass the close-out marker only for a terminal close so ordinary intervals keep
+    # the exact call shape (and wrappers around ``execute_interval``) unchanged.
+    extra = {"closeout_symbols": closeout_symbols} if closeout_symbols else {}
     if effective_holds:
         execution = executor.execute_interval(
             book,
@@ -176,7 +179,7 @@ def execute_native_target_transition(
             start_index=start_index,
             bars=1,
             hold_current_quantity_symbols=effective_holds,
-            closeout_symbols=closeout_symbols,
+            **extra,
         )
     else:
         execution = executor.execute_interval(
@@ -184,7 +187,7 @@ def execute_native_target_transition(
             risk_target.weights,
             start_index=start_index,
             bars=1,
-            closeout_symbols=closeout_symbols,
+            **extra,
         )
     if execution.next_index != start_index + 1 or execution.bars_advanced != 1:
         raise RuntimeError("native target transition did not advance exactly one bar")

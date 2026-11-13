@@ -922,6 +922,7 @@ def test_incremental_portfolio_session_matches_batch_across_split_and_terminal()
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
+        closeout_symbols: tuple[int, ...] = (),
     ) -> ExecutionResult:
         result = original_execute_interval(
             executor,
@@ -930,6 +931,7 @@ def test_incremental_portfolio_session_matches_batch_across_split_and_terminal()
             start_index=start_index,
             bars=bars,
             hold_current_quantity_symbols=hold_current_quantity_symbols,
+            closeout_symbols=closeout_symbols,
         )
         execution_calls.append((executor, book, result.book, start_index))
         return result

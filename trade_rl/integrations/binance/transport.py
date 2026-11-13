@@ -14,7 +14,11 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from trade_rl.integrations.binance.cache import validate_cached_vision_payload
+from trade_rl.integrations.binance.cache import (
+    missing_archive_evidence_path,
+    validate_cached_vision_payload,
+    write_missing_archive_evidence,
+)
 from trade_rl.integrations.binance.metadata import (
     BinanceExchangeInfoSnapshot,
     _mutable_json_object,
@@ -134,6 +138,8 @@ class BinancePublicTransport:
         )
         binary_temporary.replace(cache_path)
         evidence_temporary.replace(evidence_path)
+        # A published archive supersedes any earlier HTTP 404 record for it.
+        missing_archive_evidence_path(cache_path).unlink(missing_ok=True)
 
     def _request_bytes(
         self, url: str, *, max_response_bytes: int | None = None
@@ -240,6 +246,13 @@ class BinancePublicTransport:
             except urllib.error.HTTPError as error:
                 last_error = error
                 if error.code == 404:
+                    if cache_path is not None:
+                        try:
+                            write_missing_archive_evidence(
+                                cache_path, url=url, downloader=_USER_AGENT
+                            )
+                        except OSError:
+                            pass  # no record is a halt downstream, never a 404
                     break
                 if error.code < 500 and error.code not in {418, 429, 451}:
                     break

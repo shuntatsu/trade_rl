@@ -1,8 +1,10 @@
 """Command line entry for the trend-stop study (writes new files only).
 
-Nothing is tunable here: the protocol module fixes every parameter. The command
-refuses to start without a well-formed G4 authorization comment URL, refuses a
-non-empty output directory, and never touches the network.
+Nothing is tunable here: the protocol module fixes every parameter, including the
+complete eleven-symbol roster (there is no exclusion option). The command refuses to
+start without a well-formed G4 authorization comment URL, refuses a non-empty output
+directory, refuses to run from a dirty Git working tree, and never touches the
+network.
 """
 
 from __future__ import annotations
@@ -18,17 +20,21 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.evaluation.trend_stop_study.data import (
-    SymbolExclusion,
+    IncompleteRosterError,
     build_vision_dataset,
+    classify_vision_caches,
     load_exported_dataset,
-    parse_exclusions,
 )
 from trade_rl.evaluation.trend_stop_study.protocol import (
     PROTOCOL,
     TrendStopProtocol,
     validate_authorization_url,
 )
-from trade_rl.evaluation.trend_stop_study.runner import run_study
+from trade_rl.evaluation.trend_stop_study.runner import (
+    capture_code_provenance,
+    invalid_result,
+    run_study,
+)
 
 
 def _json_bytes(value: object) -> bytes:
@@ -87,15 +93,6 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"published {timeframe} Dataset artifact (market-store export output)",
         )
     parser.add_argument(
-        "--exclusions",
-        type=Path,
-        help=(
-            "JSON list of {symbol, url, http_status} missing-archive records (HTTP "
-            "404 for the symbol's Binance Vision archive URL); any other failure "
-            "halts the run and is never an exclusion"
-        ),
-    )
-    parser.add_argument(
         "--vision-cache",
         type=Path,
         help="fallback: complete local Binance Vision cache (never the network)",
@@ -109,27 +106,37 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _load_datasets(
-    args: argparse.Namespace,
-    protocol: TrendStopProtocol,
-    exclusions: tuple[SymbolExclusion, ...] = (),
+    args: argparse.Namespace, protocol: TrendStopProtocol
 ) -> dict[str, MarketDataset]:
+    """Load both timeframes; the outcome never depends on the timeframe order.
+
+    Every timeframe's source is resolved first, then one evidence pass classifies every
+    Vision-cache archive of every fallback timeframe (valid HTTP 404 evidence anywhere
+    is INVALID, any other gap is a halt), and only then is any Dataset built.
+    """
+
+    paths = {tf: getattr(args, f"dataset_{tf}") for tf in protocol.timeframes}
+    fallback = args.vision_cache is not None and args.exchange_info_dir is not None
+    for timeframe, path in paths.items():
+        if path is None and not fallback:
+            raise ValueError(
+                f"no {timeframe} Dataset: pass --dataset-{timeframe} or both "
+                "--vision-cache and --exchange-info-dir"
+            )
+    cache_timeframes = [tf for tf, path in paths.items() if path is None]
+    if cache_timeframes:
+        classify_vision_caches(protocol, cache_timeframes, cache_root=args.vision_cache)
     datasets: dict[str, MarketDataset] = {}
-    for timeframe in protocol.timeframes:
-        path = getattr(args, f"dataset_{timeframe}")
+    for timeframe, path in paths.items():
         if path is not None:
             datasets[timeframe] = load_exported_dataset(path)
-        elif args.vision_cache is not None and args.exchange_info_dir is not None:
+        else:
             datasets[timeframe] = build_vision_dataset(
                 protocol,
                 timeframe,
                 cache_root=args.vision_cache,
                 exchange_info_dir=args.exchange_info_dir,
-                exclusions=exclusions,
-            )
-        else:
-            raise ValueError(
-                f"no {timeframe} Dataset: pass --dataset-{timeframe} or both "
-                "--vision-cache and --exchange-info-dir"
+                cache_verified=True,
             )
     return datasets
 
@@ -146,21 +153,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("refusing to overwrite an existing study output", file=sys.stderr)
         return 2
     try:
-        exclusions: tuple[SymbolExclusion, ...] = ()
-        if args.exclusions is not None:
-            exclusions = parse_exclusions(
-                json.loads(args.exclusions.read_text(encoding="utf-8")), PROTOCOL
-            )
-        datasets = _load_datasets(args, PROTOCOL, exclusions)
+        provenance = capture_code_provenance()
+        provenance.require_clean()
+    except ValueError as error:
+        print(f"halted before any data was read: {error}", file=sys.stderr)
+        return 2
+    cells: dict[str, dict[str, Any]]
+    equity: dict[str, np.ndarray]
+    try:
+        datasets = _load_datasets(args, PROTOCOL)
         result, cells, equity = run_study(
             datasets,
             PROTOCOL,
             g4_authorization_url=authorization,
-            exclusions=exclusions,
+            code_provenance=provenance,
             progress=lambda message: print(message, flush=True),
         )
-    except ValueError as error:
-        print(error, file=sys.stderr)
+    except IncompleteRosterError as error:
+        # A roster symbol or an archive with recorded HTTP 404 evidence is missing:
+        # INVALID and terminal for this protocol, never a reduced roster.
+        result = invalid_result(
+            PROTOCOL,
+            authorization,
+            provenance,
+            str(error),
+            error.missing,
+            error.archives,
+        )
+        cells, equity = {}, {}
+    except Exception as error:
+        # Every other failure while loading data or metadata (an archive not
+        # downloaded, a failed content check, a missing exchange-information
+        # snapshot, an unreadable Dataset, a corrupt archive, ...) is an operational
+        # halt: no result is written, the single run is not consumed and the process
+        # never ends in a traceback. The exception type is named in the message.
+        print(
+            f"halted, no result written ({type(error).__name__}): {error}",
+            file=sys.stderr,
+        )
         return 2
     write_outputs(output_dir, result, cells, equity)
     print(f"label={result['label']} passing={result['passing_configurations']}")

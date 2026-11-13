@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
 import pytest
@@ -145,3 +146,31 @@ def test_the_test_is_deterministic_scale_free_and_monotone_in_the_mean() -> None
     assert shifted.p_value_one_sided < base.p_value_one_sided
     strong = ewc_mean_test(0.5 + 0.01 * rng.standard_normal(400))
     assert strong.p_value_one_sided < 1e-12
+
+
+def test_the_term_rule_is_exact_for_every_size_in_bounded_time() -> None:
+    def oracle(n: int) -> int:
+        bound = 8 * n * n
+        low, high = 0, 1
+        while 125 * high**3 <= bound:
+            high *= 2
+        while high - low > 1:
+            middle = (low + high) // 2
+            if 125 * middle**3 <= bound:
+                low = middle
+            else:
+                high = middle
+        return low
+
+    for n in range(0, 6000):
+        assert ewc_terms(n) == oracle(n), n
+    for terms in range(1, 3000):
+        smallest = math.isqrt(-(-125 * terms**3 // 8) - 1) + 1
+        assert ewc_terms(smallest) == terms and ewc_terms(smallest - 1) == terms - 1
+    assert (ewc_terms(60), ewc_terms(125), ewc_terms(1460)) == (6, 10, 51)
+    started = time.perf_counter()
+    for exponent in (12, 40, 160, 500, 5000):
+        n = 10**exponent
+        terms = ewc_terms(n)
+        assert 125 * terms**3 <= 8 * n * n < 125 * (terms + 1) ** 3
+    assert time.perf_counter() - started < 1.0

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import time
 from typing import Any
 
 import pytest
@@ -631,3 +632,25 @@ def test_there_is_no_field_through_which_an_adjusted_p_can_be_supplied() -> None
 
     assert not any("adjusted" in name or "bh" in name for name in names)
     assert {"rank_ic_p_value", "demeaned_p_value", "p_value_provenance"} <= names
+
+
+@pytest.mark.parametrize(
+    "days",
+    [2039, 10**40, 10**160, 10**5000],
+    ids=["window-plus-one", "1e40", "1e160", "1e5000"],
+)
+@pytest.mark.parametrize("target", ["raw", "demeaned"])
+def test_a_day_count_beyond_the_evaluation_window_is_refused_quickly(
+    days: int, target: str
+) -> None:
+    """A valid-looking huge integer must neither loop nor overflow."""
+
+    huge = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": days})
+
+    started = time.perf_counter()
+    with pytest.raises(SignalDiagnosisProtocolError, match="evaluation window"):
+        _classify({FIRST: _signal_cell(FIRST, p_value_provenance=huge)})
+    assert time.perf_counter() - started < 1.0
+    window = PROTOCOL.max_series_days()
+    last = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": window})
+    assert _classify({FIRST: _signal_cell(FIRST, p_value_provenance=last)}).verdict

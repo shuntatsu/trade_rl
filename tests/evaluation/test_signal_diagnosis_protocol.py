@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -1259,3 +1260,77 @@ def test_the_frozen_p_value_source_is_what_the_sd1_test_returns() -> None:
     assert ewc_mean_test([0.3, 0.2, 0.4, 0.3]).cosine_terms == 1
     # Deterministic: the same series always gives the same p-value.
     assert ewc_mean_test(strongly_positive) == strong
+
+
+def _binary_search_terms(n_days: int) -> int:
+    """Oracle: the largest nu with 125 nu**3 <= 8 n**2 by bisection on integers."""
+
+    bound = 8 * n_days * n_days
+    low, high = 0, 1
+    while 125 * high**3 <= bound:
+        high *= 2
+    while high - low > 1:
+        middle = (low + high) // 2
+        if 125 * middle**3 <= bound:
+            low = middle
+        else:
+            high = middle
+    return low
+
+
+def test_the_cosine_terms_are_exact_at_every_perfect_cube_boundary() -> None:
+    significance = default_signal_diagnosis_protocol().significance
+
+    assert significance.cosine_terms(1460) == 51
+    assert significance.cosine_terms(60) == 6
+    for n_days in range(0, 6000):
+        assert significance.cosine_terms(n_days) == _binary_search_terms(n_days)
+    # The smallest n for each nu, and the n just below it, straddle the boundary.
+    for terms in range(1, 3000):
+        smallest = math.isqrt(-(-125 * terms**3 // 8) - 1) + 1
+        assert 125 * terms**3 <= 8 * smallest**2
+        assert significance.cosine_terms(smallest) == terms, terms
+        assert significance.cosine_terms(smallest - 1) == terms - 1, terms
+    # 125 * 10**3 = 8 * 125**2 is an exact equality: n = 125 gives nu = 10, not 9.
+    assert significance.cosine_terms(125) == 10
+    assert significance.cosine_terms(124) == 9
+
+
+@pytest.mark.parametrize("exponent", [12, 40, 160, 500, 5000])
+def test_the_cosine_terms_of_a_huge_count_are_exact_in_bounded_time(
+    exponent: int,
+) -> None:
+    significance = default_signal_diagnosis_protocol().significance
+    n_days = 10**exponent
+
+    started = time.perf_counter()
+    terms = significance.cosine_terms(n_days)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0
+    assert 125 * terms**3 <= 8 * n_days**2 < 125 * (terms + 1) ** 3
+    assert terms == ewc_terms(n_days)
+    # Neighbours of a perfect-cube boundary at a huge scale.
+    boundary = 5 * 10**exponent
+    assert significance.cosine_terms(boundary) == _binary_search_terms(boundary)
+
+
+def test_a_series_longer_than_the_evaluation_window_is_refused_with_a_typed_error() -> (
+    None
+):
+    protocol = default_signal_diagnosis_protocol()
+    begin = datetime.fromisoformat(protocol.data.evaluation_start)
+    end = datetime.fromisoformat(protocol.data.evaluation_end)
+    window_days = (end - begin).days
+
+    assert protocol.max_series_days() == window_days == 2038
+    assert protocol.cosine_terms_for(window_days) == ewc_terms(window_days)
+    assert protocol.cosine_terms_for(0) == 0
+    for too_long in (window_days + 1, 10**40, 10**160, 10**5000):
+        started = time.perf_counter()
+        with pytest.raises(SignalDiagnosisProtocolError, match="evaluation window"):
+            protocol.cosine_terms_for(too_long)
+        assert time.perf_counter() - started < 1.0
+    for bad in (-1, 1.0, True, "4", None):
+        with pytest.raises(SignalDiagnosisProtocolError):
+            protocol.cosine_terms_for(bad)  # type: ignore[arg-type]

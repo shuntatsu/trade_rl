@@ -47,7 +47,7 @@ trade_rl/
 │       ├── market_order_profile.py
 │       ├── derived_klines.py
 │       └── dataset.py
-│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,cli.py,migrations/*.sql}
+│   └── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,carry_source.py,cli.py,migrations/*.sql}
 ├── risk/
 │   ├── inputs.py
 │   ├── portfolio.py
@@ -146,6 +146,8 @@ trade_rl/
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
 
+`evaluation/experiments/store.py` の `StudyStore.publish_json_once` はcanonical JSONを同じ親directoryのstagingへ書き出してflush/fsyncした後、排他的なhard linkで最終file名を一度だけ確保する。書込み後の存在確認から公開までの間に別processがfile（空fileを含む）を作っても置換せず、`FileExistsError`を既存の`InvalidExperimentStateError`へ変換する。競合時と未対応filesystemでの失敗時はstagingだけを清掃し、通常のPOSIX renameやcopyへfallbackしない。単一fileのno-replace公開を保証する境界であり、複数fileのtransaction、外部producerの認証、OS全種類でのhard-link可用性や経済結果の正しさまで証明しない。 hard linkが成功した時点でcanonical fileは公開済みとなる。以降のstaging削除に失敗した場合は`PublishedArtifactCleanupError`（`InvalidExperimentStateError`の派生）を返し、公開済み・後処理失敗・同名再公開禁止を明示する。callerはcanonical fileを確認し、再publishを試みない。hard link前の失敗とstaging削除失敗が重なった場合は元の例外を優先する。その際未削除のstagingが残り得るが、canonical fileを上書き・削除して自動修復しない。
+
 `evaluation/rl_family_comparison/` はPPO/A2C比較の固定設定、replay-cell schema validation、および純粋な開発判定oracleだけを所有する。SB3 constructor mocksと合成セルが固定設定・判定規則の回帰を検査する。このpackageはDataset/artifact I/O、fit/replay、ledger、paper、production/live authorizationを所有せず、`trade_rl.evaluation` の公開APIも拡張しない。
 
 `evaluation/residual_rl/` is the synthetic-only residual-PPO study over the cost-aware allocator (Issue #810). `market.py` generates deterministic multi-asset markets with an explicitly planted alpha (or none); `env.py` is a Gymnasium environment that reuses the real `strategies.allocation.cost_aware.CostAwareAllocationPolicy` read-only and owns a separate value ledger, a discrete trade-throttle residual and the explicit fee/spread charge; `protocol.py` freezes every outcome-relevant constant behind a source-bound digest; `evaluate.py` holds rollouts, metrics and the pre-declared decision rules; `train.py` imports stable-baselines3 and torch lazily (optional `train-sb3` extra); `study.py` and `cli.py` run the study and append every execution to a provenance JSON. It reads no Dataset, artifact store, network or live source, depends only on `strategies.allocation`, `strategies.portfolio`, `artifacts` and NumPy/Gymnasium at import time, is not re-exported from `trade_rl.evaluation`, and its labels (`SYNTHETIC_PASS` / `SYNTHETIC_FAIL`) are synthetic evidence only, never a profitability claim and never a clearance of the real-data fee-only learnability gate.
@@ -160,6 +162,38 @@ and preserves GTC residuals; it does not convert a quantity hold to a newly size
 weight each hour. The existing BookState and stateful executor own all P&L.
 Futures collateral checks are a projection of that same book excluding spot
 assets, not an additional ledger. No live order connection is provided.
+
+The multi-symbol carry development screen (Issue #810 Track B, spec
+`docs/specs/funding-carry-multisymbol.md`) extends that path without replacing it.
+`integrations/binance/carry.py` keeps `assemble_carry_dataset` (BTC/ETH only, content
+identity byte-identical, pinned by a golden-identity test) and adds
+`assemble_multisymbol_carry_dataset`, which reuses the same assembly body and
+economics for a protocol-declared USDT universe of up to eleven pairs under its own
+`funding_carry_multisymbol_development_v1` identity, plus `parse_carry_perp_rows`
+(strict hourly perpetual rows) and `CarryCoverageError` (a documented absence only: an HTTP 404 on a planned archive or a
+gap no declared halt explains, with its URL/status evidence; it is the only error that
+may exclude a symbol). Server errors, transport failures, timeouts (bounded retry), an
+oversize response (`RESPONSE_TOO_LARGE_STATUS`, not retried) and offline cache misses raise
+the resumable `CarryOperationalHalt`; a checksum mismatch, a
+malformed archive and duplicated, unordered or malformed rows raise `CarryIntegrityHalt`.
+The runner leaves a `halt.json` marker for either (and for any unexpected error) and
+writes no decision, so a halt can never become an exclusion or `INCONCLUSIVE_UNIVERSE`.
+That outcome is terminal for the protocol: the runner refuses to reopen an output
+directory holding it. The window end is exclusive for funding events as for klines.
+`evaluation/carry.py` accepts any even leg count from two to twenty-two for the same
+alternating spot/perpetual layout. `evaluation/carry_multisymbol/` owns the
+pre-registered protocol constants and digest (`protocol.py`), the pure decision rule
+(`decision.py`) and the output-directory runner (`runner.py`); the runner consumes a
+`ScreenData` protocol, refuses any window but the registered one and writes every cell
+before the decision. It imports nothing from the market-data store: the architecture
+test that forbids any import of that package from outside it still holds. The store
+package therefore owns the data side, `integrations/market_store/carry_source.py`
+(`VisionArchiveSource`, `ArchiveDirFetcher`, `CarryScreenData`): checksum-verified
+Vision archives without a database or Docker, or a populated store through the same
+`CarryRowSource` protocol. The wiring of the two sides is the repository-only command
+`tools/carry_multisymbol_screen.py` (`plan`, `screen`), which sits outside the
+production wheel; it requires a G4 authorization comment URL, the registered window and
+a clean checkout, and reads nothing at or after 2026-08-01.
 
 `integrations/binance/forward.py` owns fresh public spot/perpetual evidence
 capture. It preserves exact raw response bytes, request/receipt timing and
@@ -796,7 +830,7 @@ Coordinationの耐久契約は次である。
 
 ## Signal diagnosis boundary (Issue #1146 SD0)
 
-`evaluation/signal_diagnosis/` is the result-blind, **protocol-only** home of the signal diagnosis that precedes any new learner after #1025 (planned, not executed). `protocol.py` owns the frozen `signal_diagnosis_protocol_v4` (v1, v2 and v3 are not loadable and none produced a result): typed immutable dataclasses, canonical JSON via `trade_rl.artifacts.canonical`, a SHA-256 digest, `protocol_from_payload` / `load_signal_diagnosis_protocol(raw, expected_digest=...)` (digest over the raw bytes first, then strict duplicate-free finite canonical JSON, exact field sets at every level, and equality with the frozen reference of the declared version so a changed grid, threshold or window needs a new version), `reject_forbidden_window`, and the run-admission pair `SignalDiagnosisRunRequest` / `admit_run`. A cross-reference invariant makes a start-up partial year unrepresentable as a full stability year: every full year must start at or after the first usable fit and end inside the window, and the full and partial years together must be exactly the calendar years the out-of-sample span touches. `SignificanceSpec` freezes the decisive p-value procedure (the one-sided equal-weighted cosine Student-t test of a mean daily rank-IC increment above zero with the integer rule `125 nu^3 <= 8 n^2` for its cosine terms, a variance-estimate span of `n / nu` days that must cover the label overlap for every series length, p exactly 1.0 for fewer than four eligible days, and one Benjamini-Hochberg family of the 16 decision cells per target). `verdict.py` owns the pure section-5 rule `classify_signal_diagnosis` (INVALID / NO_SIGNAL / SIGNAL_NOT_TRADABLE / SIGNAL_CANDIDATE) over saved decision-cell evidence: a per-year `YearStabilityEvidence` roster (covered months and sign) and raw one-sided p-values with a `PValueProvenance` (procedure id and the eligible days behind each p-value) that must name the frozen procedure; a p-value below 1.0 for a series of fewer than four days is refused. The verdict computes the BH adjustment itself over exactly the frozen family and has no field for an already adjusted p-value; it refuses foreign provenance. Every threshold is read from the protocol. The protocol payload exported as `report/issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json` is the canonical bytes whose digest is `1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3`.
+`evaluation/signal_diagnosis/` is the result-blind, **protocol-only** home of the signal diagnosis that precedes any new learner after #1025 (planned, not executed). `protocol.py` owns the frozen `signal_diagnosis_protocol_v4` (v1, v2 and v3 are not loadable and none produced a result): typed immutable dataclasses, canonical JSON via `trade_rl.artifacts.canonical`, a SHA-256 digest, `protocol_from_payload` / `load_signal_diagnosis_protocol(raw, expected_digest=...)` (digest over the raw bytes first, then strict duplicate-free finite canonical JSON, exact field sets at every level, and equality with the frozen reference of the declared version so a changed grid, threshold or window needs a new version), `reject_forbidden_window`, and the run-admission pair `SignalDiagnosisRunRequest` / `admit_run`. A cross-reference invariant makes a start-up partial year unrepresentable as a full stability year: every full year must start at or after the first usable fit and end inside the window, and the full and partial years together must be exactly the calendar years the out-of-sample span touches. `SignificanceSpec` freezes the decisive p-value procedure (the one-sided equal-weighted cosine Student-t test of a mean daily rank-IC increment above zero with the integer rule `125 nu^3 <= 8 n^2` for its cosine terms, a variance-estimate span of `n / nu` days that must cover the label overlap for every series length, p exactly 1.0 for fewer than four eligible days, and one Benjamini-Hochberg family of the 16 decision cells per target). `verdict.py` owns the pure section-5 rule `classify_signal_diagnosis` (INVALID / NO_SIGNAL / SIGNAL_NOT_TRADABLE / SIGNAL_CANDIDATE) over saved decision-cell evidence: a per-year `YearStabilityEvidence` roster (covered months and sign) and raw one-sided p-values with a `PValueProvenance` (procedure id and the eligible days behind each p-value) that must name the frozen procedure; a p-value below 1.0 for a series of fewer than four days, and a day count above the evaluation window's calendar days (`max_series_days`, 2038), are refused with a typed error. The verdict computes the BH adjustment itself over exactly the frozen family and has no field for an already adjusted p-value; it refuses foreign provenance. Every threshold is read from the protocol. The protocol payload exported as `report/issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json` is the canonical bytes whose digest is `1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3`.
 
 The package reads no dataset, market value or file, fits nothing, imports no network, process or filesystem module and owns no runner, CLI or `__main__`; its only `trade_rl` imports are `trade_rl.artifacts.canonical`, `trade_rl.evaluation.forward_study.registry` (protocol) and its own `protocol` (verdict). The FS1 registry is the single evaluation-side owner of the warm-up start and sealed start; the market-data store pins the same instants for its own embargo and may not be imported from `evaluation`, so `tests/evaluation/test_signal_diagnosis_protocol.py` asserts the equality instead of copying the dates. Dataset id, artifact digest and arrays digest are pinned copies of the consumed development Dataset identity, cross-checked by tests against `dev_realdata_study`. The data is known-used and post hoc, so the protocol has no field for an edge, G4, G5 or live claim and the loader refuses one. `real_development` admission needs a separate lowercase SHA-256 authorization digest bound to the protocol digest; that digest records that an owner G4 lease exists and is not that lease. No other package imports `signal_diagnosis` yet; SD1 measurement tools and the SD2/SD3 runners are later cards. `evaluation.__all__` does not export it. The G0-G2 contract is in `architecture/research-assurance.md` and the status in `research/current-status.md`.
 
@@ -869,7 +903,7 @@ Integration invariant: tested PR head contains current `main`. merge直前のcur
 
 `strategies/rules/trend_stop.py` は因果的なDonchian breakoutとATR stopを、numericな`PortfolioPolicy`（`TrendStopPortfolioPolicy`）として提供する純粋なstrategy-layer ownerである。fixed rosterの`MarketDataset`の完了barだけからchannel・Wilder ATR・signalを導き、risk-sized target weightとexact-quantity HOLDを提案する。stopはdecision-layerのruleであり、注文・約定・cost・funding・hard risk・accountingは既存のshared portfolio sessionに残る（bar-extreme touch → next-open exit、`bar_extreme_touch_next_open_v1`）。evaluation・simulation・integrationsをimportせず、`trade_rl.strategies` facadeへ再exportしない。
 
-`evaluation/trend_stop_study/` はこのruleのdevelopment-only multi-symbol studyだけを所有する。`protocol.py` は事前固定した全parameter・2 variant・2 timeframe・2 scenario・pass/fail基準のdigestと、G4 authorization URLの形式検査、2026-07-31を超える窓の拒否を持つ。`runner.py` は各cellを既存の`run_shared_portfolio_replay`で1回ずつ実行し、`metrics.py` がraw order eventから閉じたcycle・stop haircut・gateを再構成する。`data.py` はpublished Dataset artifact（Market Store export）とoffline Binance Vision fallbackを検証付きで読む。`WINNER`を出さず、unused-futureを開かず、account・ledger・fill modelを持たず、networkへ出ない。CLI (`python -m trade_rl.evaluation.trend_stop_study`) は新規出力のみを書き、G4 authorization URLなしでは開始しない。正本は[specs/trend-following-stops.md](../specs/trend-following-stops.md)、状態は`research/current-status.md`。
+`evaluation/trend_stop_study/` はこのruleのdevelopment-only multi-symbol studyだけを所有する。`protocol.py` は事前固定した全parameter・2 variant・2 timeframe・2 scenario・pass/fail基準のdigestと、G4 authorization URLの形式検査、2026-07-31を超える窓の拒否を持つ。`runner.py` は各cellを既存の`run_shared_portfolio_replay`で1回ずつ実行し、`metrics.py` がraw order eventから閉じたcycle・stop haircut・gateを再構成する。`data.py` はpublished Dataset artifact（Market Store export）とoffline Binance Vision fallbackを検証付きで読み、rosterは固定の11 symbol全てで、除外経路も縮小rosterもない（symbolが欠ける、またはVision cacheのarchiveにHTTP 404の記録があれば`INVALID`、404の記録がない欠落・破損・checksum不一致は結果を書かないresumableな停止）。`runner.py` はまた、実行したcode（Git HEAD、`trade_rl/`のtree id、dirty状態、読み込んだmoduleのdigest）を結果に記録し、dirty treeでは起動を拒否する。`WINNER`を出さず、unused-futureを開かず、account・ledger・fill modelを持たず、networkへ出ない。CLI (`python -m trade_rl.evaluation.trend_stop_study`) は新規出力のみを書き、G4 authorization URLなしでは開始しない。正本は[specs/trend-following-stops.md](../specs/trend-following-stops.md)、状態は`research/current-status.md`。
 
 ## Development real-data study boundary
 

@@ -268,13 +268,13 @@ def _check_provenance(
     """Refuse p-values that do not claim the frozen procedure or contradict it."""
 
     significance = protocol.significance
-    # A daily p-value cannot claim more eligible days than exist in the
-    # protocol's frozen, half-open development evaluation window.
+    # The half-open, frozen daily evaluation window bounds eligible-day evidence.
     start = datetime.fromisoformat(
         protocol.data.evaluation_start.replace("Z", "+00:00")
     )
-    finish = datetime.fromisoformat(protocol.data.evaluation_end.replace("Z", "+00:00"))
-    # Frozen endpoints are UTC midnights; [start, end) excludes end's date.
+    finish = datetime.fromisoformat(
+        protocol.data.evaluation_end.replace("Z", "+00:00")
+    )
     max_days = (finish.date() - start.date()).days
     for cell in cells:
         claimed = cell.p_value_provenance
@@ -292,7 +292,7 @@ def _check_provenance(
                     f"cell {cell.cell_id}: the {target} eligible-day count exceeds "
                     f"the frozen development window ({max_days} days)"
                 )
-            if significance.cosine_terms(n_days) < 1 and p_value != 1.0:
+            if protocol.cosine_terms_for(n_days) < 1 and p_value != 1.0:
                 raise _fail(
                     f"cell {cell.cell_id}: the {target} series has {n_days} eligible "
                     "day(s), which cannot reject under the frozen procedure, so its "

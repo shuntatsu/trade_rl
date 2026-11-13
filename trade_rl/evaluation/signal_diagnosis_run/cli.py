@@ -58,33 +58,20 @@ _MANIFEST = "manifest.json"
 _ARRAYS = "arrays.npz"
 
 
-def read_artifact_files(root: Path) -> tuple[bytes, bytes]:
-    """Read the manifest and the arrays file once each, unparsed, into memory.
+def _read_artifact_file(root: Path, name: str) -> bytes:
+    """Read a single regular artifact file into a stable in-memory snapshot."""
 
-    These bytes are the only copy the run ever uses: they are verified and decoded
-    from memory, and no path is opened again, so replacing the directory afterwards
-    changes nothing.
-    """
-
-    out: list[bytes] = []
-    for name in (_MANIFEST, _ARRAYS):
-        path = root / name
-        if path.is_symlink() or not path.is_file():
-            raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
-        with path.open("rb") as stream:
-            out.append(stream.read())
-    return out[0], out[1]
+    path = root / name
+    if path.is_symlink() or not path.is_file():
+        raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
+    with path.open("rb") as stream:
+        return stream.read()
 
 
-def admit_artifact_bytes(
-    manifest_bytes: bytes, arrays_bytes: bytes, protocol: SignalDiagnosisProtocol
-) -> str:
-    """Gate artifact bytes before anything is decoded; return the arrays SHA-256.
-
-    The manifest is parsed as small JSON and checked (:func:`admit_artifact_manifest`);
-    the arrays bytes, held in memory and not parsed, must hash to the pinned arrays
-    digest. Only bytes that are the pinned, already consumed development Dataset pass.
-    """
+def _admit_manifest_bytes(
+    manifest_bytes: bytes, protocol: SignalDiagnosisProtocol
+) -> None:
+    """Refuse foreign, malformed and forbidden-window metadata without arrays I/O."""
 
     try:
         manifest = json.loads(manifest_bytes.decode("utf-8"))
@@ -93,6 +80,34 @@ def admit_artifact_bytes(
     if not isinstance(manifest, dict):
         raise SignalDiagnosisProtocolError("artifact manifest must be a JSON object")
     admit_artifact_manifest(manifest, protocol)
+
+
+def read_artifact_files(
+    root: Path, protocol: SignalDiagnosisProtocol
+) -> tuple[bytes, bytes]:
+    """Admit manifest metadata before opening any raw arrays payload.
+
+    No array is opened for a rejected manifest. Once admitted, the manifest
+    and arrays are held in memory for pinned-digest verification and decoding,
+    so replacing the directory later cannot substitute a second read.
+    """
+
+    manifest_bytes = _read_artifact_file(root, _MANIFEST)
+    _admit_manifest_bytes(manifest_bytes, protocol)
+    arrays_bytes = _read_artifact_file(root, _ARRAYS)
+    return manifest_bytes, arrays_bytes
+
+
+def admit_artifact_bytes(
+    manifest_bytes: bytes, arrays_bytes: bytes, protocol: SignalDiagnosisProtocol
+) -> str:
+    """Validate the manifest and pin the exact array bytes before decoding.
+
+    Revalidating the already-admitted in-memory manifest preserves this
+    standalone verifier's contract without opening any filesystem path.
+    """
+
+    _admit_manifest_bytes(manifest_bytes, protocol)
     digest = hashlib.sha256(arrays_bytes).hexdigest()
     if digest != protocol.data.arrays_digest:
         raise SignalDiagnosisProtocolError(
@@ -127,10 +142,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     protocol = default_signal_diagnosis_protocol()
     try:
-        manifest_bytes, arrays_bytes = read_artifact_files(args.dataset)
+        manifest_bytes, arrays_bytes = read_artifact_files(args.dataset, protocol)
         arrays_digest = admit_artifact_bytes(manifest_bytes, arrays_bytes, protocol)
     except (SignalDiagnosisProtocolError, OSError, ValueError) as error:
-        print(f"refused before any array was decoded: {error}", file=sys.stderr)
+        print(f"refused during artifact admission: {error}", file=sys.stderr)
         return 2
     # Decode from the very bytes that were verified; no path is opened again.
     dataset, artifact_digest = load_dataset_from_verified_bytes(

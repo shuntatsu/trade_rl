@@ -58,34 +58,23 @@ _MANIFEST = "manifest.json"
 _ARRAYS = "arrays.npz"
 
 
-def read_artifact_files(root: Path) -> tuple[bytes, bytes]:
-    """Read the manifest and the arrays file once each, unparsed, into memory.
+def _read_regular_file(root: Path, name: str) -> bytes:
+    path = root / name
+    if path.is_symlink() or not path.is_file():
+        raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
+    with path.open("rb") as stream:
+        return stream.read()
 
-    These bytes are the only copy the run ever uses: they are verified and decoded
-    from memory, and no path is opened again, so replacing the directory afterwards
-    changes nothing.
+
+def read_admitted_manifest(root: Path, protocol: SignalDiagnosisProtocol) -> bytes:
+    """Read ``manifest.json`` once and refuse from metadata alone.
+
+    The small manifest is parsed and checked (:func:`admit_artifact_manifest`: self-hash,
+    pinned identities, roster, hourly grid, bar-count bound). Nothing else is opened: a
+    refusal here happens before ``arrays.npz`` is touched.
     """
 
-    out: list[bytes] = []
-    for name in (_MANIFEST, _ARRAYS):
-        path = root / name
-        if path.is_symlink() or not path.is_file():
-            raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
-        with path.open("rb") as stream:
-            out.append(stream.read())
-    return out[0], out[1]
-
-
-def admit_artifact_bytes(
-    manifest_bytes: bytes, arrays_bytes: bytes, protocol: SignalDiagnosisProtocol
-) -> str:
-    """Gate artifact bytes before anything is decoded; return the arrays SHA-256.
-
-    The manifest is parsed as small JSON and checked (:func:`admit_artifact_manifest`);
-    the arrays bytes, held in memory and not parsed, must hash to the pinned arrays
-    digest. Only bytes that are the pinned, already consumed development Dataset pass.
-    """
-
+    manifest_bytes = _read_regular_file(root, _MANIFEST)
     try:
         manifest = json.loads(manifest_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -93,12 +82,25 @@ def admit_artifact_bytes(
     if not isinstance(manifest, dict):
         raise SignalDiagnosisProtocolError("artifact manifest must be a JSON object")
     admit_artifact_manifest(manifest, protocol)
+    return manifest_bytes
+
+
+def read_verified_arrays(
+    root: Path, protocol: SignalDiagnosisProtocol
+) -> tuple[bytes, str]:
+    """Read ``arrays.npz`` once, only after the manifest was admitted, and verify it.
+
+    The bytes are held unparsed in memory and must hash to the pinned arrays digest;
+    they are then decoded from memory, so no path is opened again.
+    """
+
+    arrays_bytes = _read_regular_file(root, _ARRAYS)
     digest = hashlib.sha256(arrays_bytes).hexdigest()
     if digest != protocol.data.arrays_digest:
         raise SignalDiagnosisProtocolError(
             "the arrays bytes are not the pinned development Dataset payload"
         )
-    return digest
+    return arrays_bytes, digest
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -127,15 +129,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     protocol = default_signal_diagnosis_protocol()
     try:
-        manifest_bytes, arrays_bytes = read_artifact_files(args.dataset)
-        arrays_digest = admit_artifact_bytes(manifest_bytes, arrays_bytes, protocol)
+        # Strict order: manifest first and refuse from metadata; only then the arrays.
+        manifest_bytes = read_admitted_manifest(args.dataset, protocol)
+        arrays_bytes, arrays_digest = read_verified_arrays(args.dataset, protocol)
     except (SignalDiagnosisProtocolError, OSError, ValueError) as error:
         print(f"refused before any array was decoded: {error}", file=sys.stderr)
         return 2
-    # Decode from the very bytes that were verified; no path is opened again.
-    dataset, artifact_digest = load_dataset_from_verified_bytes(
-        manifest_bytes, arrays_bytes
-    )
+    try:
+        # Decode from the very bytes that were verified; no path is opened again.
+        dataset, artifact_digest = load_dataset_from_verified_bytes(
+            manifest_bytes, arrays_bytes
+        )
+    except Exception as error:  # a corrupt payload must end in a message, not a trace
+        print(
+            f"halted, no result written: the verified artifact bytes could not be "
+            f"decoded ({type(error).__name__}): {error}",
+            file=sys.stderr,
+        )
+        return 2
     del manifest_bytes, arrays_bytes
     panel = panel_from_dataset(
         dataset, artifact_digest=artifact_digest, arrays_digest=arrays_digest

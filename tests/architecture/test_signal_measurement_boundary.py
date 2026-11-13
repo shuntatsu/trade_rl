@@ -18,6 +18,7 @@ MODULES = (
     "multitest.py",
     "payoff.py",
     "profile.py",
+    "significance.py",
     "targets.py",
 )
 
@@ -29,6 +30,7 @@ ALLOWED_TRADE_RL_IMPORTS = {
         "trade_rl.evaluation.signal_measurement.multitest",
         "trade_rl.evaluation.signal_measurement.payoff",
         "trade_rl.evaluation.signal_measurement.profile",
+        "trade_rl.evaluation.signal_measurement.significance",
         "trade_rl.evaluation.signal_measurement.targets",
     },
     "ic.py": set(),
@@ -36,6 +38,7 @@ ALLOWED_TRADE_RL_IMPORTS = {
     "payoff.py": {_IC},
     "multitest.py": {"trade_rl.evaluation.comparison.bootstrap", _IC},
     "profile.py": {_IC},
+    "significance.py": {_IC},
     "targets.py": {_IC},
 }
 FORBIDDEN_TOP_LEVEL = {
@@ -70,7 +73,7 @@ def _imports(path: Path) -> set[str]:
     return names
 
 
-def test_package_layout_is_the_seven_pure_modules_only() -> None:
+def test_package_layout_is_the_eight_pure_modules_only() -> None:
     assert {path.name for path in MEASURE.glob("*.py")} == set(MODULES)
     assert not [
         path
@@ -126,7 +129,7 @@ def test_current_docs_record_the_package_and_that_it_is_synthetic_only() -> None
     )
 
     assert (
-        "signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,targets.py}"
+        "signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,significance.py,targets.py}"
         in boundaries
     )
     section = boundaries[boundaries.index("## Signal measurement boundary") :]

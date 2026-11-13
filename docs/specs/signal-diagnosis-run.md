@@ -56,10 +56,20 @@ POSIX it opens a descriptor-relative no-follow parent directory chain and applie
 `O_NOFOLLOW` plus `fstat` to the leaf before reading bytes. Synthetic regression
 tests swap a leaf to a symlink *after* the apparent pre-open check and reject a
 linked parent directory; the old `Path.open` reader would follow those links.
-The portable fallback on systems without POSIX descriptor-relative opening does
-**not** claim atomic protection against concurrent replacement. A valid manifest
-still permits one uncapped raw arrays read before SHA-256 validation, so no
-absolute in-memory payload ceiling or authenticated Dataset provenance is claimed.
+The SD2 real-data CLI now **refuses before opening any artifact file** if POSIX
+`O_NOFOLLOW`, `O_DIRECTORY`, or descriptor-relative `os.open` support is unavailable;
+it never silently enters the shared helper's weaker portable fallback. These
+capabilities are necessary, not sufficient, for an authenticated data origin:
+hard links, in-place inode mutation and cross-file directory replacement are
+not independently excluded by this guard. For bounded resource use, the initial
+manifest snapshot is limited to **4 MiB**, and the admitted arrays snapshot to
+**1 GiB**, with `fstat` size rejection before any bytes and at most 1 MiB per
+subsequent read, checking the cumulative limit even if the file grows. A
+digest-mismatched array may still be read within this budget once, before
+SHA-256 refusal. Legitimate artifacts larger than these technical budgets are
+not silently accepted and need a separately reviewed resource admission plan;
+these are not scientific parameters or new G4 authorization. Authenticated
+Dataset source provenance is not established by these guards.
 The in-memory decoder lives in an isolated module rather than modifying the shared
 artifact codec (existing source-bound evidence is preserved). Parity tests compare
 it with the file loader on synthetic Dataset artifacts.

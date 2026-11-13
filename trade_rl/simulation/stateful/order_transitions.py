@@ -197,7 +197,7 @@ class StatefulOrderTransitionProcessor:
                 ),
                 tick_size=float(context.tick_size[symbol]),
                 lot_size=float(context.lot_size[symbol]),
-                minimum_notional=executor.order_minimum_notional(
+                minimum_notional=runtime.order_minimum_notional(
                     order.intent, float(context.minimum_notional[symbol])
                 ),
                 minimum_quantity=0.0 if rule is None else rule.minimum_quantity,

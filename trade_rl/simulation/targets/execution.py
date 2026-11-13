@@ -33,6 +33,7 @@ def execute_target_statefully(
     time_in_force: TimeInForce = TimeInForce.GTC,
     expiry_index: int | None = None,
     hold_current_quantity_symbols: tuple[int, ...] = (),
+    closeout_symbols: tuple[int, ...] = (),
 ) -> StatefulExecutionResult:
     """Reconcile one target against holdings and active residual orders."""
 
@@ -114,6 +115,7 @@ def execute_target_statefully(
         start_index=start_index,
         bars=bars,
         reconciliation_cancellations=tuple(cancellation_transitions),
+        closeout_symbols=closeout_symbols,
     )
 
 

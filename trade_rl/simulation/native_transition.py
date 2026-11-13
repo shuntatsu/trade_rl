@@ -162,6 +162,13 @@ def execute_native_target_transition(
         for index in hold_symbols
         if risk_target.weights[index] == proposed_weights[index]
     )
+    # The emergency mask is the terminal-only risk-owned close; its reduce-only
+    # orders must be able to exit residuals below the venue minimum notional.
+    closeout_symbols = (
+        ()
+        if emergency_mask is None
+        else tuple(int(i) for i in np.flatnonzero(emergency_mask))
+    )
     if effective_holds:
         execution = executor.execute_interval(
             book,
@@ -169,6 +176,7 @@ def execute_native_target_transition(
             start_index=start_index,
             bars=1,
             hold_current_quantity_symbols=effective_holds,
+            closeout_symbols=closeout_symbols,
         )
     else:
         execution = executor.execute_interval(
@@ -176,6 +184,7 @@ def execute_native_target_transition(
             risk_target.weights,
             start_index=start_index,
             bars=1,
+            closeout_symbols=closeout_symbols,
         )
     if execution.next_index != start_index + 1 or execution.bars_advanced != 1:
         raise RuntimeError("native target transition did not advance exactly one bar")

@@ -260,7 +260,7 @@ class StatefulSymbolFillProcessor:
                         ),
                         eligible_index=order.intent.eligible_index,
                         reduce_only=order.intent.reduce_only,
-                        minimum_notional=executor.order_minimum_notional(
+                        minimum_notional=runtime.order_minimum_notional(
                             order.intent, float(context.minimum_notional[symbol])
                         ),
                         minimum_quantity=0.0 if rule is None else rule.minimum_quantity,

@@ -140,6 +140,7 @@ def execute_stateful_orders(
     start_index: int,
     bars: int,
     reconciliation_cancellations: Sequence[tuple[PendingOrder, PendingOrder]] = (),
+    closeout_symbols: Sequence[int] = (),
 ) -> StatefulExecutionResult:
     """Execute persistent orders over one or more processing bars."""
 
@@ -155,7 +156,9 @@ def execute_stateful_orders(
             "retain_debt execution cannot restart from an already terminated book"
         )
 
-    runtime = StatefulExecutionRuntime.create(executor, book, order_book)
+    runtime = StatefulExecutionRuntime.create(
+        executor, book, order_book, closeout_symbols=frozenset(closeout_symbols)
+    )
     cancellation_ids: set[str] = set()
     for previous, updated in reconciliation_cancellations:
         if previous.order_id in cancellation_ids:

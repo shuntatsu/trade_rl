@@ -182,16 +182,17 @@ def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
     or os.open not in os.supports_dir_fd,
     reason="descriptor-relative O_NOFOLLOW is a POSIX-specific guarantee",
 )
+@pytest.mark.parametrize("name", ("manifest.json", "arrays.npz"))
 def test_preopen_leaf_symlink_swap_cannot_read_foreign_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
-    """A swap *after* the initial leaf check must not redirect any byte read."""
+    """A swap *after* a leaf check cannot redirect either artifact file read."""
 
     root = tmp_path / "artifact"
     root.mkdir()
-    arrays = root / "arrays.npz"
-    arrays.write_bytes(PAYLOAD)
-    foreign = tmp_path / "sealed-placeholder.npz"
+    target = root / name
+    target.write_bytes(PAYLOAD)
+    foreign = tmp_path / "synthetic-foreign-stand-in"
     foreign.write_bytes(b"synthetic forbidden stand-in; never read")
     original_is_symlink = Path.is_symlink
     swapped = False
@@ -199,15 +200,15 @@ def test_preopen_leaf_symlink_swap_cannot_read_foreign_bytes(
     def swap_after_check(path: Path) -> bool:
         nonlocal swapped
         was_symlink = original_is_symlink(path)
-        if path == arrays and not swapped:
+        if path == target and not swapped:
             swapped = True
-            arrays.unlink()
-            arrays.symlink_to(foreign)
+            target.unlink()
+            target.symlink_to(foreign)
         return was_symlink
 
     monkeypatch.setattr(Path, "is_symlink", swap_after_check)
     with pytest.raises((SignalDiagnosisProtocolError, OSError, ValueError)):
-        cli._read_artifact_file(root, "arrays.npz")
+        cli._read_artifact_file(root, name)
     assert swapped, "the pre-open replacement was not exercised"
 
 

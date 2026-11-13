@@ -7,7 +7,7 @@ import io
 import json
 import os
 import zipfile
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import Enum
 from pathlib import Path
@@ -218,33 +218,6 @@ def _load_dataset_files_with_digest(
     if not arrays_path.is_file():
         raise FileNotFoundError(f"dataset arrays are missing: {arrays_path}")
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    return _decode_dataset(raw, arrays_path.read_bytes)
-
-
-def load_dataset_from_verified_bytes(
-    manifest_bytes: bytes, arrays_bytes: bytes
-) -> tuple[MarketDataset, str]:
-    """Decode a Dataset from artifact bytes the caller already holds in memory.
-
-    ``(dataset, artifact_digest)``. Nothing is read from a path: the caller read each
-    file once, verified the bytes it cares about (for instance pinned digests) and hands
-    exactly those bytes here, so no second path resolution can substitute other content.
-    The manifest self-digest, the arrays digest and every shape and dtype are still
-    checked here, as the file loader does.
-    """
-
-    if type(manifest_bytes) is not bytes or type(arrays_bytes) is not bytes:
-        raise TypeError("manifest and arrays must be bytes")
-    raw = json.loads(manifest_bytes.decode("utf-8"))
-    dataset, artifact_digest, _ = _decode_dataset(raw, lambda: arrays_bytes)
-    return dataset, artifact_digest
-
-
-def _decode_dataset(
-    raw: object, read_payload: Callable[[], bytes]
-) -> tuple[MarketDataset, str, str]:
-    """Verify and decode one artifact; ``read_payload`` supplies the arrays bytes."""
-
     manifest = dict(_mapping(raw, field="dataset manifest"))
     artifact_digest = _string(
         manifest.pop("artifact_digest", None), field="artifact_digest"
@@ -278,7 +251,7 @@ def _decode_dataset(
         raise ValueError("v4 artifact is missing funding_price_rate")
     if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
         raise ValueError("v3 artifact must not contain funding_price_rate")
-    payload = read_payload()
+    payload = arrays_path.read_bytes()
     if _sha256_bytes(payload) != _string(
         manifest.get("arrays_digest"), field="arrays_digest"
     ):

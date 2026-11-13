@@ -117,5 +117,6 @@ def test_current_docs_record_the_runner_and_its_authorization_boundary() -> None
         "single run",
         "reads no market value",
         "no other package imports it",
+        "before the loader parses any array",
     ):
         assert required in section, required

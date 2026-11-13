@@ -33,11 +33,20 @@ appear in D2.
 
 ## 2. Refusals
 
-Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working
+Before any Dataset array is read (the CLI admits the published directory from its
+small manifest and a streamed digest of its payload, then reaches the loader exactly
+once): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
+arrays, Dataset and feature-config digests, the five-symbol roster, a continuous hourly
+grid and no more bars than the protocol window holds, so a Dataset reaching into the FS1
+warm-up span, the sealed window or unused data is refused from metadata; the arrays file
+is hashed in discarded chunks and must equal the pinned arrays digest. A CLI-level spy
+test proves the loader is never reached on any of these refusals, on a missing G4 URL, a
+dirty tree, a missing LightGBM or a digest mismatch, and is reached once for a valid
+input. Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working
 tree (untracked files included); a plan other than the protocol's; a missing LightGBM;
 a non-empty output directory. A protocol digest other than the pinned one or a Dataset
 identity other than the pinned `dataset_id`, artifact, arrays and feature-config
-digests produce an INVALID verdict and nothing else. A bar closing before the window
+digests produce an INVALID verdict and nothing else. After loading, a bar closing before the window
 start or after 2026-08-01T00:00Z (the FS1 warm-up span and the sealed window), a roster
 other than the five symbols, features other than the 167 protocol names or an irregular
 hourly grid are refused. A cell that fails is saved with its error and the run ends

@@ -18,8 +18,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
-PINNED_DIGEST = "1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1227.json"
+PINNED_DIGEST = "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
@@ -215,9 +215,24 @@ def test_prior_after1226_source_reissue_is_immutable_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
-def test_cache_source_reissue_changes_only_the_bound_source_identity() -> None:
-    """A software-only cache repair must not revise preregistered economics."""
-    previous_path = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+def test_prior_after1208_source_reissue_is_immutable_and_unreviewed() -> None:
+    """Keep the exclusive-cache-publish source packet immutable."""
+    path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
+    old = json.loads(path.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "1a37bb8646e9cb6cbe22d02012411d74556655bb8fb8447fc0062bb3f3f8a213"
+    )
+    expected_head = "2182c89adf39757c9d3cad454e5eed30f059cb3c"
+    assert old["identity"]["protocol_head"] == expected_head
+    assert old["identity"]["implementation_head"] == expected_head
+    verified = evaluate_assurance(old)
+    assert verified.status == "UNREVIEWED"
+    assert verified.economic_execution_authorized is False
+
+
+def test_typed_cache_cleanup_reissue_changes_only_the_bound_source_identity() -> None:
+    """Typed cache cleanup must not revise the prior preregistered economics."""
+    previous_path = ROOT / "report" / f"{_PACKET_STEM}-after1208.json"
     previous = json.loads(previous_path.read_text(encoding="utf-8"))
     current = packet()
     assert set(current) == set(previous)

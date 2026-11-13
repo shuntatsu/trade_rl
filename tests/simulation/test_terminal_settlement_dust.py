@@ -82,7 +82,7 @@ def _dataset(
     return MarketDataset(**fields)
 
 
-def _replay(dataset: MarketDataset):
+def _replay(dataset: MarketDataset, *, execution_cost: ExecutionCostConfig = COST):
     # Two positions of 6 USDT each pass the 5 USDT entry filter.
     return run_shared_portfolio_replay(
         dataset,
@@ -90,7 +90,7 @@ def _replay(dataset: MarketDataset):
         start_index=1,
         stop_index=dataset.n_bars - 1,
         initial_capital=CAPITAL,
-        execution_cost=COST,
+        execution_cost=execution_cost,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
     )
@@ -228,6 +228,37 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
         assert report["terminal_dust_exit_cost_usdt"] > 0.0
     else:
         assert report["terminal_dust_exit_cost_usdt"] == 0.0
+
+
+def test_symbol_cap_uses_processing_row_with_previous_volume_basis() -> None:
+    """Capacity volume can use a prior bar; the symbol rule cannot."""
+
+    base = _dataset(drop=True)
+    volume = np.array(base.volume, copy=True)
+    volume[-2, :] = 0.25  # prior completed bar supplies volume capacity
+    limits = np.full(volume.shape, 0.50, dtype=np.float64)
+    limits[-1, :] = 0.20  # processing bar enforces the tighter symbol rule
+    dataset = dataclasses.replace(base, volume=volume, max_participation_rate=limits)
+    cost = dataclasses.replace(COST, processing_bar_volume_capacity=False)
+    result = _replay(dataset, execution_cost=cost)
+    assert cost.max_participation_rate == 0.50
+    assert limits[-2, 0] == 0.50 and limits[-1, 0] == 0.20
+
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
+
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=cost)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
+    assert report["passed"] is False
 
 
 def test_a_genuine_stuck_position_still_fails() -> None:

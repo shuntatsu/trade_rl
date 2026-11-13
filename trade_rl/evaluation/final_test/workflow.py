@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.evaluation.experiments.contracts import StudyOutcome
 from trade_rl.evaluation.experiments.errors import (
@@ -183,7 +184,7 @@ def _publish_once(
                 "authorization output root already exists"
             )
         try:
-            staging.rename(target)
+            atomic_rename_directory(staging, target)
         except OSError as error:
             if target.exists() or target.is_symlink():
                 raise InvalidExperimentStateError(

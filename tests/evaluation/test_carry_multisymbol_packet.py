@@ -24,8 +24,8 @@ from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
 _PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
-PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1136-1208.json"
-PINNED_DIGEST = "b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1227.json"
+PINNED_DIGEST = "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 ARCHITECTURE_DOC = ROOT / "docs/architecture/research-assurance.md"
 # The one authorized run is complete (see docs/architecture/research-assurance.md,
@@ -267,35 +267,38 @@ def test_typed_cache_cleanup_reissue_changes_only_the_bound_source_identity() ->
     }
 
 
-def test_latest_merge_predecessors_are_immutable_unreviewed_and_economically_equal() -> (
-    None
-):
-    prior = (
+def test_historical_m1_source_packets_do_not_replace_current_carry_packet() -> None:
+    """An M1 software-only binding must not redefine the current Carry author packet."""
+    assert PACKET_PATH.name == f"{_PACKET_STEM}-after1227.json"
+    active = packet()
+    assert assurance_digest(active) == PINNED_DIGEST
+    economics = {key: value for key, value in active.items() if key != "identity"}
+    for filename, digest, head in (
         (
-            "report/issue810-carry-multisymbol-research-assurance-20261113-after1136.json",
+            "after1136.json",
             "c81628496f2193171f7cf4024aa03c4bb2a8bf42da028a8fb814d2faba561dfe",
             "dc8215542f271f7d72f7cf6251f45ae0e99dc1d7",
         ),
         (
-            "report/issue810-carry-multisymbol-research-assurance-20261113-after1227.json",
-            "cd30770ce720dbf1c0a84affcdca54ac544726e48b52112cd43ba3e6581415e4",
-            "f8537dc4b77414d8cdb7e1f4333c18f6e99d37de",
+            "after1136-1208.json",
+            "b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d",
+            "9bc1a3ebe768c4adb6d266dd16f398a6c7486dfb",
         ),
-    )
-    current = packet()
-    current_economics = {
-        key: value for key, value in current.items() if key != "identity"
-    }
-    for file, digest, head in prior:
-        old = json.loads((ROOT / file).read_text(encoding="utf-8"))
-        assert assurance_digest(old) == digest
-        assert old["identity"] == {"protocol_head": head, "implementation_head": head}
-        verification = evaluate_assurance(old)
-        assert verification.status == "UNREVIEWED"
-        assert verification.economic_execution_authorized is False
+    ):
+        historical = json.loads(
+            (ROOT / "report" / f"{_PACKET_STEM}-{filename}").read_text(encoding="utf-8")
+        )
+        assert assurance_digest(historical) == digest
+        assert historical["identity"] == {
+            "protocol_head": head,
+            "implementation_head": head,
+        }
+        result = evaluate_assurance(historical)
+        assert result.status == "UNREVIEWED"
+        assert result.economic_execution_authorized is False
         assert {
-            key: value for key, value in old.items() if key != "identity"
-        } == current_economics
+            key: value for key, value in historical.items() if key != "identity"
+        } == economics
 
 
 def test_packet_is_valid_unreviewed_and_pinned() -> None:

@@ -88,17 +88,29 @@ class _AdmissionBookProjection:
         proposed = self.quantities.copy()
         with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             proposed[symbol_index] += quantity
-        cash_after = self.cash - (
-            quantity * price * float(self.contract_multipliers[symbol_index])
-        )
         try:
+            # Normalize the reservation arithmetic before validating the book:
+            # NumPy scalar inputs may raise FloatingPointError under strict
+            # errstate, whereas native float overflow produces a non-finite
+            # value. Neither may escape as an eligible order or mutate state.
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                cash_leg = (
+                    float(quantity)
+                    * float(price)
+                    * float(self.contract_multipliers[symbol_index])
+                )
+                cash_after = self.cash - cash_leg
+            if cash_leg == 0.0 and quantity != 0.0 and price != 0.0:
+                raise ValueError(
+                    "nonzero position value cannot be represented at reservation"
+                )
             equity = _require_finite_post_update_equity(
                 cash=cash_after,
                 quantities=proposed,
                 marks=self.mark_prices,
                 multipliers=self.contract_multipliers,
             )
-        except ValueError as exc:
+        except (ValueError, OverflowError, FloatingPointError) as exc:
             raise _UnrepresentableReservationError(str(exc)) from exc
         self.quantities = proposed
         self.cash = cash_after

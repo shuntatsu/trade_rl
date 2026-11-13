@@ -17,7 +17,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from trade_rl.data.artifacts import load_dataset_from_verified_bytes
+from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     SCOPE_REAL,
     SignalDiagnosisProtocol,

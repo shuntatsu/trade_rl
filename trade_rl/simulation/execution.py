@@ -28,7 +28,6 @@ from trade_rl.simulation.orders.model import (
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
-from trade_rl.simulation.orders.terminal_closeout import TerminalCloseoutAuthority
 from trade_rl.simulation.quantities import exact_quantity, project_quantity
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionObservation,
@@ -1142,7 +1141,6 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-        terminal_closeout: TerminalCloseoutAuthority | None = None,
     ) -> tuple[
         ExecutionResult,
         StatefulExecutionResult,
@@ -1176,7 +1174,6 @@ class MarketExecutor:
                 bars=bars,
                 target_identity=target_identity,
                 hold_current_quantity_symbols=hold_current_quantity_symbols,
-                terminal_closeout=terminal_closeout,
             )
         else:
             stateful = execute_target_statefully(
@@ -1187,7 +1184,6 @@ class MarketExecutor:
                 start_index=start_index,
                 bars=bars,
                 target_identity=target_identity,
-                terminal_closeout=terminal_closeout,
             )
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
@@ -1239,7 +1235,6 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-        terminal_closeout: TerminalCloseoutAuthority | None = None,
     ) -> ExecutionResult:
         compatibility, stateful, previous_terminal_orders = (
             self._execute_interval_with_stateful_evidence(
@@ -1248,7 +1243,6 @@ class MarketExecutor:
                 start_index=start_index,
                 bars=bars,
                 hold_current_quantity_symbols=hold_current_quantity_symbols,
-                terminal_closeout=terminal_closeout,
             )
         )
         if self._execution_observer is not None:

@@ -217,15 +217,23 @@ projection still runs afterward. Optional terminal settlement reserves the
 latency-aware close interval and sends a portfolio-wide flat target through the
 same risk and execution path. In this explicit terminal-only step, an
 `emergency_flatten_mask` covers nonzero holdings in the selected strategy
-roster, so ordinary `max_turnover` does not scale down the requested close and
-the venue minimum notional is waived for these runtime-validated reduce-only
-closes (a position that decayed below the minimum cannot otherwise be exited and
-would leave the terminal book non-flat); ordinary strategy decisions continue to obey the
-turnover bound and the minimum. The target
+roster, so ordinary `max_turnover` does not scale down the requested close;
+ordinary strategy decisions continue to obey that turnover bound. The target
 still passes through the configured hard-risk and execution stages. Venue
 rules, available liquidity, fill capacity, fees and pending-order handling are
 unchanged: if they prevent a full close, the actual residual quantity or active
-order remains visible and exact-flat validation still fails. Duration/settlement
+order remains visible and exact-flat validation still fails. This includes the
+venue minimum notional: no argument or entry point waives it, so a holding that
+decayed below it stays a position. The study ledger reconciliation
+(`dev_realdata_study.runner.reconcile_ledger`, reused by the trend-stop study)
+records such a residual as terminal dust (symbol, exact quantity, notional, reason
+`below_minimum_notional`) and values it at mark minus the modelled exit cost
+(fee, venue taker fee, spread and impact from the same cost model); the equity
+path used for metrics is reduced by that cost, so an exit that could not happen is
+never credited. `terminal_flat` stays false, `terminal_dust_only` is true when
+every residual is such dust, and the reconciliation passes when cash and the
+dust-adjusted equity reconcile; any other residual, or dust that cannot be valued
+because no cost model was supplied, still fails. Duration/settlement
 runs emit shared-cash ledger schema v2, including requested/effective intents,
 per-symbol ages and quantities, and suppression/unlock evidence; calls without
 those options retain v1 ledger shape.
@@ -575,18 +583,7 @@ expire explicitly; true sub-lot inventory stays visible. Fees and capacity apply
 only to actual accepted lots. Without an explicit source profile, minimum notional
 and all existing constraints still apply. A legacy zero-target MARKET request is
 represented internally as a reduce-only exact-inventory close, but this does not
-waive its minimum-notional or other execution constraints, with one exception: the
-reserved terminal-settlement close (see terminal settlement above) waives the
-declared venue minimum notional for its reduce-only orders, as a venue does for
-reduce-only exits, so residuals that decayed below the minimum are closed and the
-terminal book is flat; only the explicit runtime floor remains. The waiver is
-issued by `execute_terminal_settlement_transition` as an opaque
-`TerminalCloseoutAuthority` only after the runtime validates that the interval lies
-in `[agent_stop_index, stop_index)` with `agent_stop_index = stop_index -
-order_latency_bars - 1` and that each flagged symbol holds a position. Neither a
-caller-supplied emergency mask at an ordinary interval nor any public argument of
-`execute_interval` or `order_minimum_notional` can waive the minimum, and ordinary
-zero targets keep it. Without an explicit
+waive its minimum-notional or other execution constraints. Without an explicit
 reduce-only roster, a same-side smaller MARKET target is also represented as
 reduce-only only when actual holdings at decision reference prices exceed
 `maximum_gross`. This inference does not apply to LIMIT/STOP orders or when a

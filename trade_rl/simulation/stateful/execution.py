@@ -18,10 +18,6 @@ from trade_rl.simulation.orders.model import (
     PendingOrder,
     TerminalOrderArchive,
 )
-from trade_rl.simulation.orders.terminal_closeout import (
-    TerminalCloseoutAuthority,
-    _require_terminal_closeout,
-)
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarLifecycle
 from trade_rl.simulation.stateful.order_transitions import (
     StatefulOrderTransitionProcessor,
@@ -144,7 +140,6 @@ def execute_stateful_orders(
     start_index: int,
     bars: int,
     reconciliation_cancellations: Sequence[tuple[PendingOrder, PendingOrder]] = (),
-    terminal_closeout: TerminalCloseoutAuthority | None = None,
 ) -> StatefulExecutionResult:
     """Execute persistent orders over one or more processing bars."""
 
@@ -160,14 +155,7 @@ def execute_stateful_orders(
             "retain_debt execution cannot restart from an already terminated book"
         )
 
-    runtime = StatefulExecutionRuntime.create(
-        executor,
-        book,
-        order_book,
-        closeout_symbols=_require_terminal_closeout(
-            terminal_closeout, start_index=start_index, bars=bars
-        ),
-    )
+    runtime = StatefulExecutionRuntime.create(executor, book, order_book)
     cancellation_ids: set[str] = set()
     for previous, updated in reconciliation_cancellations:
         if previous.order_id in cancellation_ids:

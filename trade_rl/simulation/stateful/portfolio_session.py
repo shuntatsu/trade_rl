@@ -21,7 +21,6 @@ from trade_rl.simulation.execution import (
 from trade_rl.simulation.native_transition import (
     _validate_native_target_request,
     execute_native_target_transition,
-    execute_terminal_settlement_transition,
     validate_risk_execution_compatibility,
 )
 from trade_rl.simulation.orders.model import PendingOrder
@@ -259,30 +258,15 @@ class SharedPortfolioSession:
             held_quantities=self._book.quantities,
         )
         try:
-            if emergency_mask is None:
-                risk_target, execution, effective_holds = (
-                    execute_native_target_transition(
-                        self._executor,
-                        self._book,
-                        self._risk,
-                        proposed_weights,
-                        start_index=index,
-                        hold_current_quantity_symbols=hold_symbols,
-                    )
-                )
-            else:
-                # Only the reserved terminal interval carries an emergency mask.
-                risk_target, execution, effective_holds = (
-                    execute_terminal_settlement_transition(
-                        self._executor,
-                        self._book,
-                        self._risk,
-                        start_index=index,
-                        agent_stop_index=self._agent_stop_index,
-                        stop_index=self._stop_index,
-                        flatten_mask=emergency_mask,
-                    )
-                )
+            risk_target, execution, effective_holds = execute_native_target_transition(
+                self._executor,
+                self._book,
+                self._risk,
+                proposed_weights,
+                start_index=index,
+                hold_current_quantity_symbols=hold_symbols,
+                emergency_flatten_mask=emergency_mask,
+            )
         except BaseException:
             # The executor may have advanced its RNG/order book before an
             # observer or downstream invariant raises; never permit a retry.

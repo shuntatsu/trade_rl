@@ -20,13 +20,7 @@ EXPECTED_ROOT_FILES = {
 }
 
 EXPECTED_PACKAGE_FILES = {
-    "orders": {
-        "__init__.py",
-        "model.py",
-        "admission.py",
-        "reconciliation.py",
-        "terminal_closeout.py",
-    },
+    "orders": {"__init__.py", "model.py", "admission.py", "reconciliation.py"},
     "stateful": {
         "__init__.py",
         "runtime.py",

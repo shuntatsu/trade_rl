@@ -30,7 +30,6 @@ from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.native_transition import (
     execute_native_target_transition,
-    execute_terminal_settlement_transition,
     validate_risk_execution_compatibility,
 )
 from trade_rl.simulation.orders.model import OrderEvent
@@ -1067,29 +1066,15 @@ def _run_shared_cash_replay_core(
                 )
         else:
             assert executor is not None
-            if emergency_flatten_mask is None:
-                risk_target, execution, effective_holds = (
-                    execute_native_target_transition(
-                        executor,
-                        book,
-                        risk_controller,
-                        proposal_weights,
-                        start_index=interval_index,
-                        hold_current_quantity_symbols=hold_current_quantity_symbols,
-                    )
-                )
-            else:
-                risk_target, execution, effective_holds = (
-                    execute_terminal_settlement_transition(
-                        executor,
-                        book,
-                        risk_controller,
-                        start_index=interval_index,
-                        agent_stop_index=agent_stop_index,
-                        stop_index=stop_index,
-                        flatten_mask=emergency_flatten_mask,
-                    )
-                )
+            risk_target, execution, effective_holds = execute_native_target_transition(
+                executor,
+                book,
+                risk_controller,
+                proposal_weights,
+                start_index=interval_index,
+                hold_current_quantity_symbols=hold_current_quantity_symbols,
+                emergency_flatten_mask=emergency_flatten_mask,
+            )
         if execution.next_index <= interval_index:
             raise RuntimeError("execution did not advance replay index")
         if (

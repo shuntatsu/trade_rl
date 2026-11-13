@@ -59,7 +59,6 @@ class StatefulExecutionRuntime:
     filled_by_symbol: np.ndarray
     participation_by_symbol: np.ndarray
     cost_by_symbol: np.ndarray
-    closeout_symbols: frozenset[int]
 
     @classmethod
     def create(
@@ -67,8 +66,6 @@ class StatefulExecutionRuntime:
         executor: MarketExecutor,
         book: BookState,
         order_book: OrderBookState,
-        *,
-        closeout_symbols: frozenset[int] = frozenset(),
     ) -> StatefulExecutionRuntime:
         result_book = book.clone()
         n_symbols = executor.dataset.n_symbols
@@ -98,25 +95,7 @@ class StatefulExecutionRuntime:
             filled_by_symbol=np.zeros(n_symbols, dtype=np.float64),
             participation_by_symbol=np.zeros(n_symbols, dtype=np.float64),
             cost_by_symbol=np.zeros(n_symbols, dtype=np.float64),
-            closeout_symbols=closeout_symbols,
         )
-
-    def order_minimum_notional(
-        self, intent: OrderIntent, ordinary_minimum: float
-    ) -> float:
-        """Minimum notional for one order.
-
-        Only a reduce-only order of a symbol named by a validated terminal
-        close-out authority waives the venue minimum (the explicit runtime floor
-        remains); every other order keeps the executor's rule unchanged.
-        """
-
-        executor = self.executor
-        if intent.reduce_only and intent.symbol_index in self.closeout_symbols:
-            return executor.cost.minimum_notional * (
-                executor.rule_stress.minimum_notional_factor
-            )
-        return executor.order_minimum_notional(intent, ordinary_minimum)
 
     def submit_intents(self, intents: Sequence[OrderIntent]) -> None:
         for intent in intents:

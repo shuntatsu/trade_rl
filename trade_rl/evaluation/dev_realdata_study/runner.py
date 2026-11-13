@@ -371,10 +371,12 @@ def terminal_dust(
 
     The engine enforces the venue minimum notional everywhere, so a holding that
     decayed below it cannot be closed and stays a position. A residual is *dust*
-    when its notional at the terminal mark is below the minimum that applies to it
-    (the larger of the Dataset rule and the cost config's floor) and the cost model
-    can value its exit. Returns ``(dust, other_symbols, valued)``; every other
-    residual (a genuine stuck position) is listed in ``other_symbols``.
+    only if its mark notional and a conservative upper bound for the
+    tick-rounded order notional at the terminal processing open are both below
+    the venue minimum (the larger of the Dataset rule and cost config's floor),
+    and the cost model can value the exit. A position tradable at the open but
+    stuck for liquidity is not dust. Returns ``(dust, other_symbols, valued)``;
+    all other residuals are listed in ``other_symbols``.
     Exit cost = notional x multiplier x (fee + venue taker fee + spread
     + impact x sqrt(participation)), the market-order rates of the executor,
     re-derived here from the Dataset; a stochastic slippage model cannot be valued
@@ -383,6 +385,8 @@ def terminal_dust(
 
     multipliers = dataset.resolved_array("contract_multipliers")
     marks = dataset.resolved_array("mark_price")[final_row]
+    opens = dataset.open[final_row]
+    ticks = dataset.resolved_array("tick_size")[final_row]
     minimum = dataset.resolved_array("minimum_notional")[final_row]
     valued = execution_cost is not None and execution_cost.slippage_std == 0.0
     market_notional = dataset.market_notional(
@@ -402,7 +406,19 @@ def terminal_dust(
             other.append(symbol)
             continue
         threshold = max(float(minimum[index]), execution_cost.minimum_notional)
-        if not notional < threshold:
+        tick = max(float(ticks[index]), execution_cost.tick_size)
+        # The executor tests minimum notional at the terminal processing OPEN,
+        # after tick rounding, not at the terminal mark. The upper price bound
+        # is deliberately conservative for either buy or sell rounding.
+        opening_price_upper = math.nextafter(
+            float(opens[index]) + tick, math.inf
+        )
+        opening_notional_upper = (
+            abs(float(quantity))
+            * opening_price_upper
+            * float(multipliers[index])
+        )
+        if not (notional < threshold and opening_notional_upper < threshold):
             other.append(symbol)
             continue
         participation = (
@@ -466,9 +482,11 @@ def reconcile_ledger(
     cash and equity coincide.
 
     The engine keeps the venue minimum notional for every order, so a holding that
-    decayed below it can stay open at the end. Such residuals are reported as
-    ``terminal_dust`` (symbol, exact quantity, notional, reason
-    ``below_minimum_notional``) and valued at mark minus the modelled exit cost
+    decayed below it can stay open at the end. Only residuals below the minimum
+    at both the terminal mark and a conservative upper bound for the rounded
+    processing-open execution price count as ``terminal_dust`` (symbol, exact
+    quantity, notional, reason ``below_minimum_notional``); they are valued
+    at mark minus the modelled exit cost
     from ``execution_cost``. ``terminal_flat`` stays false, ``terminal_dust_only``
     is true when every residual is such dust, and the check passes when cash and
     the dust-adjusted equity reconcile. Any other residual still fails; without

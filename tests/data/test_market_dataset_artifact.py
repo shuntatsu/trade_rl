@@ -395,7 +395,7 @@ def test_legacy_data_artifacts_module_is_removed() -> None:
 def test_verified_bytes_decode_equals_the_file_loader_and_reads_no_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from trade_rl.data.artifacts import load_dataset_from_verified_bytes
+    from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
 
     dataset = _dataset()
     write_market_dataset_files(tmp_path, dataset)
@@ -413,7 +413,7 @@ def test_verified_bytes_decode_equals_the_file_loader_and_reads_no_path(
 
 
 def test_verified_bytes_decode_still_checks_digests_and_types(tmp_path: Path) -> None:
-    from trade_rl.data.artifacts import load_dataset_from_verified_bytes
+    from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
 
     write_market_dataset_files(tmp_path, _dataset())
     manifest_bytes = (tmp_path / "manifest.json").read_bytes()

@@ -145,9 +145,9 @@ def test_dust_cannot_be_valued_without_the_cost_model() -> None:
 
 
 def test_dust_requires_the_engine_to_have_rejected_the_close_for_the_minimum() -> None:
-    # Sub-minimum at the open as well, with zero liquidity: admission rejects the
-    # close for the minimum before capacity is consulted, so this is dust.
-    dataset = _dataset(drop=True, thin_last_volume=True)
+    # Isolate the venue-minimum rejection from other execution constraints:
+    # normal volume leaves enough capacity for an otherwise admissible exit.
+    dataset = _dataset(drop=True)
     result = _replay(dataset)
     ledger = result.ledger_evidence
     assert ledger is not None
@@ -160,6 +160,26 @@ def test_dust_requires_the_engine_to_have_rejected_the_close_for_the_minimum() -
     report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
     assert report["terminal_dust_only"] is True
     assert report["passed"] is True
+
+
+def test_venue_minimum_rejection_does_not_override_capacity_limit() -> None:
+    """Engine rejection reason alone does not prove a hypothetical exit is fillable."""
+    dataset = _dataset(drop=True, thin_last_volume=True)
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    reasons = {
+        event.reason
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    }
+    assert reasons == {"below_minimum_notional"}
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
+    assert report["passed"] is False
 
 
 def test_a_genuine_stuck_position_still_fails() -> None:
@@ -207,7 +227,8 @@ def test_classification_follows_the_engines_own_rejection_basis() -> None:
     rejects the close for ``below_minimum_notional``, so that rejection - not a
     re-derived price bound - decides that the residual is dust.
     """
-    original = _dataset(drop=True, thin_last_volume=True)
+    # Adequate volume isolates the unrounded-open admission rule from capacity.
+    original = _dataset(drop=True)
     fields = {
         field.name: getattr(original, field.name)
         for field in dataclasses.fields(original)
@@ -383,9 +404,11 @@ def test_phase2_replay_cell_with_dust_only_terminal_is_reconciled_and_haircut() 
     )
 
 
-@pytest.mark.parametrize("last_volume", (0.0, 1e-320, 1e-308))
-def test_unrepresentable_dust_exit_valuation_never_passes(last_volume: float) -> None:
-    """Zero/overflowing denominator cannot authorize a dust-only economic PASS."""
+@pytest.mark.parametrize("last_volume", (0.0, 1e-320, 1e-308, 1e-9, 0.1))
+def test_unrepresentable_or_unfillable_dust_exit_never_passes(
+    last_volume: float,
+) -> None:
+    """Neither numerical overflow nor capacity above the limit certifies dust."""
     dataset = _dataset(drop=True)
     volume = np.array(dataset.volume, copy=True)
     volume[-1, :] = last_volume

@@ -438,7 +438,12 @@ def terminal_dust(
             other.append(symbol)
             continue
         participation = open_notional / capacity_notional
-        if not math.isfinite(participation):
+        # A minimum-notional rejection alone does not prove that a virtual
+        # close is liquid enough to be valued under the executor capacity cap.
+        if (
+            not math.isfinite(participation)
+            or participation > execution_cost.max_participation_rate
+        ):
             other.append(symbol)
             continue
         unit_cost = execution_cost.multiplier * (

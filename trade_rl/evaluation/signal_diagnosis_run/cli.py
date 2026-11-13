@@ -13,10 +13,12 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
 from trade_rl.evaluation.signal_diagnosis.protocol import (
     SCOPE_REAL,
@@ -56,16 +58,47 @@ def build_parser() -> argparse.ArgumentParser:
 
 _MANIFEST = "manifest.json"
 _ARRAYS = "arrays.npz"
+# Technical input budgets, not economic parameters; all reads remain one-shot.
+_MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+_MAX_ARRAYS_BYTES = 1024 * 1024 * 1024
+_READ_CHUNK_BYTES = 1024 * 1024
 
 
 def _read_artifact_file(root: Path, name: str) -> bytes:
-    """Read a single regular artifact file into a stable in-memory snapshot."""
+    """Read a bounded snapshot only through the POSIX descriptor-safe opener.
 
-    path = root / name
-    if path.is_symlink() or not path.is_file():
-        raise SignalDiagnosisProtocolError(f"{name} is not a regular file")
-    with path.open("rb") as stream:
-        return stream.read()
+    The fallback in the shared helper is intentionally not enough for SD2's
+    no-forbidden-read contract. Refuse unsupported platforms before any artifact
+    access instead of silently accepting a possible pre-open symlink swap.
+    """
+
+    if (
+        os.name != "posix"
+        or not getattr(os, "O_NOFOLLOW", 0)
+        or not getattr(os, "O_DIRECTORY", 0)
+        or os.open not in os.supports_dir_fd
+    ):
+        raise SignalDiagnosisProtocolError(
+            "artifact reads require POSIX descriptor-relative no-follow support"
+        )
+    if name not in (_MANIFEST, _ARRAYS):
+        raise SignalDiagnosisProtocolError("unknown artifact filename")
+    limit = _MAX_MANIFEST_BYTES if name == _MANIFEST else _MAX_ARRAYS_BYTES
+    with open_regular_binary(root / name, field=f"{name} artifact") as stream:
+        if os.fstat(stream.fileno()).st_size > limit:
+            raise SignalDiagnosisProtocolError(f"{name} exceeds the file size budget")
+        chunks: list[bytes] = []
+        length = 0
+        while True:
+            chunk = stream.read(min(_READ_CHUNK_BYTES, limit - length + 1))
+            if not chunk:
+                return b"".join(chunks)
+            length += len(chunk)
+            if length > limit:
+                raise SignalDiagnosisProtocolError(
+                    f"{name} exceeds the file size budget"
+                )
+            chunks.append(chunk)
 
 
 def _admit_manifest_bytes(

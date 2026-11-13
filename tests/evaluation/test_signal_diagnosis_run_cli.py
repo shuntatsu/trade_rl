@@ -1,17 +1,21 @@
-"""CLI-level proof that no Dataset array is read before every refusal has run.
+"""CLI-level proof of manifest-first refusal and no-follow array file admission.
 
-The payload reader (``load_published_market_dataset_artifact``) is replaced by a spy.
-It must never be reached when the artifact's metadata puts coverage outside the window,
-when the G4 URL is missing or malformed, when the working tree is dirty, when LightGBM
-is missing, or on any digest mismatch, and it must be reached exactly once for a valid
-input (the positive control). No market value exists in these fixtures: the artifact is
-a manifest plus an opaque byte string.
+The in-memory Dataset decoder is replaced by a spy, while file-open probes
+observe both ordinary Path.open and the descriptor-safe open_regular_binary.
+Invalid manifest metadata must refuse before arrays I/O; digest-mismatched
+payload bytes may be read once but must never be decoded. Valid metadata opens
+arrays exactly once and decodes the same verified bytes. Synthetic link-swap
+and linked-parent witnesses exercise the pre-open no-follow boundary on POSIX;
+the portable fallback makes no descriptor-atomic claim. No fixture contains
+a real market value: each Dataset payload is an opaque byte stand-in.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -153,7 +157,259 @@ def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
         return original_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", track_open)
+
+    # The production reader may use the repository's descriptor-guarded opener,
+    # which deliberately bypasses Path.open on POSIX. Count both paths, never
+    # weaken the zero-open / exactly-once array I/O assertions.
+    guarded_open = getattr(cli, "open_regular_binary", None)
+    if guarded_open is not None:
+
+        @contextmanager
+        def spy_guarded_open(path: Path, *, field: str) -> Any:
+            if path == arrays_path:
+                observed.append(path)
+            with guarded_open(path, field=field) as handle:
+                yield handle
+
+        monkeypatch.setattr(cli, "open_regular_binary", spy_guarded_open)
+
     return observed
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="descriptor-relative O_NOFOLLOW is a POSIX-specific guarantee",
+)
+@pytest.mark.parametrize("name", ("manifest.json", "arrays.npz"))
+def test_preopen_leaf_symlink_swap_cannot_read_foreign_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """A swap *after* a leaf check cannot redirect either artifact file read."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    target = root / name
+    target.write_bytes(PAYLOAD)
+    foreign = tmp_path / "synthetic-foreign-stand-in"
+    foreign.write_bytes(b"synthetic forbidden stand-in; never read")
+    original_is_symlink = Path.is_symlink
+    swapped = False
+
+    def swap_after_check(path: Path) -> bool:
+        nonlocal swapped
+        was_symlink = original_is_symlink(path)
+        if path == target and not swapped:
+            swapped = True
+            target.unlink()
+            target.symlink_to(foreign)
+        return was_symlink
+
+    monkeypatch.setattr(Path, "is_symlink", swap_after_check)
+    with pytest.raises((SignalDiagnosisProtocolError, OSError, ValueError)):
+        cli._read_artifact_file(root, name)
+    assert swapped, "the pre-open replacement was not exercised"
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="descriptor-relative O_NOFOLLOW is a POSIX-specific guarantee",
+)
+def test_parent_swap_after_fd_capture_keeps_original_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Renaming the path after a parent fd opens cannot redirect its child."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    (root / "arrays.npz").write_bytes(PAYLOAD)
+    replacement = tmp_path / "synthetic-foreign"
+    replacement.mkdir()
+    (replacement / "arrays.npz").write_bytes(b"synthetic forbidden stand-in")
+    moved = tmp_path / "original-artifact"
+    original_open = os.open
+    swapped = False
+
+    def race_open(
+        path: str | bytes | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        fd = original_open(path, flags, mode, dir_fd=dir_fd)
+        if dir_fd is not None and str(path) == root.name and not swapped:
+            swapped = True
+            root.rename(moved)
+            root.symlink_to(replacement, target_is_directory=True)
+        return fd
+
+    monkeypatch.setattr(os, "open", race_open)
+    # The opener tests membership of the current os.open in supports_dir_fd.
+    # Preserve that capability while injecting the race through its wrapper.
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {race_open})
+    observed = cli._read_artifact_file(root, "arrays.npz")
+    assert swapped, "the artifact directory was not replaced after fd capture"
+    assert root.is_symlink()
+    assert observed == PAYLOAD  # the descriptor, not the replaced path, won
+
+
+def test_symlinked_artifact_directory_cannot_redirect_array_read(
+    tmp_path: Path,
+) -> None:
+    """A regular leaf below a linked parent is not an admissible payload."""
+
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    (real_root / "arrays.npz").write_bytes(PAYLOAD)
+    alias = tmp_path / "artifact"
+    try:
+        alias.symlink_to(real_root, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+
+    with pytest.raises((SignalDiagnosisProtocolError, OSError, ValueError)):
+        cli._read_artifact_file(alias, "arrays.npz")
+
+
+def test_unsafe_platform_capability_refuses_before_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing dirfd capability must not silently use the weaker path fallback."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    (root / "manifest.json").write_bytes(b'{"synthetic": true}')
+    monkeypatch.setattr(os, "supports_dir_fd", frozenset())
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="descriptor|no-follow"):
+        cli._read_artifact_file(root, "manifest.json")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="resource budget needs the supported POSIX descriptor path",
+)
+def test_sparse_oversize_manifest_refuses_without_materialization(
+    tmp_path: Path,
+) -> None:
+    """A malformed metadata file cannot use an uncapped raw read."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with (root / "manifest.json").open("wb") as out:
+        out.truncate(4 * 1024 * 1024 + 1)
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="size|budget|large"):
+        cli._read_artifact_file(root, "manifest.json")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="resource budget needs the supported POSIX descriptor path",
+)
+def test_huge_array_file_refuses_before_any_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fake enormous regular-file size must fail before the first byte read."""
+
+    fake_fd = 50_000_001
+    original_fstat = os.fstat
+    observed: list[str] = []
+
+    class NeverRead:
+        def fileno(self) -> int:
+            return fake_fd
+
+        def read(self, *_args: object, **_kwargs: object) -> bytes:
+            observed.append("read")
+            raise AssertionError("huge arrays payload was read before refusal")
+
+    @contextmanager
+    def fake_guard(_path: Path, *, field: str) -> Any:
+        assert field.startswith("arrays.npz")
+        yield NeverRead()
+
+    def fake_fstat(fd: int) -> Any:
+        if fd == fake_fd:
+            return SimpleNamespace(st_size=2 * 1024 * 1024 * 1024)
+        return original_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fake_fstat)
+    monkeypatch.setattr(cli, "open_regular_binary", fake_guard)
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with pytest.raises(SignalDiagnosisProtocolError, match="size|budget|large"):
+        cli._read_artifact_file(root, "arrays.npz")
+    assert observed == []
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="bounded-read smoke requires supported POSIX descriptor opening",
+)
+def test_manifest_exact_size_ceiling_is_not_off_by_one(tmp_path: Path) -> None:
+    """Exactly 4 MiB remains admissible to the bounded raw snapshot reader."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with (root / "manifest.json").open("wb") as stream:
+        stream.truncate(4 * 1024 * 1024)
+    raw = cli._read_artifact_file(root, "manifest.json")
+    assert len(raw) == 4 * 1024 * 1024
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="bounded-read smoke requires supported POSIX descriptor opening",
+)
+def test_growing_manifest_refuses_at_byte_limit_after_initial_fstat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-fstat growth cannot make the bounded reader consume unbounded bytes."""
+
+    fake_fd = 50_000_002
+    original_fstat = os.fstat
+    requested: list[int] = []
+
+    class GrowingFile:
+        def fileno(self) -> int:
+            return fake_fd
+
+        def read(self, size: int = -1) -> bytes:
+            requested.append(size)
+            assert 0 < size <= 1024 * 1024
+            return b"x" * size
+
+    @contextmanager
+    def growing_guard(_path: Path, *, field: str) -> Any:
+        assert field.startswith("manifest.json")
+        yield GrowingFile()
+
+    def fake_fstat(fd: int) -> Any:
+        if fd == fake_fd:
+            return SimpleNamespace(st_size=0)
+        return original_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fake_fstat)
+    monkeypatch.setattr(cli, "open_regular_binary", growing_guard)
+    root = tmp_path / "artifact"
+    root.mkdir()
+    with pytest.raises(SignalDiagnosisProtocolError, match="file size budget"):
+        cli._read_artifact_file(root, "manifest.json")
+    assert requested == [1024 * 1024] * 4 + [1]
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,6 @@ from trade_rl.data.artifacts.codec import (
     DATASET_MANIFEST_NAME,
     DatasetArtifactFiles,
     load_dataset_files,
-    load_dataset_from_verified_bytes,
     verify_exact_artifact_files,
     write_market_dataset_files,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "PublishedDatasetArtifact",
     "inspect_published_market_dataset_artifact",
     "load_dataset_files",
-    "load_dataset_from_verified_bytes",
     "load_market_dataset_artifact",
     "load_published_market_dataset_artifact",
     "publish_market_dataset_artifact",

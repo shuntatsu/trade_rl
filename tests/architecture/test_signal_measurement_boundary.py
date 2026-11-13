@@ -114,9 +114,10 @@ def test_no_runner_cli_or_main_entrypoint_exists_in_sd1() -> None:
         assert "def main" not in text, path.name
 
 
-def test_no_other_package_depends_on_the_measurement_tools_yet() -> None:
+def test_only_the_sd2_runner_depends_on_the_measurement_tools() -> None:
+    runner = PACKAGE / "evaluation" / "signal_diagnosis_run"
     for path in PACKAGE.rglob("*.py"):
-        if MEASURE in path.parents:
+        if MEASURE in path.parents or runner in path.parents:
             continue
         assert "signal_measurement" not in path.read_text(encoding="utf-8"), (
             path.relative_to(ROOT)

@@ -185,8 +185,19 @@ def test_only_permanent_workflows_remain() -> None:
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
         "ppo-normalization-execution.yml",
-        "prune-merged-branch.yml",
     }
+
+
+def test_obsolete_manual_prune_path_is_not_shipped() -> None:
+    """Only the current exact-SHA merged-ref retirement path is executable."""
+    assert (ROOT / ".github/workflows/retire-merged-pr-branches.yml").is_file()
+    assert (ROOT / "tools/branch_hygiene.py").is_file()
+    for legacy in (
+        ".github/workflows/prune-merged-branch.yml",
+        "tools/verified_merged_branch_prune.py",
+        "tests/tools/test_verified_merged_branch_prune.py",
+    ):
+        assert not (ROOT / legacy).exists(), legacy
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:
@@ -294,13 +305,14 @@ def test_short_agent_entry_preserves_main_ancestor_retirement_safety() -> None:
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
         "closed/merged PR",
-        "tools.verified_merged_branch_prune",
         "tested PR head contains current `main`",
     ):
         assert required in entry
     assert "cleanup_authorized=true" in policy
     assert "未統合" in policy
     assert "retire-merged" in policy
+    assert "tools.verified_merged_branch_prune" not in entry
+    assert "prune-merged-branch.yml" not in policy
 
 
 def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:

@@ -140,6 +140,103 @@ def test_a_valid_artifact_reaches_the_reader_exactly_once(
     ]
 
 
+
+def _arrays_opens(
+    monkeypatch: pytest.MonkeyPatch, root: Path
+) -> list[Path]:
+    """Watch the actual payload file open, not merely the Dataset decoder."""
+
+    observed: list[Path] = []
+    original_open = Path.open
+    arrays_path = root / "arrays.npz"
+
+    def track_open(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == arrays_path:
+            observed.append(path)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", track_open)
+    return observed
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "forbidden_window",
+        "malformed_json",
+        "tampered_manifest",
+        "wrong_artifact_pin",
+        "wrong_dataset_pin",
+        "wrong_roster",
+        "invalid_timestamps_shape",
+    ),
+)
+def test_manifest_refusal_never_opens_arrays_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, case: str
+) -> None:
+    """Even opaque FS1/unused bytes must not be opened on a manifest refusal."""
+
+    root = tmp_path / "artifact"
+    bars = _window_bars() + 1 if case == "forbidden_window" else _window_bars()
+    pinned = _build(root, bars=bars)
+    if case in {"malformed_json", "tampered_manifest", "wrong_roster", "invalid_timestamps_shape"}:
+        manifest_path = root / "manifest.json"
+        if case == "malformed_json":
+            manifest_path.write_bytes(b'{"invalid":')
+        else:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if case == "tampered_manifest":
+                manifest["dataset_id"] = "5" * 64
+            else:
+                if case == "wrong_roster":
+                    manifest["dataset"]["symbols"] = ["OUTSIDE-ROSTER"]
+                else:
+                    manifest["arrays"]["timestamps"]["shape"] = ["not-a-bar-count"]
+                body = {key: val for key, val in manifest.items() if key != "artifact_digest"}
+                manifest["artifact_digest"] = content_digest(body)
+                pinned.data.artifact_digest = manifest["artifact_digest"]
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    elif case == "wrong_artifact_pin":
+        pinned.data.artifact_digest = "9" * 64
+    elif case == "wrong_dataset_pin":
+        pinned.data.dataset_id = "9" * 64
+    _pin(monkeypatch, pinned)
+    opens = _arrays_opens(monkeypatch, root)
+
+    assert cli.main(_argv(tmp_path)) == 2
+    assert opens == [], f"{case} opened arrays.npz before its manifest was admitted"
+    assert (spies.loader_calls, spies.run_calls) == (0, 0)
+    assert not (tmp_path / "out").exists()
+
+
+def test_admitted_arrays_are_opened_once_and_decode_from_same_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies
+) -> None:
+    root = tmp_path / "artifact"
+    _pin(monkeypatch, _build(root, bars=_window_bars()))
+    opens = _arrays_opens(monkeypatch, root)
+
+    assert cli.main(_argv(tmp_path)) == 0
+    assert opens == [root / "arrays.npz"]
+    assert spies.loader_calls == 1
+    assert len(spies.loader_args) == 1
+    assert spies.loader_args[0][1] == PAYLOAD
+
+
+def test_payload_digest_mismatch_reads_once_but_never_decodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies
+) -> None:
+    root = tmp_path / "artifact"
+    _pin(monkeypatch, _build(root, bars=_window_bars()))
+    (root / "arrays.npz").write_bytes(PAYLOAD + b" tampered")
+    opens = _arrays_opens(monkeypatch, root)
+
+    assert cli.main(_argv(tmp_path)) == 2
+    assert opens == [root / "arrays.npz"]
+    assert (spies.loader_calls, spies.run_calls) == (0, 0)
+    assert not (tmp_path / "out").exists()
+
+
 @pytest.mark.parametrize("extra_bars", [1, 24 * 40, 24 * 100])
 def test_coverage_beyond_the_window_is_refused_without_reading_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, extra_bars: int

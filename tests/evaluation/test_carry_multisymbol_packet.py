@@ -17,10 +17,8 @@ from tools.agent_repo.research_assurance import assurance_digest, evaluate_assur
 from trade_rl.evaluation.carry_multisymbol import protocol
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / (
-    "issue810-carry-multisymbol-research-assurance-20261113"
-    "-after1203.json"
-)
+_PACKET_STEM = "issue810-carry-multisymbol-research-assurance-20261113"
+PACKET_PATH = ROOT / "report" / f"{_PACKET_STEM}-after1203.json"
 PINNED_DIGEST = "f3a7c06ebd824b33498d5cd120337cf62491a1770e1bed73efb1b1b450535fea"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (

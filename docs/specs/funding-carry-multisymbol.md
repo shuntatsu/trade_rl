@@ -99,9 +99,13 @@ timestamps and quote volume alone, never from a price change or a return:
   assembler's existing no-gap rule.
 
 An excluded symbol is recorded with its reason code and is **never replaced or
-dropped later**. Fewer than six admitted symbols is `INCONCLUSIVE_UNIVERSE`; the fix is
-a new protocol version with an externally evidenced halt calendar, decided without
-reading returns. BTCUSDT and ETHUSDT are loaded as descriptive reference arms on the
+dropped later**. Fewer than six admitted symbols is `INCONCLUSIVE_UNIVERSE`, which is
+terminal for this protocol: the universe, window and exclusion rule are never changed
+and the screen is never rerun on a different universe. The decision records
+`terminal_for_protocol: true` and `rerun_with_a_different_universe_allowed: false`, and
+the runner refuses to reopen an output directory that holds it. The only way forward is
+a new protocol version (for example with an externally evidenced halt calendar), decided
+without reading returns. BTCUSDT and ETHUSDT are loaded as descriptive reference arms on the
 identical window; they never enter the decision.
 
 **Window and sub-periods.** Development window `[2022-01-01, 2026-08-01)`: the last
@@ -109,8 +113,13 @@ admissible bar opens 2026-07-31T23:00Z. It adds the 2022 bear/negative-funding
 regime to the 2023-2024 regime of the BTC/ETH screens, because the counter-hypothesis
 is that the premium was a 2023-2024 regime effect. Sub-periods are the calendar
 years 2022, 2023, 2024, 2025 and 2026 (seven months). The window is part of the
-protocol: the runner accepts exactly this `--start/--end` and refuses a window ending
-after 2026-07-31 with a distinct embargo message.
+protocol: the runner accepts exactly this `--start 2022-01-01 --end 2026-08-01`. The end
+is the exclusive instant 2026-08-01T00:00Z (the last admissible bar opens
+2026-07-31T23:00Z); any end after that instant is refused with a distinct embargo
+message, and any other start or end is refused as not the registered window. The end
+is exclusive for funding as for klines: a funding event at exactly 2026-08-01T00:00Z is
+excluded by the archive source and again by the pair loader (the PostgreSQL store also
+returns a row at the end instant), so no event of the warm-up span can enter.
 
 **Strategy, unchanged.** `FundingCarryBot`: monthly equal-notional matched-quantity
 spot-long / perpetual-short targets from the first usable bar, a real exit on the
@@ -143,7 +152,9 @@ admitted symbol; each runs the four treatments (`base`, `cost2x`, `delay1h`,
 `capacity0p1`), up to 44 decision cells, plus 12 descriptive reference cells. Cell
 pass: complete, flat, valid, no stop, ledger drawdown below 10%, full-period net
 return above zero; the `base` cell additionally needs net return above zero in
-every sub-period. An arm passes only if all four of its cells pass.
+every sub-period. The every-sub-period condition applies to the base cell only: the
+stress cells are not required to be positive in every sub-period, only over the full
+period. An arm passes only if all four of its cells pass.
 
 **Family decision and multiple testing.** `CARRY_GENERALIZES_DEVELOPMENT` requires the
 portfolio arm to pass **and** at least K admitted symbol arms to pass, with
@@ -164,8 +175,9 @@ version. An independent-binomial tail is reported only as a diagnostic. Otherwis
 outcome is `CARRY_DOES_NOT_GENERALIZE`.
 
 **Stop rule.** No cell, symbol, window, cost, gross or rule is changed after a cell
-exists. A failed family stops this line; a pass authorizes only a separately
-pre-registered forward paper protocol, never live use. A software or data fault that
+exists. A failed family stops this line; `INCONCLUSIVE_UNIVERSE` is likewise terminal for
+this protocol and is never rerun on a different universe; a pass authorizes only a
+separately pre-registered forward paper protocol, never live use. A software or data fault that
 invalidates a run is preserved and answered by a new protocol version, not repaired
 in place.
 
@@ -177,13 +189,16 @@ states the counter-hypothesis (a 2023-2024 regime effect that fees and basis ris
 erase on alts), the cheapest falsifier (the 2x-cost stress and every-sub-period rule
 on the 2022 regime), the mechanism chain (leveraged long demand pays a funding
 premium that the delta-neutral pair collects) and the independent oracle. Its digest is
-`c320d3ccb81e4412e67c098dfd77447e1122b15687fe066e665726388fec33d7` and its status
-is **UNREVIEWED** and `economic_execution_authorized=false`: no independent review has
-been posted. The oracle is a hand-computed three-pair ledger in exact rational
+`baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f` and its status
+is **UNREVIEWED** and `economic_execution_authorized=false`: the repository records no
+review of this exact digest and these heads. The oracle is a hand-computed three-pair ledger in exact rational
 arithmetic (`tests/evaluation/test_carry_multisymbol_replay.py`) that does not call the
-production sizing, cost or funding code. The packet's heads bind a wider code list than
-the screen modules (the shared parser, checksum, planner, embargo, dataset, data,
-simulation and strategy code), pinned by `tests/evaluation/test_carry_multisymbol_packet.py`.
+production sizing, cost or funding code. The packet's heads bind the computed static import
+closure of the screen entry points (the screen, the carry replay and the command line,
+with every module they import, lazy imports and package facades included), resolved
+from the packet head by `tests/evaluation/test_carry_multisymbol_packet.py`: a change
+to any file in that closure after the head fails the test until the packet is re-pinned
+and re-reviewed.
 
 ## Data source and runbook
 
@@ -218,7 +233,9 @@ recomputes a finished cell. Cell outputs are `cells/<arm>__<treatment>.json.gz` 
 hourly bar, or a funding gap by the assembler's rule). Each exclusion is written to
 `inclusion.json` with its evidence (URL and status, or the gap). Everything else halts
 the run and never excludes: HTTP 5xx, 429, transport errors and timeouts are retried
-three times with backoff and then halt as an operational, resumable failure; an offline
+three times with backoff and then halt as an operational, resumable failure; a response
+larger than the fetcher's byte bound (256 MiB) halts the same way at once, without a
+retry, as `response_too_large` rather than as an unclassified error; an offline
 cache miss halts at once, so an empty `--archive-dir` without `--allow-network` halts
 instead of producing `INCONCLUSIVE_UNIVERSE`; a checksum mismatch, a missing checksum
 file, a malformed archive and duplicated, unordered or malformed rows halt as integrity
@@ -232,8 +249,13 @@ this text, naming the code commit that will be run (`plan` prints it with the di
 > G4 authorization (carry-multisymbol-dev-v1): I authorize exactly one development
 > screen run of protocol digest `<digest>` at code commit `<commit>` on known-used
 > Tier D Binance Vision data in [2022-01-01, 2026-08-01). The result is exploratory
-> and carries no edge claim. No orders, no keys, no FS1 warm-up, sealed or other
+> and carries no edge claim. The coverage-only stage and any resume on the same output
+> directory are part of that one run. No orders, no keys, no FS1 warm-up, sealed or other
 > unused data, and no live use are authorized.
+
+One authorization is one run. The coverage-only stage and any resume on the same output
+directory are part of that one run. A run on a different output directory is a
+different run and is not covered.
 
 The network fetch is the only external access. Synthetic replays took about 2 ms per
 bar for nine pairs and 0.4 ms for one, so replays are roughly 25 to 45 minutes in

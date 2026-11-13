@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import time
 from typing import Any
 
 import pytest
@@ -33,10 +34,8 @@ Q = PROTOCOL.multiple_testing.bh_fdr_q
 FAMILY_SIZE = len(CELL_IDS)
 PROVENANCE = PValueProvenance(
     procedure_id=PROTOCOL.significance.procedure_id,
-    block_days=PROTOCOL.bootstrap.block_days,
-    resamples=PROTOCOL.bootstrap.resamples,
-    seed=PROTOCOL.bootstrap.seed,
-    n_days=1400,
+    raw_n_days=1400,
+    demeaned_n_days=1400,
 )
 CLEAN = ValidityFlags(
     leakage_detected=False,
@@ -570,9 +569,7 @@ def test_bh_adjusted_p_values_match_scipy_and_a_hand_worked_example() -> None:
     "change",
     [
         {"procedure_id": "a_different_test"},
-        {"block_days": 5},
-        {"resamples": 200},
-        {"seed": 1},
+        {"procedure_id": "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1"},
     ],
 )
 def test_p_values_without_the_frozen_procedure_provenance_are_refused(
@@ -593,13 +590,10 @@ def test_provenance_records_are_validated() -> None:
     for kwargs in (
         {"procedure_id": ""},
         {"procedure_id": 5},
-        {"block_days": 0},
-        {"block_days": True},
-        {"resamples": 0},
-        {"seed": -1},
-        {"seed": 1.0},
-        {"n_days": -1},
-        {"n_days": True},
+        {"raw_n_days": -1},
+        {"raw_n_days": True},
+        {"demeaned_n_days": -1},
+        {"demeaned_n_days": 1.0},
     ):
         with pytest.raises(SignalDiagnosisProtocolError):
             dataclasses.replace(PROVENANCE, **kwargs)
@@ -608,8 +602,55 @@ def test_provenance_records_are_validated() -> None:
         dataclasses.replace(cell, p_value_provenance="frozen")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("days", [0, 1, 3])
+@pytest.mark.parametrize("target", ["raw", "demeaned"])
+def test_a_series_too_short_to_test_must_carry_a_p_value_of_exactly_one(
+    days: int, target: str
+) -> None:
+    """Zero to three days give no cosine term: the frozen test returns exactly 1.0."""
+
+    short = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": days})
+    p_field = "rank_ic_p_value" if target == "raw" else "demeaned_p_value"
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="cannot reject"):
+        _classify({FIRST: _signal_cell(FIRST, p_value_provenance=short)})
+    with pytest.raises(SignalDiagnosisProtocolError, match="cannot reject"):
+        _classify(
+            {FIRST: _signal_cell(FIRST, p_value_provenance=short, **{p_field: 0.999})}
+        )
+    honest = _classify(
+        {FIRST: _signal_cell(FIRST, p_value_provenance=short, **{p_field: 1.0})}
+    )
+    assert honest.verdict == "NO_SIGNAL"
+    # Four days are the shortest testable series.
+    enough = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": 4})
+    assert _classify({FIRST: _signal_cell(FIRST, p_value_provenance=enough)}).verdict
+
+
 def test_there_is_no_field_through_which_an_adjusted_p_can_be_supplied() -> None:
     names = {field.name for field in dataclasses.fields(DecisionCellEvidence)}
 
     assert not any("adjusted" in name or "bh" in name for name in names)
     assert {"rank_ic_p_value", "demeaned_p_value", "p_value_provenance"} <= names
+
+
+@pytest.mark.parametrize(
+    "days",
+    [2039, 10**40, 10**160, 10**5000],
+    ids=["window-plus-one", "1e40", "1e160", "1e5000"],
+)
+@pytest.mark.parametrize("target", ["raw", "demeaned"])
+def test_a_day_count_beyond_the_evaluation_window_is_refused_quickly(
+    days: int, target: str
+) -> None:
+    """A valid-looking huge integer must neither loop nor overflow."""
+
+    huge = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": days})
+
+    started = time.perf_counter()
+    with pytest.raises(SignalDiagnosisProtocolError, match="evaluation window"):
+        _classify({FIRST: _signal_cell(FIRST, p_value_provenance=huge)})
+    assert time.perf_counter() - started < 1.0
+    window = PROTOCOL.max_series_days()
+    last = dataclasses.replace(PROVENANCE, **{f"{target}_n_days": window})
+    assert _classify({FIRST: _signal_cell(FIRST, p_value_provenance=last)}).verdict

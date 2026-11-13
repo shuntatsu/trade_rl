@@ -28,7 +28,11 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.evaluation.carry import replay_carry
 from trade_rl.evaluation.carry_multisymbol import protocol
-from trade_rl.evaluation.carry_multisymbol.decision import CellSummary, decide
+from trade_rl.evaluation.carry_multisymbol.decision import (
+    INCONCLUSIVE,
+    CellSummary,
+    decide,
+)
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
     CarryIntegrityHalt,
@@ -117,6 +121,19 @@ def _prepare_output(request: ScreenRequest) -> None:
     root.mkdir(parents=True, exist_ok=True)
     _write_json(existing, document)
     _write_json(root / "authorization.json", authorization)
+
+
+def _refuse_after_terminal_decision(root: Path) -> None:
+    """``INCONCLUSIVE_UNIVERSE`` ends this protocol; the run is never reopened."""
+    path = root / "decision.json"
+    if not path.is_file():
+        return
+    if json.loads(path.read_text(encoding="utf-8")).get("outcome") == INCONCLUSIVE:
+        raise FileExistsError(
+            f"{root} already holds an {INCONCLUSIVE} decision, which is terminal for "
+            f"this protocol: a different universe is a new protocol version, not a "
+            "rerun"
+        )
 
 
 @dataclass(slots=True)
@@ -289,6 +306,24 @@ def _cell(
     return summary
 
 
+def _publish_once(path: Path, value: object) -> None:
+    """Write a stage record once; on resume it must reproduce exactly.
+
+    A resumed run recomputes the inclusion and the data manifest. If they differ from
+    the first run's record the data or the source changed under the run, which is an
+    integrity failure: halt rather than overwrite the evidence.
+    """
+    if not path.is_file():
+        _write_json(path, value)
+        return
+    existing = json.loads(path.read_text(encoding="utf-8"))
+    if existing != json.loads(json.dumps(value)):
+        raise CarryIntegrityHalt(
+            f"{path.name} differs from the record of the first run",
+            {"kind": "resume_record_mismatch", "file": path.name},
+        )
+
+
 def _archive_stale_halt(root: Path) -> None:
     stale = root / "halt.json"
     if stale.is_file():
@@ -345,6 +380,7 @@ def run_screen(
     started_at = now()
     root = request.output_dir
     _prepare_output(request)
+    _refuse_after_terminal_decision(root)
     _archive_stale_halt(root)
     current: dict[str, str | None] = {"symbol": None}
     try:
@@ -360,7 +396,7 @@ def run_screen(
             for s in protocol.CANDIDATES
             if loaded[s].pair is None
         }
-        _write_json(
+        _publish_once(
             root / "inclusion.json",
             {
                 "admitted": list(admitted),
@@ -369,7 +405,7 @@ def run_screen(
                 "symbols": {s: loaded[s].facts for s in sorted(loaded)},
             },
         )
-        _write_json(
+        _publish_once(
             root / "data-manifest.json",
             {
                 "archives": data.evidence(),

@@ -291,8 +291,9 @@ def validate_window(start: datetime, end: datetime) -> None:
             raise ValueError("window bounds must be timezone-aware")
     if end.astimezone(UTC) > WINDOW_END:
         raise ValueError(
-            f"window end {end.isoformat()} is after the last admissible instant "
-            f"{WINDOW_END.isoformat()}; data from 2026-08-01 is FS1 warm-up or "
+            f"window end {end.isoformat()} is after the exclusive end "
+            f"{WINDOW_END.isoformat()} (the last admissible bar opens "
+            "2026-07-31T23:00Z); data from 2026-08-01 is FS1 warm-up or "
             "sealed data and is refused unconditionally"
         )
     if start.astimezone(UTC) != WINDOW_START or end.astimezone(UTC) != WINDOW_END:
@@ -309,8 +310,10 @@ def lease_text(*, code_commit: str) -> str:
         f"screen run of protocol digest {protocol_digest()} at code commit "
         f"{code_commit} on known-used Tier D Binance Vision data in "
         f"[{WINDOW_START.isoformat()}, {WINDOW_END.isoformat()}). The result is "
-        "exploratory and carries no edge claim. No orders, no keys, no FS1 warm-up, "
-        "sealed or other unused data, and no live use are authorized."
+        "exploratory and carries no edge claim. The coverage-only stage and any "
+        "resume on the same output directory are part of that one run. No orders, no "
+        "keys, no FS1 warm-up, sealed or other unused data, and no live use are "
+        "authorized."
     )
 
 

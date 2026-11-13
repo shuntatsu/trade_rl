@@ -5,6 +5,7 @@ the code in step, and keep the packet from claiming a review, an economic result
 any authorization. They read no market data.
 """
 
+import ast
 import json
 import re
 import subprocess
@@ -19,37 +20,108 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT / "report/issue810-carry-multisymbol-research-assurance-20261110.json"
 )
-PINNED_DIGEST = "c320d3ccb81e4412e67c098dfd77447e1122b15687fe066e665726388fec33d7"
+PINNED_DIGEST = "baf18575794470c4ba2328a6fac93393bcef31e43f16aeed339531bdbe00844f"
 SPEC = ROOT / "docs/specs/funding-carry-multisymbol.md"
 DOCUMENTS = (
     SPEC,
     ROOT / "docs/architecture/research-assurance.md",
     ROOT / "docs/research/current-status.md",
 )
-CODE_PATHS = (
-    # the screen, its data adapters and its command line
+# The bound code is the static import closure of these entry points (module-level and
+# lazy imports, plus the ``__init__`` of every ancestor package), resolved from the
+# immutable packet head, never from the working tree.
+ENTRY_POINTS = (
+    "trade_rl/evaluation/carry_multisymbol/",
     "trade_rl/evaluation/carry.py",
-    "trade_rl/evaluation/carry_multisymbol",
-    "trade_rl/integrations/binance/carry.py",
-    "trade_rl/integrations/market_store/carry_source.py",
     "tools/carry_multisymbol_screen.py",
-    "trade_rl/strategies/carry.py",
-    # shared economic, parsing and evidence dependencies the screen executes
-    "trade_rl/integrations/binance/dataset.py",
-    "trade_rl/integrations/binance/vision.py",
-    "trade_rl/integrations/binance/types.py",
-    "trade_rl/integrations/market_store/parse.py",
-    "trade_rl/integrations/market_store/checksum.py",
-    "trade_rl/integrations/market_store/fetch.py",
-    "trade_rl/integrations/market_store/archive_url.py",
-    "trade_rl/integrations/market_store/embargo.py",
-    "trade_rl/integrations/market_store/plan.py",
-    "trade_rl/integrations/market_store/contracts.py",
-    "trade_rl/integrations/market_store/ingest.py",
-    "trade_rl/data",
-    "trade_rl/simulation",
-    "trade_rl/artifacts",
 )
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+
+
+def _pinned_python_files(head: str) -> set[str]:
+    listing = _git("ls-tree", "-r", "--name-only", head, "trade_rl", "tools")
+    assert listing.returncode == 0, listing.stderr
+    return {path for path in listing.stdout.split() if path.endswith(".py")}
+
+
+def _module_name(path: str) -> str:
+    return path[: -len(".py")].replace("/", ".").removesuffix(".__init__")
+
+
+def _module_file(module: str, files: set[str]) -> str | None:
+    base = module.replace(".", "/")
+    for candidate in (f"{base}.py", f"{base}/__init__.py"):
+        if candidate in files:
+            return candidate
+    return None
+
+
+def _imported_modules(path: str, source: str) -> set[str]:
+    package = (
+        _module_name(path)
+        if path.endswith("/__init__.py")
+        else _module_name(path).rpartition(".")[0]
+    )
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parts = package.split(".")
+                parts = parts[: len(parts) - (node.level - 1)]
+                module = ".".join([*parts, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            found.add(module)
+            found.update(f"{module}.{alias.name}" for alias in node.names)
+    return {name for name in found if name.split(".")[0] in {"trade_rl", "tools"}}
+
+
+def bound_code_paths(head: str) -> list[str]:
+    """Every file the screen statically imports, transitively, at ``head``.
+
+    A deliberate superset: package ``__init__`` re-exports pull in whole subpackages
+    (for example the Binance facade and its submodules). Non-Python package data is
+    not covered.
+    """
+    files = _pinned_python_files(head)
+    pending = [
+        path
+        for path in files
+        if any(path == entry or path.startswith(entry) for entry in ENTRY_POINTS)
+    ]
+    assert pending, "no entry point found at the packet head"
+    seen: set[str] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        parts = _module_name(path).split(".")
+        for depth in range(1, len(parts)):
+            init = "/".join(parts[:depth]) + "/__init__.py"
+            if init in files:
+                pending.append(init)
+        source = _git("show", f"{head}:{path}")
+        assert source.returncode == 0, source.stderr
+        for module in _imported_modules(path, source.stdout):
+            target = _module_file(module, files)
+            if target is not None:
+                pending.append(target)
+    return sorted(seen)
+
+
+def _head_or_skip() -> str:
+    head = packet()["identity"]["implementation_head"]
+    if _git("cat-file", "-e", f"{head}^{{commit}}").returncode != 0:
+        pytest.skip("packet head is not in this clone (shallow checkout)")
+    return head
 
 
 def packet():
@@ -132,37 +204,57 @@ def test_packet_heads_are_one_commit_and_the_bound_code_is_unchanged() -> None:
     head = identity["protocol_head"]
     assert head == identity["implementation_head"]
     assert re.fullmatch(r"[0-9a-f]{40}", head)
-    exists = subprocess.run(
-        ["git", "cat-file", "-e", f"{head}^{{commit}}"],
-        cwd=ROOT,
-        capture_output=True,
-        check=False,
+    _head_or_skip()
+    bound = bound_code_paths(head)
+    changed = _git("diff", "--name-only", head, "HEAD", "--", *bound)
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.split() == [], (
+        "re-pin the packet heads after changing the bound code"
     )
-    if exists.returncode != 0:
-        pytest.skip("packet head is not in this clone (shallow checkout)")
-    changed = subprocess.run(
-        ["git", "diff", "--name-only", head, "HEAD", "--", *CODE_PATHS],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    assert changed == [], "re-pin the packet heads after changing the bound code"
 
 
-def test_the_bound_code_list_covers_the_shared_economic_dependencies() -> None:
+def test_the_static_closure_covers_every_shared_dependency_of_the_screen() -> None:
+    head = _head_or_skip()
+    bound = set(bound_code_paths(head))
     for needed in (
+        "trade_rl/__init__.py",
+        "trade_rl/_validation.py",
         "trade_rl/strategies/carry.py",
         "trade_rl/evaluation/carry.py",
-        "trade_rl/simulation",
-        "trade_rl/data",
+        "trade_rl/evaluation/carry_multisymbol/runner.py",
+        "tools/carry_multisymbol_screen.py",
+        "trade_rl/integrations/binance/__init__.py",
+        "trade_rl/integrations/binance/dataset.py",
+        "trade_rl/integrations/binance/carry.py",
+        "trade_rl/integrations/binance/vision.py",
+        "trade_rl/integrations/market_store/carry_source.py",
         "trade_rl/integrations/market_store/parse.py",
         "trade_rl/integrations/market_store/checksum.py",
-        "trade_rl/integrations/binance/dataset.py",
+        "trade_rl/integrations/market_store/fetch.py",
+        "trade_rl/integrations/market_store/rules.py",
+        "trade_rl/integrations/market_store/store.py",
+        "trade_rl/data/market.py",
+        "trade_rl/data/build/config.py",
+        "trade_rl/data/build/economics.py",
+        "trade_rl/artifacts/verified_file.py",
+        "trade_rl/simulation/__init__.py",
     ):
-        assert needed in CODE_PATHS
-    for path in CODE_PATHS:
-        assert (ROOT / path).exists(), path
+        assert needed in bound, needed
+    # a facade pulls in its submodules, and nothing outside the closure is bound
+    assert any(path.startswith("trade_rl/simulation/") for path in bound)
+    assert "trade_rl/evaluation/paper/engine.py" not in bound
+
+
+def test_the_closure_is_computed_not_listed_and_tracks_a_new_import() -> None:
+    files = {"trade_rl/a.py", "trade_rl/b.py", "trade_rl/pkg/__init__.py"}
+    assert _imported_modules("trade_rl/a.py", "from trade_rl import b\n") == {
+        "trade_rl",
+        "trade_rl.b",
+    }
+    lazy = "def f():\n    import trade_rl.pkg\n"
+    assert "trade_rl.pkg" in _imported_modules("trade_rl/a.py", lazy)
+    assert _module_file("trade_rl.pkg", files) == "trade_rl/pkg/__init__.py"
+    assert _module_file("trade_rl.nothing", files) is None
 
 
 def test_exposure_candidate_provenance_and_bch_are_disclosed_everywhere() -> None:
@@ -186,3 +278,47 @@ def test_exposure_candidate_provenance_and_bch_are_disclosed_everywhere() -> Non
     assert "data-blind" in forbidden and "controlled error rate" in forbidden
     text = json.dumps(packet())
     assert "mutation" not in text
+
+
+def test_hypothesis_prose_states_the_pinned_cell_rule_exactly() -> None:
+    thesis = packet()["thesis"]
+    hypothesis = thesis["hypothesis"]
+    # decision.cell_passes: the every-sub-period clause is the base cell's alone
+    assert "base cell only" in hypothesis
+    assert "full-period net return" in hypothesis
+    for stress in ("2x cost", "one hour of entry delay", "10x lower participation"):
+        assert stress in hypothesis
+    assert "in every calendar sub-period 2022 to 2026 and under" not in hypothesis
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "base cell only" in spec
+    assert "the stress cells are not required to be positive in every" in spec
+
+
+def test_inconclusive_universe_is_terminal_in_the_packet_the_spec_and_the_code() -> (
+    None
+):
+    thesis = packet()["thesis"]
+    assert "INCONCLUSIVE_UNIVERSE" in thesis["stop_rule"]
+    assert "terminal for this protocol" in thesis["stop_rule"]
+    assert "terminal for this protocol" in packet()["claims"]["decision_rule"]
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "`INCONCLUSIVE_UNIVERSE`, which is terminal for this protocol" in spec
+    assert "never rerun" in spec
+
+
+def test_one_authorization_covers_the_coverage_stage_and_every_resume() -> None:
+    sentence = (
+        "The coverage-only stage and any resume on the same output directory "
+        "are part of that one run."
+    )
+    assert sentence in protocol.lease_text(code_commit="a" * 40)
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert sentence in spec
+    action = packet()["claims"]["next_authorized_action"]
+    assert "coverage-only stage" in action and "resume" in action
+
+
+def test_spec_states_the_exclusive_funding_end_and_the_oversize_halt() -> None:
+    spec = " ".join(SPEC.read_text(encoding="utf-8").split())
+    assert "a funding event at exactly 2026-08-01T00:00Z is excluded" in spec
+    assert "larger than the fetcher's byte bound" in spec

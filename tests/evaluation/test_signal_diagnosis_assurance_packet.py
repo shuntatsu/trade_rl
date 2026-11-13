@@ -113,7 +113,7 @@ def test_packet_is_bound_to_the_protocol_digest_and_dataset_identity() -> None:
     assert DATASET_ID in thesis["hypothesis"]
     assert REPORT_PATH in thesis["hypothesis"]
     assert (ROOT / REPORT_PATH).is_file()
-    assert "signal_diagnosis_protocol_v3" in thesis["hypothesis"]
+    assert "signal_diagnosis_protocol_v4" in thesis["hypothesis"]
 
 
 def test_packet_states_the_required_honest_limits() -> None:
@@ -239,10 +239,11 @@ def test_packet_freezes_the_significance_procedure_and_the_bh_family() -> None:
 
     for needle in (
         "one-sided",
-        "moving-block bootstrap",
-        "20-day blocks",
-        "2000 resamples",
+        "equal-weighted cosine",
+        "Student-t",
+        "no resampling",
         "16 decision cells",
+        "synthetic calibration",
     ):
         assert needle in thesis["metric_proxy_rationale"], needle
     evidence = mechanism["independent_oracles"]["evidence"]
@@ -332,6 +333,8 @@ def test_packet_uses_the_v2_semantics_and_no_stale_v1_wording() -> None:
     for stale in (
         "signal_diagnosis_protocol_v1",
         "signal_diagnosis_protocol_v2",
+        "signal_diagnosis_protocol_v3 (",
+        "moving-block-bootstrap p-values",
         "beta-removed",
         "beta removal",
         "survives beta",

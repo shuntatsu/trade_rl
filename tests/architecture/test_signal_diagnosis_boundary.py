@@ -130,7 +130,7 @@ def test_current_docs_record_the_protocol_and_the_planned_not_executed_status() 
 
     assert "evaluation/signal_diagnosis/" in boundaries
     assert (
-        "report/issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json" in boundaries
+        "report/issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json" in boundaries
     )
     assert "signal_diagnosis/{__init__.py,protocol.py,verdict.py}" in boundaries
     assert "## Research-specific contract: signal diagnosis SD0" in assurance

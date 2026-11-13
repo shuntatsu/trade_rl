@@ -182,6 +182,54 @@ def test_venue_minimum_rejection_does_not_override_capacity_limit() -> None:
     assert report["passed"] is False
 
 
+@pytest.mark.parametrize(
+    ("symbol_cap", "expected_dust"),
+    ((0.20, False), (0.30, True)),
+)
+def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
+    symbol_cap: float, expected_dust: bool
+) -> None:
+    """A venue-minimum rejection is not permission to exceed symbol capacity."""
+
+    base = _dataset(drop=True)
+    volume = np.array(base.volume, copy=True)
+    volume[-1, :] = 0.25
+    symbol_caps = np.full(volume.shape, 0.50, dtype=np.float64)
+    symbol_caps[-1, :] = symbol_cap  # the actual processing row, not a prior bar
+    dataset = dataclasses.replace(
+        base,
+        volume=volume,
+        max_participation_rate=symbol_caps,
+    )
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    events = ledger.intervals.intervals[-1].order_events
+    assert {
+        (event.symbol_index, event.reason)
+        for event in events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+
+    # The residual is 3 USDT at the terminal open; the market's last-bar
+    # capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
+    # participation, below the global 0.50 but above the symbol 0.20 cap.
+    assert COST.max_participation_rate == 0.50
+    assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
+    assert dataset.resolved_array("max_participation_rate")[-1, 0] == symbol_cap
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is expected_dust
+    assert report["passed"] is expected_dust
+    assert [item["symbol"] for item in report["terminal_dust"]] == (
+        list(SYMBOLS) if expected_dust else []
+    )
+    if expected_dust:
+        assert report["terminal_dust_exit_cost_usdt"] > 0.0
+    else:
+        assert report["terminal_dust_exit_cost_usdt"] == 0.0
+
+
 def test_a_genuine_stuck_position_still_fails() -> None:
     # 6 USDT >= the 5 USDT minimum, but the terminal bar has no liquidity: the close
     # fails for a reason other than the minimum notional.

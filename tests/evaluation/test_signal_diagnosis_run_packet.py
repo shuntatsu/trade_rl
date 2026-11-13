@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -33,7 +33,13 @@ PACKET_PATH = (
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "bc0163631694f42cc6fbc52ca51678e9bebe9e86efb3e9d5ca46607971b30368"
+PINNED_DIGEST = "10acf9db00b7ea594f174f0a16e7a978974ed4d483c437f1785b4afd97a094f4"
+PREVIOUS_PACKET_PATH = (
+    ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
+)
+PREVIOUS_PINNED_DIGEST = (
+    "bc0163631694f42cc6fbc52ca51678e9bebe9e86efb3e9d5ca46607971b30368"
+)
 HISTORICAL_PACKET_PATH = (
     ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261113.json"
 )
@@ -148,6 +154,19 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_preceding_manifest_first_packet_is_immutable() -> None:
+    """The unreviewed predecessor does not change when source closure is repaired."""
+
+    predecessor = json.loads(PREVIOUS_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(predecessor) == PREVIOUS_PINNED_DIGEST
+    result = evaluate_assurance(predecessor)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert result.economic_execution_authorized is False
+    assert predecessor["identity"]["implementation_head"] == (
+        "fb67d040838616d20a34c0daca3834d9d7b293e0"
+    )
+
+
 def test_historical_sd2_packet_remains_immutable_and_unreviewed() -> None:
     """A rebind creates a new packet, never retroactively changes the old one."""
 
@@ -222,7 +241,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     for text in (status, architecture):
         assert PINNED_DIGEST in text
         assert (
-            "report/sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
+            "report/sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json"
             in text
         )
         assert "UNREVIEWED" in text

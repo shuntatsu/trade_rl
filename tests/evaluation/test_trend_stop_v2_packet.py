@@ -34,7 +34,13 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1239-symbol-cap.json"
+)
+PRIOR_CAPACITY_PACKET_PATH = (
     ROOT / "report" / "trend-stop-research-assurance-20261113-after1233-capacity.json"
+)
+PRIOR_CAPACITY_PACKET_DIGEST = (
+    "1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185"
 )
 REVISION_1_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
 PRIOR_V2_PACKET_PATH = ROOT / "report" / "trend-stop-research-assurance-20261113.json"
@@ -50,7 +56,7 @@ PRIOR_AFTER1203_PACKET_PATH = (
 SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "1ab35db05c31805795d86ca4363e547baf3ef0818741d1baa3028de7a0738185"
+PINNED_DIGEST = "9b9dcbef952962e4ed4cde8e9bc490444352eedcb5a6654f3013e6af78699c81"
 PRIOR_VALUATION_PACKET_DIGEST = (
     "fd3218e9af7ebd65aaddde7a1ecaf2f61a3bdc4a1b99cb60b44e7ed3bd498d0a"
 )
@@ -277,12 +283,26 @@ def test_prior_valuation_packet_remains_immutable_and_unreviewed() -> None:
     assert result.economic_execution_authorized is False
 
 
+def test_previous_terminal_dust_capacity_packet_is_immutable() -> None:
+    """Rebinding the valuation source must never rewrite the preceding packet."""
+
+    previous = json.loads(PRIOR_CAPACITY_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(previous)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert result.economic_execution_authorized is False
+    assert assurance_digest(previous) == PRIOR_CAPACITY_PACKET_DIGEST
+    assert previous["identity"]["implementation_head"] == (
+        "67988676f2b449ea18ca956091f281b514940568"
+    )
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)
     assert result.status == "UNREVIEWED" and result.errors == ()
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
+    assert PINNED_DIGEST != PRIOR_CAPACITY_PACKET_DIGEST
     assert PINNED_DIGEST != REVISION_1_PACKET_DIGEST
     assert PINNED_DIGEST != PRIOR_V2_PACKET_DIGEST
     assert PINNED_DIGEST != PRIOR_AFTER1203_PACKET_DIGEST
@@ -399,6 +419,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
+        assert (
+            "report/trend-stop-research-assurance-20261113-after1239-symbol-cap.json"
+            in text
+        )
         assert (
             "report/trend-stop-research-assurance-20261113-after1233-capacity.json"
             in text

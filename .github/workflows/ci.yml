@@ -62,9 +62,6 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Diagnostic Ruff format diff (temporary, does not relax check)
-        run: uv run ruff format --diff tests/evaluation/test_signal_diagnosis_run_cli.py
-
       - name: Format
         run: uv run ruff format --check trade_rl tests tools
 

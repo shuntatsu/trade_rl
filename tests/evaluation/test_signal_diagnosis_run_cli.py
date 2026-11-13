@@ -1,11 +1,13 @@
-"""CLI-level proof that no Dataset array is read before every refusal has run.
+"""CLI-level proof of manifest-first refusal and no-follow array file admission.
 
-The payload reader (``load_published_market_dataset_artifact``) is replaced by a spy.
-It must never be reached when the artifact's metadata puts coverage outside the window,
-when the G4 URL is missing or malformed, when the working tree is dirty, when LightGBM
-is missing, or on any digest mismatch, and it must be reached exactly once for a valid
-input (the positive control). No market value exists in these fixtures: the artifact is
-a manifest plus an opaque byte string.
+The in-memory Dataset decoder is replaced by a spy, while file-open probes
+observe both ordinary Path.open and the descriptor-safe open_regular_binary.
+Invalid manifest metadata must refuse before arrays I/O; digest-mismatched
+payload bytes may be read once but must never be decoded. Valid metadata opens
+arrays exactly once and decodes the same verified bytes. Synthetic link-swap
+and linked-parent witnesses exercise the pre-open no-follow boundary on POSIX;
+the portable fallback makes no descriptor-atomic claim. No fixture contains
+a real market value: each Dataset payload is an opaque byte stand-in.
 """
 
 from __future__ import annotations

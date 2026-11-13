@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -153,7 +155,77 @@ def _arrays_opens(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
         return original_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", track_open)
+
+    # The production reader may use the repository's descriptor-guarded opener,
+    # which deliberately bypasses Path.open on POSIX. Count both paths, never
+    # weaken the zero-open / exactly-once array I/O assertions.
+    guarded_open = getattr(cli, "open_regular_binary", None)
+    if guarded_open is not None:
+
+        @contextmanager
+        def spy_guarded_open(path: Path, *, field: str) -> Any:
+            if path == arrays_path:
+                observed.append(path)
+            with guarded_open(path, field=field) as handle:
+                yield handle
+
+        monkeypatch.setattr(cli, "open_regular_binary", spy_guarded_open)
+
     return observed
+
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="descriptor-relative O_NOFOLLOW is a POSIX-specific guarantee",
+)
+def test_preopen_leaf_symlink_swap_cannot_read_foreign_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A swap *after* the initial leaf check must not redirect any byte read."""
+
+    root = tmp_path / "artifact"
+    root.mkdir()
+    arrays = root / "arrays.npz"
+    arrays.write_bytes(PAYLOAD)
+    foreign = tmp_path / "sealed-placeholder.npz"
+    foreign.write_bytes(b"synthetic forbidden stand-in; never read")
+    original_is_symlink = Path.is_symlink
+    swapped = False
+
+    def swap_after_check(path: Path) -> bool:
+        nonlocal swapped
+        was_symlink = original_is_symlink(path)
+        if path == arrays and not swapped:
+            swapped = True
+            arrays.unlink()
+            arrays.symlink_to(foreign)
+        return was_symlink
+
+    monkeypatch.setattr(Path, "is_symlink", swap_after_check)
+    with pytest.raises((SignalDiagnosisProtocolError, OSError, ValueError)):
+        cli._read_artifact_file(root, "arrays.npz")
+    assert swapped, "the pre-open replacement was not exercised"
+
+
+def test_symlinked_artifact_directory_cannot_redirect_array_read(
+    tmp_path: Path,
+) -> None:
+    """A regular leaf below a linked parent is not an admissible payload."""
+
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    (real_root / "arrays.npz").write_bytes(PAYLOAD)
+    alias = tmp_path / "artifact"
+    try:
+        alias.symlink_to(real_root, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+
+    with pytest.raises((SignalDiagnosisProtocolError, OSError, ValueError)):
+        cli._read_artifact_file(alias, "arrays.npz")
 
 
 @pytest.mark.parametrize(

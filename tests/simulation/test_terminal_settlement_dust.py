@@ -41,7 +41,12 @@ COST = ExecutionCostConfig(max_participation_rate=0.5)
 PROTO = dataclasses.replace(PROTOCOL, initial_capital=CAPITAL)
 
 
-def _dataset(*, drop: bool, thin_last_volume: bool = False) -> MarketDataset:
+def _dataset(
+    *,
+    drop: bool,
+    thin_last_volume: bool = False,
+    terminal_open_rebounds: bool = False,
+) -> MarketDataset:
     """Prices of 100 that halve at ``DROP_ROW`` when ``drop``; lot 0.01, minimum 5."""
 
     base = synthetic_dataset(
@@ -54,13 +59,19 @@ def _dataset(*, drop: bool, thin_last_volume: bool = False) -> MarketDataset:
     price = np.full(shape, 100.0)
     if drop:
         price[DROP_ROW:] = 50.0
+    opens = price.copy()
+    highs = price.copy()
+    if terminal_open_rebounds:
+        assert drop, "the terminal open/mark counterexample needs a prior drop"
+        opens[-1] = 100.0
+        highs[-1] = 100.0
     volume = np.full(shape, 1.0e12)
     if thin_last_volume:
         volume[-1] = 1.0e-9  # no liquidity on the terminal bar
     fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
     fields.update(
-        open=price.copy(),
-        high=price.copy(),
+        open=opens,
+        high=highs,
         low=price.copy(),
         close=price.copy(),
         mark_price=price.copy(),
@@ -142,6 +153,32 @@ def test_a_genuine_stuck_position_still_fails() -> None:
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []
     assert report["passed"] is False
+
+
+def test_mark_dust_is_not_venue_dust_when_terminal_open_is_tradable() -> None:
+    """A liquidity-blocked 6 USDT close must not pass as 3 USDT mark dust."""
+    dataset = _dataset(
+        drop=True,
+        thin_last_volume=True,
+        terminal_open_rebounds=True,
+    )
+    result = _replay(dataset)
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    residuals = report["terminal_residual_quantities"]
+    assert set(residuals) == set(SYMBOLS)
+    for index, symbol in enumerate(SYMBOLS):
+        quantity = abs(float(Fraction(residuals[symbol])))
+        mark = float(dataset.resolved_array("mark_price")[-1, index])
+        opening = float(dataset.open[-1, index])
+        assert quantity * opening >= MINIMUM_NOTIONAL
+        assert quantity * mark < MINIMUM_NOTIONAL
+
+    # The engine refuses the close for liquidity, not for the venue minimum.
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["terminal_dust"] == []
+    assert report["passed"] is False
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
 
 
 def test_runs_that_end_flat_are_unchanged_by_the_dust_valuation() -> None:

@@ -249,6 +249,9 @@ def test_parent_swap_after_fd_capture_keeps_original_snapshot(
         return fd
 
     monkeypatch.setattr(os, "open", race_open)
+    # The opener tests membership of the current os.open in supports_dir_fd.
+    # Preserve that capability while injecting the race through its wrapper.
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {race_open})
     observed = cli._read_artifact_file(root, "arrays.npz")
     assert swapped, "the artifact directory was not replaced after fd capture"
     assert root.is_symlink()

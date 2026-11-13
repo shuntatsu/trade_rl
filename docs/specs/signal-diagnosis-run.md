@@ -33,19 +33,24 @@ appear in D2.
 
 ## 2. Refusals
 
-Before any Dataset array is decoded (the CLI admits the published directory from its
-small manifest and the digest of its payload, both read once into memory, then decodes
-from those same bytes and reaches the decoder exactly once; no path is opened a second
-time): the manifest must hash to its own `artifact_digest` and carry the pinned artifact,
-arrays, Dataset and feature-config digests, the five-symbol roster, a continuous hourly
-grid and no more bars than the protocol window holds, so a Dataset reaching into the FS1
-warm-up span, the sealed window or unused data is refused from metadata; the arrays file
-bytes must hash to the pinned arrays digest, and the Dataset is decoded from exactly
-those bytes by `load_dataset_from_verified_bytes` (the file loader is unchanged for other
-callers), so replacing the directory after verification changes nothing. A CLI-level spy
-test proves the loader is never reached on any of these refusals, on a missing G4 URL, a
-dirty tree, a missing LightGBM or a digest mismatch, and is reached once for a valid
-input. Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working
+Before opening any Dataset arrays file, the CLI reads only `manifest.json` and
+admits its metadata: the manifest must hash to its own `artifact_digest`, match the
+pinned artifact, arrays, Dataset and feature-config digests, declare the five-symbol
+roster and a continuous hourly grid, and fit no more bars than the protocol window.
+Malformed, tampered, foreign or out-of-window manifests are refused **without opening
+`arrays.npz`**. This includes any manifest declaring FS1 warm-up, sealed or unused
+coverage. A filesystem `Path.open` spy verifies zero arrays-file opens for these
+refusals; URL, clean-tree and LightGBM checks precede even the manifest read.
+
+Only after manifest admission does the CLI open `arrays.npz` once, hold the raw bytes
+in memory, and compare their SHA-256 to the pinned arrays digest. A payload digest
+mismatch therefore **does read** those bytes once, but never decodes them. The
+Dataset decoder `load_dataset_from_verified_bytes` uses exactly the verified
+in-memory manifest and array bytes, without another file read; a post-verification
+directory swap cannot change what is decoded. The valid positive control checks
+one arrays-file open and identical bytes at the decoder, and the injected file-swap
+regressions preserve that boundary. This software-level check does not claim an
+atomic directory-swap defense or a bound on large payload allocations. Before any statistic: no well-formed G4 authorization comment URL; a dirty Git working
 tree (untracked files included); a plan other than the protocol's; a missing LightGBM;
 a non-empty output directory. A protocol digest other than the pinned one or a Dataset
 identity other than the pinned `dataset_id`, artifact, arrays and feature-config

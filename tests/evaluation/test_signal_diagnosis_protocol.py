@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,7 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
     protocol_from_payload,
     reject_forbidden_window,
 )
+from trade_rl.evaluation.signal_measurement import ewc_mean_test, ewc_terms
 from trade_rl.integrations.binance.dataset import binance_multitimeframe_feature_specs
 from trade_rl.integrations.market_store.embargo import (
     FS1_WARMUP_START,
@@ -47,12 +49,16 @@ from trade_rl.strategies.forecasts.ridge import fit_ridge_forecast_from_training
 from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
 
 ROOT = Path(__file__).resolve().parents[2]
-REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json"
+REPORT = ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json"
 V1_BLOCKED_DIGEST = "7c353bf45feea49aa421172f6a8df4d9ed39789585d438c7a4b57d1409e5dfc9"
 V2_BLOCKED_DIGEST = "7a550e789ce76fb2bfb598a9e1bc087bfc4ba30747ff0f845b2b79f51ff8f570"
-PINNED_PROTOCOL_DIGEST = (
+V3_SUPERSEDED_DIGEST = (
     "cbc26a54b7915e4927e39c65f9be32704088fdad83026bb6fffff00bcb7b8161"
 )
+PINNED_PROTOCOL_DIGEST = (
+    "1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3"
+)
+SUPERSEDED_DIGESTS = (V1_BLOCKED_DIGEST, V2_BLOCKED_DIGEST, V3_SUPERSEDED_DIGEST)
 SHA_A = "a" * 64
 
 
@@ -110,8 +116,8 @@ def test_default_protocol_is_frozen_and_its_digest_is_pinned() -> None:
     protocol = default_signal_diagnosis_protocol()
     raw = protocol_canonical_bytes(protocol)
 
-    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v3"
-    assert protocol_digest(protocol) not in (V1_BLOCKED_DIGEST, V2_BLOCKED_DIGEST)
+    assert protocol.schema_version == PROTOCOL_SCHEMA == "signal_diagnosis_protocol_v4"
+    assert protocol_digest(protocol) not in SUPERSEDED_DIGESTS
     assert protocol_digest(protocol) == hashlib.sha256(raw).hexdigest()
     assert protocol_digest(protocol) == PINNED_PROTOCOL_DIGEST
     assert default_signal_diagnosis_protocol() == protocol
@@ -560,7 +566,12 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         lambda p: p["stability"].__setitem__("covered_month_min_valid_days", 10),
         lambda p: p["families"][1]["feature_names"].pop(),
         lambda p: p["data"].__setitem__("evaluation_end", "2026-09-01T00:00:00Z"),
-        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v4"),
+        lambda p: p.__setitem__("schema_version", "signal_diagnosis_protocol_v5"),
+        lambda p: p["significance"].__setitem__("terms_cube_multiplier", 64),
+        lambda p: p["significance"].__setitem__("terms_square_multiplier", 9),
+        lambda p: p["significance"].__setitem__(
+            "procedure_id", "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1"
+        ),
         lambda p: p["significance"].__setitem__("tail", "two_sided"),
         lambda p: p["significance"]["bh_family_cell_ids"].pop(),
         lambda p: p["significance"]["bh_family_ids"].pop(),
@@ -585,6 +596,9 @@ def test_grids_cannot_be_empty(mutate: Any) -> None:
         "family_member",
         "window_end",
         "schema_version",
+        "terms_cube_multiplier",
+        "terms_square_multiplier",
+        "significance_procedure_id",
         "significance_tail",
         "significance_family_cells",
         "significance_families",
@@ -967,7 +981,12 @@ def test_coverage_rule_bounds_are_validated(mutate: Any) -> None:
 
 
 @pytest.mark.parametrize(
-    "old_schema", ["signal_diagnosis_protocol_v1", "signal_diagnosis_protocol_v2"]
+    "old_schema",
+    [
+        "signal_diagnosis_protocol_v1",
+        "signal_diagnosis_protocol_v2",
+        "signal_diagnosis_protocol_v3",
+    ],
 )
 def test_superseded_versions_are_not_loadable_and_their_digests_are_not_reused(
     old_schema: str,
@@ -977,7 +996,21 @@ def test_superseded_versions_are_not_loadable_and_their_digests_are_not_reused(
 
     with pytest.raises(SignalDiagnosisProtocolError, match="unsupported protocol"):
         protocol_from_payload(payload)
-    assert PINNED_PROTOCOL_DIGEST not in (V1_BLOCKED_DIGEST, V2_BLOCKED_DIGEST)
+    assert PINNED_PROTOCOL_DIGEST not in SUPERSEDED_DIGESTS
+    # v3 froze the centred moving-block bootstrap; its payload shape (no cosine-term
+    # rule, the bootstrap procedure id) is refused, and its report is not kept.
+    v3 = _payload()
+    v3["schema_version"] = "signal_diagnosis_protocol_v3"
+    for name in ("terms_rule", "terms_cube_multiplier", "terms_square_multiplier"):
+        del v3["significance"][name]
+    v3["significance"]["procedure_id"] = (
+        "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1"
+    )
+    with pytest.raises(SignalDiagnosisProtocolError):
+        protocol_from_payload(v3)
+    assert not (
+        ROOT / "report" / "issue1146-sd0-signal-diagnosis-protocol-v3-20261110.json"
+    ).exists()
     # v2 had no significance procedure; its payload shape is refused outright.
     legacy = _payload()
     del legacy["significance"]
@@ -1062,7 +1095,7 @@ def test_a_label_closing_exactly_at_the_window_end_is_inside_one_bar_later_is_no
         reject_forbidden_window(end - timedelta(days=1), end + bar)
 
 
-# ------------------------------------------------ frozen significance procedure (v3)
+# ------------------------------------------------ frozen significance procedure (v4)
 
 
 def test_the_decisive_significance_test_is_frozen_field_by_field() -> None:
@@ -1070,7 +1103,7 @@ def test_the_decisive_significance_test_is_frozen_field_by_field() -> None:
     significance = protocol.significance
 
     assert significance.procedure_id == (
-        "moving_block_bootstrap_one_sided_mean_rank_ic_increment_v1"
+        "equal_weighted_cosine_one_sided_t_mean_rank_ic_increment_v1"
     )
     assert significance.tail == "one_sided_positive"
     assert "mean" in significance.null_hypothesis
@@ -1082,16 +1115,39 @@ def test_the_decisive_significance_test_is_frozen_field_by_field() -> None:
     ):
         assert needle in significance.statistic, needle
     for needle in (
-        "moving_block_mean_test",
-        "bootstrap.block_days",
-        "bootstrap.resamples",
-        "bootstrap.seed",
-        "p_value",
+        "ewc_mean_test",
+        "Student-t",
+        "cosine",
         "1.0",
+        "fewer than four",
+        "no resampling",
     ):
         assert needle in significance.p_value_source, needle
+    assert "moving_block" not in significance.p_value_source
+    assert "125 * nu**3 <= 8 * n_days**2" in significance.terms_rule
+    assert significance.terms_cube_multiplier == 125
+    assert significance.terms_square_multiplier == 8
     assert "label_overlap_days" in significance.dependence_rule
     assert "decision cell" in significance.family_rule
+    # The bootstrap settings stay frozen for the D4 payoff interval only.
+    assert protocol.bootstrap.method == "moving_block_mean_test"
+
+
+def test_the_cosine_term_rule_is_the_one_the_sd1_test_uses() -> None:
+    significance = default_signal_diagnosis_protocol().significance
+
+    for n_days in range(0, 4000):
+        assert significance.cosine_terms(n_days) == ewc_terms(n_days), n_days
+    assert [significance.cosine_terms(n) for n in (0, 3, 4, 125, 1460)] == [
+        0,
+        0,
+        1,
+        10,
+        51,
+    ]
+    for bad in (-1, 1.5, True):
+        with pytest.raises(SignalDiagnosisProtocolError):
+            significance.cosine_terms(bad)  # type: ignore[arg-type]
 
 
 def test_the_bh_family_is_the_sixteen_frozen_decision_cells_for_each_target() -> None:
@@ -1142,6 +1198,20 @@ def test_the_bootstrap_block_must_cover_the_label_overlap() -> None:
     assert protocol.bootstrap.block_days >= 1
 
 
+def test_the_long_run_variance_span_must_cover_the_label_overlap() -> None:
+    protocol = default_signal_diagnosis_protocol()
+    # With nu cosine terms the estimator smooths over n / nu days: four days at the
+    # shortest testable series. 240-bar labels overlap ten days, more than that.
+    horizons = replace(protocol.horizons, primary_bars=240, secondary_bars=(4, 72))
+    rules = replace(protocol.decision_rules, primary_horizon_bars=240)
+
+    with pytest.raises(SignalDiagnosisProtocolError, match="long-run variance"):
+        replace(protocol, horizons=horizons, decision_rules=rules)
+    significance = protocol.significance
+    for n_days in range(4, 3000):
+        assert n_days / significance.cosine_terms(n_days) >= 1.0
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -1149,34 +1219,118 @@ def test_the_bootstrap_block_must_cover_the_label_overlap() -> None:
         lambda s: replace(s, procedure_id=" "),
         lambda s: replace(s, bh_family_ids=("raw_target_decision_cells",)),
         lambda s: replace(s, bh_family_ids=("a", "a")),
+        lambda s: replace(s, terms_cube_multiplier=0),
+        lambda s: replace(s, terms_square_multiplier=True),
+        lambda s: replace(s, terms_rule=" "),
     ],
-    ids=["two_sided", "blank_id", "one_family", "duplicate_family"],
+    ids=[
+        "two_sided",
+        "blank_id",
+        "one_family",
+        "duplicate_family",
+        "zero_cube",
+        "bool_square",
+        "blank_rule",
+    ],
 )
 def test_the_significance_spec_validates_itself(mutate: Any) -> None:
     with pytest.raises(SignalDiagnosisProtocolError):
         mutate(default_signal_diagnosis_protocol().significance)
 
 
-def test_the_frozen_p_value_source_is_what_the_repository_bootstrap_returns() -> None:
-    """The text says p comes from ``moving_block_mean_test``; check its stated behaviour."""
+def test_the_frozen_p_value_source_is_what_the_sd1_test_returns() -> None:
+    """The text says p comes from ``ewc_mean_test``; check its stated behaviour."""
 
-    protocol = default_signal_diagnosis_protocol()
-    boot = protocol.bootstrap
-    settings = {
-        "n_bootstrap": boot.resamples,
-        "seed": boot.seed,
-        "block_size": boot.block_days,
-    }
+    significance = default_signal_diagnosis_protocol().significance
     rng = np.random.default_rng(0)
-    strongly_positive = tuple(float(v) for v in 0.5 + 0.01 * rng.standard_normal(80))
-    non_positive = tuple(float(v) for v in -0.5 + 0.01 * rng.standard_normal(80))
+    strongly_positive = 0.5 + 0.01 * rng.standard_normal(80)
+    non_positive = -0.5 + 0.01 * rng.standard_normal(80)
 
-    strong = moving_block_mean_test(strongly_positive, **settings)
-    weak = moving_block_mean_test(non_positive, **settings)
-    too_short = moving_block_mean_test((0.3,), **settings)
+    strong = ewc_mean_test(strongly_positive)
+    weak = ewc_mean_test(non_positive)
 
-    assert boot.method == "moving_block_mean_test"
-    assert strong.p_value == pytest.approx(1.0 / (boot.resamples + 1))  # the smallest p
-    assert weak.p_value == 1.0  # observed mean <= 0: the one-sided p is exactly 1
-    assert too_short.p_value == 1.0  # fewer than two days cannot reject
-    assert strong.block_size == boot.block_days
+    assert strong.p_value_one_sided < 1e-9
+    assert strong.cosine_terms == significance.cosine_terms(80) == 7
+    assert weak.p_value_one_sided == 1.0  # observed mean <= 0: exactly 1
+    # Fewer than four days, including none, cannot reject: SD0 and SD1 agree.
+    for days in (0, 1, 2, 3):
+        short = ewc_mean_test([0.3 + 0.01 * day for day in range(days)])
+        assert short.p_value_one_sided == 1.0
+        assert short.cosine_terms == significance.cosine_terms(days) == 0
+    assert ewc_mean_test([0.3, 0.2, 0.4, 0.3]).cosine_terms == 1
+    # Deterministic: the same series always gives the same p-value.
+    assert ewc_mean_test(strongly_positive) == strong
+
+
+def _binary_search_terms(n_days: int) -> int:
+    """Oracle: the largest nu with 125 nu**3 <= 8 n**2 by bisection on integers."""
+
+    bound = 8 * n_days * n_days
+    low, high = 0, 1
+    while 125 * high**3 <= bound:
+        high *= 2
+    while high - low > 1:
+        middle = (low + high) // 2
+        if 125 * middle**3 <= bound:
+            low = middle
+        else:
+            high = middle
+    return low
+
+
+def test_the_cosine_terms_are_exact_at_every_perfect_cube_boundary() -> None:
+    significance = default_signal_diagnosis_protocol().significance
+
+    assert significance.cosine_terms(1460) == 51
+    assert significance.cosine_terms(60) == 6
+    for n_days in range(0, 6000):
+        assert significance.cosine_terms(n_days) == _binary_search_terms(n_days)
+    # The smallest n for each nu, and the n just below it, straddle the boundary.
+    for terms in range(1, 3000):
+        smallest = math.isqrt(-(-125 * terms**3 // 8) - 1) + 1
+        assert 125 * terms**3 <= 8 * smallest**2
+        assert significance.cosine_terms(smallest) == terms, terms
+        assert significance.cosine_terms(smallest - 1) == terms - 1, terms
+    # 125 * 10**3 = 8 * 125**2 is an exact equality: n = 125 gives nu = 10, not 9.
+    assert significance.cosine_terms(125) == 10
+    assert significance.cosine_terms(124) == 9
+
+
+@pytest.mark.parametrize("exponent", [12, 40, 160, 500, 5000])
+def test_the_cosine_terms_of_a_huge_count_are_exact_in_bounded_time(
+    exponent: int,
+) -> None:
+    significance = default_signal_diagnosis_protocol().significance
+    n_days = 10**exponent
+
+    started = time.perf_counter()
+    terms = significance.cosine_terms(n_days)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0
+    assert 125 * terms**3 <= 8 * n_days**2 < 125 * (terms + 1) ** 3
+    assert terms == ewc_terms(n_days)
+    # Neighbours of a perfect-cube boundary at a huge scale.
+    boundary = 5 * 10**exponent
+    assert significance.cosine_terms(boundary) == _binary_search_terms(boundary)
+
+
+def test_a_series_longer_than_the_evaluation_window_is_refused_with_a_typed_error() -> (
+    None
+):
+    protocol = default_signal_diagnosis_protocol()
+    begin = datetime.fromisoformat(protocol.data.evaluation_start)
+    end = datetime.fromisoformat(protocol.data.evaluation_end)
+    window_days = (end - begin).days
+
+    assert protocol.max_series_days() == window_days == 2038
+    assert protocol.cosine_terms_for(window_days) == ewc_terms(window_days)
+    assert protocol.cosine_terms_for(0) == 0
+    for too_long in (window_days + 1, 10**40, 10**160, 10**5000):
+        started = time.perf_counter()
+        with pytest.raises(SignalDiagnosisProtocolError, match="evaluation window"):
+            protocol.cosine_terms_for(too_long)
+        assert time.perf_counter() - started < 1.0
+    for bad in (-1, 1.0, True, "4", None):
+        with pytest.raises(SignalDiagnosisProtocolError):
+            protocol.cosine_terms_for(bad)  # type: ignore[arg-type]

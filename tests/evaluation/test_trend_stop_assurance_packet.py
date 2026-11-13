@@ -1,7 +1,10 @@
-"""The trend-stop pre-registration packet stays UNREVIEWED and bound to the protocol.
+"""The revision-1 trend-stop packet is kept as frozen, historical, UNREVIEWED evidence.
 
-The packet is result-blind: it claims no economic result, review, authorization or
-promotion. These tests keep it, the frozen protocol and the specification in step.
+Review 5870390989 of PR #1201 blocked this packet (digest ``894fedb0...``); revision 2
+(``report/trend-stop-research-assurance-20261113.json``, tested in
+``test_trend_stop_v2_packet.py``) supersedes it. These tests keep the historical packet
+byte-stable and valid, and keep the specification pointing at it as superseded; the
+packet claims no economic result, review, authorization or promotion.
 """
 
 from __future__ import annotations
@@ -12,7 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
-from trade_rl.evaluation.trend_stop_study.protocol import protocol_digest
+from trade_rl.evaluation.trend_stop_study.protocol import (
+    SUPERSEDES_PROTOCOL_DIGEST,
+    protocol_digest,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
@@ -20,7 +26,7 @@ SPEC = ROOT / "docs" / "specs" / "trend-following-stops.md"
 PINNED_PACKET_DIGEST = (
     "894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64"
 )
-PINNED_PROTOCOL_DIGEST = (
+REVISION_1_PROTOCOL_DIGEST = (
     "f57f2d6dedd9a46b4d4ffc57c70dc495f60e517d8cd14f873c1cdab47d02bb9d"
 )
 HEAD_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -30,9 +36,11 @@ def _packet() -> dict[str, Any]:
     return json.loads(PACKET.read_text(encoding="utf-8"))
 
 
-def test_packet_digest_and_protocol_digest_are_pinned() -> None:
+def test_packet_digest_is_pinned_and_its_protocol_is_superseded() -> None:
     assert assurance_digest(_packet()) == PINNED_PACKET_DIGEST
-    assert protocol_digest() == PINNED_PROTOCOL_DIGEST
+    # The frozen protocol moved on: revision 1's digest is only a recorded lineage.
+    assert SUPERSEDES_PROTOCOL_DIGEST == REVISION_1_PROTOCOL_DIGEST
+    assert protocol_digest() != REVISION_1_PROTOCOL_DIGEST
 
 
 def test_packet_is_a_valid_unreviewed_record_that_authorizes_nothing() -> None:

@@ -84,7 +84,12 @@ def _selection_number(payload: Mapping[str, object], name: str) -> float:
         raise ArtifactIntegrityError(
             f"PPO holding-duration selection metric {name} is malformed"
         )
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ArtifactIntegrityError(
+            f"PPO holding-duration selection metric {name} is non-finite"
+        ) from error
     if not math.isfinite(resolved):
         raise ArtifactIntegrityError(
             f"PPO holding-duration selection metric {name} is non-finite"

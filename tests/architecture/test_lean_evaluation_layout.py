@@ -73,6 +73,10 @@ def test_evaluation_responsibility_packages_exist() -> None:
     required = (
         "directional.py",
         "carry.py",
+        "carry_multisymbol/__init__.py",
+        "carry_multisymbol/protocol.py",
+        "carry_multisymbol/decision.py",
+        "carry_multisymbol/runner.py",
         "directional_candidates.py",
         "directional_selection.py",
         "directional_study.py",

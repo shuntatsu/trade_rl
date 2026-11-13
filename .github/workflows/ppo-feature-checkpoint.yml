@@ -58,6 +58,9 @@ jobs:
   checkpoint:
     runs-on: ubuntu-24.04
     timeout-minutes: 340
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      UV_PYTHON_DOWNLOADS: never
     steps:
       - name: Checkout immutable code SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -66,11 +69,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Install pinned uv and Python
+      - name: Set up trusted runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          check-latest: false
+
+      - name: Install pinned uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           version: "0.10.0"
-          python-version: "3.12"
           enable-cache: false
 
       - name: Install frozen PPO runtime

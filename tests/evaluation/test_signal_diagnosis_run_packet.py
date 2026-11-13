@@ -28,14 +28,16 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
+    / "sd2-signal-diagnosis-research-assurance-20261113-after-codec-isolation.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
 PINNED_DIGEST = "10acf9db00b7ea594f174f0a16e7a978974ed4d483c437f1785b4afd97a094f4"
 PREVIOUS_PACKET_PATH = (
-    ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261113-after-manifest-gate.json"
 )
 PREVIOUS_PINNED_DIGEST = (
     "bc0163631694f42cc6fbc52ca51678e9bebe9e86efb3e9d5ca46607971b30368"

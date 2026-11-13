@@ -7,16 +7,18 @@ convention (Turtle-style 20/10 and 55/20 Donchian channels, ATR(14), 2x initial 
 trailing ATR stops, 0.5% risk per trade); the thresholds (profit factor 1.2, 4 of 6
 sub-years, 100 cycles, 20% drawdown, Calmar versus BTC) are round-number conventions,
 and the implementer did not read the Phase 2 TSMOM figures when fixing any value (see
-the specification's attestation). The runner reads
-them from :data:`PROTOCOL` and never from the command line, and the result records
-:func:`protocol_digest` so a result can be matched to this file.
+the specification's attestation). Revision 2 (2026-11-13) changes only the roster rule
+(complete eleven symbols, no exclusions, no reduced roster) and the causality probe
+(one per variant and timeframe); see :data:`SUPERSEDES_PROTOCOL_DIGEST`. The runner
+reads the parameters from :data:`PROTOCOL` and never from the command line, and the
+result records :func:`protocol_digest` so a result can be matched to this file.
 
 Study: a long/short Donchian breakout with ATR stops on a fixed USD-M perpetual
 roster at 4h and 1d, run through the shared-portfolio replay (one account, the repo's
 fee / spread / impact / participation model, funding from the Dataset, hard risk,
 terminal flat). The development window is known-used and exploratory: the result can
 at most label the rule ``DEVELOPMENT_PROMISING`` and never selects a winner or
-authorizes unused-data, paper or live use. See ``docs/research/trend-stop-protocol.md``
+authorizes unused-data, paper or live use. See ``docs/specs/trend-following-stops.md``
 for the mechanism, falsifiers, claim boundary and the later RL design note.
 """
 
@@ -32,8 +34,8 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.rules.trend_stop import TrendStopConfig
 
-PROTOCOL_SCHEMA: Final = "trend_stop_study_protocol_v1"
-RESULT_SCHEMA: Final = "trend_stop_study_result_v1"
+PROTOCOL_SCHEMA: Final = "trend_stop_study_protocol_v2"
+RESULT_SCHEMA: Final = "trend_stop_study_result_v2"
 CELL_SCHEMA: Final = "trend_stop_study_cell_v1"
 STOP_MODEL: Final = "bar_extreme_touch_next_open_v1"
 
@@ -62,6 +64,17 @@ PRIOR_EXPOSURE: Final = (
     "features) and the Phase 2/3 and directional studies that used it",
 )
 
+# Revision 1 (PR #1201, review 5870390989 BLOCKED) had this protocol digest; revision 2
+# replaces its roster-exclusion path and its single causality probe.
+SUPERSEDES_PROTOCOL_DIGEST: Final = (
+    "f57f2d6dedd9a46b4d4ffc57c70dc495f60e517d8cd14f873c1cdab47d02bb9d"
+)
+# The owner's roster decision for revision 2 (issue #810): all eleven coins, no
+# exclusions; a missing archive makes the run INVALID, never a reduced roster.
+OWNER_ROSTER_DECISION_URL: Final = (
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567"
+)
+
 # Hard data boundary: the exploratory window ends with the last bar CLOSING at or before
 # this instant (exclusive of the FS1 warm-up span that starts here).
 DATA_END_EXCLUSIVE: Final = "2026-08-01T00:00:00"
@@ -77,7 +90,9 @@ DEVIATIONS: Final = (
     "return of this rule; survivorship bias and prior exposure are declared limitations",
     "stop model: bar-extreme touch evaluated on the completed bar, exit at the next "
     "open (no intrabar fill at the stop price); fills better than the stop level are "
-    "removed by the preregistered stop haircut",
+    "removed by the preregistered stop haircut; a fired stop takes precedence over a "
+    "reversal and keeps exiting until the position is flat (no entry in either "
+    "direction meanwhile), so a partly filled stop exit is one stop event",
     "order_latency_bars 0 and 1 are the same next-open fill in this engine and >= 2 "
     "needs pending-order-preserving proposals, so no latency-stress cell is run",
     "entry price for the stop is the observed fill-bar open, not the realized average "
@@ -86,12 +101,23 @@ DEVIATIONS: Final = (
     "funding, which is reported per cell instead",
     "hard risk: gross 1.0, per-symbol 0.5, no turnover cap; drawdown brake from 20% "
     "(the gate level) to flat at 30% of running-peak historical drawdown",
-    "Bonferroni over the four preregistered (variant, timeframe) configurations",
+    "Bonferroni over the four preregistered (variant, timeframe) configurations; the "
+    "bootstrap interval is two-sided at coverage 1 - 0.05/4 and criterion 7 reads only "
+    "its lower endpoint (a one-sided test at 0.625%)",
     "all gated metrics use the stop-haircut-adjusted equity and closed-cycle PnL; the "
     "haircut is a first-order multiplicative adjustment, not a re-simulation",
-    "the roster must be complete: a symbol may be absent only with a recorded "
-    "missing-archive exclusion (URL and HTTP 404); any other failure halts the run, "
-    "and fewer than min_symbols remaining writes an INVALID result",
+    "the roster is exactly the eleven symbols with no exclusion path and no reduced "
+    "roster (owner decision, issue #810 comment 6818495567): a Dataset missing any "
+    "roster symbol, or a Binance Vision cache archive with recorded HTTP 404 evidence "
+    "(URL, status, time, written by the download step), writes an INVALID result with "
+    "no replay; an archive missing without such evidence (not yet downloaded, "
+    "transient failure, empty, failed content check) halts with no result and does "
+    "not consume the run; one evidence pass over every archive of both timeframes and "
+    "funding decides first, so valid 404 evidence anywhere is INVALID whatever the "
+    "build order or other gaps, and a missing exchange-information snapshot or any "
+    "other data or metadata failure is a halt, never a traceback",
+    "the future-perturbation probe runs for every (timeframe, variant) pair and "
+    "validity criterion 8 of each configuration uses its own probe",
     "prior exposure of the universe and window is disclosed in PRIOR_EXPOSURE",
 )
 
@@ -114,11 +140,12 @@ class TrendStopProtocol:
     """Every fixed parameter of the study; the defaults ARE the preregistration."""
 
     schema_version: str = PROTOCOL_SCHEMA
-    study_id: str = "trend_stop_tsmom_20261110"
-    planner_task: str = "opus-plan-trend-stops-20261110"
-    # Universe: chosen by name and listing date, not from any return of this rule. A
-    # symbol may be absent only with a recorded HTTP 404 missing-archive exclusion; any
-    # other failure halts; fewer than ``min_symbols`` remaining is INVALID.
+    study_id: str = "trend_stop_tsmom_20261113"
+    planner_task: str = "opus-plan-trend-stops-v2-20261113"
+    supersedes_protocol_digest: str = SUPERSEDES_PROTOCOL_DIGEST
+    roster_decision_url: str = OWNER_ROSTER_DECISION_URL
+    # Universe: chosen by name and listing date, not from any return of this rule. The
+    # roster is complete or the run is INVALID; there is no exclusion path.
     symbols: tuple[str, ...] = (
         "BTCUSDT",
         "ETHUSDT",
@@ -132,8 +159,7 @@ class TrendStopProtocol:
         "SOLUSDT",
         "XRPUSDT",
     )
-    min_symbols: int = 8
-    exclusion_http_status: int = 404
+    roster_policy: str = "complete_roster_no_exclusions"
     benchmark_symbol: str = "BTCUSDT"
     timeframes: tuple[str, ...] = ("4h", "1d")
     variants: tuple[VariantSpec, ...] = VARIANTS
@@ -179,8 +205,9 @@ class TrendStopProtocol:
     n_configurations: int = 4
     trading_days_per_year: int = 365
     cagr_days_per_year: float = 365.25
-    # Causality probe.
+    # Causality probe: one per (timeframe, variant); criterion 8 uses its own probe.
     causality_cut: str = "2023-07-01T00:00:00"
+    causality_probe_scope: str = "every_timeframe_and_variant"
     deviations: tuple[str, ...] = DEVIATIONS
 
     def canonical_payload(self) -> dict[str, object]:
@@ -284,11 +311,13 @@ __all__ = [
     "PRIOR_EXPOSURE",
     "PROTOCOL",
     "PROTOCOL_SCHEMA",
+    "OWNER_ROSTER_DECISION_URL",
     "RESULT_SCHEMA",
     "SCENARIOS",
     "SCENARIO_BASE",
     "SCENARIO_COST_X2",
     "STOP_MODEL",
+    "SUPERSEDES_PROTOCOL_DIGEST",
     "TrendStopProtocol",
     "VARIANTS",
     "VariantSpec",

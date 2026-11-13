@@ -5,10 +5,25 @@ from __future__ import annotations
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.trend_stop_study.runner import CodeProvenance
 
 BAR_HOURS = {"4h": 4, "1d": 24}
 PERIODS_PER_YEAR = {"4h": 2190, "1d": 365}
 AUTHORIZATION_URL = "https://github.com/shuntatsu/trade_rl/issues/1#issuecomment-1"
+CLEAN_PROVENANCE = CodeProvenance(
+    git_head="a" * 40,
+    trade_rl_tree="b" * 40,
+    dirty=False,
+    module_digest="c" * 64,
+    module_count=3,
+)
+DIRTY_PROVENANCE = CodeProvenance(
+    git_head="a" * 40,
+    trade_rl_tree="b" * 40,
+    dirty=True,
+    module_digest="c" * 64,
+    module_count=3,
+)
 
 
 def synthetic_dataset(

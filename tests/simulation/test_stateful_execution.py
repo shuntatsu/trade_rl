@@ -262,6 +262,44 @@ def test_projected_unrepresentable_order_does_not_mutate_projection(
     assert book.quantities.tolist() == [0.0]
 
 
+@pytest.mark.parametrize("numpy_input", ["quantity", "price"])
+def test_projected_numpy_scalar_overflow_is_rejected_atomically_under_strict_numpy(
+    numpy_input: str,
+) -> None:
+    """Raw NumPy scalar overflow cannot escape admission as FloatingPointError."""
+    book = BookState.zero(1, 1_000.0, np.array([1e308]), np.array([1e308]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([1e308]))
+    previous = (projected.quantities.copy(), projected.cash, projected.insolvent)
+    quantity = np.float64(1.0) if numpy_input == "quantity" else 1.0
+    price = np.float64(1e308) if numpy_input == "price" else 1e308
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        with pytest.raises(ValueError, match="non-finite|overflow"):
+            projected.apply_admitted_order(
+                symbol_index=0, quantity=quantity, price=price
+            )
+    np.testing.assert_array_equal(projected.quantities, previous[0])
+    assert projected.cash == previous[1]
+    assert projected.insolvent == previous[2]
+
+
+@pytest.mark.parametrize("numpy_input", ["quantity", "price"])
+def test_projected_numpy_scalar_representable_subnormal_stays_valid_under_strict_numpy(
+    numpy_input: str,
+) -> None:
+    """Numerical error normalization must not reject a nonzero valid subnormal."""
+    mark = 1e-160
+    multiplier = 5e-164
+    book = BookState.zero(1, 1_000.0, np.array([mark]), np.array([multiplier]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([mark]))
+    quantity = np.float64(1.0) if numpy_input == "quantity" else 1.0
+    price = np.float64(mark) if numpy_input == "price" else mark
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected.apply_admitted_order(symbol_index=0, quantity=quantity, price=price)
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [1.0]
+    assert projected.cash == 1_000.0
+
+
 def test_existing_projection_exposure_cannot_underflow_at_processing_open() -> None:
     """A bookable prior mark must not become phantom zero risk at new open."""
     book = BookState(

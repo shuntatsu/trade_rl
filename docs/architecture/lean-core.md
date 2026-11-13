@@ -218,9 +218,9 @@ latency-aware close interval and sends a portfolio-wide flat target through the
 same risk and execution path. In this explicit terminal-only step, an
 `emergency_flatten_mask` covers nonzero holdings in the selected strategy
 roster, so ordinary `max_turnover` does not scale down the requested close and
-the venue minimum notional is waived for these reduce-only closes (a position
-that decayed below the minimum cannot otherwise be exited and would leave the
-terminal book non-flat); ordinary strategy decisions continue to obey the
+the venue minimum notional is waived for these runtime-validated reduce-only
+closes (a position that decayed below the minimum cannot otherwise be exited and
+would leave the terminal book non-flat); ordinary strategy decisions continue to obey the
 turnover bound and the minimum. The target
 still passes through the configured hard-risk and execution stages. Venue
 rules, available liquidity, fill capacity, fees and pending-order handling are
@@ -576,11 +576,17 @@ only to actual accepted lots. Without an explicit source profile, minimum notion
 and all existing constraints still apply. A legacy zero-target MARKET request is
 represented internally as a reduce-only exact-inventory close, but this does not
 waive its minimum-notional or other execution constraints, with one exception: the
-terminal-only `emergency_flatten_mask` close (see terminal settlement above) waives
-the declared venue minimum notional for its reduce-only orders, as a venue does for
+reserved terminal-settlement close (see terminal settlement above) waives the
+declared venue minimum notional for its reduce-only orders, as a venue does for
 reduce-only exits, so residuals that decayed below the minimum are closed and the
-terminal book is flat; only the explicit runtime floor remains. Ordinary
-(non-terminal) zero targets keep the minimum. Without an explicit
+terminal book is flat; only the explicit runtime floor remains. The waiver is
+issued by `execute_terminal_settlement_transition` as an opaque
+`TerminalCloseoutAuthority` only after the runtime validates that the interval lies
+in `[agent_stop_index, stop_index)` with `agent_stop_index = stop_index -
+order_latency_bars - 1` and that each flagged symbol holds a position. Neither a
+caller-supplied emergency mask at an ordinary interval nor any public argument of
+`execute_interval` or `order_minimum_notional` can waive the minimum, and ordinary
+zero targets keep it. Without an explicit
 reduce-only roster, a same-side smaller MARKET target is also represented as
 reduce-only only when actual holdings at decision reference prices exceed
 `maximum_gross`. This inference does not apply to LIMIT/STOP orders or when a

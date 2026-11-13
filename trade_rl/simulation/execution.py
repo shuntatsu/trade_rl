@@ -28,6 +28,7 @@ from trade_rl.simulation.orders.model import (
 from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
+from trade_rl.simulation.orders.terminal_closeout import TerminalCloseoutAuthority
 from trade_rl.simulation.quantities import exact_quantity, project_quantity
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionObservation,
@@ -534,22 +535,9 @@ class MarketExecutor:
         return None if profile is None else profile.rule_for(symbol_index)
 
     def order_minimum_notional(
-        self,
-        intent: OrderIntent,
-        ordinary_minimum: float,
-        *,
-        closeout: bool = False,
+        self, intent: OrderIntent, ordinary_minimum: float
     ) -> float:
-        """Return the minimum notional that applies to one order.
-
-        ``closeout`` marks a risk-owned terminal close of an actual holding. A
-        reduce-only close waives the declared venue minimum (only the explicit
-        runtime floor remains), so residuals below the venue minimum can be exited.
-        """
-
         profile = self.market_order_profile
-        if closeout and intent.reduce_only:
-            return self.cost.minimum_notional * self.rule_stress.minimum_notional_factor
         if (
             profile is not None
             and profile.reduce_only_exits
@@ -1154,7 +1142,7 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-        closeout_symbols: tuple[int, ...] = (),
+        terminal_closeout: TerminalCloseoutAuthority | None = None,
     ) -> tuple[
         ExecutionResult,
         StatefulExecutionResult,
@@ -1188,7 +1176,7 @@ class MarketExecutor:
                 bars=bars,
                 target_identity=target_identity,
                 hold_current_quantity_symbols=hold_current_quantity_symbols,
-                closeout_symbols=closeout_symbols,
+                terminal_closeout=terminal_closeout,
             )
         else:
             stateful = execute_target_statefully(
@@ -1199,7 +1187,7 @@ class MarketExecutor:
                 start_index=start_index,
                 bars=bars,
                 target_identity=target_identity,
-                closeout_symbols=closeout_symbols,
+                terminal_closeout=terminal_closeout,
             )
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
@@ -1251,7 +1239,7 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
-        closeout_symbols: tuple[int, ...] = (),
+        terminal_closeout: TerminalCloseoutAuthority | None = None,
     ) -> ExecutionResult:
         compatibility, stateful, previous_terminal_orders = (
             self._execute_interval_with_stateful_evidence(
@@ -1260,7 +1248,7 @@ class MarketExecutor:
                 start_index=start_index,
                 bars=bars,
                 hold_current_quantity_symbols=hold_current_quantity_symbols,
-                closeout_symbols=closeout_symbols,
+                terminal_closeout=terminal_closeout,
             )
         )
         if self._execution_observer is not None:

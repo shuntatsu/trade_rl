@@ -62,7 +62,7 @@ trade_rl/
 │   ├── liquidity.py
 │   ├── quantities.py
 │   ├── depth.py
-│   ├── orders/{model.py,admission.py,reconciliation.py}
+│   ├── orders/{model.py,admission.py,reconciliation.py,terminal_closeout.py}
 │   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py,portfolio_session.py}
 │   ├── targets/execution.py
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
@@ -488,7 +488,7 @@ reusing the strict `forward_rules.py` parser. It has no order API or P&L authori
 The private factory capability prevents supported public construction/replacement,
 not arbitrary Python reflection. Profiles add no fields to the Dataset schema.
 `execution.py` binds an opt-in profile and stress into policy identity and resolves
-per-order rules; `orders/reconciliation.py` activates same-side reduce-only exits.
+per-order rules; `orders/reconciliation.py` activates same-side reduce-only exits; `orders/terminal_closeout.py` issues the opaque authority that lets only the runtime-validated terminal-settlement close waive the venue minimum notional.
 Admission and allocation enforce quantity bounds and distinct per-order notional
 floors. Unselected symbols and omitted-profile behavior retain their contracts.
 `native_transition.py` owns the reusable numeric-target → explicit

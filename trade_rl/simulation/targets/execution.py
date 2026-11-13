@@ -10,6 +10,7 @@ from trade_rl.data.market import _require_available_marks_at_row
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import OrderBookState, OrderType, TimeInForce
 from trade_rl.simulation.orders.reconciliation import _TOLERANCE, reconcile_target
+from trade_rl.simulation.orders.terminal_closeout import TerminalCloseoutAuthority
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionResult,
     execute_stateful_orders,
@@ -33,7 +34,7 @@ def execute_target_statefully(
     time_in_force: TimeInForce = TimeInForce.GTC,
     expiry_index: int | None = None,
     hold_current_quantity_symbols: tuple[int, ...] = (),
-    closeout_symbols: tuple[int, ...] = (),
+    terminal_closeout: TerminalCloseoutAuthority | None = None,
 ) -> StatefulExecutionResult:
     """Reconcile one target against holdings and active residual orders."""
 
@@ -115,7 +116,7 @@ def execute_target_statefully(
         start_index=start_index,
         bars=bars,
         reconciliation_cancellations=tuple(cancellation_transitions),
-        closeout_symbols=closeout_symbols,
+        terminal_closeout=terminal_closeout,
     )
 
 

@@ -17,7 +17,10 @@ from trade_rl.simulation import (
     ExecutionResult,
     MarketExecutor,
 )
-from trade_rl.simulation.native_transition import execute_native_target_transition
+from trade_rl.simulation.native_transition import (
+    execute_native_target_transition,
+    execute_terminal_settlement_transition,
+)
 from trade_rl.simulation.orders.model import OrderEvent, OrderStatus
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -1549,10 +1552,33 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk(
             **kwargs,
         )
 
+    def observe_terminal_transition(
+        executor: MarketExecutor,
+        book: BookState,
+        pretrade_risk: PreTradeRisk,
+        *,
+        start_index: int,
+        **kwargs: object,
+    ) -> tuple[object, ExecutionResult, tuple[int, ...]]:
+        native_transitions.append(((0.0,) * dataset.n_symbols, start_index))
+        return execute_terminal_settlement_transition(
+            executor,
+            book,
+            pretrade_risk,
+            start_index=start_index,
+            **kwargs,
+        )
+
     monkeypatch.setattr(
         replay_module,
         "execute_native_target_transition",
         observe_native_transition,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        replay_module,
+        "execute_terminal_settlement_transition",
+        observe_terminal_transition,
         raising=False,
     )
     result = replay_module.run_shared_cash_replay(

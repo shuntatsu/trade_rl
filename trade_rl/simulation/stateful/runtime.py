@@ -104,13 +104,19 @@ class StatefulExecutionRuntime:
     def order_minimum_notional(
         self, intent: OrderIntent, ordinary_minimum: float
     ) -> float:
-        """Minimum notional for one order, waived for terminal reduce-only closes."""
+        """Minimum notional for one order.
 
-        return self.executor.order_minimum_notional(
-            intent,
-            ordinary_minimum,
-            closeout=intent.symbol_index in self.closeout_symbols,
-        )
+        Only a reduce-only order of a symbol named by a validated terminal
+        close-out authority waives the venue minimum (the explicit runtime floor
+        remains); every other order keeps the executor's rule unchanged.
+        """
+
+        executor = self.executor
+        if intent.reduce_only and intent.symbol_index in self.closeout_symbols:
+            return executor.cost.minimum_notional * (
+                executor.rule_stress.minimum_notional_factor
+            )
+        return executor.order_minimum_notional(intent, ordinary_minimum)
 
     def submit_intents(self, intents: Sequence[OrderIntent]) -> None:
         for intent in intents:

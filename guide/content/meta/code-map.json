@@ -50,7 +50,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "9933e675d8f19cba382c1e665c6a91a3105a11cf2bb45f088fe5ffbec059a241"
+      "sha256": "1ab197ef06eb6f912100c8a1085e5abb85237998be71b9cf62e6ae7933ff7c79"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "5ff529267cb662dfbad2acadddb573a223390dcffe56aaf900b6a9a0c974777f"
+      "sha256": "ff9b78610620f9400bfc9ac46d2818170d93c493ffb674ea78b0c7bb8f37d973"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -238,7 +238,7 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "2556d3ce6c6fdfa67206ff597d08a55b3a0db355535db860d52a4ac5f23889be",
+      "source_sha256": "313337cc405be82c8c524b926fac5082860b590c266e31dbcfd52c4e5e9c0b37",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
       "variables": [],
@@ -294,7 +294,7 @@
       "id": "shared-portfolio-session",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "387de0b34a9e3cc9aa800522ebb0dbb202c9a8d8558af7e42db1bbdf3534df2e",
+      "source_sha256": "25a6c5ec9428b16a03432a6341f71e9d48cad60e2f7c58b33edc78f6a4e2ae28",
       "label_ja": "native barごとにportfolio状態を継続",
       "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
       "variables": [],

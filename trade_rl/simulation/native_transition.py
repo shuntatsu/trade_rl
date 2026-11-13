@@ -7,6 +7,10 @@ import numpy as np
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionResult, MarketExecutor
+from trade_rl.simulation.orders.terminal_closeout import (
+    TerminalCloseoutAuthority,
+    _issue_terminal_closeout,
+)
 
 
 def _target_weights(value: object, *, n_symbols: int) -> np.ndarray:
@@ -135,7 +139,82 @@ def execute_native_target_transition(
     transition accepts only numeric portfolio targets, applies risk against the
     pre-execution book, and advances the canonical MarketExecutor once. Exact
     quantity holds survive only when risk leaves their proposed weights intact.
+    An emergency mask here is a risk-level flatten only; it never waives the
+    venue minimum notional (see :func:`execute_terminal_settlement_transition`).
     """
+    return _execute_transition(
+        executor,
+        book,
+        pretrade_risk,
+        target_weights,
+        start_index=start_index,
+        hold_current_quantity_symbols=hold_current_quantity_symbols,
+        emergency_flatten_mask=emergency_flatten_mask,
+        reduce_only_mask=reduce_only_mask,
+        terminal_closeout=None,
+    )
+
+
+def execute_terminal_settlement_transition(
+    executor: MarketExecutor,
+    book: BookState,
+    pretrade_risk: PreTradeRisk,
+    *,
+    start_index: int,
+    agent_stop_index: int,
+    stop_index: int,
+    flatten_mask: object,
+) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
+    """Execute one reserved terminal-settlement interval with risk-owned flatten.
+
+    The interval must lie in ``[agent_stop_index, stop_index)`` and
+    ``agent_stop_index`` must equal ``stop_index - order_latency_bars - 1`` for this
+    executor; every flagged symbol must hold a position. Only here are the
+    reduce-only closes of those symbols exempt from the venue minimum notional,
+    so a holding that decayed below the minimum can still be exited and the
+    terminal book ends flat. The explicit runtime floor still applies.
+    """
+    if not isinstance(executor, MarketExecutor):
+        raise TypeError("executor must be a MarketExecutor")
+    if not isinstance(book, BookState):
+        raise TypeError("book must be a BookState")
+    mask = np.asarray(flatten_mask, dtype=np.bool_).reshape(-1)
+    if mask.shape != (executor.dataset.n_symbols,):
+        raise ValueError("flatten_mask must match the executor symbols")
+    authority = _issue_terminal_closeout(
+        executor,
+        book,
+        start_index=start_index,
+        agent_stop_index=agent_stop_index,
+        stop_index=stop_index,
+        symbols=tuple(int(index) for index in np.flatnonzero(mask)),
+    )
+    return _execute_transition(
+        executor,
+        book,
+        pretrade_risk,
+        np.zeros(executor.dataset.n_symbols, dtype=np.float64),
+        start_index=start_index,
+        hold_current_quantity_symbols=(),
+        emergency_flatten_mask=mask,
+        reduce_only_mask=None,
+        # No holding to exit means no waiver: keep the ordinary call shape.
+        terminal_closeout=authority if authority.symbols else None,
+    )
+
+
+def _execute_transition(
+    executor: MarketExecutor,
+    book: BookState,
+    pretrade_risk: PreTradeRisk,
+    target_weights: object,
+    *,
+    start_index: int,
+    hold_current_quantity_symbols: tuple[int, ...],
+    emergency_flatten_mask: object | None,
+    reduce_only_mask: object | None,
+    terminal_closeout: TerminalCloseoutAuthority | None,
+) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
     proposed_weights, hold_symbols, emergency_mask, reduce_mask = (
         _validate_native_target_request(
             executor,
@@ -162,32 +241,32 @@ def execute_native_target_transition(
         for index in hold_symbols
         if risk_target.weights[index] == proposed_weights[index]
     )
-    # The emergency mask is the terminal-only risk-owned close; its reduce-only
-    # orders must be able to exit residuals below the venue minimum notional.
-    closeout_symbols = (
-        ()
-        if emergency_mask is None
-        else tuple(int(i) for i in np.flatnonzero(emergency_mask))
-    )
-    # Pass the close-out marker only for a terminal close so ordinary intervals keep
-    # the exact call shape (and wrappers around ``execute_interval``) unchanged.
-    extra = {"closeout_symbols": closeout_symbols} if closeout_symbols else {}
-    if effective_holds:
-        execution = executor.execute_interval(
-            book,
-            risk_target.weights,
-            start_index=start_index,
-            bars=1,
-            hold_current_quantity_symbols=effective_holds,
-            **extra,
-        )
+    # Forward the authority only for a terminal close so ordinary intervals keep the
+    # exact call shape (and wrappers around ``execute_interval``) unchanged.
+    if terminal_closeout is None:
+        if effective_holds:
+            execution = executor.execute_interval(
+                book,
+                risk_target.weights,
+                start_index=start_index,
+                bars=1,
+                hold_current_quantity_symbols=effective_holds,
+            )
+        else:
+            execution = executor.execute_interval(
+                book,
+                risk_target.weights,
+                start_index=start_index,
+                bars=1,
+            )
     else:
         execution = executor.execute_interval(
             book,
             risk_target.weights,
             start_index=start_index,
             bars=1,
-            **extra,
+            hold_current_quantity_symbols=effective_holds,
+            terminal_closeout=terminal_closeout,
         )
     if execution.next_index != start_index + 1 or execution.bars_advanced != 1:
         raise RuntimeError("native target transition did not advance exactly one bar")
@@ -196,5 +275,6 @@ def execute_native_target_transition(
 
 __all__ = [
     "execute_native_target_transition",
+    "execute_terminal_settlement_transition",
     "validate_risk_execution_compatibility",
 ]

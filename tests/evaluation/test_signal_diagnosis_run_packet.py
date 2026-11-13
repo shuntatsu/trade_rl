@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow-main-sync.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,20 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json"
+    / "sd2-signal-diagnosis-research-assurance-20261114-after-nofollow-main-sync.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "2b68a4b7b751dea113ecec54dcadf09e00c613e23e9bb6d8c0592e4b73de11b7"
+PINNED_DIGEST = "b81b269938ae1e348bac4db6312fd1f04434851b27f381ade3c774e180a53211"
+PREVIOUS_NOFOLLOW_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json"
+)
+PREVIOUS_NOFOLLOW_PACKET_DIGEST = (
+    "2b68a4b7b751dea113ecec54dcadf09e00c613e23e9bb6d8c0592e4b73de11b7"
+)
 PREVIOUS_MAIN_SYNC_PACKET_PATH = (
     ROOT
     / "report"
@@ -172,6 +180,19 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_pre_main_sync_nofollow_packet_is_immutable_and_unreviewed() -> None:
+    """Source rebind preserves the no-follow author packet from before the merge."""
+
+    previous = json.loads(PREVIOUS_NOFOLLOW_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(previous)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert result.economic_execution_authorized is False
+    assert assurance_digest(previous) == PREVIOUS_NOFOLLOW_PACKET_DIGEST
+    assert previous["identity"]["implementation_head"] == (
+        "7756984b9c5513612c8cf3852feea3c8e35a17e6"
+    )
+
+
 def test_pre_nofollow_packet_stays_immutable_and_unreviewed() -> None:
     """No source rebind may rewrite the predecessor's author-only evidence."""
 
@@ -284,6 +305,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow-main-sync.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261114-after-nofollow.json"
             in text

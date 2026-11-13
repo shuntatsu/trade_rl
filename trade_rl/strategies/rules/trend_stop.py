@@ -418,16 +418,20 @@ class TrendStopPortfolioPolicy:
             return ("exit", 0.0)
 
         stop_hit, level, trailing = self._stop_state(state, row, index)
-        opposite = short_signal if side == 1 else long_signal
-        if opposite:
+        if stop_hit or state.stop_pending:
+            # A fired stop takes precedence over everything else and keeps working
+            # until the position is flat: after a partial fill the remainder is exited
+            # even if the price has since recovered, and no entry, reversal included,
+            # is made in either direction meanwhile. Once flat, the normal re-entry
+            # rules apply (the stopped direction stays blocked until its signal fades).
             if stop_hit:
                 self._record_stop(row, index, side, level, trailing)
-            self._counters["reversals"] += 1
-            return self._enter(index, row, -side, close, reversal=True)
-        if stop_hit:
-            self._record_stop(row, index, side, level, trailing)
             state.blocked_side = side
             return ("exit", 0.0)
+        opposite = short_signal if side == 1 else long_signal
+        if opposite:
+            self._counters["reversals"] += 1
+            return self._enter(index, row, -side, close, reversal=True)
         if bool(signals.exit_valid[row, index]):
             if side == 1 and close < float(signals.exit_low[row, index]):
                 self._counters["signal_exits"] += 1

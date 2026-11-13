@@ -215,6 +215,18 @@ def test_prior_after1226_source_reissue_is_immutable_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_cache_source_reissue_changes_only_the_bound_source_identity() -> None:
+    """A software-only cache repair must not revise preregistered economics."""
+    previous_path = ROOT / "report" / f"{_PACKET_STEM}-after1226.json"
+    previous = json.loads(previous_path.read_text(encoding="utf-8"))
+    current = packet()
+    assert set(current) == set(previous)
+    assert current["identity"] != previous["identity"]
+    assert {key: value for key, value in current.items() if key != "identity"} == {
+        key: value for key, value in previous.items() if key != "identity"
+    }
+
+
 def test_packet_is_valid_unreviewed_and_pinned() -> None:
     record = packet()
     result = evaluate_assurance(record)

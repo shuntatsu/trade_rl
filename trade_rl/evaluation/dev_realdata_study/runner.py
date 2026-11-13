@@ -410,13 +410,9 @@ def terminal_dust(
         # The executor tests minimum notional at the terminal processing OPEN,
         # after tick rounding, not at the terminal mark. The upper price bound
         # is deliberately conservative for either buy or sell rounding.
-        opening_price_upper = math.nextafter(
-            float(opens[index]) + tick, math.inf
-        )
+        opening_price_upper = math.nextafter(float(opens[index]) + tick, math.inf)
         opening_notional_upper = (
-            abs(float(quantity))
-            * opening_price_upper
-            * float(multipliers[index])
+            abs(float(quantity)) * opening_price_upper * float(multipliers[index])
         )
         if not (notional < threshold and opening_notional_upper < threshold):
             other.append(symbol)

@@ -425,11 +425,22 @@ def terminal_dust(
         multiplier = float(multipliers[index])
         notional = abs(float(quantity)) * float(marks[index]) * multiplier
         open_notional = abs(float(quantity)) * float(opens[index]) * multiplier
-        participation = (
-            open_notional / float(market_notional[index])
-            if float(market_notional[index]) > 0.0
-            else 0.0
-        )
+        capacity_notional = float(market_notional[index])
+        # A zero-capacity bar or an overflowing participation ratio has no
+        # finite, defensible hypothetical exit-cost value. Keep the holding
+        # non-dust so the ledger validity gate fails closed.
+        if (
+            not math.isfinite(notional)
+            or not math.isfinite(open_notional)
+            or not math.isfinite(capacity_notional)
+            or capacity_notional <= 0.0
+        ):
+            other.append(symbol)
+            continue
+        participation = open_notional / capacity_notional
+        if not math.isfinite(participation):
+            other.append(symbol)
+            continue
         unit_cost = execution_cost.multiplier * (
             execution_cost.fee_rate
             + float(dataset.resolved_array("fee_rate")[final_row, index])
@@ -439,6 +450,11 @@ def terminal_dust(
             + float(dataset.resolved_array("spread_rate")[final_row, index])
             + execution_cost.impact_rate * math.sqrt(participation)
         )
+        mark_value = float(quantity) * float(marks[index]) * multiplier
+        exit_cost = notional * unit_cost
+        if not math.isfinite(mark_value) or not math.isfinite(exit_cost):
+            other.append(symbol)
+            continue
         dust.append(
             {
                 "symbol": symbol,
@@ -449,8 +465,8 @@ def terminal_dust(
                     float(minimum[index]), execution_cost.minimum_notional
                 ),
                 "reason": "below_minimum_notional",
-                "mark_value_usdt": float(quantity) * float(marks[index]) * multiplier,
-                "exit_cost_usdt": notional * unit_cost,
+                "mark_value_usdt": mark_value,
+                "exit_cost_usdt": exit_cost,
             }
         )
     return dust, other, valued

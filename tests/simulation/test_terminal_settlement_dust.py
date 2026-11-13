@@ -381,3 +381,30 @@ def test_phase2_replay_cell_with_dust_only_terminal_is_reconciled_and_haircut() 
     assert outcome.equity[-1] == pytest.approx(
         reconciliation["ledger_final_equity"] - cost
     )
+
+
+@pytest.mark.parametrize("last_volume", (0.0, 1e-320))
+def test_unrepresentable_dust_exit_valuation_never_passes(last_volume: float) -> None:
+    """Zero/overflowing denominator cannot authorize a dust-only economic PASS."""
+    dataset = _dataset(drop=True)
+    volume = np.array(dataset.volume, copy=True)
+    volume[-1, :] = last_volume
+    dataset = dataclasses.replace(dataset, volume=volume)
+    replayed = _replay(dataset)
+    report = reconcile_ledger(replayed, dataset, PROTO, execution_cost=COST)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["passed"] is False
+    assert report["terminal_dust_exit_cost_usdt"] == 0.0
+    assert report["terminal_dust"] == []
+    assert set(report["terminal_residual_quantities"]) == set(SYMBOLS)
+
+
+def test_finite_positive_volume_remains_valued_dust_control() -> None:
+    """The fail-closed guard must not reject an ordinary finite dust valuation."""
+    dataset = _dataset(drop=True)
+    report = reconcile_ledger(_replay(dataset), dataset, PROTO, execution_cost=COST)
+    assert report["passed"] is True
+    assert report["terminal_dust_only"] is True
+    assert len(report["terminal_dust"]) == len(SYMBOLS)
+    assert math.isfinite(report["terminal_dust_exit_cost_usdt"])

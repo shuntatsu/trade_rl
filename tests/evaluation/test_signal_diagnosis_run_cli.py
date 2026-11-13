@@ -266,15 +266,15 @@ def _swap_after_admission(
 ) -> None:
     """Replace the artifact files right after the gate has verified their bytes."""
 
-    real = cli.admit_artifact_bytes
+    real = cli.read_verified_arrays
 
-    def racing(*args: Any, **kwargs: Any) -> str:
-        digest = real(*args, **kwargs)
+    def racing(*args: Any, **kwargs: Any) -> tuple[bytes, str]:
+        verified = real(*args, **kwargs)
         (root / "manifest.json").write_bytes(evil_manifest)
         (root / "arrays.npz").write_bytes(evil_arrays)
-        return digest
+        return verified
 
-    monkeypatch.setattr(cli, "admit_artifact_bytes", racing)
+    monkeypatch.setattr(cli, "read_verified_arrays", racing)
 
 
 def test_a_swap_between_verification_and_decode_is_never_parsed(
@@ -355,3 +355,85 @@ def test_the_real_decoder_returns_the_verified_dataset_after_a_swap(
     assert kwargs["arrays_digest"] == manifest["arrays_digest"]
     swapped = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert swapped["dataset_id"] == evil_dataset.dataset_id  # and the swap did happen
+
+
+class OpenSpy:
+    """Records every read-mode open of an artifact file, by file name."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.opened: list[str] = []
+        real_open = Path.open
+        spy = self
+
+        def recording(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+            if "r" in mode and self.name in {"manifest.json", "arrays.npz"}:
+                spy.opened.append(self.name)
+            return real_open(self, mode, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", recording)
+
+    @property
+    def arrays_opens(self) -> int:
+        return self.opened.count("arrays.npz")
+
+
+@pytest.mark.parametrize(
+    "case", ["past_window", "artifact_pin", "dataset_pin", "tampered_manifest"]
+)
+def test_arrays_file_is_never_opened_on_a_manifest_or_pin_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, case: str
+) -> None:
+    root = tmp_path / "artifact"
+    extra = 1 if case == "past_window" else 0  # one bar past the window
+    pinned = _build(root, bars=_window_bars() + extra)
+    if case == "artifact_pin":
+        pinned.data.artifact_digest = "9" * 64
+    elif case == "dataset_pin":
+        pinned.data.dataset_id = "9" * 64
+    elif case == "tampered_manifest":
+        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        manifest["dataset_id"] = "5" * 64
+        (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _pin(monkeypatch, pinned)
+    spy = OpenSpy(monkeypatch)
+    assert cli.main(_argv(tmp_path)) == 2
+    assert spy.arrays_opens == 0  # refused from metadata, before the payload file
+    assert spy.opened == ["manifest.json"]  # the manifest was read exactly once
+    assert (spies.loader_calls, spies.run_calls) == (0, 0)
+
+
+def test_arrays_file_is_opened_exactly_once_on_valid_input_and_after_the_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies
+) -> None:
+    _pin(monkeypatch, _build(tmp_path / "artifact", bars=_window_bars()))
+    spy = OpenSpy(monkeypatch)
+    assert cli.main(_argv(tmp_path)) == 0
+    assert spy.opened == ["manifest.json", "arrays.npz"]  # once each, in this order
+    assert (spies.loader_calls, spies.run_calls) == (1, 1)
+
+
+def test_a_payload_digest_mismatch_opens_arrays_once_and_never_decodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies
+) -> None:
+    root = tmp_path / "artifact"
+    _pin(monkeypatch, _build(root, bars=_window_bars()))
+    (root / "arrays.npz").write_bytes(PAYLOAD + b" tampered")
+    spy = OpenSpy(monkeypatch)
+    assert cli.main(_argv(tmp_path)) == 2
+    assert spy.opened == ["manifest.json", "arrays.npz"]
+    assert spies.loader_calls == 0
+
+
+def test_a_decode_error_of_verified_bytes_exits_2_with_a_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, capsys: Any
+) -> None:
+    _pin(monkeypatch, _build(tmp_path / "artifact", bars=_window_bars()))
+
+    def broken(manifest_bytes: bytes, arrays_bytes: bytes) -> Any:
+        raise RuntimeError("not a zip archive")
+
+    monkeypatch.setattr(cli, "load_dataset_from_verified_bytes", broken)
+    assert cli.main(_argv(tmp_path)) == 2
+    err = capsys.readouterr().err
+    assert "could not be decoded" in err and "RuntimeError" in err
+    assert spies.run_calls == 0

@@ -34,7 +34,7 @@ from trade_rl.evaluation.trend_stop_study.protocol import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
-    ROOT / "report" / "trend-stop-research-assurance-20261113-after1233-capacity.json"
+    ROOT / "report" / "trend-stop-research-assurance-20261113-after1239-symbol-cap.json"
 )
 PRIOR_CAPACITY_PACKET_PATH = (
     ROOT / "report" / "trend-stop-research-assurance-20261113-after1233-capacity.json"

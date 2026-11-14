@@ -55,8 +55,16 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     if price_exact % tick_exact == 0:
         return True
 
-    nearest_count = round(resolved_price / resolved_tick)
-    projected = nearest_count * resolved_tick
+    # Finite operands can still overflow their floating-point quotient.
+    # When they do, keep the existing decimal tick authority exact rather
+    # than calling round(inf) or converting a huge integer to float.
+    quotient = resolved_price / resolved_tick
+    if math.isfinite(quotient):
+        nearest_count = round(quotient)
+        projected = nearest_count * resolved_tick
+    else:
+        nearest_count = round(price_exact / tick_exact)
+        projected = float(nearest_count * tick_exact)
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
@@ -80,20 +88,33 @@ def snap_price_to_tick(
     if resolved_tick == 0.0:
         return resolved_price
 
-    ratio = resolved_price / resolved_tick
-    nearest_count = round(ratio)
-    nearest = nearest_count * resolved_tick
+    quotient = resolved_price / resolved_tick
+    if math.isfinite(quotient):
+        nearest_count = round(quotient)
+        nearest = nearest_count * resolved_tick
+    else:
+        # The decimal quotient remains exact when its binary64 projection
+        # overflows, and the projected float price stays representable.
+        exact_tick = Fraction(str(resolved_tick))
+        exact_quotient = Fraction(str(resolved_price)) / exact_tick
+        nearest_count = round(exact_quotient)
+        nearest = float(nearest_count * exact_tick)
     if abs(resolved_price - nearest) <= _projection_tolerance(
         resolved_price,
         nearest,
     ):
         count = nearest_count
+    elif math.isfinite(quotient):
+        count = math.ceil(quotient) if round_up else math.floor(quotient)
     else:
-        count = math.ceil(ratio) if round_up else math.floor(ratio)
+        count = math.ceil(exact_quotient) if round_up else math.floor(exact_quotient)
 
     if count <= 0:
         raise ValueError("positive order price has no valid tick-grid projection")
-    snapped = count * resolved_tick
+    if math.isfinite(quotient):
+        snapped = count * resolved_tick
+    else:
+        snapped = float(count * exact_tick)
     if not math.isfinite(snapped) or snapped <= 0.0:
         raise ValueError("tick-grid projection must remain finite and positive")
     return float(snapped)

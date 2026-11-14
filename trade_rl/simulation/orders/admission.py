@@ -111,11 +111,10 @@ def snap_price_to_tick(
 
     if count <= 0:
         raise ValueError("positive order price has no valid tick-grid projection")
-    snapped = (
-        count * resolved_tick
-        if math.isfinite(quotient)
-        else float(count * exact_tick)
-    )
+    if math.isfinite(quotient):
+        snapped = count * resolved_tick
+    else:
+        snapped = float(count * exact_tick)
     if not math.isfinite(snapped) or snapped <= 0.0:
         raise ValueError("tick-grid projection must remain finite and positive")
     return float(snapped)

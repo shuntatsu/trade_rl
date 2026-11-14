@@ -160,7 +160,7 @@ def test_fill_validation_and_nonfinite_cost_fail_closed(
     monkeypatch.setattr(
         costly,
         "_slippage_rates",
-        lambda size: np.full(size, np.inf),
+        lambda size, *, chargeable_mask=None: np.full(size, np.inf),
     )
     with pytest.raises(ValueError, match="non-finite"):
         costly._fill_toward_quantities(

@@ -11,7 +11,7 @@ from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.store import StudyStore
 
 
-@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require Windows privileges")
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink privileges")
 def test_study_read_refuses_symlink_inserted_after_regular_file_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -38,7 +38,7 @@ def test_study_read_refuses_symlink_inserted_after_regular_file_check(
         store.read_json("plan.json")
 
 
-@pytest.mark.skipif(os.name == "nt", reason="symlink creation may require Windows privileges")
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink privileges")
 def test_study_read_refuses_existing_symlink(tmp_path: Path) -> None:
     store = StudyStore(tmp_path / "study")
     outside = tmp_path / "outside.json"

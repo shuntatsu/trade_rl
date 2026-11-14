@@ -557,6 +557,10 @@ retain their explicit reference-price sizing contract.
 不変条件:
 
 - order submissionとfillを区別する。
+- 明示`OrderIntent`のadmissionは、量子化後の非ゼロ数量について`abs(quantity) * admission_reference_price * contract_multiplier`（指値の場合は従来のmarketabilityに応じた価格）をBookStateと同じ左結合の浮動小数点演算で評価し、非有限なら既存のpretrade leverage拒否、0へのunderflowなら`unrepresentable_notional`で明示拒否する。下限設定0でも0金額の非ゼロ注文は受け入れず、正のsubnormal金額は保持する。実約定価格での台帳検証も別途維持する。
+- stateful admissionの仮想BookStateは約定済みではない注文のrisk reservationであり、現在の処理開始価格で既存保有の非ゼロ評価額がfloat0へ潰れる状態を受理しない。予約数量・現金の更新候補もBookStateと同じ有限・非ゼロ評価額の契約で**更新前に**検査し、失敗時は仮想口座の状態を変更しない。表現可能な正のsubnormal額はNumPy呼出元のunderflowエラーモードに左右されず許可する。
+- openでmarketableでないLIMITはminimum-notionalにlimit価格を使う一方、同バーの予約リスクはprocessing-open価格で評価する。limit基準の注文元本が非ゼロでもopen価格での予約保有価値がfloat0へunderflowする場合、eligibleイベントや予約変更の前にunrepresentable_notionalで拒否する。表現可能な正のsubnormal open評価額は受理し、minimum-notionalの価格基準は変えない。
+- target reconciliationで既存保有のdecision-reference grossを評価するときも、BookStateと同じbinary64表現契約を適用する。非ゼロpositionのreference valueが0/非有限へ潰れる場合は注文を作る前にfail closedとし、正のsubnormal reference valueは呼出元のNumPy underflow設定に左右されず保持する。
 - feeはrealized fillに対して一度だけ計上する。
 - spread / impactを複数channelで二重控除しない。
 - `interval_net_return` は実約定・全明示cash flow反映後の最終equityを正本とする。`interval_gross_return` は同じ実約定経路について、最終equityへexecution costとborrowを戻し、signed funding・dividend・cash interestを除いて価格損益を分離する。OPENからのasset returnへ事後weightを掛ける近似や、cost-zero条件で戦略を再実行した反実仮想とは扱わない。
@@ -568,6 +572,7 @@ retain their explicit reference-price sizing contract.
 - per-barのcorporate-action処理は、すべてのsplit factorが厳密に`1.0`のときだけ`BookState.apply_split`を省略する。1.0と異なる係数は、注文cancel閾値より小さい差でも正確に適用し、order-cancellation toleranceは従来どおり注文をcancelするかの判定だけに使う。
 - signed fillのcash移動は承認された数量のfloat射影・価格・contract multiplierから求め、feeを一度だけ引く。clone、split、settlementはexact残高を引き継ぐ。明示的なabsolute target指定だけはexact旧残高との差額を会計してから新残高へ置換する。
 - capacityによる部分約定は、元注文の整数lot上限内で、実際のfloat約定金額がcapacity以下となる最大lot数を探索する。逆算の割り算誤差で1 lotを失わず、quantity/capacity上限へ丸め許容幅を加えない。
+- liquidityの数量・流動性枠の裁定は、requested notionalが正しく表現できる場合でも、native quantity capacityで切った非ゼロ約定の`abs(fill_quantity) * actual_fill_price * contract_multiplier`が0へunderflowするなら`unrepresentable_notional`の明示的なno-fillを返す。約定数量・capacity・exact inventoryを消費せず、有限で正のsubnormal notionalは有効とする。BookStateの非ゼロ約定金額検証も残す。
 - PendingOrderはcanonical rational文字列の累積約定数量を保存し、JSON再読込後も残量を再現する。旧float-only payloadは記録済み値として読めるが、過去に失われた精度を回復したとは扱わない。最小発注額や真のsub-lot rejectionは緩和しない。
 
 Explicit `OrderIntent.reduce_only=True` supports MARKET orders only. Admission

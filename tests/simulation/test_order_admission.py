@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -7,6 +10,8 @@ from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.admission import (
     OrderAdmissionError,
     OrderAdmissionPolicy,
+    price_on_tick_grid,
+    snap_price_to_tick,
 )
 from trade_rl.simulation.orders.model import (
     OrderIntent,
@@ -151,6 +156,75 @@ def test_rule_validation_rounding_and_minimum_notional_are_explicit() -> None:
     assert invalid_rule.reason == "invalid_execution_rule"
     assert rounded_zero.reason == "zero_quantity_after_rounding"
     assert below_minimum.reason == "below_minimum_notional"
+
+
+@pytest.mark.parametrize(
+    ("price", "tick_size"),
+    [(1e308, 3e-200), (1e200, 3e-300)],
+)
+def test_tick_grid_quotient_overflow_uses_exact_decimal_projection(
+    price: float, tick_size: float
+) -> None:
+    """A finite quote/tick pair must never reach round(inf) or int*float overflow."""
+    assert math.isinf(price / tick_size)
+    price_exact = Fraction(str(price))
+    tick_exact = Fraction(str(tick_size))
+    assert price_exact % tick_exact != 0  # Exercise the nontrivial grid check.
+    nearest = round(price_exact / tick_exact) * tick_exact
+    assert abs(price_exact - nearest) < Fraction.from_float(math.ulp(price))
+
+    assert price_on_tick_grid(price, tick_size)
+    assert snap_price_to_tick(price, tick_size, round_up=False) == price
+    assert snap_price_to_tick(price, tick_size, round_up=True) == price
+
+
+def test_large_limit_price_tiny_tick_is_admitted_without_numeric_exception() -> None:
+    """Real order admission must not crash on a finite but huge tick quotient."""
+    price = 1e308
+    tick = 3e-200
+    book = BookState.zero(1, price, np.array([price]), np.ones(1))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="overflowing-tick-quotient",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=0.1,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=price,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=price,
+        decision_equity=price,
+    )
+    policy = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = policy.evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=tick,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([price]),
+        )
+    assert result.accepted
+    assert result.reason is None
+    assert result.admitted_notional > 0.0
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == price
 
 
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:

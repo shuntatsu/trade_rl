@@ -390,3 +390,41 @@ def test_v4_artifact_cannot_be_downgraded_to_v3(tmp_path: Path) -> None:
 def test_legacy_data_artifacts_module_is_removed() -> None:
     root = Path(__file__).resolve().parents[2]
     assert not (root / "trade_rl" / "data" / "artifacts.py").exists()
+
+
+def test_verified_bytes_decode_equals_the_file_loader_and_reads_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
+
+    dataset = _dataset()
+    write_market_dataset_files(tmp_path, dataset)
+    manifest_bytes = (tmp_path / "manifest.json").read_bytes()
+    arrays_bytes = (tmp_path / "arrays.npz").read_bytes()
+    from_files = load_published_market_dataset_artifact(tmp_path)
+    # Once the bytes are in memory the directory may vanish: nothing is read from it.
+    (tmp_path / "manifest.json").unlink()
+    (tmp_path / "arrays.npz").unlink()
+    loaded, digest = load_dataset_from_verified_bytes(manifest_bytes, arrays_bytes)
+    assert digest == from_files[0].artifact_digest
+    assert loaded.dataset_id == from_files[1].dataset_id == dataset.dataset_id
+    np.testing.assert_array_equal(loaded.close, from_files[1].close)
+    np.testing.assert_array_equal(loaded.features, from_files[1].features)
+
+
+def test_verified_bytes_decode_still_checks_digests_and_types(tmp_path: Path) -> None:
+    from trade_rl.data.artifacts.verified_bytes import load_dataset_from_verified_bytes
+
+    write_market_dataset_files(tmp_path, _dataset())
+    manifest_bytes = (tmp_path / "manifest.json").read_bytes()
+    arrays_bytes = (tmp_path / "arrays.npz").read_bytes()
+    with pytest.raises(ValueError, match="arrays digest mismatch"):
+        load_dataset_from_verified_bytes(manifest_bytes, arrays_bytes + b"x")
+    manifest = json.loads(manifest_bytes)
+    manifest["dataset_id"] = "b" * 64
+    with pytest.raises(ValueError, match="manifest digest mismatch"):
+        load_dataset_from_verified_bytes(
+            json.dumps(manifest).encode("utf-8"), arrays_bytes
+        )
+    with pytest.raises(TypeError):
+        load_dataset_from_verified_bytes(bytearray(manifest_bytes), arrays_bytes)  # type: ignore[arg-type]

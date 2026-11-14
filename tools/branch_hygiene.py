@@ -13,24 +13,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Sequence
 
-RETENTION_BRANCH = "provenance/branch-retention"
-RETENTION_GRACE_SECONDS = 60 * 60
-_CANONICAL_RETENTION_TITLE_RE = re.compile(
-    r"Retain merged PR #([1-9][0-9]*) exact source after verified normal integration"
-)
 API_VERSION = "2022-11-28"
-
-
-def merged_pr_retention_title(pr_number: int) -> str:
-    """One current, exact-number title for post-merge source retention."""
-
-    if type(pr_number) is not int or pr_number < 1:
-        raise ValueError("merged PR number must be a positive native integer")
-    return (
-        f"Retain merged PR #{pr_number} exact source after verified normal integration"
-    )
 
 
 @dataclass(frozen=True)
@@ -375,58 +360,12 @@ class GitHubApi:
             raise RuntimeError(f"conditional branch deletion failed: {detail}")
 
 
-def is_preserved_branch(name: str) -> bool:
-    return name == RETENTION_BRANCH
-
-
 def open_pull_request_branch_names(
     refs: Sequence[OpenPullRequestRefs],
 ) -> frozenset[str]:
     names = {ref.base_name for ref in refs}
     names.update(ref.head_name for ref in refs if ref.head_name is not None)
     return frozenset(names)
-
-
-def anchor_branch_names(
-    branches: Sequence[BranchInfo],
-    *,
-    default_branch: str,
-    open_pull_request_refs: Sequence[OpenPullRequestRefs],
-    active_workflow_branches: frozenset[str],
-) -> frozenset[str]:
-    open_names = open_pull_request_branch_names(open_pull_request_refs)
-    return frozenset(
-        branch.name
-        for branch in branches
-        if branch.name == default_branch
-        or branch.protected
-        or branch.name in open_names
-        or branch.name in active_workflow_branches
-        or is_preserved_branch(branch.name)
-    )
-
-
-def anchor_shas(
-    branches: Sequence[BranchInfo],
-    *,
-    default_branch: str,
-    open_pull_request_refs: Sequence[OpenPullRequestRefs],
-    active_workflow_branches: frozenset[str],
-) -> frozenset[str]:
-    names = anchor_branch_names(
-        branches,
-        default_branch=default_branch,
-        open_pull_request_refs=open_pull_request_refs,
-        active_workflow_branches=active_workflow_branches,
-    )
-    shas = {branch.sha for branch in branches if branch.name in names}
-    shas.update(ref.base_sha for ref in open_pull_request_refs)
-    shas.update(
-        ref.head_sha for ref in open_pull_request_refs if ref.head_sha is not None
-    )
-    if not shas:
-        raise RuntimeError("no durable anchor commits were found")
-    return frozenset(shas)
 
 
 def reachable_commits(shas: Iterable[str]) -> frozenset[str]:
@@ -445,128 +384,10 @@ def reachable_commits(shas: Iterable[str]) -> frozenset[str]:
     return frozenset(line for line in process.stdout.splitlines() if line)
 
 
-def parse_retention_log(log_output: str) -> dict[tuple[str, str], int]:
-    """Read only per-PR canonical observations; historical titles are inert."""
-
-    observed: dict[tuple[str, str], int] = {}
-    for raw_record in log_output.split("\x1e"):
-        record = raw_record.strip("\n")
-        if not record.strip():
-            continue
-        timestamp_text, separator, message = record.partition("\x1f")
-        if not separator:
-            raise RuntimeError("retention log record is missing its separator")
-        try:
-            timestamp = int(timestamp_text.strip())
-        except ValueError as exc:
-            raise RuntimeError("retention log timestamp is invalid") from exc
-
-        title = message.split("\n", 1)[0]
-        match = _CANONICAL_RETENTION_TITLE_RE.fullmatch(title)
-        if match is None or title != merged_pr_retention_title(int(match.group(1))):
-            continue
-        mappings: list[tuple[str, str]] = []
-        for line in message.splitlines():
-            name, separator, sha = line.partition("\t")
-            if (
-                separator
-                and name
-                and len(sha) == 40
-                and all(character in "0123456789abcdef" for character in sha)
-            ):
-                mappings.append((name, sha))
-        if len(mappings) != 1:
-            continue
-        key = mappings[0]
-        previous = observed.get(key)
-        observed[key] = timestamp if previous is None else min(previous, timestamp)
-    return observed
-
-
-def retention_tip_observations() -> dict[tuple[str, str], int]:
-    ref = f"refs/remotes/origin/{RETENTION_BRANCH}"
-    probe = subprocess.run(
-        ["git", "show-ref", "--verify", "--quiet", ref],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if probe.returncode == 1:
-        return {}
-    if probe.returncode != 0:
-        raise RuntimeError(f"git show-ref failed: {probe.stderr.strip()}")
-    process = subprocess.run(
-        ["git", "log", "--first-parent", "--format=%ct%x1f%B%x1e", ref],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise RuntimeError(f"git log failed: {process.stderr.strip()}")
-    return parse_retention_log(process.stdout)
-
-
-def plan_cleanup(
-    branches: Sequence[BranchInfo],
-    *,
-    default_branch: str,
-    open_pull_request_refs: Sequence[OpenPullRequestRefs],
-    active_workflow_branches: frozenset[str],
-    reachable_from_anchors: frozenset[str],
-    retention_observed_at: Mapping[tuple[str, str], int],
-    now_timestamp: int,
-    grace_seconds: int = RETENTION_GRACE_SECONDS,
-) -> tuple[BranchDecision, ...]:
-    open_names = open_pull_request_branch_names(open_pull_request_refs)
-    decisions: list[BranchDecision] = []
-    for branch in sorted(branches, key=lambda item: item.name):
-        if branch.name == default_branch:
-            decision = BranchDecision(branch, "keep", "default-branch")
-        elif branch.protected:
-            decision = BranchDecision(branch, "keep", "protected")
-        elif branch.name in open_names:
-            decision = BranchDecision(branch, "keep", "open-pr-ref")
-        elif branch.name in active_workflow_branches:
-            decision = BranchDecision(branch, "keep", "active-workflow")
-        elif is_preserved_branch(branch.name):
-            decision = BranchDecision(branch, "keep", "provenance")
-        else:
-            observed_at = retention_observed_at.get((branch.name, branch.sha))
-            if observed_at is None:
-                decision = BranchDecision(
-                    branch, "archive-keep", "first-seen-non-anchor-tip"
-                )
-            elif now_timestamp - observed_at < grace_seconds:
-                decision = BranchDecision(branch, "keep", "observation-grace-period")
-            elif branch.sha in reachable_from_anchors:
-                decision = BranchDecision(
-                    branch, "delete", "observed-tip-reachable-from-anchor"
-                )
-            else:
-                decision = BranchDecision(branch, "keep", "retained-tip-not-reachable")
-        decisions.append(decision)
-    return tuple(decisions)
-
-
-def apply_cleanup(
-    api: GitHubApi,
-    decisions: Sequence[BranchDecision],
-    *,
-    default_branch: str,
-) -> tuple[str, ...]:
-    """Hard-refuse the obsolete bulk deletion entry even if imported directly.
-
-    The sole merged-ref retirement operation is --retire-merged --apply.
-    The retired manual prune operation is not a fallback for unknown refs.
-    """
-
-    raise RuntimeError("bulk apply_cleanup is disabled; use --retire-merged --apply")
-
-
 # Routine retirement never depends on the separate Coordinator enrollment,
 # because an exact ancestor of current main cannot contain unique code history.
 # Divergent sources, authoritative research refs and any currently used PR/run
-# stay outside this path. The older generic retention planner remains read-only.
+# stay outside this path. No alternate retention/grace planner is active.
 # M1 merge handoff requires durable source branch refs even when their
 # exact final head is already reachable from main. This exception is scoped
 # to the M1 branch namespace plus its Windows test-only companion.
@@ -773,56 +594,11 @@ def render_merged_retirement_summary(
     )
 
 
-def render_summary(
-    decisions: Sequence[BranchDecision], *, deleted: Sequence[str], apply: bool
-) -> str:
-    direct_candidates = [
-        item.branch.name for item in decisions if item.action == "delete"
-    ]
-    archive_candidates = [
-        item.branch.name for item in decisions if item.action == "archive-keep"
-    ]
-    durable_reasons = {
-        "default-branch",
-        "protected",
-        "open-pr-ref",
-        "active-workflow",
-        "provenance",
-    }
-    anchors = [
-        item.branch.name
-        for item in decisions
-        if item.action == "keep" and item.reason in durable_reasons
-    ]
-    lines = [
-        "## Branch hygiene",
-        "",
-        f"- mode: {'apply' if apply else 'dry-run'}",
-        f"- branches inspected: {len(decisions)}",
-        f"- durable anchors kept: {len(anchors)}",
-        f"- direct deletion candidates: {len(direct_candidates)}",
-        f"- first-observation archival candidates: {len(archive_candidates)}",
-        f"- grace period: {RETENTION_GRACE_SECONDS} seconds",
-        f"- branches deleted: {len(deleted)}",
-        f"- retention branch: `{RETENTION_BRANCH}`",
-        f"- ref/retention mutations: {'apply mode' if apply else 'none (dry-run)'}",
-        "",
-    ]
-    if deleted:
-        lines.extend(["### Deleted", ""])
-        lines.extend(f"- `{name}`" for name in deleted[:100])
-        if len(deleted) > 100:
-            lines.append(f"- … and {len(deleted) - 100} more")
-        lines.append("")
-    return "\n".join(lines)
-
-
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Report branch retention and cleanup candidates without changing refs. "
-            "Destructive --apply is disabled unless explicit --retire-merged "
-            "mode uses exact SHA leases for main ancestors."
+            "--apply is disabled without --retire-merged. "
+            "Inspect merged-PR main-ancestor refs using exact SHA checks."
         )
     )
     parser.add_argument(
@@ -849,8 +625,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.apply and not args.retire_merged:
-        raise RuntimeError("branch cleanup apply is disabled without --retire-merged")
+    if not args.retire_merged:
+        raise RuntimeError(
+            "obsolete retention planner disabled: bulk apply is disabled; use --retire-merged "
+            "for a read-only preview or --retire-merged --apply for exact-SHA retirement"
+        )
     if not args.token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
     api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)
@@ -858,75 +637,47 @@ def main(argv: Sequence[str] | None = None) -> int:
     branches = api.branches()
     open_refs = api.open_pull_request_refs()
     active_branches = api.active_workflow_branch_names()
-    if args.retire_merged:
-        if args.repository != "shuntatsu/trade_rl" or default_branch != "main":
-            raise RuntimeError("merged branch retirement is limited to trade_rl/main")
-        main_refs = [branch for branch in branches if branch.name == default_branch]
-        if len(main_refs) != 1:
-            raise RuntimeError("cannot identify unique main")
-        # The workflow fetches the complete main history before this check.
-        local_main = subprocess.run(
-            ["git", "rev-parse", f"refs/remotes/origin/{default_branch}"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        if local_main != main_refs[0].sha:
-            raise RuntimeError("local main history differs from current GitHub ref")
-        reachable_from_main = reachable_commits((local_main,))
-        merged_sources = api.merged_pr_source_refs()
-        decisions = plan_merged_retirement(
-            branches,
-            default_branch=default_branch,
-            open_pull_request_refs=open_refs,
-            active_workflow_branches=active_branches,
-            reachable_from_main=reachable_from_main,
-            merged_pr_sources=merged_sources,
-        )
-        if args.apply:
-            require_retirement_origin()
-        deleted = (
-            apply_merged_retirement(
-                api,
-                decisions,
-                default_branch=default_branch,
-                expected_main_sha=local_main,
-                reachable_from_main=reachable_from_main,
-                max_deletes=args.max_deletes,
-            )
-            if args.apply
-            else ()
-        )
-        summary = render_merged_retirement_summary(
-            decisions, deleted=deleted, apply=args.apply
-        )
-        print(summary)
-        if args.summary is not None:
-            args.summary.write_text(summary + "\n", encoding="utf-8")
-        return 0
-    anchors = anchor_shas(
+    if args.repository != "shuntatsu/trade_rl" or default_branch != "main":
+        raise RuntimeError("merged branch retirement is limited to trade_rl/main")
+    main_refs = [branch for branch in branches if branch.name == default_branch]
+    if len(main_refs) != 1:
+        raise RuntimeError("cannot identify unique main")
+    # The workflow fetches the complete main history before this check.
+    local_main = subprocess.run(
+        ["git", "rev-parse", f"refs/remotes/origin/{default_branch}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if local_main != main_refs[0].sha:
+        raise RuntimeError("local main history differs from current GitHub ref")
+    reachable_from_main = reachable_commits((local_main,))
+    merged_sources = api.merged_pr_source_refs()
+    decisions = plan_merged_retirement(
         branches,
         default_branch=default_branch,
         open_pull_request_refs=open_refs,
         active_workflow_branches=active_branches,
+        reachable_from_main=reachable_from_main,
+        merged_pr_sources=merged_sources,
     )
-    reachable = reachable_commits(anchors)
-    retention_observed_at = retention_tip_observations()
-    decisions = plan_cleanup(
-        branches,
-        default_branch=default_branch,
-        open_pull_request_refs=open_refs,
-        active_workflow_branches=active_branches,
-        reachable_from_anchors=reachable,
-        retention_observed_at=retention_observed_at,
-        now_timestamp=int(time.time()),
-    )
+    if args.apply:
+        require_retirement_origin()
     deleted = (
-        apply_cleanup(api, decisions, default_branch=default_branch)
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch=default_branch,
+            expected_main_sha=local_main,
+            reachable_from_main=reachable_from_main,
+            max_deletes=args.max_deletes,
+        )
         if args.apply
         else ()
     )
-    summary = render_summary(decisions, deleted=deleted, apply=args.apply)
+    summary = render_merged_retirement_summary(
+        decisions, deleted=deleted, apply=args.apply
+    )
     print(summary)
     if args.summary is not None:
         args.summary.write_text(summary + "\n", encoding="utf-8")

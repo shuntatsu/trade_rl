@@ -72,6 +72,105 @@ def test_book_factories_reject_invalid_inputs(factory: object) -> None:
         factory()  # type: ignore[operator]
 
 
+@pytest.mark.parametrize("poisoned_state", ["unrepresentable_position", "nan_cash"])
+@pytest.mark.parametrize("explicit_requirement", [False, True])
+def test_set_margin_rejects_invalid_book_before_mutating_margin_state(
+    poisoned_state: str, explicit_requirement: bool
+) -> None:
+    """An invalid existing account must not leave partial margin mutations."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-200]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-120]),
+    )
+    if poisoned_state == "unrepresentable_position":
+        book.contract_multipliers[:] = 1e-200
+    else:
+        book.cash = math.nan
+    before = (
+        book.margin_used,
+        book.maintenance_margin,
+        book.maintenance_requirement,
+        book.margin_deficit,
+        book.insolvent,
+        book.termination_reason,
+    )
+    kwargs = {"maintenance_requirement": 2.0} if explicit_requirement else {}
+    with pytest.raises(
+        ValueError, match="non-finite|position value cannot be represented"
+    ):
+        book.set_margin(margin_used=3.0, maintenance_margin=0.3, **kwargs)
+    after = (
+        book.margin_used,
+        book.maintenance_margin,
+        book.maintenance_requirement,
+        book.margin_deficit,
+        book.insolvent,
+        book.termination_reason,
+    )
+    assert after == before
+
+
+@pytest.mark.parametrize("strict_numpy", [False, True])
+@pytest.mark.parametrize(
+    "invalid_state",
+    (
+        "nan_cash",
+        "positive_infinite_cash",
+        "negative_infinite_cash",
+        "overflowing_position_sum",
+    ),
+)
+@pytest.mark.parametrize(
+    "property_name",
+    ("portfolio_value", "weights", "gross_exposure", "margin_utilization"),
+)
+def test_corrupt_portfolio_value_cannot_disguise_exposure_as_zero(
+    invalid_state: str, strict_numpy: bool, property_name: str
+) -> None:
+    """A public-state mutation must fail closed on account and risk reads."""
+    book = BookState.zero(2, 1_000.0, np.array([1.0, 1.0]))
+    if invalid_state == "nan_cash":
+        book.cash = math.nan
+    elif invalid_state == "positive_infinite_cash":
+        book.cash = math.inf
+    elif invalid_state == "negative_infinite_cash":
+        book.cash = -math.inf
+    else:
+        book.quantities[:] = 1e308
+    before_cash, before_positions = book.cash, book.quantities.copy()
+    with np.errstate(
+        over="raise" if strict_numpy else "ignore",
+        under="raise" if strict_numpy else "ignore",
+        invalid="raise" if strict_numpy else "ignore",
+    ):
+        with pytest.raises(ValueError, match="portfolio value.*non-finite"):
+            getattr(book, property_name)
+    if math.isnan(before_cash):
+        assert math.isnan(book.cash)
+    else:
+        assert book.cash == before_cash
+    np.testing.assert_array_equal(book.quantities, before_positions)
+    assert book.fill_count == 0
+    assert book.peak_value == 1_000.0
+
+
+def test_valid_large_signed_position_cancellation_keeps_finite_book_value() -> None:
+    """Fail-closed checks must not outlaw legitimate signed netting."""
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=100.0,
+        mark_prices=np.array([1e308, 1e308]),
+        peak_value=100.0,
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert book.portfolio_value == 100.0
+        assert book.cash_weight == 1.0
+        assert np.isfinite(book.gross_exposure)
+
+
 def test_accounting_operation_validation_and_edge_properties() -> None:
     book = _book()
     with pytest.raises(ValueError):

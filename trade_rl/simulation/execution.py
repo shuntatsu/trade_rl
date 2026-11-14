@@ -998,12 +998,32 @@ class MarketExecutor:
             or year_fraction < 0.0
         ):
             raise ValueError("borrow year_fraction must be finite and non-negative")
+        if year_fraction == 0.0 or self.cost.borrow_rate_multiplier == 0.0:
+            return 0.0
         short_values = np.maximum(-book.position_values, 0.0)
-        borrow_amount = float(
-            np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
-            * year_fraction
-            * self.cost.borrow_rate_multiplier
-        )
+        borrow_rates = self.dataset.resolved_array("borrow_rate")[index]
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            rate_products = short_values * borrow_rates
+            rate_total = float(np.sum(rate_products))
+        if not np.isfinite(rate_products).all() or not math.isfinite(rate_total):
+            raise ValueError("borrow amount became non-finite")
+        active = (short_values != 0.0) & (borrow_rates != 0.0)
+        if np.any(active & (rate_products == 0.0)):
+            raise ValueError("nonzero borrow amount cannot be represented")
+        year_scaled = rate_total * year_fraction
+        if not math.isfinite(year_scaled):
+            raise ValueError("borrow amount became non-finite")
+        if rate_total != 0.0 and year_fraction != 0.0 and year_scaled == 0.0:
+            raise ValueError("nonzero borrow amount cannot be represented")
+        borrow_amount = year_scaled * self.cost.borrow_rate_multiplier
+        if not math.isfinite(borrow_amount):
+            raise ValueError("borrow amount became non-finite")
+        if (
+            year_scaled != 0.0
+            and self.cost.borrow_rate_multiplier != 0.0
+            and borrow_amount == 0.0
+        ):
+            raise ValueError("nonzero borrow amount cannot be represented")
         if borrow_amount > 0.0:
             book.charge_borrow(borrow_amount)
         return borrow_amount
@@ -1021,11 +1041,26 @@ class MarketExecutor:
         if self.dataset.funding_price_rate is None:
             funding_notional = self.dataset.quantity_notional(index, book.quantities)
             funding_rate = self.dataset.funding_rate[index]
+            active_source = (funding_notional != 0.0) & (funding_rate != 0.0)
         else:
             multipliers = self.dataset.resolved_array("contract_multipliers")
-            funding_notional = book.quantities * multipliers
             funding_rate = self.dataset.funding_price_rate[index]
-        funding_amount = -float(np.dot(funding_notional, funding_rate * funding_due))
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                funding_notional = book.quantities * multipliers
+            active_source = (
+                (book.quantities != 0.0) & (multipliers != 0.0) & (funding_rate != 0.0)
+            )
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            due_rates = funding_rate * funding_due
+            funding_contributions = funding_notional * due_rates
+            funding_amount = -float(np.dot(funding_notional, due_rates))
+        active_source &= funding_due != 0.0
+        if not np.isfinite(funding_contributions).all() or not math.isfinite(
+            funding_amount
+        ):
+            raise ValueError("funding amount became non-finite")
+        if np.any(active_source & (funding_contributions == 0.0)):
+            raise ValueError("nonzero funding amount cannot be represented")
         previous_index = max(0, index - 1)
         resolved_year_fraction = (
             self.dataset.elapsed_year_fraction(previous_index, index)

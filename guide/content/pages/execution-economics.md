@@ -52,6 +52,7 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 - `BookState`更新
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
+正しく表現できる極小の評価額は、利用側がNumPyの数値例外設定を厳格化していても帳簿へ反映されます。更新前の値チェックと更新後の評価計算に同じ演算の扱いを適用し、途中例外による保有量だけの更新を防ぎます。また、バー終端の資金調達前評価は、更新後の口座価値から逆算せず、変更前の現金と時点価格で独立に確認します。
 
 残数量が一致しても、注文種別・time-in-force（IOC/DAY/GTC）・明示有効期限・実行ポリシー等が変わった場合は古い未約定注文をcancel-and-replaceします。条件が同じ場合は既存注文のeligible時刻を維持し、毎回latencyをリセットしません。
 
@@ -69,6 +70,7 @@ partial fillなら、要求数量ではなくrealized fill quantityだけをposi
 LIMITのcost分類も注文名だけでは決めません。そのbarで初めてeligibleになったLIMITがprocessing openですでにmarketableなら、そのfillはliquidity-takingとしてtaker feeとfull spreadを使います。openではmarketableでなくbar内touchまでrestしたLIMITはmaker扱いです。また、前バーから残っていたLIMITは次バーopenでcrossしても既にrestingしていた注文なのでmaker扱いを維持します。この区別はfee/spreadの分類だけで、fill価格・fill数量・capacityを変更しません。
 
 区間収益は役割を分けます。`interval_net_return` は実際のfill・cost・funding・borrow・dividend・cash interestをすべて反映した最終equityの収益です。`interval_gross_return` は**同じ実約定経路**から明示cash flowを取り除いて価格損益を分離した診断値で、実際のfill priceを使います。OPENから期末までのasset returnへ事後position weightを掛ける近似や、costを0にして戦略を再実行した反実仮想ではありません。
+funding・borrow・配当・cash interestでは、非ゼロの個別寄与額がfloatで0や非有限へ潰れる場合にそのcash flowを黙って省略せず、口座更新前にfail closedにします。複数銘柄の正負寄与が正当に相殺して合計0になる場合や、rate・期間・position/cashが本当に0の場合は0を許可します。 また、保有評価額が非ゼロのsubnormalとして表現できる場合は、厳格なNumPy設定でもその値を保持してcash flow処理後の再評価まで完了させます。 保有配列が後から不正に変更され、非ゼロ評価額が0に潰れる場合は、通常のNumPy設定でも保有ゼロとして受け入れず拒否します。 維持証拠金額を明示する場合も、現金と保有評価額を先に検証し、不正な状態で証拠金・清算状態を部分更新しません。 公開口座の現金が後からNaN・無限大に変わった場合や、有限の保有評価額の合計がオーバーフローする場合は、リスクを0と見せず、評価・ウェイト・エクスポージャーの読出しで拒否します。正当な売買相殺や有限の負債評価は従来どおり扱います。
 
 現行の標準破産評価は`floor_zero`で、負債が出ても強制終了時の
 book cashはゼロを下限とします。研究用の明示的opt-in

@@ -222,10 +222,17 @@ class StatefulBarLifecycle:
             raise ValueError("stateful funding requires contract multipliers")
         # Snapshot book cash and marked inventory before funding is credited.
         # Deriving this from the post-funding equity would make closure tautological.
-        equity_before_funding = float(
-            runtime.book.cash
-            + np.sum(runtime.book.quantities * mark_prices * multipliers)
-        )
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            observed_positions = runtime.book.quantities * mark_prices * multipliers
+            equity_before_funding = float(
+                runtime.book.cash + np.sum(observed_positions)
+            )
+        if (
+            not np.isfinite(observed_positions).all()
+            or not np.isfinite(equity_before_funding)
+            or np.any((runtime.book.quantities != 0.0) & (observed_positions == 0.0))
+        ):
+            raise ValueError("pre-funding account valuation cannot be represented")
         runtime.book.mark_to_market(
             mark_prices=mark_prices,
             funding_amount=funding_amount,

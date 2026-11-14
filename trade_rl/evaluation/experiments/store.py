@@ -209,7 +209,9 @@ class StudyStore:
             with open_regular_binary(target, field="Study artifact") as handle:
                 encoded = handle.read()
         except ValueError as error:
-            raise ArtifactIntegrityError("Study artifact must be a regular file") from error
+            raise ArtifactIntegrityError(
+                "Study artifact must be a regular file"
+            ) from error
         except OSError as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
         try:

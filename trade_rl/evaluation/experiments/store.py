@@ -16,6 +16,7 @@ from trade_rl.artifacts.atomic_write import (
     atomic_rename_directory,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
@@ -202,9 +203,18 @@ class StudyStore:
         target = self._checked_target(relative)
         if target.is_symlink() or not target.is_file():
             raise ArtifactIntegrityError("Study artifact must be a regular file")
+        # Open the verified file descriptor before reading: a later symlink
+        # substitution must not redirect this read to a different artifact.
         try:
-            raw = cast(object, json.loads(target.read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            with open_regular_binary(target, field="Study artifact") as handle:
+                encoded = handle.read()
+        except ValueError as error:
+            raise ArtifactIntegrityError("Study artifact must be a regular file") from error
+        except OSError as error:
+            raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
+        try:
+            raw = cast(object, json.loads(encoded.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
         if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
             raise ArtifactIntegrityError("Study artifact must contain a JSON object")

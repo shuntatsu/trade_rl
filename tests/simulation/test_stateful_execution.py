@@ -84,6 +84,7 @@ def _intent(
     expiry_index: int | None = None,
     time_in_force: TimeInForce = TimeInForce.GTC,
     target_identity: str = "target-1",
+    submission_reference_price: float = 100.0,
 ) -> OrderIntent:
     return OrderIntent.create(
         dataset_id=executor.dataset.dataset_id,
@@ -98,7 +99,7 @@ def _intent(
         submit_index=submit_index,
         eligible_index=eligible_index,
         expiry_index=expiry_index,
-        submission_reference_price=100.0,
+        submission_reference_price=submission_reference_price,
         decision_equity=1_000.0,
     )
 
@@ -110,6 +111,326 @@ def _zero_book(dataset: MarketDataset) -> BookState:
         dataset.close[0],
         dataset.resolved_array("contract_multipliers"),
     )
+
+
+def test_unmarketable_limit_open_projection_underflow_rejects_before_order_state() -> (
+    None
+):
+    """An eligible event must not precede an unbookable open-mark reservation."""
+    tiny_price = 1e-200
+    prices = np.full((6, 1), tiny_price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.array([tiny_price]),
+    )
+    executor = _executor(dataset)
+    book = BookState.zero(1, 1_000.0, np.array([tiny_price]), np.array([tiny_price]))
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents(
+        (_intent(executor, -1.0, order_type=OrderType.LIMIT, limit_price=1e200),)
+    )
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([tiny_price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+    assert accepted == []
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("rejected", "unrepresentable_notional"),
+    ]
+    assert runtime.rejected_count == 1
+    assert runtime.book.quantities.tolist() == [0.0]
+    assert runtime.book.cash == 1_000.0
+    assert runtime.fill_count == 0
+    assert book.quantities.tolist() == [0.0]
+
+
+@pytest.mark.parametrize("quantity", [-1.0, 1.0])
+@pytest.mark.parametrize("time_in_force", [TimeInForce.GTC, TimeInForce.IOC])
+def test_unrepresentable_order_is_rejected_at_stateful_admission(
+    quantity: float, time_in_force: TimeInForce
+) -> None:
+    """An order rejected at admission must not reach capacity or fill accounting."""
+    tiny_price = 1e-200
+    prices = np.full((6, 1), tiny_price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full((6, 1), 100.0),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([1e-200]),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    intent = _intent(executor, quantity, time_in_force=time_in_force)
+
+    result = executor.execute_orders(
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        (intent,),
+        start_index=0,
+        bars=1,
+    )
+
+    assert [event.event_type for event in result.order_events] == [
+        "submitted",
+        "rejected",
+    ]
+    assert result.order_events[-1].reason == "unrepresentable_notional"
+    assert result.rejected_count == 1
+    assert result.fill_count == 0
+    assert result.capacity_evidence == ()
+    assert result.order_book.active_orders == ()
+    terminal = result.order_book.terminal_orders
+    assert len(terminal) == 1
+    assert terminal[0].status is OrderStatus.REJECTED
+    assert terminal[0].terminal_reason == "unrepresentable_notional"
+    assert result.book.quantities.tolist() == [0.0]
+    assert result.book.cash == 1_000.0
+
+
+@pytest.mark.parametrize("signed_quantity", [-1.0, 1.0])
+def test_projected_admission_economics_ignore_strict_underflow_for_subnormal(
+    signed_quantity: float,
+) -> None:
+    """Accepted subnormal values must not crash risk projection before fill."""
+    price = 1e-160
+    multiplier = 5e-164
+    book = BookState.zero(1, 1_000.0, np.array([price]), np.array([multiplier]))
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected = _AdmissionBookProjection.from_book(
+            book, mark_prices=np.array([price])
+        )
+        projected.apply_admitted_order(
+            symbol_index=0, quantity=signed_quantity, price=price
+        )
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [signed_quantity]
+    assert projected.cash == 1_000.0
+
+
+@pytest.mark.parametrize("signed_quantity", [-1.0, 1.0])
+def test_projected_existing_subnormal_book_evaluates_under_strict_numpy(
+    signed_quantity: float,
+) -> None:
+    book = BookState(
+        quantities=np.array([signed_quantity]),
+        cash=1_000.0,
+        mark_prices=np.array([1e-160]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([5e-164]),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected = _AdmissionBookProjection.from_book(
+            book, mark_prices=np.array([1e-160])
+        )
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [signed_quantity]
+
+
+@pytest.mark.parametrize("price,multiplier", [(1e-200, 1e-200), (1e308, 1e308)])
+def test_projected_unrepresentable_order_does_not_mutate_projection(
+    price: float, multiplier: float
+) -> None:
+    """A failed proposed order must not reserve phantom inventory or cash."""
+    book = BookState.zero(1, 1_000.0, np.array([price]), np.array([multiplier]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([price]))
+    before = (
+        projected.quantities.copy(),
+        projected.cash,
+        projected.portfolio_value,
+        projected.insolvent,
+    )
+    with pytest.raises(ValueError, match="non-finite|nonzero position value"):
+        projected.apply_admitted_order(symbol_index=0, quantity=1.0, price=price)
+    np.testing.assert_array_equal(projected.quantities, before[0])
+    assert projected.cash == before[1]
+    assert projected.portfolio_value == before[2]
+    assert projected.insolvent == before[3]
+    assert book.quantities.tolist() == [0.0]
+
+
+@pytest.mark.parametrize("numpy_input", ["quantity", "price"])
+def test_projected_numpy_scalar_overflow_is_rejected_atomically_under_strict_numpy(
+    numpy_input: str,
+) -> None:
+    """Raw NumPy scalar overflow cannot escape admission as FloatingPointError."""
+    book = BookState.zero(1, 1_000.0, np.array([1e308]), np.array([1e308]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([1e308]))
+    previous = (projected.quantities.copy(), projected.cash, projected.insolvent)
+    quantity = np.float64(1.0) if numpy_input == "quantity" else 1.0
+    price = np.float64(1e308) if numpy_input == "price" else 1e308
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        with pytest.raises(ValueError, match="non-finite|overflow"):
+            projected.apply_admitted_order(
+                symbol_index=0, quantity=quantity, price=price
+            )
+    np.testing.assert_array_equal(projected.quantities, previous[0])
+    assert projected.cash == previous[1]
+    assert projected.insolvent == previous[2]
+
+
+@pytest.mark.parametrize("numpy_input", ["quantity", "price"])
+def test_projected_numpy_scalar_representable_subnormal_stays_valid_under_strict_numpy(
+    numpy_input: str,
+) -> None:
+    """Numerical error normalization must not reject a nonzero valid subnormal."""
+    mark = 1e-160
+    multiplier = 5e-164
+    book = BookState.zero(1, 1_000.0, np.array([mark]), np.array([multiplier]))
+    projected = _AdmissionBookProjection.from_book(book, mark_prices=np.array([mark]))
+    quantity = np.float64(1.0) if numpy_input == "quantity" else 1.0
+    price = np.float64(mark) if numpy_input == "price" else mark
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        projected.apply_admitted_order(symbol_index=0, quantity=quantity, price=price)
+        assert projected.portfolio_value == 1_000.0
+    assert projected.quantities.tolist() == [1.0]
+    assert projected.cash == 1_000.0
+
+
+def test_existing_projection_exposure_cannot_underflow_at_processing_open() -> None:
+    """A bookable prior mark must not become phantom zero risk at new open."""
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-200]),
+    )
+    with pytest.raises(ValueError, match="nonzero position value"):
+        _AdmissionBookProjection.from_book(book, mark_prices=np.array([1e-200]))
+    assert book.quantities.tolist() == [1.0]
+    assert book.cash == 1_000.0
+
+
+@pytest.mark.parametrize("signed_position", [-1.0, 1.0])
+@pytest.mark.parametrize("signed_order", [-1.0, 1.0])
+def test_stateful_existing_subnormal_exposure_admission_under_strict_numpy(
+    signed_position: float, signed_order: float
+) -> None:
+    """Existing valid tiny positions cannot crash the gross exposure guard."""
+    price = 1e-160
+    multiplier = 5e-164
+    prices = np.full((6, 1), price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        volume=np.full((6, 1), 100.0),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([multiplier]),
+    )
+    executor = _executor(dataset, max_participation_rate=1.0)
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=1_000.0,
+        mark_prices=np.array([price]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([multiplier]),
+    )
+    # Set up the real stateful runtime before entering strict NumPy mode:
+    # BookState cloning is a separate accounting contract covered in #1144.
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents((_intent(executor, signed_order),))
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+    assert len(accepted) == 1
+    assert accepted[0].status is OrderStatus.ELIGIBLE
+    assert accepted[0].remaining_quantity == signed_order
+    assert [event.event_type for event in runtime.events] == [
+        "submitted",
+        "eligible",
+    ]
+    # Admission only reserves the internal risk projection; no real fill yet.
+    assert runtime.book.quantities.tolist() == [signed_position]
+    assert runtime.book.cash == 1_000.0
+    assert runtime.fill_count == 0
+    assert book.quantities.tolist() == [signed_position]
+    assert book.cash == 1_000.0
+
+
+@pytest.mark.parametrize(
+    "signed_position,signed_order",
+    [
+        (np.nextafter(0.0, 1.0), -0.1),
+        (-np.nextafter(0.0, 1.0), 0.1),
+        (1.0, -0.5),
+        (-1.0, 0.5),
+    ],
+)
+def test_stateful_opposite_signed_admission_never_multiplies_tiny_position(
+    signed_position: float, signed_order: float
+) -> None:
+    """An eligible order must emit its event under strict NumPy, even for dust."""
+    price = 1e308
+    prices = np.full((6, 1), price)
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.ones(1),
+    )
+    executor = _executor(dataset, max_leverage=1.0)
+    initial_cash = 5e307 if signed_position == 1.0 else 1.6e308
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=initial_cash,
+        mark_prices=np.array([price]),
+        peak_value=1.6e308,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents(
+        (_intent(executor, signed_order, submission_reference_price=price),)
+    )
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([price]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+            runtime, context
+        )
+
+    assert len(accepted) == 1
+    assert accepted[0].status is OrderStatus.ELIGIBLE
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("eligible", None),
+    ]
+    assert runtime.book.quantities[0] == signed_position
+    assert runtime.book.cash == initial_cash
+    assert runtime.fill_count == 0
+    assert runtime.rejected_count == 0
 
 
 @pytest.mark.parametrize("capacity_volume,expected_ratio", [(0.0, 0.0), (1.0, 1.0)])
@@ -1673,3 +1994,48 @@ def test_cancel_and_replace_emits_cancellation_before_replacement_submission() -
     assert tuple(event.sequence for event in second.order_events) == tuple(
         range(len(second.order_events))
     )
+
+
+def test_reservation_cash_overflow_rejects_before_eligible_event() -> None:
+    """Reject a finite reservation whose cash leg cannot be represented."""
+    prices = np.ones((6, 1))
+    dataset = _market(
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        contract_multipliers=np.array([1e308]),
+    )
+    executor = _executor(dataset, max_leverage=1.0)
+    book = BookState(
+        quantities=np.array([-0.7]),
+        cash=1.7e308,
+        mark_prices=np.array([1.0]),
+        peak_value=1e308,
+        contract_multipliers=np.array([1e308]),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    runtime.submit_intents((_intent(executor, -0.2, submission_reference_price=1.0),))
+    runtime.initialize_metrics()
+    context = SimpleNamespace(
+        processing_index=1,
+        open_prices=np.array([1.0]),
+        tick_size=np.zeros(1),
+        lot_size=np.zeros(1),
+        minimum_notional=np.zeros(1),
+    )
+
+    accepted = StatefulOrderTransitionProcessor(executor).prepare_orders(
+        runtime, context
+    )
+
+    assert accepted == []
+    assert [(event.event_type, event.reason) for event in runtime.events] == [
+        ("submitted", None),
+        ("rejected", "unrepresentable_notional"),
+    ]
+    assert runtime.rejected_count == 1
+    assert runtime.book.quantities.tolist() == [-0.7]
+    assert runtime.book.cash == 1.7e308
+    assert runtime.fill_count == 0
+    assert runtime.order_book.active_orders == ()

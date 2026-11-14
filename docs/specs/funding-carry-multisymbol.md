@@ -200,6 +200,8 @@ from the packet head by `tests/evaluation/test_carry_multisymbol_packet.py`: a c
 to any file in that closure after the head fails the test until the packet is re-pinned
 and re-reviewed.
 
+Historical M1 software-only author record: `report/issue810-carry-multisymbol-research-assurance-20261113-after1136-1208.json` (digest `b30864f4cfaf5201add687e6f232fc06f731edba93fec81e4eaf9f330432248d`). It remains UNREVIEWED, grants no G0-G5/G4 or live permission, and does not replace the current #1227 packet or reopen the completed Carry research run.
+
 ## Data source and runbook
 
 **Chosen source: Binance Vision archives with official `.CHECKSUM` verification, with no

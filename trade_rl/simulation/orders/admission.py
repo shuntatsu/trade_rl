@@ -135,10 +135,11 @@ def snap_price_to_tick(
         tolerance = _projection_tolerance(resolved_price, nearest)
         if abs(resolved_price - nearest) > tolerance:
             nearest_is_valid = False
-        elif resolved_tick <= 2.0 * tolerance:
-            # When a few ULPs are at least half a tick, check the exact
-            # decimal distance: an off-grid midpoint must not override the
-            # conservative floor/ceil price direction.
+        else:
+            # Any floated nearest price within the ULP tolerance must still
+            # be closer than half a decimal tick. The former 2*tolerance
+            # gate allowed a false nearest just above that boundary and
+            # could reverse conservative ceil/floor snapping.
             exact_tick = Fraction(str(resolved_tick))
             nearest_is_valid = (
                 2 * abs(Fraction(str(resolved_price)) - nearest_count * exact_tick)

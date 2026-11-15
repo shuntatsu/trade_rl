@@ -392,6 +392,34 @@ def test_positive_nearest_half_tick_cannot_override_conservative_snapping() -> N
         assert snap_price_to_tick(price, tick, round_up=True) == 2 * tick
 
 
+@pytest.mark.parametrize(
+    ("price", "tick_size"),
+    [
+        (1.25, 3 * 2**-55),
+        (1.75 + 3 * 2**-52, 3 * 2**-54),
+    ],
+)
+def test_large_finite_tick_quotient_uses_decimal_count_and_projection(
+    price: float, tick_size: float
+) -> None:
+    """Avoid one-tick quotient loss and nonconservative float projection."""
+    ratio = price / tick_size
+    assert math.isfinite(ratio) and ratio > 2**52
+    tick_exact = Fraction(str(tick_size))
+    price_exact = Fraction(str(price))
+    exact_count = round(price_exact / tick_exact)
+    assert float(exact_count * tick_exact) == price
+    assert (
+        exact_count != round(ratio)
+        or round(ratio) * tick_size != price
+    )
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size)
+        assert snap_price_to_tick(price, tick_size, round_up=False) == price
+        assert snap_price_to_tick(price, tick_size, round_up=True) == price
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

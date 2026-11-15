@@ -334,6 +334,24 @@ def test_valid_positive_subnormal_tick_and_float_tolerance_are_preserved() -> No
         assert snap_price_to_tick(price, tick, round_up=True) == snapped
 
 
+@pytest.mark.parametrize(
+    ("price", "tick_size"),
+    [
+        (180000000000000.3, 0.3),
+        (99.0, 0.3),
+    ],
+)
+def test_exact_decimal_tick_snap_keeps_price_without_one_ulp_drift(
+    price: float, tick_size: float
+) -> None:
+    """An already valid decimal grid point must never change when snapping."""
+    assert Fraction(str(price)) % Fraction(str(tick_size)) == 0
+    assert price_on_tick_grid(price, tick_size)
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert snap_price_to_tick(price, tick_size, round_up=True) == price
+        assert snap_price_to_tick(price, tick_size, round_up=False) == price
+
+
 def test_explicit_limit_rejects_offgrid_subnormal_under_strict_numpy() -> None:
     """Explicit LIMIT admission refuses an off-tick subnormal before mutation."""
     offgrid, tick = 5e-324, 1e-323

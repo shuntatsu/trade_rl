@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
@@ -40,7 +41,7 @@ _READERS = (
 @pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor no-follow boundary")
 @pytest.mark.parametrize(("label", "reader"), _READERS)
 def test_bootstrap_read_refuses_symlink_swapped_after_file_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str, reader: object
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str, reader: Callable[[Path], object]
 ) -> None:
     """A verified name must never be reopened through a replacement symlink."""
     source = tmp_path / "published.json"
@@ -62,7 +63,7 @@ def test_bootstrap_read_refuses_symlink_swapped_after_file_check(
 
     monkeypatch.setattr(Path, "is_file", swap_after_file_check)
     with pytest.raises(ValueError, match=f"{label} must be a regular file"):
-        reader(source)  # type: ignore[operator]
+        reader(source)
 
     assert swapped
     assert outside.read_bytes() == b'{"trusted": false}\n'
@@ -71,7 +72,7 @@ def test_bootstrap_read_refuses_symlink_swapped_after_file_check(
 @pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor no-follow boundary")
 @pytest.mark.parametrize(("label", "reader"), _READERS)
 def test_bootstrap_read_refuses_symlinked_parent(
-    tmp_path: Path, label: str, reader: object
+    tmp_path: Path, label: str, reader: Callable[[Path], object]
 ) -> None:
     """Reject a linked ancestor even when the leaf is a regular JSON file."""
     outside = tmp_path / "outside"
@@ -81,19 +82,19 @@ def test_bootstrap_read_refuses_symlinked_parent(
     alias.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError, match=f"{label} must be a regular file"):
-        reader(alias / "payload.json")  # type: ignore[operator]
+        reader(alias / "payload.json")
 
 
 @pytest.mark.parametrize(("label", "reader"), _READERS)
 def test_bootstrap_read_preserves_invalid_utf8_boundary(
-    tmp_path: Path, label: str, reader: object
+    tmp_path: Path, label: str, reader: Callable[[Path], object]
 ) -> None:
     """The descriptor fix must preserve malformed-JSON failure semantics."""
     source = tmp_path / "invalid.json"
     source.write_bytes(b"\xff{")
 
     with pytest.raises(ValueError, match=r"(invalid JSON|not valid JSON)"):
-        reader(source)  # type: ignore[operator]
+        reader(source)
 
 
 @pytest.mark.parametrize(
@@ -110,9 +111,9 @@ def test_bootstrap_read_preserves_invalid_utf8_boundary(
     ),
 )
 def test_bootstrap_json_object_read_preserves_valid_payload(
-    tmp_path: Path, reader: object
+    tmp_path: Path, reader: Callable[[Path], object]
 ) -> None:
     source = tmp_path / "valid.json"
     source.write_text('{"trusted": true}\n', encoding="utf-8")
 
-    assert reader(source) == {"trusted": True}  # type: ignore[operator]
+    assert reader(source) == {"trusted": True}

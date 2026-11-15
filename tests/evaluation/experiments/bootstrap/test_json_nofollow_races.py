@@ -41,7 +41,10 @@ _READERS = (
 @pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor no-follow boundary")
 @pytest.mark.parametrize(("label", "reader"), _READERS)
 def test_bootstrap_read_refuses_symlink_swapped_after_file_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str, reader: Callable[[Path], object]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    label: str,
+    reader: Callable[[Path], object],
 ) -> None:
     """A verified name must never be reopened through a replacement symlink."""
     source = tmp_path / "published.json"

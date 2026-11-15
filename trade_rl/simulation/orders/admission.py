@@ -55,16 +55,22 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     if price_exact % tick_exact == 0:
         return True
 
-    # Finite operands can still overflow their floating-point quotient.
-    # When they do, keep the existing decimal tick authority exact rather
-    # than calling round(inf) or converting a huge integer to float.
+    # A finite float quotient can still lose more than one whole tick near
+    # binary64's unit-precision limit. Use the decimal authority when one
+    # tick is within the 4-ULP price tolerance, or division overflows.
     quotient = resolved_price / resolved_tick
-    if math.isfinite(quotient):
+    use_exact = not math.isfinite(quotient) or (
+        resolved_tick <= 8.0 * math.ulp(resolved_price)
+    )
+    if use_exact:
+        nearest_count = round(price_exact / tick_exact)
+        try:
+            projected = float(nearest_count * tick_exact)
+        except OverflowError:
+            return False
+    else:
         nearest_count = round(quotient)
         projected = nearest_count * resolved_tick
-    else:
-        nearest_count = round(price_exact / tick_exact)
-        projected = float(nearest_count * tick_exact)
     # A positive off-grid quote cannot be represented by tick zero, and an
     # infinite nearest price must never grant membership via inf <= inf.
     if nearest_count <= 0 or not math.isfinite(projected) or projected <= 0.0:
@@ -98,16 +104,22 @@ def snap_price_to_tick(
         return resolved_price
 
     quotient = resolved_price / resolved_tick
-    if math.isfinite(quotient):
-        nearest_count = round(quotient)
-        nearest = nearest_count * resolved_tick
-    else:
-        # The decimal quotient remains exact when its binary64 projection
-        # overflows, and the projected float price stays representable.
+    use_exact = not math.isfinite(quotient) or (
+        resolved_tick <= 8.0 * math.ulp(resolved_price)
+    )
+    if use_exact:
+        # A large finite float quotient can round by a whole tick, too. The
+        # count and projected price must both use the same decimal authority.
         exact_tick = Fraction(str(resolved_tick))
         exact_quotient = Fraction(str(resolved_price)) / exact_tick
         nearest_count = round(exact_quotient)
-        nearest = float(nearest_count * exact_tick)
+        try:
+            nearest = float(nearest_count * exact_tick)
+        except OverflowError:
+            nearest = math.inf
+    else:
+        nearest_count = round(quotient)
+        nearest = nearest_count * resolved_tick
     # The float-ULP tolerance is only meaningful for a *positive, finite*
     # grid point. Count zero and an infinite nearest must use conservative
     # directional snapping, not become false grid matches.
@@ -127,19 +139,24 @@ def snap_price_to_tick(
             )
     if nearest_is_valid:
         count = nearest_count
-    elif math.isfinite(quotient):
+    elif use_exact:
+        count = math.ceil(exact_quotient) if round_up else math.floor(exact_quotient)
+    else:
         # A positive ratio may underflow to float zero. An upward snap then
         # requires the first positive tick, never a nonpositive tick count.
         count = max(1, math.ceil(quotient)) if round_up else math.floor(quotient)
-    else:
-        count = math.ceil(exact_quotient) if round_up else math.floor(exact_quotient)
 
     if count <= 0:
         raise ValueError("positive order price has no valid tick-grid projection")
-    if math.isfinite(quotient):
-        snapped = count * resolved_tick
+    if use_exact:
+        try:
+            snapped = float(count * exact_tick)
+        except OverflowError as error:
+            raise ValueError(
+                "tick-grid projection must remain finite and positive"
+            ) from error
     else:
-        snapped = float(count * exact_tick)
+        snapped = count * resolved_tick
     if not math.isfinite(snapped) or snapped <= 0.0:
         raise ValueError("tick-grid projection must remain finite and positive")
     return float(snapped)

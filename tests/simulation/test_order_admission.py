@@ -381,6 +381,17 @@ def test_explicit_limit_rejects_offgrid_subnormal_under_strict_numpy() -> None:
     assert book.cash == 1_000.0
 
 
+def test_positive_nearest_half_tick_cannot_override_conservative_snapping() -> None:
+    """ULP tolerance cannot make a half-tick price on grid or round down up."""
+    price, tick = 1.5e-323, 1e-323
+    assert round(price / tick) == 2
+    assert Fraction(str(price)) % Fraction(str(tick)) != 0
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick) is False
+        assert snap_price_to_tick(price, tick, round_up=False) == tick
+        assert snap_price_to_tick(price, tick, round_up=True) == 2 * tick
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

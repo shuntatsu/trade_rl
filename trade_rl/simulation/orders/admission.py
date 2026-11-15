@@ -76,9 +76,7 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     # tick is subnormal or within the 4-ULP tolerance, or division overflows.
     quotient = resolved_price / resolved_tick
     use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
-    nearest_count = (
-        round(price_exact / tick_exact) if use_exact else round(quotient)
-    )
+    nearest_count = round(price_exact / tick_exact) if use_exact else round(quotient)
     if nearest_count <= 0:
         return False
     # A float count * float tick can move by an ULP at large notionals.

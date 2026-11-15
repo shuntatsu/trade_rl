@@ -417,6 +417,28 @@ def test_large_finite_tick_quotient_uses_decimal_count_and_projection(
         assert snap_price_to_tick(price, tick_size, round_up=True) == price
 
 
+def test_subnormal_tick_decimal_grid_survives_float_quotient_loss() -> None:
+    """Tiny tick and larger tiny price must use the same decimal grid authority."""
+    price, tick = 1.3e-319, 1e-322
+    assert tick > 8.0 * math.ulp(price)
+    assert Fraction(str(price)) % Fraction(str(tick)) == 0
+    assert price / tick != Fraction(str(price)) / Fraction(str(tick))
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick)
+        assert snap_price_to_tick(price, tick, round_up=False) == price
+        assert snap_price_to_tick(price, tick, round_up=True) == price
+        neighbor = math.nextafter(price, math.inf)
+        assert price_on_tick_grid(neighbor, tick)
+        assert snap_price_to_tick(neighbor, tick, round_up=False) == price
+
+        midpoint = 1.3005e-319
+        assert Fraction(str(midpoint)) / Fraction(str(tick)) == Fraction(2601, 2)
+        assert price_on_tick_grid(midpoint, tick) is False
+        assert snap_price_to_tick(midpoint, tick, round_up=False) == price
+        assert snap_price_to_tick(midpoint, tick, round_up=True) == 1.301e-319
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

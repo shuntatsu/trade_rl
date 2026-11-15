@@ -112,6 +112,12 @@ def snap_price_to_tick(
     if resolved_tick == 0.0:
         return resolved_price
 
+    # The decimal venue grid is authoritative. A point already on that
+    # grid must remain unchanged, rather than drifting by an ULP through
+    # a binary64 count * tick projection (possibly against round_up).
+    if Fraction(str(resolved_price)) % Fraction(str(resolved_tick)) == 0:
+        return resolved_price
+
     quotient = resolved_price / resolved_tick
     use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
     if use_exact:

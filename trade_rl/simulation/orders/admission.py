@@ -69,6 +69,11 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     # infinite nearest price must never grant membership via inf <= inf.
     if nearest_count <= 0 or not math.isfinite(projected) or projected <= 0.0:
         return False
+    # Four ULPs can exceed half a tick at binary64's subnormal boundary.
+    # Such an allowance is not representation noise: it would grant a
+    # genuinely off-tick midpoint a valid grid identity.
+    if 2 * abs(price_exact - nearest_count * tick_exact) >= tick_exact:
+        return False
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
@@ -107,10 +112,20 @@ def snap_price_to_tick(
     # grid point. Count zero and an infinite nearest must use conservative
     # directional snapping, not become false grid matches.
     nearest_is_valid = nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
-    if nearest_is_valid and abs(resolved_price - nearest) <= _projection_tolerance(
-        resolved_price,
-        nearest,
-    ):
+    if nearest_is_valid:
+        tolerance = _projection_tolerance(resolved_price, nearest)
+        if abs(resolved_price - nearest) > tolerance:
+            nearest_is_valid = False
+        elif resolved_tick <= 2.0 * tolerance:
+            # When a few ULPs are at least half a tick, check the exact
+            # decimal distance: an off-grid midpoint must not override the
+            # conservative floor/ceil price direction.
+            exact_tick = Fraction(str(resolved_tick))
+            nearest_is_valid = (
+                2 * abs(Fraction(str(resolved_price)) - nearest_count * exact_tick)
+                < exact_tick
+            )
+    if nearest_is_valid:
         count = nearest_count
     elif math.isfinite(quotient):
         # A positive ratio may underflow to float zero. An upward snap then

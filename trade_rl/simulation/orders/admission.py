@@ -32,8 +32,13 @@ class _AdmissionBookView(Protocol):
     def portfolio_value(self) -> float: ...
 
 
-def _projection_tolerance(price: float, projected: float) -> float:
-    return 4.0 * max(math.ulp(price), math.ulp(projected))
+def _projection_tolerance(price: float, projected: float, tick: float) -> float:
+    """Allow one ULP on resolvable grids; retain dense-grid projection slack."""
+
+    ulp = max(math.ulp(price), math.ulp(projected))
+    # When a tick spans more than eight ULPs, a multi-ULP discrepancy is
+    # economically distinguishable from one binary64 rounding step.
+    return ulp if tick > 8.0 * ulp else 4.0 * ulp
 
 
 def _needs_exact_tick_count(price: float, tick: float, quotient: float) -> bool:
@@ -71,15 +76,17 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     # tick is subnormal or within the 4-ULP tolerance, or division overflows.
     quotient = resolved_price / resolved_tick
     use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
-    if use_exact:
-        nearest_count = round(price_exact / tick_exact)
-        try:
-            projected = float(nearest_count * tick_exact)
-        except OverflowError:
-            return False
-    else:
-        nearest_count = round(quotient)
-        projected = nearest_count * resolved_tick
+    nearest_count = (
+        round(price_exact / tick_exact) if use_exact else round(quotient)
+    )
+    if nearest_count <= 0:
+        return False
+    # A float count * float tick can move by an ULP at large notionals.
+    # Project the accepted decimal tick count in the canonical rational grid.
+    try:
+        projected = float(nearest_count * tick_exact)
+    except OverflowError:
+        return False
     # A positive off-grid quote cannot be represented by tick zero, and an
     # infinite nearest price must never grant membership via inf <= inf.
     if nearest_count <= 0 or not math.isfinite(projected) or projected <= 0.0:
@@ -92,6 +99,7 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
+        resolved_tick,
     )
 
 
@@ -118,27 +126,26 @@ def snap_price_to_tick(
     if Fraction(str(resolved_price)) % Fraction(str(resolved_tick)) == 0:
         return resolved_price
 
+    exact_tick = Fraction(str(resolved_tick))
     quotient = resolved_price / resolved_tick
     use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
     if use_exact:
-        # A large finite float quotient can round by a whole tick, too. The
-        # count and projected price must both use the same decimal authority.
-        exact_tick = Fraction(str(resolved_tick))
-        exact_quotient = Fraction(str(resolved_price)) / exact_tick
-        nearest_count = round(exact_quotient)
-        try:
-            nearest = float(nearest_count * exact_tick)
-        except OverflowError:
-            nearest = math.inf
+        # Floating division can lose complete tick counts near binary64's
+        # integer precision limit. Use the canonical decimal grid instead.
+        nearest_count = round(Fraction(str(resolved_price)) / exact_tick)
     else:
         nearest_count = round(quotient)
-        nearest = nearest_count * resolved_tick
+    # Even in the finite-quotient path, never project via float count*tick.
+    try:
+        nearest = float(nearest_count * exact_tick)
+    except OverflowError:
+        nearest = math.inf
     # The float-ULP tolerance is only meaningful for a *positive, finite*
     # grid point. Count zero and an infinite nearest must use conservative
     # directional snapping, not become false grid matches.
     nearest_is_valid = nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
     if nearest_is_valid:
-        tolerance = _projection_tolerance(resolved_price, nearest)
+        tolerance = _projection_tolerance(resolved_price, nearest, resolved_tick)
         if abs(resolved_price - nearest) > tolerance:
             nearest_is_valid = False
         else:
@@ -152,25 +159,27 @@ def snap_price_to_tick(
                 < exact_tick
             )
     if nearest_is_valid:
+        # The current float is already an accepted grid representation. A
+        # one-ULP projection cannot be allowed to reverse the order bound.
+        if (round_up and nearest < resolved_price) or (
+            not round_up and nearest > resolved_price
+        ):
+            return resolved_price
         count = nearest_count
-    elif use_exact:
-        count = math.ceil(exact_quotient) if round_up else math.floor(exact_quotient)
     else:
-        # A positive ratio may underflow to float zero. An upward snap then
-        # requires the first positive tick, never a nonpositive tick count.
-        count = max(1, math.ceil(quotient)) if round_up else math.floor(quotient)
+        # Preserve the actual binary64 order bound: decimal str(price) may
+        # lie up to half an ULP on the opposite side of its float value.
+        direction_ratio = Fraction.from_float(resolved_price) / exact_tick
+        count = math.ceil(direction_ratio) if round_up else math.floor(direction_ratio)
 
     if count <= 0:
         raise ValueError("positive order price has no valid tick-grid projection")
-    if use_exact:
-        try:
-            snapped = float(count * exact_tick)
-        except OverflowError as error:
-            raise ValueError(
-                "tick-grid projection must remain finite and positive"
-            ) from error
-    else:
-        snapped = count * resolved_tick
+    try:
+        snapped = float(count * exact_tick)
+    except OverflowError as error:
+        raise ValueError(
+            "tick-grid projection must remain finite and positive"
+        ) from error
     if not math.isfinite(snapped) or snapped <= 0.0:
         raise ValueError("tick-grid projection must remain finite and positive")
     return float(snapped)

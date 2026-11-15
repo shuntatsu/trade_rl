@@ -334,9 +334,7 @@ def test_valid_positive_subnormal_tick_and_float_tolerance_are_preserved() -> No
         assert snap_price_to_tick(price, tick, round_up=True) == snapped
 
 
-def test_stateful_rule_limit_rejects_offgrid_zero_nearest_under_strict_numpy() -> (
-    None
-):
+def test_explicit_limit_rejects_offgrid_subnormal_under_strict_numpy() -> None:
     """Explicit LIMIT admission refuses an off-tick subnormal before mutation."""
     offgrid, tick = 5e-324, 1e-323
     book = BookState.zero(1, 1_000.0, np.array([100.0]), np.ones(1))

@@ -65,6 +65,10 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     else:
         nearest_count = round(price_exact / tick_exact)
         projected = float(nearest_count * tick_exact)
+    # A positive off-grid quote cannot be represented by tick zero, and an
+    # infinite nearest price must never grant membership via inf <= inf.
+    if nearest_count <= 0 or not math.isfinite(projected) or projected <= 0.0:
+        return False
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
@@ -99,13 +103,19 @@ def snap_price_to_tick(
         exact_quotient = Fraction(str(resolved_price)) / exact_tick
         nearest_count = round(exact_quotient)
         nearest = float(nearest_count * exact_tick)
-    if abs(resolved_price - nearest) <= _projection_tolerance(
+    # The float-ULP tolerance is only meaningful for a *positive, finite*
+    # grid point. Count zero and an infinite nearest must use conservative
+    # directional snapping, not become false grid matches.
+    nearest_is_valid = nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
+    if nearest_is_valid and abs(resolved_price - nearest) <= _projection_tolerance(
         resolved_price,
         nearest,
     ):
         count = nearest_count
     elif math.isfinite(quotient):
-        count = math.ceil(quotient) if round_up else math.floor(quotient)
+        # A positive ratio may underflow to float zero. An upward snap then
+        # requires the first positive tick, never a nonpositive tick count.
+        count = max(1, math.ceil(quotient)) if round_up else math.floor(quotient)
     else:
         count = math.ceil(exact_quotient) if round_up else math.floor(exact_quotient)
 

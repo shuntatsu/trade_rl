@@ -439,6 +439,30 @@ def test_subnormal_tick_decimal_grid_survives_float_quotient_loss() -> None:
         assert snap_price_to_tick(midpoint, tick, round_up=True) == 1.301e-319
 
 
+def test_half_tick_float_rounding_never_reverses_conservative_snap() -> None:
+    """An off-grid quote beyond half a tick must not snap up on round_down."""
+    price = 1.0 + 37 * 2**-52
+    tick = 65 * 2**-55
+    exact_tick = Fraction(str(tick))
+    ratio = Fraction(str(price)) / exact_tick
+    nearest_count = round(price / tick)
+    tolerance = 4.0 * max(math.ulp(price), math.ulp(nearest_count * tick))
+    assert tick > 8.0 * math.ulp(price)
+    assert tick > 2.0 * tolerance
+    assert 2 * abs(Fraction(str(price)) - nearest_count * exact_tick) >= exact_tick
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick) is False
+        downward = snap_price_to_tick(price, tick, round_up=False)
+        upward = snap_price_to_tick(price, tick, round_up=True)
+
+    assert downward == float(math.floor(ratio) * exact_tick)
+    assert upward == float(math.ceil(ratio) * exact_tick)
+    assert downward <= price <= upward
+    assert price_on_tick_grid(downward, tick)
+    assert price_on_tick_grid(upward, tick)
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

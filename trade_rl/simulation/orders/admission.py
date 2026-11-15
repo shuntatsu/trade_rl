@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Protocol
@@ -35,6 +36,16 @@ def _projection_tolerance(price: float, projected: float) -> float:
     return 4.0 * max(math.ulp(price), math.ulp(projected))
 
 
+def _needs_exact_tick_count(price: float, tick: float, quotient: float) -> bool:
+    """Use decimal ticks where binary64 cannot preserve the grid identity."""
+
+    return (
+        not math.isfinite(quotient)
+        or tick < sys.float_info.min
+        or tick <= 8.0 * math.ulp(price)
+    )
+
+
 def price_on_tick_grid(price: float, tick_size: float) -> bool:
     """Return whether a float price represents a tick-grid point."""
 
@@ -57,11 +68,9 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
 
     # A finite float quotient can still lose more than one whole tick near
     # binary64's unit-precision limit. Use the decimal authority when one
-    # tick is within the 4-ULP price tolerance, or division overflows.
+    # tick is subnormal or within the 4-ULP tolerance, or division overflows.
     quotient = resolved_price / resolved_tick
-    use_exact = not math.isfinite(quotient) or (
-        resolved_tick <= 8.0 * math.ulp(resolved_price)
-    )
+    use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
     if use_exact:
         nearest_count = round(price_exact / tick_exact)
         try:
@@ -104,9 +113,7 @@ def snap_price_to_tick(
         return resolved_price
 
     quotient = resolved_price / resolved_tick
-    use_exact = not math.isfinite(quotient) or (
-        resolved_tick <= 8.0 * math.ulp(resolved_price)
-    )
+    use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
     if use_exact:
         # A large finite float quotient can round by a whole tick, too. The
         # count and projected price must both use the same decimal authority.

@@ -330,8 +330,11 @@ def test_valid_positive_subnormal_tick_and_float_tolerance_are_preserved() -> No
         price, tick = 99.0, 0.1 * 3.0
         assert price_on_tick_grid(price, tick)
         snapped = round(price / tick) * tick
-        assert snap_price_to_tick(price, tick, round_up=False) == snapped
+        # Once this float price is accepted as an on-grid representation,
+        # conservative DOWN snapping cannot move it upward by one ULP.
+        assert snap_price_to_tick(price, tick, round_up=False) == price
         assert snap_price_to_tick(price, tick, round_up=True) == snapped
+        assert price <= snapped
 
 
 @pytest.mark.parametrize(
@@ -479,6 +482,37 @@ def test_half_tick_float_rounding_never_reverses_conservative_snap() -> None:
     assert downward <= price <= upward
     assert price_on_tick_grid(downward, tick)
     assert price_on_tick_grid(upward, tick)
+
+
+@pytest.mark.parametrize(
+    ("price", "expected_down", "expected_up"),
+    [
+        (180000000000000.4, 180000000000000.3, 180000000000000.6),
+        (180000000000000.5, 180000000000000.3, 180000000000000.6),
+    ],
+)
+def test_wide_tick_projection_rejects_offgrid_and_preserves_snap_direction(
+    price: float, expected_down: float, expected_up: float
+) -> None:
+    """Four ULPs must not admit a meaningful off-tick price at large scales."""
+    tick = 0.3
+    exact_tick = Fraction(str(tick))
+    assert tick > 8 * math.ulp(price)
+    assert Fraction(str(price)) % exact_tick != 0
+    exact_ratio = Fraction.from_float(price) / exact_tick
+    assert expected_down == float(math.floor(exact_ratio) * exact_tick)
+    assert expected_up == float(math.ceil(exact_ratio) * exact_tick)
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick) is False
+        down = snap_price_to_tick(price, tick, round_up=False)
+        up = snap_price_to_tick(price, tick, round_up=True)
+
+    assert down == expected_down
+    assert up == expected_up
+    assert down <= price <= up
+    assert price_on_tick_grid(down, tick)
+    assert price_on_tick_grid(up, tick)
 
 
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:

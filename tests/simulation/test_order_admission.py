@@ -287,6 +287,102 @@ def test_large_limit_price_tiny_tick_is_admitted_without_numeric_exception() -> 
     assert book.cash == price
 
 
+def test_finite_tick_quotient_with_overflowed_nearest_projection() -> None:
+    """A finite ratio must not grant grid membership through inf <= inf."""
+    price = float.fromhex("0x1.fffffffffffffp+1023")
+    tick = 1e308
+    ratio = price / tick
+    assert math.isfinite(ratio)
+    assert math.isinf(round(ratio) * tick)
+    assert Fraction(str(price)) % Fraction(str(tick)) != 0
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick) is False
+        assert snap_price_to_tick(price, tick, round_up=False) == tick
+        with pytest.raises(ValueError, match="finite"):
+            snap_price_to_tick(price, tick, round_up=True)
+
+
+@pytest.mark.parametrize(
+    ("price", "tick", "expected_ratio"),
+    [(5e-324, 1e-323, 0.5), (5e-324, 1e308, 0.0)],
+)
+def test_positive_price_zero_nearest_tick_uses_conservative_direction(
+    price: float, tick: float, expected_ratio: float
+) -> None:
+    """Near zero, upward snap uses the first tick and downward rejects zero."""
+    assert price / tick == expected_ratio
+    assert Fraction(str(price)) % Fraction(str(tick)) != 0
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick) is False
+        assert snap_price_to_tick(price, tick, round_up=True) == tick
+        with pytest.raises(ValueError, match="positive"):
+            snap_price_to_tick(price, tick, round_up=False)
+
+
+def test_valid_positive_subnormal_tick_and_float_tolerance_are_preserved() -> None:
+    """Reject zero-nearest aliases, not genuine tiny grid prices or ULP noise."""
+    tiny = 5e-324
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(tiny, tiny)
+        assert snap_price_to_tick(tiny, tiny, round_up=False) == tiny
+        assert snap_price_to_tick(tiny, tiny, round_up=True) == tiny
+        price, tick = 99.0, 0.1 * 3.0
+        assert price_on_tick_grid(price, tick)
+        snapped = round(price / tick) * tick
+        assert snap_price_to_tick(price, tick, round_up=False) == snapped
+        assert snap_price_to_tick(price, tick, round_up=True) == snapped
+
+
+def test_stateful_rule_limit_rejects_offgrid_zero_nearest_under_strict_numpy() -> (
+    None
+):
+    """Explicit LIMIT admission refuses an off-tick subnormal before mutation."""
+    offgrid, tick = 5e-324, 1e-323
+    book = BookState.zero(1, 1_000.0, np.array([100.0]), np.ones(1))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="offgrid-subnormal-zero-nearest",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=offgrid,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=100.0,
+        decision_equity=1_000.0,
+    )
+    policy = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = policy.evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=tick,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([100.0]),
+        )
+    assert not result.accepted
+    assert result.reason == "price_not_on_tick"
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == 1_000.0
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

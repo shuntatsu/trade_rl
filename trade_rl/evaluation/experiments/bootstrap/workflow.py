@@ -117,7 +117,7 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"{label} must be a regular file")
     try:
-        # Hash and decode callers must observe bytes from a no-follow descriptor.
+        # Decode one verified descriptor rather than reopening the checked name.
         with open_regular_binary(path, field=label) as handle:
             encoded = handle.read()
     except ValueError as error:

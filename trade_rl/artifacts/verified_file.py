@@ -9,10 +9,36 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import BinaryIO
 
 from trade_rl._validation import require_sha256
+
+
+# Only this process's active Study publication contexts may name an open
+# directory capability through /proc/self/fd or /dev/fd. A caller-provided
+# alias to any other process FD must remain an untrusted symlink ancestor.
+_TRUSTED_DIRECTORY_FDS: ContextVar[frozenset[tuple[int, int, int]]] = ContextVar(
+    "trade_rl_trusted_publication_directory_fds", default=frozenset()
+)
+
+
+@contextmanager
+def _trusted_process_directory_fd(descriptor: int) -> Iterator[None]:
+    """Temporarily authorize one held directory inode for nested Study paths."""
+
+    status = os.fstat(descriptor)
+    if not stat.S_ISDIR(status.st_mode):
+        raise ValueError("trusted publication descriptor is not a directory")
+    identity = (descriptor, status.st_dev, status.st_ino)
+    token = _TRUSTED_DIRECTORY_FDS.set(
+        _TRUSTED_DIRECTORY_FDS.get() | frozenset((identity,))
+    )
+    try:
+        yield
+    finally:
+        _TRUSTED_DIRECTORY_FDS.reset(token)
 
 
 def file_digest_and_size(
@@ -38,10 +64,11 @@ def file_digest(path: Path, *, field: str = "artifact file") -> str:
 def _open_directory_descriptor_nofollow(source: Path) -> int:
     """Open a POSIX directory chain without following untrusted symlinks.
 
-    /proc/self/fd/N and /dev/fd/N name a kernel-held descriptor capability,
-    not a filesystem ancestor: duplicate an already-open directory descriptor
-    and check every remaining child with O_NOFOLLOW. Other paths traverse all
-    ancestors with O_NOFOLLOW. The caller owns and must close the returned fd.
+    /proc/self/fd/N and /dev/fd/N may name a trusted descriptor capability
+    only when the enclosing Study publisher registered its exact open inode.
+    Unregistered process-FD paths remain forbidden symlinked ancestors.
+    All remaining children and ordinary paths use O_NOFOLLOW. The caller owns
+    and must close the returned fd.
     """
 
     if (
@@ -69,13 +96,20 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
         and components[capability_index].isascii()
         and components[capability_index].isdecimal()
     ):
-        # These namespaces are kernel process descriptors. Never open their
-        # symlink names: start from the already-held directory capability.
-        descriptor = os.dup(int(components[capability_index]))
-        start = capability_index + 1
-        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+        # The proc/dev FD alias is a privileged internal capability only for
+        # the exact inode registered by this thread's active Study publisher.
+        # An arbitrary caller-supplied number must not bypass ancestor nofollow.
+        source_fd = int(components[capability_index])
+        descriptor = os.dup(source_fd)
+        status = os.fstat(descriptor)
+        identity = (source_fd, status.st_dev, status.st_ino)
+        if not stat.S_ISDIR(status.st_mode):
             os.close(descriptor)
             raise OSError(errno.ENOTDIR, "process descriptor is not a directory")
+        if identity not in _TRUSTED_DIRECTORY_FDS.get():
+            os.close(descriptor)
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
+        start = capability_index + 1
     else:
         descriptor = os.open(path.anchor, flags)
         start = 1

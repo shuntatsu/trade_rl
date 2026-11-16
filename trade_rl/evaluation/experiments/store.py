@@ -20,6 +20,7 @@ from trade_rl.artifacts.atomic_write import (
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.verified_file import (
     _open_directory_descriptor_nofollow,
+    _trusted_process_directory_fd,
     open_regular_binary,
 )
 from trade_rl.evaluation.experiments.errors import (
@@ -183,7 +184,8 @@ def _pinned_publication_parent(
             _assert_pinned_publication_parent(source, descriptor)
 
         check_parent()
-        yield pinned, check_parent
+        with _trusted_process_directory_fd(descriptor):
+            yield pinned, check_parent
     except OSError as error:
         if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
             raise ArtifactIntegrityError(

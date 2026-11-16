@@ -64,6 +64,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `max_experiments` は後段の `StudyPlan` と同じ **1〜9,999** の上限を、JSON loaderと直接constructorの両方でsource acquisitionより前に検証する。10,000以上は源データを取得せず拒否する。
 
+Canonical bootstrapの設定JSON、Vision plan/resolution JSON、bootstrap manifest JSONのreaderは、`Path.is_file()`後にpath名から`read_text()`し直さず、共通`open_regular_binary`による確認済みregular-file descriptorから得たbyte列だけをUTF-8 decode / JSON parseする。POSIXで`O_NOFOLLOW`とdescriptor-relative directory traversalが利用できる場合、leafまたはancestorのsymlink差し替えを拒否する。portable fallbackでは静的symlink/junctionを拒否するが、同時差し替えへのatomic保護は保証しない。open済み通常ファイルのin-place変更、readerの入力byte総量、StudyStore側のJSON読込・mutation lockの独立した保証はこのbootstrap reader境界には含めない。
+
 公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
 
 このbootstrapは**baselineは実行しない**。`run_baseline`、Experiment定義/実行、winner選択、`freeze_study`、sealed unused-future / final authorizationはbootstrap責務ではない。成功直後の`study/`は`plan.json`と同期primitiveだけを持ち、baseline evidenceは存在しない。

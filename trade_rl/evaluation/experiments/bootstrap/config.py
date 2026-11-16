@@ -13,6 +13,7 @@ import numpy as np
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.evaluation.experiments.contracts import (
     ControlledFactor,
@@ -787,8 +788,16 @@ def load_canonical_m2_bootstrap_config(
     if source.is_symlink() or not source.is_file():
         raise ValueError("bootstrap config must be a regular file")
     try:
-        decoded = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        # Read through one verified no-follow regular-file descriptor.
+        with open_regular_binary(source, field="bootstrap config") as handle:
+            encoded = handle.read()
+    except ValueError as error:
+        raise ValueError("bootstrap config must be a regular file") from error
+    except OSError as error:
+        raise ValueError("bootstrap config is not valid JSON") from error
+    try:
+        decoded = json.loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("bootstrap config is not valid JSON") from error
     raw = _require_mapping(decoded, field="bootstrap config")
     return _parse_config(raw)

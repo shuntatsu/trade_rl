@@ -66,7 +66,6 @@ def _unlock_file(handle: BinaryIO) -> None:
     flock(handle.fileno(), lock_un)
 
 
-
 def _open_mutation_lock(root: Path) -> BinaryIO:
     """Open the Study lock without following symlinks on supported POSIX hosts."""
 
@@ -85,7 +84,9 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
             and directory_flag
             and os.open in os.supports_dir_fd
         ):
-            directory_flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+            directory_flags = (
+                getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+            )
             parent_fd = os.open(source.anchor, directory_flags)
             try:
                 # Bind every ancestor to a directory descriptor, including root.
@@ -107,8 +108,14 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
                         "Study mutation lock parent must not be a symlink or junction"
                     )
             lock_path = source / _LOCK_NAME
-            if lock_path.is_symlink() or lock_path.is_junction() or lock_path.is_dir():
-                raise ArtifactIntegrityError("Study mutation lock must be a regular file")
+            if (
+                lock_path.is_symlink()
+                or lock_path.is_junction()
+                or lock_path.is_dir()
+            ):
+                raise ArtifactIntegrityError(
+                    "Study mutation lock must be a regular file"
+                )
             descriptor = os.open(lock_path, flags | nofollow, 0o666)
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ArtifactIntegrityError("Study mutation lock must be a regular file")
@@ -118,7 +125,8 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
     except OSError as error:
         if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
             raise ArtifactIntegrityError(
-                "Study mutation lock must be a regular file in non-symlinked directories"
+                "Study mutation lock must be a regular file "
+                "in non-symlinked directories"
             ) from error
         raise
     finally:

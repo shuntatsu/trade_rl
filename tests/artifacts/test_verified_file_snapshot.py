@@ -219,3 +219,55 @@ def test_verified_artifact_read_rejects_parent_traversal(tmp_path: Path) -> None
             field="policy",
         ):
             pytest.fail("parent traversal must fail closed")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not Path("/proc/self/fd").is_dir()
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="requires Linux-style process FD paths and POSIX descriptor no-follow",
+)
+@pytest.mark.parametrize("reader", ("open", "digest", "read", "private_copy"))
+def test_process_fd_alias_requires_scoped_trust(
+    tmp_path: Path, reader: str
+) -> None:
+    """An arbitrary caller-held FD must not bypass artifact ancestor no-follow.
+
+    The matching positive case is StudyStore's internally pinned nested stage.
+    These bytes and descriptors are disposable and never reference real evidence.
+    """
+    bundle = tmp_path / "synthetic-source"
+    bundle.mkdir()
+    payload = b"synthetic untrusted process FD alias"
+    (bundle / "policy.zip").write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+
+    descriptor = os.open(bundle, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        alias = Path("/proc/self/fd") / str(descriptor) / "policy.zip"
+        assert alias.is_file(), "the test requires a live readable FD alias"
+        with pytest.raises(ValueError, match="symlink|capability"):
+            if reader == "open":
+                with verified_file.open_regular_binary(alias, field="policy"):
+                    pytest.fail("untrusted FD alias bypassed the reader")
+            elif reader == "digest":
+                verified_file.file_digest_and_size(alias, field="policy")
+            elif reader == "read":
+                verified_file.read_verified_bytes(
+                    alias,
+                    expected_digest=digest,
+                    expected_size_bytes=len(payload),
+                    field="policy",
+                )
+            else:
+                with verified_file.verified_private_copy(
+                    alias,
+                    expected_digest=digest,
+                    expected_size_bytes=len(payload),
+                    field="policy",
+                    filename="policy.zip",
+                ):
+                    pytest.fail("untrusted FD alias yielded a private copy")
+    finally:
+        os.close(descriptor)

@@ -75,3 +75,74 @@ def test_directory_publication_refuses_parent_swapped_after_validation(
     assert parent.is_symlink()
     assert list(outside.iterdir()) == []
     assert not (previous / "synthetic").exists()
+
+
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+def test_directory_builder_cannot_escape_when_study_root_is_replaced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-check Study-root swap must not redirect the builder's first write.
+
+    Inject at the Path.write_text sink, after the store's last pre-builder
+    pathname checks. All directories and the marker are disposable.
+    """
+    store = StudyStore(tmp_path / "study")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    original_root = tmp_path / "study-before-swap"
+    original_write_text = Path.write_text
+    swapped = False
+
+    def write_after_swap(
+        path: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        nonlocal swapped
+        if path.name == "builder-marker.txt" and not swapped:
+            assert ".staging-" in path.parent.name
+            swapped = True
+            store.root.rename(original_root)
+            store.root.symlink_to(outside, target_is_directory=True)
+            # Model an attacker-controlled replacement that contains the same
+            # transient stage basename as the legitimate private builder stage.
+            (outside / path.parent.name).mkdir()
+        return original_write_text(
+            path, data, encoding=encoding, errors=errors, newline=newline
+        )
+
+    monkeypatch.setattr(Path, "write_text", write_after_swap)
+
+    def build(stage: Path) -> None:
+        (stage / "builder-marker.txt").write_text("synthetic", encoding="utf-8")
+
+    with pytest.raises(ArtifactIntegrityError):
+        store.publish_directory_once("evidence/synthetic", build)
+
+    assert swapped
+    assert not list(outside.rglob("builder-marker.txt"))
+    assert not (original_root / "evidence" / "synthetic").exists()
+
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+def test_directory_builder_keeps_nested_study_store_nofollow_contract(
+    tmp_path: Path,
+) -> None:
+    """A safe stage path must still support nested locks and descriptor readers."""
+    outer = StudyStore(tmp_path / "study")
+
+    def build(stage: Path) -> None:
+        nested = StudyStore(stage)
+        with nested.mutation_lock():
+            nested.publish_json_once("nested.json", {"synthetic": True})
+            assert nested.read_json("nested.json") == {"synthetic": True}
+        # Mirror the existing evidence builder's removal of its staging lock.
+        (stage / ".mutation.lock").unlink()
+
+    published = outer.publish_directory_once("evidence/synthetic", build)
+    assert published == outer.root / "evidence" / "synthetic"
+    assert StudyStore(published).read_json("nested.json") == {"synthetic": True}

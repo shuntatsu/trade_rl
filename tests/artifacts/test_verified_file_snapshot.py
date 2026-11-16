@@ -229,9 +229,7 @@ def test_verified_artifact_read_rejects_parent_traversal(tmp_path: Path) -> None
     reason="requires Linux-style process FD paths and POSIX descriptor no-follow",
 )
 @pytest.mark.parametrize("reader", ("open", "digest", "read", "private_copy"))
-def test_process_fd_alias_requires_scoped_trust(
-    tmp_path: Path, reader: str
-) -> None:
+def test_process_fd_alias_requires_scoped_trust(tmp_path: Path, reader: str) -> None:
     """An arbitrary caller-held FD must not bypass artifact ancestor no-follow.
 
     The matching positive case is StudyStore's internally pinned nested stage.

@@ -108,11 +108,7 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
                         "Study mutation lock parent must not be a symlink or junction"
                     )
             lock_path = source / _LOCK_NAME
-            if (
-                lock_path.is_symlink()
-                or lock_path.is_junction()
-                or lock_path.is_dir()
-            ):
+            if lock_path.is_symlink() or lock_path.is_junction() or lock_path.is_dir():
                 raise ArtifactIntegrityError(
                     "Study mutation lock must be a regular file"
                 )

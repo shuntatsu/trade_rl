@@ -225,7 +225,9 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
 
-Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+協調するprocessが同じStudy mutation lock inodeを取得する場合、lock取得後に必ずdisk stateを再構築するため、freezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+
+POSIXで`O_NOFOLLOW`/`O_DIRECTORY`とdirectory-descriptor相対のopenが利用可能なら、`.mutation.lock`取得時はStudy rootまでのancestorをsymlinkを辿らずdescriptorで開き、lock fileも`O_NOFOLLOW | O_CREAT | O_APPEND | O_RDWR`で開いて`fstat`のregular-file確認後に既存のprocess lockを取得する。事前のpath check直後にleaf/rootがsymlinkへ差し替わっても、外部fileへlockを誤って向けずfail-closedにする。portable fallbackは静的なsymlink/junction/nonregular-fileを拒否するが、同時差し替えのatomic防御は保証しない。いずれの場合も、悪意ある通常file inodeのunlink/recreate、open済みinodeへの書込み、非協調的なwriterによる複数lock inode生成を完全には防げず、敵対的filesystem全体にわたるserialization証明ではない。
 
 `research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
 

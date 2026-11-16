@@ -153,6 +153,66 @@ def test_rule_validation_rounding_and_minimum_notional_are_explicit() -> None:
     assert below_minimum.reason == "below_minimum_notional"
 
 
+@pytest.mark.parametrize(
+    ("open_price", "multiplier", "limit_price", "expected_reason"),
+    [
+        (1e-200, 1e-200, 1e200, "unrepresentable_notional"),
+        (1e-160, 5e-164, 1e-159, None),
+    ],
+)
+def test_nonmarketable_limit_open_reservation_requires_representable_notional(
+    open_price: float,
+    multiplier: float,
+    limit_price: float,
+    expected_reason: str | None,
+) -> None:
+    """Preflight open-risk value even when the limit notional is nonzero."""
+    book = BookState.zero(1, 1_000.0, np.array([open_price]), np.array([multiplier]))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity="nonmarketable-sell-open-underflow",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=-1.0,
+        order_type=OrderType.LIMIT,
+        time_in_force=TimeInForce.GTC,
+        limit_price=limit_price,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=open_price,
+        decision_equity=1_000.0,
+    )
+    policy = OrderAdmissionPolicy(
+        expected_dataset_id="d" * 64,
+        expected_execution_policy_digest="e" * 64,
+        allow_short=True,
+        max_leverage=1.0,
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        decision = policy.evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=0.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([open_price]),
+        )
+    assert decision.accepted is (expected_reason is None)
+    assert decision.reason == expected_reason
+    if expected_reason is None:
+        assert decision.admitted_notional > 0.0
+    assert book.quantities.tolist() == [0.0]
+    assert book.cash == 1_000.0
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,
@@ -531,3 +591,82 @@ def test_nonfinite_admitted_notional_is_rejected_before_order_execution() -> Non
     )
     assert not decision.accepted
     assert decision.reason == "pretrade_leverage_exceeded"
+
+
+@pytest.mark.parametrize("quantity", [-1.0, 1.0])
+@pytest.mark.parametrize(
+    ("price", "multiplier", "must_reject"),
+    [
+        (1e-200, 1e-200, True),  # Mathematical notional is nonzero, float is 0.
+        (1e-150, 1e-150, False),  # Tiny but representable.
+        (1e-160, 5e-164, False),  # The smallest positive subnormal.
+    ],
+)
+def test_order_admission_matches_bookstate_notional_representability(
+    quantity: float, price: float, multiplier: float, must_reject: bool
+) -> None:
+    book = BookState.zero(1, 1_000.0, np.array([price]), np.array([multiplier]))
+    intent = OrderIntent.create(
+        dataset_id="d" * 64,
+        target_identity=f"tiny-notional-{quantity}-{price}-{multiplier}",
+        execution_policy_digest="e" * 64,
+        symbol_index=0,
+        requested_quantity=quantity,
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.GTC,
+        limit_price=None,
+        stop_price=None,
+        submit_index=0,
+        eligible_index=1,
+        expiry_index=None,
+        submission_reference_price=price,
+        decision_equity=1_000.0,
+    )
+    with np.errstate(under="raise"):
+        decision = OrderAdmissionPolicy(
+            expected_dataset_id="d" * 64,
+            expected_execution_policy_digest="e" * 64,
+            allow_short=True,
+            max_leverage=1.0,
+        ).evaluate(
+            intent,
+            book=book,
+            processing_index=1,
+            asset_active=True,
+            tradable=True,
+            buy_allowed=True,
+            sell_allowed=True,
+            borrow_available=True,
+            tick_size=0.0,
+            lot_size=0.0,
+            minimum_notional=0.0,
+            reference_prices=np.array([price]),
+        )
+    actual_notional = abs(quantity) * price * multiplier
+    if must_reject:
+        assert actual_notional == 0.0
+        assert not decision.accepted
+        assert decision.reason == "unrepresentable_notional"
+        # The old path admitted quantity != 0 with notional == 0, then failed here.
+        with pytest.raises(ValueError, match="nonzero execution leg notional"):
+            book.execute_fill(
+                symbol_index=0,
+                quantity=quantity,
+                fill_prices=np.array([price]),
+                cost_amount=0.0,
+                turnover=0.0,
+            )
+        assert book.quantities[0] == 0.0
+        assert book.cash == 1_000.0
+    else:
+        assert actual_notional > 0.0
+        assert decision.accepted
+        assert decision.admitted_notional == actual_notional
+        book.execute_fill(
+            symbol_index=0,
+            quantity=decision.admitted_quantity,
+            fill_prices=np.array([price]),
+            cost_amount=0.0,
+            turnover=0.0,
+        )
+        assert book.quantities[0] == quantity

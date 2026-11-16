@@ -130,6 +130,84 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
             os.close(descriptor)
 
 
+def _assert_pinned_publication_parent(path: Path, descriptor: int) -> None:
+    """Reject a changed parent pathname even while its old inode is open."""
+
+    try:
+        current = os.stat(path, follow_symlinks=False)
+    except OSError as error:
+        raise ArtifactIntegrityError("Study publication parent changed") from error
+    pinned = os.fstat(descriptor)
+    current_identity = (current.st_dev, current.st_ino)
+    pinned_identity = (pinned.st_dev, pinned.st_ino)
+    if not stat.S_ISDIR(current.st_mode) or current_identity != pinned_identity:
+        raise ArtifactIntegrityError("Study publication parent changed")
+
+
+@contextmanager
+def _pinned_publication_parent(
+    parent: Path,
+) -> Iterator[tuple[Path, Callable[[], None]]]:
+    """Anchor publication paths to descriptor-verified POSIX directories."""
+
+    if os.name != "posix":
+        # Portable static checks cannot prevent a concurrent replacement.
+        def check_portable() -> None:
+            if parent.is_symlink() or parent.is_junction() or not parent.is_dir():
+                raise ArtifactIntegrityError(
+                    "Study publication parent must be a regular directory"
+                )
+
+        check_portable()
+        yield parent, check_portable
+        return
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    if not (nofollow and directory and os.open in os.supports_dir_fd):
+        raise ArtifactIntegrityError(
+            "Study publication requires descriptor-relative no-follow support"
+        )
+
+    source = Path(os.path.abspath(parent))
+    flags = getattr(os, "O_PATH", os.O_RDONLY) | directory | nofollow
+    descriptor = -1
+    try:
+        descriptor = os.open(source.anchor, flags)
+        for component in source.parts[1:]:
+            next_fd = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_fd
+
+        pinned = next(
+            (
+                candidate
+                for prefix in ("/proc/self/fd", "/dev/fd")
+                if (candidate := Path(prefix) / str(descriptor)).is_dir()
+            ),
+            None,
+        )
+        if pinned is None:
+            raise ArtifactIntegrityError(
+                "Study publication requires a usable directory-fd path"
+            )
+
+        def check_parent() -> None:
+            _assert_pinned_publication_parent(source, descriptor)
+
+        check_parent()
+        yield pinned, check_parent
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
+            raise ArtifactIntegrityError(
+                "Study publication parent must be a non-symlinked directory"
+            ) from error
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
@@ -219,48 +297,60 @@ class StudyStore:
 
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
-        if target.exists() or target.is_symlink():
-            raise InvalidExperimentStateError(
-                f"Study artifact already exists: {relative}"
-            )
-
-        staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
-        try:
-            with staging.open("xb") as handle:
-                handle.write(canonical_json_bytes(value))
-                handle.flush()
-                os.fsync(handle.fileno())
+        with _pinned_publication_parent(target.parent) as (
+            parent,
+            check_parent,
+        ):
             if target.exists() or target.is_symlink():
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
-            # An exclusive hard link publishes the already-fsynced bytes without
-            # the POSIX rename race that could replace a competing file.
-            # Both paths share a parent, so the operation stays on one filesystem.
-            # Filesystems without hard-link support fail closed, never copy/rename.
+
+            staging = parent / f".{target.name}.staging-{_temporary_name_suffix()}"
+            pinned_target = parent / target.name
             try:
-                os.link(staging, target)
-            except FileExistsError as error:
-                raise InvalidExperimentStateError(
-                    f"Study artifact already exists: {relative}"
-                ) from error
-        except BaseException:
+                check_parent()
+                with staging.open("xb") as handle:
+                    handle.write(canonical_json_bytes(value))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if target.exists() or target.is_symlink():
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    )
+                check_parent()
+                # Hard-link publication is anchored to the opened parent.
+                # Never fall back to copy or ordinary replacement rename.
+                try:
+                    os.link(staging, pinned_target)
+                except FileExistsError as error:
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    ) from error
+            except BaseException:
+                try:
+                    staging.unlink(missing_ok=True)
+                except OSError:
+                    # Preserve the primary publication failure.
+                    pass
+                raise
+
+            # Publication is committed; never report a cleanup error as a
+            # safe-to-retry ordinary failed write.
             try:
                 staging.unlink(missing_ok=True)
-            except OSError:
-                # Preserve the primary publication failure; staging may remain.
-                pass
-            raise
-
-        # The canonical target is already committed. Do not turn a cleanup
-        # error into an ambiguous ordinary publication failure (or retry it).
-        try:
-            staging.unlink(missing_ok=True)
-        except OSError as error:
-            raise PublishedArtifactCleanupError(
-                f"Study artifact was published, but staging cleanup failed: {relative}; "
-                "do not retry publication"
-            ) from error
+            except OSError as error:
+                raise PublishedArtifactCleanupError(
+                    f"Study artifact was published, but staging cleanup failed: "
+                    f"{relative}; do not retry publication"
+                ) from error
+            try:
+                check_parent()
+            except ArtifactIntegrityError as error:
+                raise PublishedArtifactCleanupError(
+                    f"Study artifact may have been published into a detached "
+                    f"parent: {relative}; do not retry publication"
+                ) from error
         return target
 
     def read_json(self, relative: str | Path) -> dict[str, object]:
@@ -293,31 +383,62 @@ class StudyStore:
         relative: str | Path,
         builder: Callable[[Path], None],
     ) -> Path:
-        """Build a private staging directory then atomically publish it once."""
+        """Build private staging, then publish once without parent redirection."""
 
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
-        if target.exists() or target.is_symlink():
-            raise InvalidExperimentStateError(
-                f"Study artifact already exists: {relative}"
-            )
+        with _pinned_publication_parent(target.parent) as (
+            parent,
+            check_parent,
+        ):
+            with _pinned_publication_parent(self.root) as (
+                pinned_root,
+                check_root,
+            ):
+                if target.exists() or target.is_symlink():
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    )
 
-        staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
-        staging.mkdir()
-        try:
-            builder(staging)
-            if target.exists() or target.is_symlink():
-                raise InvalidExperimentStateError(
-                    f"Study artifact already exists: {relative}"
-                )
-            atomic_rename_directory(staging, target)
-        finally:
-            if staging.exists() or staging.is_symlink():
-                if staging.is_dir() and not staging.is_symlink():
-                    shutil.rmtree(staging)
-                else:
-                    staging.unlink(missing_ok=True)
+                # Stage in the Study root to isolate builder writes from
+                # substitution of a nested final-target parent directory.
+                name = f".{target.name}.staging-{_temporary_name_suffix()}"
+                staging = self.root / name
+                pinned_staging = pinned_root / name
+                pinned_target = parent / target.name
+                check_parent()
+                check_root()
+                pinned_staging.mkdir()
+                try:
+                    check_root()
+                    builder(staging)
+                    check_root()
+                    check_parent()
+                    if target.exists() or target.is_symlink():
+                        raise InvalidExperimentStateError(
+                            f"Study artifact already exists: {relative}"
+                        )
+                    # Exclusive rename uses the fd-anchored POSIX paths.
+                    atomic_rename_directory(pinned_staging, pinned_target)
+                finally:
+                    if pinned_staging.exists() or pinned_staging.is_symlink():
+                        if (
+                            pinned_staging.is_dir()
+                            and not pinned_staging.is_symlink()
+                        ):
+                            shutil.rmtree(pinned_staging)
+                        else:
+                            pinned_staging.unlink(missing_ok=True)
+                try:
+                    check_parent()
+                    check_root()
+                except ArtifactIntegrityError as error:
+                    raise PublishedArtifactCleanupError(
+                        f"Study directory may have been published into a "
+                        f"detached parent: {relative}; do not retry publication"
+                    ) from error
         return target
+
 
 
 __all__ = ["StudyStore"]

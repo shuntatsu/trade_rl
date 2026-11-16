@@ -74,7 +74,10 @@ def test_json_publish_rejects_competitor_at_link_syscall(
 
     def competing_link(source: os.PathLike[str], destination: os.PathLike[str]) -> None:
         nonlocal injected
-        if Path(destination) == target:
+        if (
+            Path(destination).name == target.name
+            and Path(destination).parent.resolve() == target.parent.resolve()
+        ):
             assert not injected
             assert not target.exists()
             assert Path(source).is_file()

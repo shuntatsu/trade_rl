@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import errno
 import hashlib
 import os
@@ -9,7 +10,6 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from contextvars import ContextVar
 from pathlib import Path
 from typing import BinaryIO
 
@@ -19,7 +19,7 @@ from trade_rl._validation import require_sha256
 # Only this process's active Study publication contexts may name an open
 # directory capability through /proc/self/fd or /dev/fd. A caller-provided
 # alias to any other process FD must remain an untrusted symlink ancestor.
-_TRUSTED_DIRECTORY_FDS: ContextVar[frozenset[tuple[int, int, int]]] = ContextVar(
+_TRUSTED_DIRECTORY_FDS: contextvars.ContextVar[frozenset[tuple[int, int, int]]] = contextvars.ContextVar(
     "trade_rl_trusted_publication_directory_fds", default=frozenset()
 )
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
+import stat
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -16,6 +18,7 @@ from trade_rl.artifacts.atomic_write import (
     atomic_rename_directory,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
@@ -61,6 +64,70 @@ def _unlock_file(handle: BinaryIO) -> None:
     flock = getattr(fcntl, "flock")
     lock_un = getattr(fcntl, "LOCK_UN")
     flock(handle.fileno(), lock_un)
+
+
+def _open_mutation_lock(root: Path) -> BinaryIO:
+    """Open the Study lock without following symlinks on supported POSIX hosts."""
+
+    source = Path(os.path.abspath(root))
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
+    if os.name == "posix":
+        # A hostile FIFO must not block the open before fstat rejects its type.
+        flags |= getattr(os, "O_NONBLOCK", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    descriptor = -1
+    try:
+        if (
+            os.name == "posix"
+            and nofollow
+            and directory_flag
+            and os.open in os.supports_dir_fd
+        ):
+            directory_flags = (
+                getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+            )
+            parent_fd = os.open(source.anchor, directory_flags)
+            try:
+                # Bind every ancestor to a directory descriptor, including root.
+                for component in source.parts[1:]:
+                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
+                    os.close(parent_fd)
+                    parent_fd = next_fd
+                descriptor = os.open(
+                    _LOCK_NAME, flags | nofollow, 0o666, dir_fd=parent_fd
+                )
+            finally:
+                os.close(parent_fd)
+        else:
+            # Non-POSIX fallback checks static links; it cannot close the
+            # concurrent replacement race without descriptor-relative opens.
+            for directory in (source, *source.parents):
+                if directory.is_symlink() or directory.is_junction():
+                    raise ArtifactIntegrityError(
+                        "Study mutation lock parent must not be a symlink or junction"
+                    )
+            lock_path = source / _LOCK_NAME
+            if lock_path.is_symlink() or lock_path.is_junction() or lock_path.is_dir():
+                raise ArtifactIntegrityError(
+                    "Study mutation lock must be a regular file"
+                )
+            descriptor = os.open(lock_path, flags | nofollow, 0o666)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ArtifactIntegrityError("Study mutation lock must be a regular file")
+        handle = os.fdopen(descriptor, "a+b")
+        descriptor = -1
+        return handle
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
+            raise ArtifactIntegrityError(
+                "Study mutation lock must be a regular file "
+                "in non-symlinked directories"
+            ) from error
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 class StudyStore:
@@ -138,7 +205,7 @@ class StudyStore:
                 raise ArtifactIntegrityError(
                     "Study mutation lock must not be a symlink"
                 )
-            with lock_path.open("a+b") as handle:
+            with _open_mutation_lock(self.root) as handle:
                 _lock_file(handle)
                 self._lock_depth = 1
                 try:
@@ -202,9 +269,20 @@ class StudyStore:
         target = self._checked_target(relative)
         if target.is_symlink() or not target.is_file():
             raise ArtifactIntegrityError("Study artifact must be a regular file")
+        # Open the verified file descriptor before reading: a later symlink
+        # substitution must not redirect this read to a different artifact.
         try:
-            raw = cast(object, json.loads(target.read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            with open_regular_binary(target, field="Study artifact") as handle:
+                encoded = handle.read()
+        except ValueError as error:
+            raise ArtifactIntegrityError(
+                "Study artifact must be a regular file"
+            ) from error
+        except OSError as error:
+            raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
+        try:
+            raw = cast(object, json.loads(encoded.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
         if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
             raise ArtifactIntegrityError("Study artifact must contain a JSON object")

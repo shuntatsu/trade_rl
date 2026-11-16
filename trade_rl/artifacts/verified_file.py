@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextvars
+import threading
 import errno
 import hashlib
 import os
@@ -16,12 +16,17 @@ from typing import BinaryIO
 from trade_rl._validation import require_sha256
 
 
-# Only this process's active Study publication contexts may name an open
+# Only the current thread's active Study publication may name an open
 # directory capability through /proc/self/fd or /dev/fd. A caller-provided
 # alias to any other process FD must remain an untrusted symlink ancestor.
-_TRUSTED_DIRECTORY_FDS: contextvars.ContextVar[frozenset[tuple[int, int, int]]] = contextvars.ContextVar(
-    "trade_rl_trusted_publication_directory_fds", default=frozenset()
-)
+class _ScopedDirectoryFds(threading.local):
+    """Per-thread publication capabilities that cannot leak to other threads."""
+
+    def __init__(self) -> None:
+        self.allowed: frozenset[tuple[int, int, int]] = frozenset()
+
+
+_TRUSTED_DIRECTORY_FDS = _ScopedDirectoryFds()
 
 
 @contextmanager
@@ -32,13 +37,12 @@ def _trusted_process_directory_fd(descriptor: int) -> Iterator[None]:
     if not stat.S_ISDIR(status.st_mode):
         raise ValueError("trusted publication descriptor is not a directory")
     identity = (descriptor, status.st_dev, status.st_ino)
-    token = _TRUSTED_DIRECTORY_FDS.set(
-        _TRUSTED_DIRECTORY_FDS.get() | frozenset((identity,))
-    )
+    previous = _TRUSTED_DIRECTORY_FDS.allowed
+    _TRUSTED_DIRECTORY_FDS.allowed = previous | frozenset((identity,))
     try:
         yield
     finally:
-        _TRUSTED_DIRECTORY_FDS.reset(token)
+        _TRUSTED_DIRECTORY_FDS.allowed = previous
 
 
 def file_digest_and_size(
@@ -106,7 +110,7 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
         if not stat.S_ISDIR(status.st_mode):
             os.close(descriptor)
             raise OSError(errno.ENOTDIR, "process descriptor is not a directory")
-        if identity not in _TRUSTED_DIRECTORY_FDS.get():
+        if identity not in _TRUSTED_DIRECTORY_FDS.allowed:
             os.close(descriptor)
             raise OSError(errno.ELOOP, "untrusted process directory FD alias")
         start = capability_index + 1

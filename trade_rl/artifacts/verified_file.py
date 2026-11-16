@@ -56,11 +56,7 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
     if ".." in path.parts:
         raise OSError(errno.ENOTDIR, "directory parent traversal is forbidden")
     components = path.parts
-    flags = (
-        getattr(os, "O_PATH", os.O_RDONLY)
-        | os.O_DIRECTORY
-        | os.O_NOFOLLOW
-    )
+    flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
     capability_index: int | None = None
     if components[:4] == ("/", "proc", "self", "fd"):
         capability_index = 4

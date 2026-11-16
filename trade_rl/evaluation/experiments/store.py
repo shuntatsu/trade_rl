@@ -179,14 +179,12 @@ def _pinned_publication_parent(
             os.close(descriptor)
             descriptor = next_fd
 
-        pinned = next(
-            (
-                candidate
-                for prefix in ("/proc/self/fd", "/dev/fd")
-                if (candidate := Path(prefix) / str(descriptor)).is_dir()
-            ),
-            None,
-        )
+        pinned: Path | None = None
+        for prefix in ("/proc/self/fd", "/dev/fd"):
+            candidate = Path(prefix) / str(descriptor)
+            if candidate.is_dir():
+                pinned = candidate
+                break
         if pinned is None:
             raise ArtifactIntegrityError(
                 "Study publication requires a usable directory-fd path"
@@ -297,10 +295,7 @@ class StudyStore:
 
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
-        with _pinned_publication_parent(target.parent) as (
-            parent,
-            check_parent,
-        ):
+        with _pinned_publication_parent(target.parent) as (parent, check_parent):
             if target.exists() or target.is_symlink():
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
@@ -387,14 +382,8 @@ class StudyStore:
 
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
-        with _pinned_publication_parent(target.parent) as (
-            parent,
-            check_parent,
-        ):
-            with _pinned_publication_parent(self.root) as (
-                pinned_root,
-                check_root,
-            ):
+        with _pinned_publication_parent(target.parent) as (parent, check_parent):
+            with _pinned_publication_parent(self.root) as (pinned_root, check_root):
                 if target.exists() or target.is_symlink():
                     raise InvalidExperimentStateError(
                         f"Study artifact already exists: {relative}"
@@ -422,10 +411,7 @@ class StudyStore:
                     atomic_rename_directory(pinned_staging, pinned_target)
                 finally:
                     if pinned_staging.exists() or pinned_staging.is_symlink():
-                        if (
-                            pinned_staging.is_dir()
-                            and not pinned_staging.is_symlink()
-                        ):
+                        if pinned_staging.is_dir() and not pinned_staging.is_symlink():
                             shutil.rmtree(pinned_staging)
                         else:
                             pinned_staging.unlink(missing_ok=True)

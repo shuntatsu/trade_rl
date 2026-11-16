@@ -77,7 +77,6 @@ def test_directory_publication_refuses_parent_swapped_after_validation(
     assert not (previous / "synthetic").exists()
 
 
-
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
 def test_directory_builder_cannot_escape_when_study_root_is_replaced(
     tmp_path: Path,

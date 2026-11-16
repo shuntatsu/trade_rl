@@ -133,15 +133,24 @@ def test_directory_builder_keeps_nested_study_store_nofollow_contract(
 ) -> None:
     """A safe stage path must still support nested locks and descriptor readers."""
     outer = StudyStore(tmp_path / "study")
+    outside = tmp_path / "outside-nested"
+    outside.mkdir()
 
     def build(stage: Path) -> None:
         nested = StudyStore(stage)
         with nested.mutation_lock():
             nested.publish_json_once("nested.json", {"synthetic": True})
             assert nested.read_json("nested.json") == {"synthetic": True}
+            (stage / "linked").symlink_to(outside, target_is_directory=True)
+            with pytest.raises(ArtifactIntegrityError):
+                nested.read_json("linked/foreign.json")
+            with pytest.raises(ArtifactIntegrityError):
+                nested.publish_json_once("linked/foreign.json", {"invalid": True})
+            (stage / "linked").unlink()
         # Mirror the existing evidence builder's removal of its staging lock.
         (stage / ".mutation.lock").unlink()
 
     published = outer.publish_directory_once("evidence/synthetic", build)
     assert published == outer.root / "evidence" / "synthetic"
     assert StudyStore(published).read_json("nested.json") == {"synthetic": True}
+    assert list(outside.iterdir()) == []

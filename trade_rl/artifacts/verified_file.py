@@ -35,6 +35,68 @@ def file_digest(path: Path, *, field: str = "artifact file") -> str:
     return file_digest_and_size(path, field=field)[0]
 
 
+def _open_directory_descriptor_nofollow(source: Path) -> int:
+    """Open a POSIX directory chain without following untrusted symlinks.
+
+    /proc/self/fd/N and /dev/fd/N name a kernel-held descriptor capability,
+    not a filesystem ancestor: duplicate an already-open directory descriptor
+    and check every remaining child with O_NOFOLLOW. Other paths traverse all
+    ancestors with O_NOFOLLOW. The caller owns and must close the returned fd.
+    """
+
+    if (
+        os.name != "posix"
+        or not getattr(os, "O_NOFOLLOW", 0)
+        or not getattr(os, "O_DIRECTORY", 0)
+        or os.open not in os.supports_dir_fd
+    ):
+        raise OSError(errno.ENOTSUP, "directory-descriptor no-follow is unsupported")
+
+    path = Path(os.path.abspath(source))
+    if ".." in path.parts:
+        raise OSError(errno.ENOTDIR, "directory parent traversal is forbidden")
+    components = path.parts
+    flags = (
+        getattr(os, "O_PATH", os.O_RDONLY)
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+    )
+    capability_index: int | None = None
+    if components[:4] == ("/", "proc", "self", "fd"):
+        capability_index = 4
+    elif components[:3] == ("/", "dev", "fd"):
+        capability_index = 3
+
+    if (
+        capability_index is not None
+        and len(components) > capability_index
+        and components[capability_index].isascii()
+        and components[capability_index].isdecimal()
+    ):
+        # These namespaces are kernel process descriptors. Never open their
+        # symlink names: start from the already-held directory capability.
+        descriptor = os.dup(int(components[capability_index]))
+        start = capability_index + 1
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            raise OSError(errno.ENOTDIR, "process descriptor is not a directory")
+    else:
+        descriptor = os.open(path.anchor, flags)
+        start = 1
+
+    try:
+        for component in components[start:]:
+            next_fd = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_fd
+        result = descriptor
+        descriptor = -1
+        return result
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
     """Open with a no-follow directory chain where descriptor-relative I/O exists."""
 
@@ -51,22 +113,16 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
         and directory_flag
         and os.open in os.supports_dir_fd
     ):
-        directory_flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
-        parent_fd = os.open(source.anchor, directory_flags)
         try:
-            for component in source.parts[1:-1]:
-                try:
-                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
-                except OSError as error:
-                    if error.errno in (errno.ELOOP, errno.ENOTDIR):
-                        raise ValueError(
-                            f"{field} parent must not contain a symlink or non-directory"
-                        ) from error
-                    raise
-                os.close(parent_fd)
-                parent_fd = next_fd
-            # Even a concurrent replacement of an ancestor cannot redirect the
-            # opened descriptor chain outside the inspected directory objects.
+            parent_fd = _open_directory_descriptor_nofollow(source.parent)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise ValueError(
+                    f"{field} parent must not contain a symlink or non-directory"
+                ) from error
+            raise
+        try:
+            # The verified parent is a held capability, not a rechecked path.
             return os.open(source.name, leaf_flags, dir_fd=parent_fd)
         finally:
             os.close(parent_fd)

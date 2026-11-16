@@ -18,7 +18,10 @@ from trade_rl.artifacts.atomic_write import (
     atomic_rename_directory,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.verified_file import open_regular_binary
+from trade_rl.artifacts.verified_file import (
+    _open_directory_descriptor_nofollow,
+    open_regular_binary,
+)
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
@@ -84,16 +87,8 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
             and directory_flag
             and os.open in os.supports_dir_fd
         ):
-            directory_flags = (
-                getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
-            )
-            parent_fd = os.open(source.anchor, directory_flags)
+            parent_fd = _open_directory_descriptor_nofollow(source)
             try:
-                # Bind every ancestor to a directory descriptor, including root.
-                for component in source.parts[1:]:
-                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
-                    os.close(parent_fd)
-                    parent_fd = next_fd
                 descriptor = os.open(
                     _LOCK_NAME, flags | nofollow, 0o666, dir_fd=parent_fd
                 )
@@ -170,15 +165,9 @@ def _pinned_publication_parent(
         )
 
     source = Path(os.path.abspath(parent))
-    flags = getattr(os, "O_PATH", os.O_RDONLY) | directory | nofollow
     descriptor = -1
     try:
-        descriptor = os.open(source.anchor, flags)
-        for component in source.parts[1:]:
-            next_fd = os.open(component, flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = next_fd
-
+        descriptor = _open_directory_descriptor_nofollow(source)
         pinned: Path | None = None
         for prefix in ("/proc/self/fd", "/dev/fd"):
             candidate = Path(prefix) / str(descriptor)
@@ -392,7 +381,6 @@ class StudyStore:
                 # Stage in the Study root to isolate builder writes from
                 # substitution of a nested final-target parent directory.
                 name = f".{target.name}.staging-{_temporary_name_suffix()}"
-                staging = self.root / name
                 pinned_staging = pinned_root / name
                 pinned_target = parent / target.name
                 check_parent()
@@ -400,7 +388,10 @@ class StudyStore:
                 pinned_staging.mkdir()
                 try:
                     check_root()
-                    builder(staging)
+                    # A pathname based on self.root can be swapped immediately
+                    # after check_root(). Keep the builder on the held directory
+                    # capability, including nested StudyStore readers and locks.
+                    builder(pinned_staging)
                     check_root()
                     check_parent()
                     if target.exists() or target.is_symlink():

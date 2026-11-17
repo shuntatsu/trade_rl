@@ -256,6 +256,7 @@ def test_publication_rejects_swapped_parent_with_external_same_name(
     else:
         assert list(external_target.iterdir()) == []
 
+
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
 @pytest.mark.parametrize("preexisting", (False, True))
 def test_study_root_init_refuses_symlinked_ancestor_before_mkdir(

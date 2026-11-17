@@ -540,8 +540,8 @@ def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
         down = snap_price_to_tick(price, tick_size, round_up=False)
         up = snap_price_to_tick(price, tick_size, round_up=True)
         assert down <= price <= up
-        assert price_on_tick_grid(down)
-        assert price_on_tick_grid(up)
+        assert price_on_tick_grid(down, tick_size)
+        assert price_on_tick_grid(up, tick_size)
 
 
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:

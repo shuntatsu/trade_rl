@@ -71,6 +71,19 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     if price_exact % tick_exact == 0:
         return True
 
+    # With multiple decimal ticks per binary64 ULP, the shortest decimal
+    # spelling may sit exactly between two ticks even though an integer
+    # decimal-grid tick correctly rounds to this floating-point price.
+    # Only admit the exact binary64 image of a positive tick count: neither
+    # a broad ULP tolerance nor a decimal half-tick guess may prove it.
+    if resolved_tick <= 2.0 * math.ulp(resolved_price):
+        candidate_count = round(Fraction.from_float(resolved_price) / tick_exact)
+        if (
+            candidate_count > 0
+            and float(candidate_count * tick_exact) == resolved_price
+        ):
+            return True
+
     # A finite float quotient can still lose more than one whole tick near
     # binary64's unit-precision limit. Use the decimal authority when one
     # tick is subnormal or within the 4-ULP tolerance, or division overflows.

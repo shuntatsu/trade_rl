@@ -183,6 +183,7 @@ def test_study_root_refuses_raw_symlink_dotdot_before_any_publication(
     assert list((outside / "safe").iterdir()) == []
     assert list((tmp_path / "safe").iterdir()) == []
 
+
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
 def test_builder_enotdir_is_not_a_parent_integrity_error(tmp_path: Path) -> None:
     """Do not rewrite a builder's ENOTDIR into a parent-tamper diagnosis."""

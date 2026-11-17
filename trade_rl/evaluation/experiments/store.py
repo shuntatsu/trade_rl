@@ -513,12 +513,34 @@ class StudyStore:
                 check_parent()
                 check_root()
                 pinned_staging.mkdir()
+                staging_descriptor = -1
                 try:
                     check_root()
-                    # A pathname based on self.root can be swapped immediately
-                    # after check_root(). Keep the builder on the held directory
-                    # capability, including nested StudyStore readers and locks.
-                    builder(pinned_staging)
+                    if os.name == "posix":
+                        # The pinned root alone cannot protect the staging
+                        # leaf name. Hold its inode across the builder callback.
+                        staging_descriptor = _open_directory_descriptor_nofollow(
+                            pinned_staging
+                        )
+                        stage_alias: Path | None = None
+                        for prefix in ("/proc/self/fd", "/dev/fd"):
+                            candidate = Path(prefix) / str(staging_descriptor)
+                            if candidate.is_dir():
+                                stage_alias = candidate
+                                break
+                        if stage_alias is None:
+                            raise ArtifactIntegrityError(
+                                "Study staging requires a usable directory-fd path"
+                            )
+                        with _trusted_process_directory_fd(staging_descriptor):
+                            builder(stage_alias)
+                        # Refuse to publish a replaced staging directory name.
+                        _assert_pinned_publication_parent(
+                            pinned_staging, staging_descriptor
+                        )
+                    else:
+                        # Portable static checks cannot prevent leaf swaps.
+                        builder(pinned_staging)
                     check_root()
                     check_parent()
                     if pinned_target.exists() or pinned_target.is_symlink():
@@ -528,6 +550,8 @@ class StudyStore:
                     # Exclusive rename uses the fd-anchored POSIX paths.
                     atomic_rename_directory(pinned_staging, pinned_target)
                 finally:
+                    if staging_descriptor >= 0:
+                        os.close(staging_descriptor)
                     if pinned_staging.exists() or pinned_staging.is_symlink():
                         if pinned_staging.is_dir() and not pinned_staging.is_symlink():
                             shutil.rmtree(pinned_staging)

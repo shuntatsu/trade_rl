@@ -172,7 +172,10 @@ def snap_price_to_tick(
     # On a dense grid, nearest-distance tolerance may exceed half a tick.
     # Off-grid bounds must take the exact directional floor/ceil path.
     nearest_is_valid = (
-        not dense_grid and nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
+        not dense_grid
+        and nearest_count > 0
+        and math.isfinite(nearest)
+        and nearest > 0.0
     )
     if nearest_is_valid:
         tolerance = _projection_tolerance(resolved_price, nearest, resolved_tick)

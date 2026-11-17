@@ -515,6 +515,37 @@ def test_wide_tick_projection_rejects_offgrid_and_preserves_snap_direction(
     assert price_on_tick_grid(up, tick)
 
 
+
+@pytest.mark.parametrize(
+    ("price", "tick_size"),
+    [
+        (1.5 + 3 * 2**-52, 2e-16),
+        (1.5 + 2**-52, 8e-17),
+    ],
+)
+def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
+    price: float, tick_size: float
+) -> None:
+    """The shortest decimal float may be an exact half-tick even for a true image."""
+    decimal_price = Fraction(str(price))
+    decimal_tick = Fraction(str(tick_size))
+    assert decimal_price % decimal_tick != 0
+    decimal_count = round(decimal_price / decimal_tick)
+    assert 2 * abs(decimal_price - decimal_count * decimal_tick) >= decimal_tick
+    binary_count = round(Fraction.from_float(price) / decimal_tick)
+    assert binary_count > 0
+    assert float(binary_count * decimal_tick) == price
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size)
+        down = snap_price_to_tick(price, tick_size, round_up=False)
+        up = snap_price_to_tick(price, tick_size, round_up=True)
+        assert down <= price <= up
+        assert price_on_tick_grid(down)
+        assert price_on_tick_grid(up)
+
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

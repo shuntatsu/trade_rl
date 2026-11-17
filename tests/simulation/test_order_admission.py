@@ -572,7 +572,7 @@ def test_tick_projection_across_power_of_two_uses_one_ulp_not_four(
 
 
 def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> None:
-    """An exact odd half-tick may round back from only its upper neighbor."""
+    """When an upper tick rounds to the price, its binary64 grid image is fixed."""
     price = 1.0
     tick_size = 1.6777216e-16
     tick_exact = Fraction(str(tick_size))
@@ -588,7 +588,9 @@ def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> N
         assert price_on_tick_grid(price, tick_size)
         down = snap_price_to_tick(price, tick_size, round_up=False)
         up = snap_price_to_tick(price, tick_size, round_up=True)
-        assert down < price
+        # The upper integer tick already projects to this exact float.
+        # On-grid idempotence, not a stricter floor, is the source contract.
+        assert down == price
         assert up == price
         assert price_on_tick_grid(down, tick_size)
         assert price_on_tick_grid(up, tick_size)

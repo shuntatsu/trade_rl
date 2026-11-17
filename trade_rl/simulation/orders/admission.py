@@ -32,13 +32,13 @@ class _AdmissionBookView(Protocol):
     def portfolio_value(self) -> float: ...
 
 
-def _projection_tolerance(price: float, projected: float, tick: float) -> float:
-    """Allow one ULP on resolvable grids; retain dense-grid projection slack."""
+def _projection_tolerance(price: float, projected: float) -> float:
+    """Allow at most one binary64 ULP of representation noise per grid image."""
 
-    ulp = max(math.ulp(price), math.ulp(projected))
-    # When a tick spans more than eight ULPs, a multi-ULP discrepancy is
-    # economically distinguishable from one binary64 rounding step.
-    return ulp if tick > 8.0 * ulp else 4.0 * ulp
+    # Dense grids are checked by exact projected tick images, not an ULP
+    # window. A four-ULP fallback here would admit an off-grid price below
+    # a power-of-two boundary because the projected ULP is twice as large.
+    return max(math.ulp(price), math.ulp(projected))
 
 
 def _needs_exact_tick_count(price: float, tick: float, quotient: float) -> bool:
@@ -119,7 +119,6 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
-        resolved_tick,
     )
 
 
@@ -178,7 +177,7 @@ def snap_price_to_tick(
         and nearest > 0.0
     )
     if nearest_is_valid:
-        tolerance = _projection_tolerance(resolved_price, nearest, resolved_tick)
+        tolerance = _projection_tolerance(resolved_price, nearest)
         if abs(resolved_price - nearest) > tolerance:
             nearest_is_valid = False
         else:

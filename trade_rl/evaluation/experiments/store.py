@@ -257,9 +257,9 @@ def _mkdir_study_root_nofollow(root: Path) -> None:
             descriptor = child
         current = os.stat(source, follow_symlinks=False)
         opened = os.fstat(descriptor)
-        if not stat.S_ISDIR(current.st_mode) or (
-            current.st_dev, current.st_ino
-        ) != (opened.st_dev, opened.st_ino):
+        current_identity = (current.st_dev, current.st_ino)
+        opened_identity = (opened.st_dev, opened.st_ino)
+        if not stat.S_ISDIR(current.st_mode) or current_identity != opened_identity:
             raise ArtifactIntegrityError("Study root changed during creation")
     except OSError as error:
         if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR, errno.ENOENT):

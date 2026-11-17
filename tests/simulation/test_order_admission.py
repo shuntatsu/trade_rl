@@ -567,6 +567,36 @@ def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> N
         assert price_on_tick_grid(up, tick_size)
 
 
+
+
+@pytest.mark.parametrize(
+    ("price", "tick_size"),
+    [
+        (1.0 + 2**-52, 2.0 * 2**-52),
+        (1.0 + 8 * 2**-52, 7 * 2**-52),
+    ],
+)
+def test_dense_offgrid_float_cannot_bypass_image_and_snap_direction(
+    price: float, tick_size: float
+) -> None:
+    """A non-grid float must not gain membership through broad ULP tolerance."""
+    assert tick_size <= 8 * math.ulp(price)
+    tick_exact = Fraction(str(tick_size))
+    ratio = Fraction.from_float(price) / tick_exact
+    low, high = math.floor(ratio), math.ceil(ratio)
+    assert low > 0 and high > low
+    low_price, high_price = float(low * tick_exact), float(high * tick_exact)
+    assert low_price < price < high_price
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size) is False
+        down = snap_price_to_tick(price, tick_size, round_up=False)
+        up = snap_price_to_tick(price, tick_size, round_up=True)
+    assert down == low_price
+    assert up == high_price
+    assert down < price < up
+    assert price_on_tick_grid(down, tick_size)
+    assert price_on_tick_grid(up, tick_size)
+
 def test_dense_tick_nearest_projection_overflow_fails_closed() -> None:
     """A nearest tick beyond finite float64 must not raise from grid checking."""
     price = float.fromhex("0x1.fffffffffffffp+1023")

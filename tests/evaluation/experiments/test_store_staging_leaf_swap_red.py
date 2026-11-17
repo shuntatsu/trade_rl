@@ -81,7 +81,7 @@ def test_directory_builder_refuses_replaced_staging_leaf(
 def test_directory_publish_rejects_stage_swap_after_inode_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The staging inode validated before rename must be the published inode."""
+    """A checked staging inode must remain the inode atomically published."""
     store = StudyStore(tmp_path / "study")
     detached = tmp_path / "validated-stage-detached"
     real_rename = store_module.atomic_rename_directory
@@ -91,17 +91,16 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
         nonlocal injected
         stage = Path(source)
         if not injected:
-            # The real implementation has completed its inode verification.
             assert stage.name.startswith(".synthetic.staging-")
             original_name = store.root / stage.name
-            assert original_name.is_dir() and not original_name.is_symlink()
-            genuine_text = (original_name / "genuine.txt").read_text(
-                encoding="utf-8"
-            )
-            assert genuine_text == "genuine"
+            assert original_name.is_dir()
+            assert not original_name.is_symlink()
+            genuine_path = original_name / "genuine.txt"
+            assert genuine_path.read_text(encoding="utf-8") == "genuine"
             original_name.rename(detached)
             original_name.mkdir()
-            (original_name / "forged.txt").write_text("forged", encoding="utf-8")
+            forged_path = original_name / "forged.txt"
+            forged_path.write_text("forged", encoding="utf-8")
             injected = True
         return real_rename(source, target)
 
@@ -110,17 +109,17 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
     )
 
     def build(stage: Path) -> None:
-        (stage / "genuine.txt").write_text("genuine", encoding="utf-8")
+        good_path = stage / "genuine.txt"
+        good_path.write_text("genuine", encoding="utf-8")
 
-    with pytest.raises(
-        (
-            ArtifactIntegrityError,
-            InvalidExperimentStateError,
-            PublishedArtifactCleanupError,
-            ValueError,
-            OSError,
-        )
-    ):
+    permitted_failures = (
+        ArtifactIntegrityError,
+        InvalidExperimentStateError,
+        PublishedArtifactCleanupError,
+        ValueError,
+        OSError,
+    )
+    with pytest.raises(permitted_failures):
         store.publish_directory_once("evidence/synthetic", build)
 
     assert injected, "the post-inode-check substitution was not exercised"

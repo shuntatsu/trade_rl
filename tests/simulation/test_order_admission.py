@@ -544,6 +544,33 @@ def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
         assert price_on_tick_grid(up, tick_size)
 
 
+@pytest.mark.parametrize("tick_size", (8.89e-16, 1e-15))
+def test_tick_projection_across_power_of_two_uses_one_ulp_not_four(
+    tick_size: float,
+) -> None:
+    """A price below 1.0 must not alias the 1.0 tick across an ULP boundary."""
+    price = 1.0 - 4 * 2**-53
+    tick_exact = Fraction(str(tick_size))
+    nearest_count = round(price / tick_size)
+    projected = float(nearest_count * tick_exact)
+    assert projected == 1.0
+    assert tick_size > 8 * math.ulp(price)
+    assert tick_size <= 8 * math.ulp(projected)
+    assert 2 * abs(Fraction(str(price)) - nearest_count * tick_exact) < tick_exact
+    assert abs(price - projected) > max(math.ulp(price), math.ulp(projected))
+    ratio = Fraction.from_float(price) / tick_exact
+    expected_down = float(math.floor(ratio) * tick_exact)
+    expected_up = float(math.ceil(ratio) * tick_exact)
+    assert expected_down < price < expected_up
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size) is False
+        assert snap_price_to_tick(price, tick_size, round_up=False) == expected_down
+        assert snap_price_to_tick(price, tick_size, round_up=True) == expected_up
+        assert price_on_tick_grid(expected_down, tick_size)
+        assert price_on_tick_grid(expected_up, tick_size)
+
+
 def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> None:
     """An exact odd half-tick may round back from only its upper neighbor."""
     price = 1.0

@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments import store as store_module
+from trade_rl.evaluation.experiments.errors import (
+    ArtifactIntegrityError,
+    InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
+)
 from trade_rl.evaluation.experiments.store import StudyStore
 
 
@@ -65,3 +70,60 @@ def test_directory_builder_refuses_replaced_staging_leaf(
         "builder wrote outside Study through a replaced staging leaf"
     )
     assert not (store.root / "evidence" / "synthetic").exists()
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or not Path("/proc/self/fd").is_dir(),
+    reason="requires POSIX directory-fd publication",
+)
+def test_directory_publish_rejects_stage_swap_after_inode_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staging inode validated before rename must be the published inode."""
+    store = StudyStore(tmp_path / "study")
+    detached = tmp_path / "validated-stage-detached"
+    real_rename = store_module.atomic_rename_directory
+    injected = False
+
+    def replace_stage_at_rename(source: str | Path, target: str | Path) -> Path:
+        nonlocal injected
+        stage = Path(source)
+        if not injected:
+            # The real implementation has completed its inode verification.
+            assert stage.name.startswith(".synthetic.staging-")
+            original_name = store.root / stage.name
+            assert original_name.is_dir() and not original_name.is_symlink()
+            assert (
+                original_name / "genuine.txt"
+            ).read_text(encoding="utf-8") == "genuine"
+            original_name.rename(detached)
+            original_name.mkdir()
+            (original_name / "forged.txt").write_text("forged", encoding="utf-8")
+            injected = True
+        return real_rename(source, target)
+
+    monkeypatch.setattr(
+        store_module, "atomic_rename_directory", replace_stage_at_rename
+    )
+
+    def build(stage: Path) -> None:
+        (stage / "genuine.txt").write_text("genuine", encoding="utf-8")
+
+    with pytest.raises(
+        (
+            ArtifactIntegrityError,
+            InvalidExperimentStateError,
+            PublishedArtifactCleanupError,
+            ValueError,
+            OSError,
+        )
+    ):
+        store.publish_directory_once("evidence/synthetic", build)
+
+    assert injected, "the post-inode-check substitution was not exercised"
+    assert (detached / "genuine.txt").read_text(encoding="utf-8") == "genuine"
+    published = store.root / "evidence" / "synthetic"
+    assert not published.exists(), "an unvalidated staging inode was published"
+    assert not (published / "forged.txt").exists()

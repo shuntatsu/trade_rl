@@ -175,8 +175,7 @@ def test_study_root_refuses_raw_symlink_dotdot_before_any_publication(
     assert os.path.abspath(root_with_parent_traversal) == str(tmp_path / "safe")
 
     with pytest.raises(ArtifactIntegrityError, match="parent traversal"):
-        store = StudyStore(root_with_parent_traversal)
-        store.publish_json_once("synthetic.json", {"synthetic": True})
+        StudyStore(root_with_parent_traversal)
 
     assert list((outside / "safe").iterdir()) == []
     assert list((tmp_path / "safe").iterdir()) == []

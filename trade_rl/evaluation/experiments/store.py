@@ -32,6 +32,13 @@ from trade_rl.evaluation.experiments.errors import (
 _LOCK_NAME = ".mutation.lock"
 
 
+def _require_no_study_parent_traversal(path: Path) -> None:
+    """Reject lexical dot-dot before it can erase a symlink ancestor."""
+
+    if ".." in path.parts:
+        raise ArtifactIntegrityError("Study path must not contain parent traversal")
+
+
 def _lock_file(handle: BinaryIO) -> None:
     if os.name == "nt":
         import msvcrt
@@ -73,6 +80,7 @@ def _unlock_file(handle: BinaryIO) -> None:
 def _open_mutation_lock(root: Path) -> BinaryIO:
     """Open the Study lock without following symlinks on supported POSIX hosts."""
 
+    _require_no_study_parent_traversal(Path(root))
     source = Path(os.path.abspath(root))
     flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
     if os.name == "posix":
@@ -146,6 +154,7 @@ def _pinned_publication_parent(
 ) -> Iterator[tuple[Path, Callable[[], None]]]:
     """Anchor publication paths to descriptor-verified POSIX directories."""
 
+    _require_no_study_parent_traversal(parent)
     if os.name != "posix":
         # Portable static checks cannot prevent a concurrent replacement.
         def check_portable() -> None:
@@ -202,6 +211,7 @@ class StudyStore:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
+        _require_no_study_parent_traversal(self.root)
         if self.root.exists() and (self.root.is_symlink() or not self.root.is_dir()):
             raise ArtifactIntegrityError("Study root must be a regular directory")
         self.root.mkdir(parents=True, exist_ok=True)
@@ -223,6 +233,7 @@ class StudyStore:
         return value
 
     def _checked_target(self, relative: str | Path) -> Path:
+        _require_no_study_parent_traversal(self.root)
         value = self._relative_path(relative)
         current = self.root
         for part in value.parts[:-1]:
@@ -257,6 +268,7 @@ class StudyStore:
         """Serialize Study mutation across processes and support same-store nesting."""
 
         with self._thread_lock:
+            _require_no_study_parent_traversal(self.root)
             if self._lock_depth > 0:
                 self._lock_depth += 1
                 try:

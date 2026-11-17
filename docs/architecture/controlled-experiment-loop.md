@@ -225,6 +225,8 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 ## Failure / tamper contract
 
+`StudyStore`のrootと公開先のpathは、生の`..`成分を含む入力を正規化やdirectory作成より**前に**拒否する。特に`symlink/../safe`を単純に`abspath`へ変換すると、実際のfilesystemが解決するinodeと異なるdirectoryへlockやevidenceを書いてしまうため、root初期化・状態更新・公開の各境界でfail closedにする。
+
 loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
 
 協調するprocessが同じStudy mutation lock inodeを取得する場合、lock取得後に必ずdisk stateを再構築するため、freezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。

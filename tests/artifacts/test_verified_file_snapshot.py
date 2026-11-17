@@ -271,7 +271,6 @@ def test_process_fd_alias_requires_scoped_trust(tmp_path: Path, reader: str) -> 
         os.close(descriptor)
 
 
-
 @pytest.mark.skipif(
     os.name != "posix"
     or not getattr(os, "O_NOFOLLOW", 0)

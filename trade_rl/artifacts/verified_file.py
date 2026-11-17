@@ -83,9 +83,10 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
     ):
         raise OSError(errno.ENOTSUP, "directory-descriptor no-follow is unsupported")
 
-    path = Path(os.path.abspath(source))
-    if ".." in path.parts:
+    # Reject raw parent traversal before abspath could erase its components.
+    if ".." in Path(source).parts:
         raise OSError(errno.ENOTDIR, "directory parent traversal is forbidden")
+    path = Path(os.path.abspath(source))
     components = path.parts
     flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
     capability_index: int | None = None

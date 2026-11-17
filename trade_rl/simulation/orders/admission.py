@@ -71,12 +71,12 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     if price_exact % tick_exact == 0:
         return True
 
-    # With multiple decimal ticks per binary64 ULP, the shortest decimal
-    # spelling may sit exactly between two ticks even though an integer
-    # decimal-grid tick correctly rounds to this floating-point price.
-    # Only admit the exact binary64 image of a positive tick count: neither
-    # a broad ULP tolerance nor a decimal half-tick guess may prove it.
-    if resolved_tick <= 2.0 * math.ulp(resolved_price):
+    # If ticks are close to float64 resolution, an off-grid quote can lie
+    # within several ULPs of a grid point. Conversely a valid integer tick
+    # can round to a float whose shortest decimal spelling is off-grid.
+    # Exactly match the binary64 projection of either neighboring decimal
+    # tick instead of inferring membership from decimal proximity.
+    if resolved_tick <= 8.0 * math.ulp(resolved_price):
         # Float rounding is asymmetric at powers of two. The nearest integer
         # in the exact price/tick ratio can round to a different float while
         # the other adjacent positive tick rounds back to resolved_price.
@@ -91,6 +91,7 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
                 # An adjacent rational tick above max float64 is not a valid
                 # binary64 projection; test the other side before refusing.
                 continue
+        return False
 
     # A finite float quotient can still lose more than one whole tick near
     # binary64's unit-precision limit. Use the decimal authority when one
@@ -146,6 +147,12 @@ def snap_price_to_tick(
         return resolved_price
 
     exact_tick = Fraction(str(resolved_tick))
+    dense_grid = resolved_tick <= 8.0 * math.ulp(resolved_price)
+    # An already valid binary64 tick image must not move when snapping.
+    # Exact decimal membership above is an even stronger special case.
+    if dense_grid and price_on_tick_grid(resolved_price, resolved_tick):
+        return resolved_price
+
     quotient = resolved_price / resolved_tick
     use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
     if use_exact:
@@ -162,7 +169,11 @@ def snap_price_to_tick(
     # The float-ULP tolerance is only meaningful for a *positive, finite*
     # grid point. Count zero and an infinite nearest must use conservative
     # directional snapping, not become false grid matches.
-    nearest_is_valid = nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
+    # On a dense grid, nearest-distance tolerance may exceed half a tick.
+    # Off-grid bounds must take the exact directional floor/ceil path.
+    nearest_is_valid = (
+        not dense_grid and nearest_count > 0 and math.isfinite(nearest) and nearest > 0.0
+    )
     if nearest_is_valid:
         tolerance = _projection_tolerance(resolved_price, nearest, resolved_tick)
         if abs(resolved_price - nearest) > tolerance:

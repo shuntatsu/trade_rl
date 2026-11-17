@@ -567,8 +567,6 @@ def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> N
         assert price_on_tick_grid(up, tick_size)
 
 
-
-
 @pytest.mark.parametrize(
     ("price", "tick_size"),
     [
@@ -596,6 +594,7 @@ def test_dense_offgrid_float_cannot_bypass_image_and_snap_direction(
     assert down < price < up
     assert price_on_tick_grid(down, tick_size)
     assert price_on_tick_grid(up, tick_size)
+
 
 def test_dense_tick_nearest_projection_overflow_fails_closed() -> None:
     """A nearest tick beyond finite float64 must not raise from grid checking."""

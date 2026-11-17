@@ -77,16 +77,20 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     # Only admit the exact binary64 image of a positive tick count: neither
     # a broad ULP tolerance nor a decimal half-tick guess may prove it.
     if resolved_tick <= 2.0 * math.ulp(resolved_price):
-        candidate_count = round(Fraction.from_float(resolved_price) / tick_exact)
-        if candidate_count > 0:
+        # Float rounding is asymmetric at powers of two. The nearest integer
+        # in the exact price/tick ratio can round to a different float while
+        # the other adjacent positive tick rounds back to resolved_price.
+        dense_ratio = Fraction.from_float(resolved_price) / tick_exact
+        for candidate_count in (math.floor(dense_ratio), math.ceil(dense_ratio)):
+            if candidate_count <= 0:
+                continue
             try:
                 if float(candidate_count * tick_exact) == resolved_price:
                     return True
             except OverflowError:
-                # At float64's largest finite price, the closest exact tick
-                # can round beyond the representable range. That cannot
-                # establish membership; never leak an OverflowError.
-                return False
+                # An adjacent rational tick above max float64 is not a valid
+                # binary64 projection; test the other side before refusing.
+                continue
 
     # A finite float quotient can still lose more than one whole tick near
     # binary64's unit-precision limit. Use the decimal authority when one

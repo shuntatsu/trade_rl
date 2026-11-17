@@ -515,7 +515,6 @@ def test_wide_tick_projection_rejects_offgrid_and_preserves_snap_direction(
     assert price_on_tick_grid(up, tick)
 
 
-
 @pytest.mark.parametrize(
     ("price", "tick_size"),
     [
@@ -543,7 +542,6 @@ def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
         assert down <= price <= up
         assert price_on_tick_grid(down)
         assert price_on_tick_grid(up)
-
 
 
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:

@@ -269,3 +269,33 @@ def test_process_fd_alias_requires_scoped_trust(tmp_path: Path, reader: str) -> 
                     pytest.fail("untrusted FD alias yielded a private copy")
     finally:
         os.close(descriptor)
+
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or not getattr(os, "O_DIRECTORY", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="requires POSIX descriptor-relative no-follow",
+)
+@pytest.mark.parametrize("use_relative_path", (False, True))
+def test_directory_descriptor_refuses_raw_parent_traversal_before_abspath(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    use_relative_path: bool,
+) -> None:
+    """Raw symlink/.. cannot be collapsed before per-component no-follow."""
+    (tmp_path / "safe").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+    if use_relative_path:
+        monkeypatch.chdir(tmp_path)
+        source = Path("linked") / ".." / "safe"
+    else:
+        source = tmp_path / "linked" / ".." / "safe"
+
+    with pytest.raises(OSError, match="parent traversal"):
+        descriptor = verified_file._open_directory_descriptor_nofollow(source)
+        os.close(descriptor)

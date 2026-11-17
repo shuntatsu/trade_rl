@@ -296,6 +296,8 @@ def test_parent_creation_does_not_follow_swapped_ancestor(
         else:
             original_mkdir(path, mode, dir_fd=dir_fd)
 
+    # Keep dir_fd capability detection valid while the syscall is wrapped.
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd | {mkdir_after_swap})
     monkeypatch.setattr(os, "mkdir", mkdir_after_swap)
 
     def build(stage: Path) -> None:

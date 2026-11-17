@@ -210,17 +210,75 @@ def _pinned_publication_parent(
             os.close(descriptor)
 
 
+def _mkdir_study_root_nofollow(root: Path) -> None:
+    """Create a Study root without following any symlinked ancestor.
+
+    Open the nearest existing directory with the shared no-follow capability
+    helper, then create each missing child relative to its held descriptor.
+    """
+
+    source = Path(os.path.abspath(root))
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory = getattr(os, "O_DIRECTORY", 0)
+    if (
+        os.name != "posix"
+        or not nofollow
+        or not directory
+        or os.open not in os.supports_dir_fd
+        or os.mkdir not in os.supports_dir_fd
+    ):
+        # Non-POSIX fallback checks static symlinks and junctions. It cannot
+        # claim atomic protection against concurrent replacements.
+        for ancestor in (source, *source.parents):
+            if ancestor.is_symlink() or ancestor.is_junction():
+                raise ArtifactIntegrityError("Study root has a linked ancestor")
+        source.mkdir(parents=True, exist_ok=True)
+        return
+
+    missing: list[str] = []
+    ancestor = source
+    while not ancestor.exists() and not ancestor.is_symlink():
+        missing.append(ancestor.name)
+        ancestor = ancestor.parent
+
+    descriptor = -1
+    try:
+        descriptor = _open_directory_descriptor_nofollow(ancestor)
+        flags = getattr(os, "O_PATH", os.O_RDONLY) | directory | nofollow
+        for name in reversed(missing):
+            try:
+                os.mkdir(name, dir_fd=descriptor)
+            except FileExistsError:
+                # A competing creator is acceptable only if it made a real
+                # directory; O_NOFOLLOW on the next open enforces that.
+                pass
+            child = os.open(name, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        current = os.stat(source, follow_symlinks=False)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISDIR(current.st_mode) or (
+            current.st_dev, current.st_ino
+        ) != (opened.st_dev, opened.st_ino):
+            raise ArtifactIntegrityError("Study root changed during creation")
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR, errno.ENOENT):
+            raise ArtifactIntegrityError(
+                "Study root must have non-symlinked directory ancestors"
+            ) from error
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
         _require_no_study_parent_traversal(self.root)
-        if self.root.exists() and (self.root.is_symlink() or not self.root.is_dir()):
-            raise ArtifactIntegrityError("Study root must be a regular directory")
-        self.root.mkdir(parents=True, exist_ok=True)
-        if self.root.is_symlink():
-            raise ArtifactIntegrityError("Study root must not be a symlink")
+        _mkdir_study_root_nofollow(self.root)
         self._thread_lock = threading.RLock()
         self._lock_depth = 0
 

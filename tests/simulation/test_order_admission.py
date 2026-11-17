@@ -544,6 +544,26 @@ def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
         assert price_on_tick_grid(up, tick_size)
 
 
+def test_dense_tick_nearest_projection_overflow_fails_closed() -> None:
+    """A nearest tick beyond finite float64 must not raise from grid checking."""
+    price = float.fromhex("0x1.fffffffffffffp+1023")
+    tick_size = 3.732139401517567e292
+    tick_exact = Fraction(str(tick_size))
+    assert tick_size <= 2 * math.ulp(price)
+    count = round(Fraction.from_float(price) / tick_exact)
+    with pytest.raises(OverflowError):
+        float(count * tick_exact)
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size) is False
+        down = snap_price_to_tick(price, tick_size, round_up=False)
+        assert math.isfinite(down)
+        assert down <= price
+        assert price_on_tick_grid(down, tick_size)
+        with pytest.raises(ValueError, match="finite"):
+            snap_price_to_tick(price, tick_size, round_up=True)
+
+
 def test_nonmarketable_limit_minimum_notional_uses_limit_price() -> None:
     intent = OrderIntent.create(
         dataset_id="d" * 64,

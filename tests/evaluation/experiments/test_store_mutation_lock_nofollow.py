@@ -76,7 +76,6 @@ def test_mutation_lock_refuses_root_swapped_after_directory_check(
     assert not (outside / ".mutation.lock").exists()
 
 
-
 @pytest.mark.skipif(
     os.name != "posix"
     or not getattr(os, "O_NOFOLLOW", 0)

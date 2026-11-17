@@ -1802,6 +1802,7 @@ def test_triggered_stop_zero_notional_fill_preserves_state_and_lifecycle(
         assert second.order_book.active_orders == ()
         assert second.order_book.terminal_orders[-1].status is OrderStatus.FILLED
 
+
 def test_same_inputs_replay_order_events_and_accounting_identically() -> None:
     volume = np.full((6, 1), 2.0)
     dataset = _market(volume=volume)

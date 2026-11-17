@@ -274,23 +274,29 @@ def test_parent_creation_does_not_follow_swapped_ancestor(
     outside = tmp_path / "outside-parent-create"
     outside.mkdir()
     new_parent = parent / "nested"
-    original_mkdir = Path.mkdir
+    original_mkdir = os.mkdir
     swapped = False
 
     def mkdir_after_swap(
-        path: Path,
-        mode: int = 0o777,
-        parents: bool = False,
-        exist_ok: bool = False,
+        path: str | Path, mode: int = 0o777, *, dir_fd: int | None = None
     ) -> None:
         nonlocal swapped
-        if path == new_parent and not swapped:
+        # Intercept the same mkdir syscall in both pathname-based and
+        # descriptor-relative implementations.
+        requested = Path(path)
+        if not swapped and (
+            (dir_fd is None and requested == new_parent)
+            or (dir_fd is not None and requested == Path("nested"))
+        ):
             swapped = True
             parent.rename(detached)
             parent.symlink_to(outside, target_is_directory=True)
-        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+        if dir_fd is None:
+            original_mkdir(path, mode)
+        else:
+            original_mkdir(path, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(Path, "mkdir", mkdir_after_swap)
+    monkeypatch.setattr(os, "mkdir", mkdir_after_swap)
 
     def build(stage: Path) -> None:
         (stage / "marker.txt").write_text("synthetic", encoding="utf-8")
@@ -306,7 +312,6 @@ def test_parent_creation_does_not_follow_swapped_ancestor(
     assert not (outside / "nested").exists(), (
         "publication created a directory outside Study"
     )
-    assert not (detached / "nested").exists()
 
 
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")

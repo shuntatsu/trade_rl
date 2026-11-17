@@ -107,13 +107,18 @@ def test_directory_builder_cannot_escape_when_study_root_is_replaced(
     ) -> int:
         nonlocal swapped
         if path.name == "builder-marker.txt" and not swapped:
-            assert ".staging-" in path.parent.name
+            stages = list(store.root.glob(".synthetic.staging-*"))
+            assert len(stages) == 1
+            assert os.path.samefile(path.parent, stages[0]), (
+                "builder must use the original staging inode"
+            )
+            stage_name = stages[0].name
             swapped = True
             store.root.rename(original_root)
             store.root.symlink_to(outside, target_is_directory=True)
             # Model an attacker-controlled replacement that contains the same
             # transient stage basename as the legitimate private builder stage.
-            (outside / path.parent.name).mkdir()
+            (outside / stage_name).mkdir()
         return original_write_text(
             path, data, encoding=encoding, errors=errors, newline=newline
         )

@@ -137,8 +137,15 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
 def _assert_pinned_publication_parent(path: Path, descriptor: int) -> None:
     """Reject a changed parent pathname even while its old inode is open."""
 
+    # Reopen through the shared no-follow chain: a trusted in-scope
+    # /proc/self/fd/N capability is valid even though its name is a symlink.
+    # Ordinary, untrusted symlink ancestors still fail closed.
     try:
-        current = os.stat(path, follow_symlinks=False)
+        current_fd = _open_directory_descriptor_nofollow(path)
+        try:
+            current = os.fstat(current_fd)
+        finally:
+            os.close(current_fd)
     except OSError as error:
         raise ArtifactIntegrityError("Study publication parent changed") from error
     pinned = os.fstat(descriptor)
@@ -255,7 +262,14 @@ def _mkdir_study_root_nofollow(root: Path) -> None:
             child = os.open(name, flags, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
-        current = os.stat(source, follow_symlinks=False)
+        # The root may itself be an internally registered process-FD alias
+        # for a builder stage. A lexical lstat would see the alias symlink;
+        # the shared opener authenticates the exact FD and its directory inode.
+        current_fd = _open_directory_descriptor_nofollow(source)
+        try:
+            current = os.fstat(current_fd)
+        finally:
+            os.close(current_fd)
         opened = os.fstat(descriptor)
         current_identity = (current.st_dev, current.st_ino)
         opened_identity = (opened.st_dev, opened.st_ino)

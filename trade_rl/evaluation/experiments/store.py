@@ -309,13 +309,61 @@ class StudyStore:
         return self.root / value
 
     def _mkdir_checked_parents(self, target: Path) -> None:
+        """Create missing parents without redirecting mkdir after a path swap."""
+
         relative_parent = target.parent.relative_to(self.root)
+        if not relative_parent.parts:
+            return
+
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        if (
+            os.name == "posix"
+            and nofollow
+            and directory_flag
+            and os.open in os.supports_dir_fd
+            and os.mkdir in os.supports_dir_fd
+        ):
+            descriptor = -1
+            flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+            try:
+                # Hold the original Study directory and every intermediate
+                # parent across mkdir. A lexical path swap cannot move these
+                # writes outside the opened directory hierarchy.
+                descriptor = _open_directory_descriptor_nofollow(self.root)
+                for name in relative_parent.parts:
+                    try:
+                        os.mkdir(name, dir_fd=descriptor)
+                    except FileExistsError:
+                        # Accept only an existing real directory: the next
+                        # O_NOFOLLOW open rejects symlinks and ordinary files.
+                        pass
+                    child = os.open(name, flags, dir_fd=descriptor)
+                    os.close(descriptor)
+                    descriptor = child
+                _assert_pinned_publication_parent(target.parent, descriptor)
+            except OSError as error:
+                if error.errno in (
+                    errno.ELOOP,
+                    errno.ENOTDIR,
+                    errno.EISDIR,
+                    errno.ENOENT,
+                ):
+                    raise ArtifactIntegrityError(
+                        "Study path parent must be a non-symlinked directory"
+                    ) from error
+                raise
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            return
+
+        # Portable fallback is a static check only. It does not claim
+        # atomic resistance to a concurrent parent directory replacement.
         current = self.root
         for part in relative_parent.parts:
-            if part == ".":
-                continue
             current = current / part
-            if current.is_symlink():
+            if current.is_symlink() or current.is_junction():
                 raise ArtifactIntegrityError("Study path parent must not be a symlink")
             if current.exists():
                 if not current.is_dir():

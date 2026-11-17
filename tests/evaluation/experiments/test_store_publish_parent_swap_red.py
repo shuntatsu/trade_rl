@@ -154,3 +154,29 @@ def test_directory_builder_keeps_nested_study_store_nofollow_contract(
     assert published == outer.root / "evidence" / "synthetic"
     assert StudyStore(published).read_json("nested.json") == {"synthetic": True}
     assert list(outside.iterdir()) == []
+
+
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+def test_study_root_refuses_raw_symlink_dotdot_before_any_publication(
+    tmp_path: Path,
+) -> None:
+    """A root symlink/.. must not relocate evidence to a lexical abspath."""
+    outside = tmp_path / "outside"
+    (outside / "nested").mkdir(parents=True)
+    (outside / "safe").mkdir()
+    (tmp_path / "safe").mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(outside / "nested", target_is_directory=True)
+
+    root_with_parent_traversal = linked / ".." / "safe"
+    assert ".." in root_with_parent_traversal.parts
+    assert root_with_parent_traversal.resolve() == outside / "safe"
+    assert os.path.abspath(root_with_parent_traversal) == str(tmp_path / "safe")
+
+    with pytest.raises(ArtifactIntegrityError, match="parent traversal"):
+        store = StudyStore(root_with_parent_traversal)
+        store.publish_json_once("synthetic.json", {"synthetic": True})
+
+    assert list((outside / "safe").iterdir()) == []
+    assert list((tmp_path / "safe").iterdir()) == []

@@ -95,9 +95,10 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
             assert stage.name.startswith(".synthetic.staging-")
             original_name = store.root / stage.name
             assert original_name.is_dir() and not original_name.is_symlink()
-            assert (
-                original_name / "genuine.txt"
-            ).read_text(encoding="utf-8") == "genuine"
+            genuine_text = (original_name / "genuine.txt").read_text(
+                encoding="utf-8"
+            )
+            assert genuine_text == "genuine"
             original_name.rename(detached)
             original_name.mkdir()
             (original_name / "forged.txt").write_text("forged", encoding="utf-8")

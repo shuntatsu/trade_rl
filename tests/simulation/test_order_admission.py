@@ -544,6 +544,29 @@ def test_dense_tick_binary64_projection_is_recognized_as_a_valid_grid_price(
         assert price_on_tick_grid(up, tick_size)
 
 
+def test_dense_tick_checks_both_neighbors_at_asymmetric_binary64_boundary() -> None:
+    """An exact odd half-tick may round back from only its upper neighbor."""
+    price = 1.0
+    tick_size = 1.6777216e-16
+    tick_exact = Fraction(str(tick_size))
+    ratio = Fraction.from_float(price) / tick_exact
+    assert ratio.denominator == 2
+    lower = math.floor(ratio)
+    upper = math.ceil(ratio)
+    assert lower < upper
+    assert float(lower * tick_exact) < price
+    assert float(upper * tick_exact) == price
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        assert price_on_tick_grid(price, tick_size)
+        down = snap_price_to_tick(price, tick_size, round_up=False)
+        up = snap_price_to_tick(price, tick_size, round_up=True)
+        assert down < price
+        assert up == price
+        assert price_on_tick_grid(down, tick_size)
+        assert price_on_tick_grid(up, tick_size)
+
+
 def test_dense_tick_nearest_projection_overflow_fails_closed() -> None:
     """A nearest tick beyond finite float64 must not raise from grid checking."""
     price = float.fromhex("0x1.fffffffffffffp+1023")

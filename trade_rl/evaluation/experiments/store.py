@@ -177,30 +177,34 @@ def _pinned_publication_parent(
     source = Path(os.path.abspath(parent))
     descriptor = -1
     try:
-        descriptor = _open_directory_descriptor_nofollow(source)
-        pinned: Path | None = None
-        for prefix in ("/proc/self/fd", "/dev/fd"):
-            candidate = Path(prefix) / str(descriptor)
-            if candidate.is_dir():
-                pinned = candidate
-                break
-        if pinned is None:
-            raise ArtifactIntegrityError(
-                "Study publication requires a usable directory-fd path"
-            )
+        # Only setup failures may be classified as a bad publication parent.
+        # An OSError raised by the caller's publication body must propagate.
+        try:
+            descriptor = _open_directory_descriptor_nofollow(source)
+            pinned: Path | None = None
+            for prefix in ("/proc/self/fd", "/dev/fd"):
+                candidate = Path(prefix) / str(descriptor)
+                if candidate.is_dir():
+                    pinned = candidate
+                    break
+            if pinned is None:
+                raise ArtifactIntegrityError(
+                    "Study publication requires a usable directory-fd path"
+                )
 
-        def check_parent() -> None:
-            _assert_pinned_publication_parent(source, descriptor)
+            def check_parent() -> None:
+                _assert_pinned_publication_parent(source, descriptor)
 
-        check_parent()
+            check_parent()
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
+                raise ArtifactIntegrityError(
+                    "Study publication parent must be a non-symlinked directory"
+                ) from error
+            raise
+
         with _trusted_process_directory_fd(descriptor):
             yield pinned, check_parent
-    except OSError as error:
-        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
-            raise ArtifactIntegrityError(
-                "Study publication parent must be a non-symlinked directory"
-            ) from error
-        raise
     finally:
         if descriptor >= 0:
             os.close(descriptor)
@@ -299,24 +303,25 @@ class StudyStore:
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
         with _pinned_publication_parent(target.parent) as (parent, check_parent):
-            if target.exists() or target.is_symlink():
+            pinned_target = parent / target.name
+            check_parent()
+            if pinned_target.exists() or pinned_target.is_symlink():
                 raise InvalidExperimentStateError(
                     f"Study artifact already exists: {relative}"
                 )
 
             staging = parent / f".{target.name}.staging-{_temporary_name_suffix()}"
-            pinned_target = parent / target.name
             try:
                 check_parent()
                 with staging.open("xb") as handle:
                     handle.write(canonical_json_bytes(value))
                     handle.flush()
                     os.fsync(handle.fileno())
-                if target.exists() or target.is_symlink():
+                check_parent()
+                if pinned_target.exists() or pinned_target.is_symlink():
                     raise InvalidExperimentStateError(
                         f"Study artifact already exists: {relative}"
                     )
-                check_parent()
                 # Hard-link publication is anchored to the opened parent.
                 # Never fall back to copy or ordinary replacement rename.
                 try:
@@ -387,7 +392,10 @@ class StudyStore:
         self._mkdir_checked_parents(target)
         with _pinned_publication_parent(target.parent) as (parent, check_parent):
             with _pinned_publication_parent(self.root) as (pinned_root, check_root):
-                if target.exists() or target.is_symlink():
+                pinned_target = parent / target.name
+                check_parent()
+                check_root()
+                if pinned_target.exists() or pinned_target.is_symlink():
                     raise InvalidExperimentStateError(
                         f"Study artifact already exists: {relative}"
                     )
@@ -396,7 +404,6 @@ class StudyStore:
                 # substitution of a nested final-target parent directory.
                 name = f".{target.name}.staging-{_temporary_name_suffix()}"
                 pinned_staging = pinned_root / name
-                pinned_target = parent / target.name
                 check_parent()
                 check_root()
                 pinned_staging.mkdir()
@@ -408,7 +415,7 @@ class StudyStore:
                     builder(pinned_staging)
                     check_root()
                     check_parent()
-                    if target.exists() or target.is_symlink():
+                    if pinned_target.exists() or pinned_target.is_symlink():
                         raise InvalidExperimentStateError(
                             f"Study artifact already exists: {relative}"
                         )

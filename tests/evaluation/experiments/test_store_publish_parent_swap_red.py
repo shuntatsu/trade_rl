@@ -303,7 +303,9 @@ def test_parent_creation_does_not_follow_swapped_ancestor(
 
     assert swapped
     assert parent.is_symlink()
-    assert not (outside / "nested").exists(), "publication created a directory outside Study"
+    assert not (outside / "nested").exists(), (
+        "publication created a directory outside Study"
+    )
     assert not (detached / "nested").exists()
 
 

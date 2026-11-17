@@ -6,11 +6,15 @@ market artifact is consumed or modified.
 
 from __future__ import annotations
 
+import errno
 import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+from trade_rl.evaluation.experiments import store as store_module
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.store import StudyStore
 
@@ -178,3 +182,75 @@ def test_study_root_refuses_raw_symlink_dotdot_before_any_publication(
 
     assert list((outside / "safe").iterdir()) == []
     assert list((tmp_path / "safe").iterdir()) == []
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+def test_builder_enotdir_is_not_a_parent_integrity_error(tmp_path: Path) -> None:
+    """Do not rewrite a builder's ENOTDIR into a parent-tamper diagnosis."""
+    store = StudyStore(tmp_path / "study")
+
+    def fail_builder(_stage: Path) -> None:
+        raise NotADirectoryError(errno.ENOTDIR, "synthetic builder failure")
+
+    with pytest.raises(NotADirectoryError, match="synthetic builder failure"):
+        store.publish_directory_once("evidence/synthetic", fail_builder)
+
+    assert not (store.root / "evidence" / "synthetic").exists()
+    assert not list(store.root.glob(".synthetic.staging-*"))
+
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+@pytest.mark.parametrize("kind", ("json", "directory"))
+def test_publication_rejects_swapped_parent_with_external_same_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    """A post-pin symlink swap must be integrity failure, not duplicate-file."""
+    store = StudyStore(tmp_path / "study")
+    parent = store.root / "evidence"
+    parent.mkdir()
+    earlier = store.root / "evidence-before-swap"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    name = "synthetic.json" if kind == "json" else "synthetic"
+    external_target = outside / name
+    if kind == "json":
+        external_target.write_text("external", encoding="utf-8")
+    else:
+        external_target.mkdir()
+
+    original_pin = store_module._pinned_publication_parent
+    swapped = False
+
+    @contextmanager
+    def replace_after_descriptor_open(
+        candidate: Path,
+    ) -> Iterator[tuple[Path, Callable[[], None]]]:
+        nonlocal swapped
+        with original_pin(candidate) as pinned:
+            if candidate == parent and not swapped:
+                parent.rename(earlier)
+                parent.symlink_to(outside, target_is_directory=True)
+                swapped = True
+            yield pinned
+
+    monkeypatch.setattr(
+        store_module, "_pinned_publication_parent", replace_after_descriptor_open
+    )
+
+    def build(stage: Path) -> None:
+        (stage / "marker.txt").write_text("synthetic", encoding="utf-8")
+
+    with pytest.raises(ArtifactIntegrityError):
+        if kind == "json":
+            store.publish_json_once("evidence/synthetic.json", {"synthetic": True})
+        else:
+            store.publish_directory_once("evidence/synthetic", build)
+
+    assert swapped
+    assert parent.is_symlink()
+    assert not (earlier / name).exists()
+    if kind == "json":
+        assert external_target.read_text(encoding="utf-8") == "external"
+    else:
+        assert list(external_target.iterdir()) == []

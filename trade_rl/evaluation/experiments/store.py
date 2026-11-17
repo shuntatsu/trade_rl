@@ -402,7 +402,23 @@ class StudyStore:
                 return
 
             if self.root.is_symlink() or not self.root.is_dir():
-                raise ArtifactIntegrityError("Study root must be a regular directory")
+                # A nested Study can use a thread-scoped /proc/self/fd/N
+                # directory alias. Authenticate its registered inode rather
+                # than rejecting the symlink spelling. Ordinary symlinks and
+                # unregistered aliases still fail closed; the lock opener
+                # independently checks the directory chain again.
+                if os.name != "posix":
+                    raise ArtifactIntegrityError(
+                        "Study root must be a regular directory"
+                    )
+                try:
+                    root_fd = _open_directory_descriptor_nofollow(self.root)
+                except OSError as error:
+                    raise ArtifactIntegrityError(
+                        "Study root must be a regular directory"
+                    ) from error
+                else:
+                    os.close(root_fd)
             lock_path = self.root / _LOCK_NAME
             if lock_path.is_symlink():
                 raise ArtifactIntegrityError(

@@ -156,7 +156,6 @@ def test_directory_builder_keeps_nested_study_store_nofollow_contract(
     assert list(outside.iterdir()) == []
 
 
-
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
 def test_study_root_refuses_raw_symlink_dotdot_before_any_publication(
     tmp_path: Path,

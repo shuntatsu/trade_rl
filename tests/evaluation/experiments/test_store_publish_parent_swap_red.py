@@ -255,3 +255,29 @@ def test_publication_rejects_swapped_parent_with_external_same_name(
         assert external_target.read_text(encoding="utf-8") == "external"
     else:
         assert list(external_target.iterdir()) == []
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+@pytest.mark.parametrize("preexisting", (False, True))
+def test_study_root_init_refuses_symlinked_ancestor_before_mkdir(
+    tmp_path: Path, preexisting: bool
+) -> None:
+    """Constructor must not create or accept a Study under a linked ancestor.
+
+    Everything is disposable; no external Study or market data is accessed.
+    """
+    outside = tmp_path / "outside-constructor"
+    outside.mkdir()
+    outside_study = outside / "synthetic-study"
+    if preexisting:
+        outside_study.mkdir()
+    linked = tmp_path / "linked-constructor"
+    linked.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ArtifactIntegrityError, match="root|symlink|ancestor"):
+        StudyStore(linked / "synthetic-study")
+
+    if preexisting:
+        assert outside_study.is_dir()
+        assert list(outside_study.iterdir()) == []
+    else:
+        assert not outside_study.exists()

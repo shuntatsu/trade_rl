@@ -258,6 +258,56 @@ def test_publication_rejects_swapped_parent_with_external_same_name(
 
 
 @pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
+@pytest.mark.parametrize("kind", ("json", "directory"))
+def test_parent_creation_does_not_follow_swapped_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """No external mkdir before descriptor-pinned publication fails closed.
+
+    The swap occurs at the first missing nested parent mkdir, after the
+    lexical symlink/existence checks. Both destinations are disposable.
+    """
+    store = StudyStore(tmp_path / "study")
+    parent = store.root / "evidence"
+    parent.mkdir()
+    detached = store.root / "evidence-detached"
+    outside = tmp_path / "outside-parent-create"
+    outside.mkdir()
+    new_parent = parent / "nested"
+    original_mkdir = Path.mkdir
+    swapped = False
+
+    def mkdir_after_swap(
+        path: Path,
+        mode: int = 0o777,
+        parents: bool = False,
+        exist_ok: bool = False,
+    ) -> None:
+        nonlocal swapped
+        if path == new_parent and not swapped:
+            swapped = True
+            parent.rename(detached)
+            parent.symlink_to(outside, target_is_directory=True)
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir_after_swap)
+
+    def build(stage: Path) -> None:
+        (stage / "marker.txt").write_text("synthetic", encoding="utf-8")
+
+    with pytest.raises(ArtifactIntegrityError):
+        if kind == "json":
+            store.publish_json_once("evidence/nested/record.json", {"synthetic": True})
+        else:
+            store.publish_directory_once("evidence/nested/record", build)
+
+    assert swapped
+    assert parent.is_symlink()
+    assert not (outside / "nested").exists(), "publication created a directory outside Study"
+    assert not (detached / "nested").exists()
+
+
+@pytest.mark.skipif(not _POSIX_NOFOLLOW, reason="requires POSIX no-follow")
 @pytest.mark.parametrize("preexisting", (False, True))
 def test_study_root_init_refuses_symlinked_ancestor_before_mkdir(
     tmp_path: Path, preexisting: bool

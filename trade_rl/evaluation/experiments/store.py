@@ -6,6 +6,7 @@ import errno
 import json
 import os
 import shutil
+import sys
 import stat
 import threading
 from collections.abc import Callable, Iterator
@@ -453,19 +454,43 @@ class StudyStore:
                     handle.write(canonical_json_bytes(value))
                     handle.flush()
                     os.fsync(handle.fileno())
-                check_parent()
-                if pinned_target.exists() or pinned_target.is_symlink():
-                    raise InvalidExperimentStateError(
-                        f"Study artifact already exists: {relative}"
-                    )
-                # Hard-link publication is anchored to the opened parent.
-                # Never fall back to copy or ordinary replacement rename.
-                try:
-                    os.link(staging, pinned_target)
-                except FileExistsError as error:
-                    raise InvalidExperimentStateError(
-                        f"Study artifact already exists: {relative}"
-                    ) from error
+                    check_parent()
+                    if pinned_target.exists() or pinned_target.is_symlink():
+                        raise InvalidExperimentStateError(
+                            f"Study artifact already exists: {relative}"
+                        )
+                    # Keep the verified source inode open through publication.
+                    # On Linux, a directory-fd argument forces os.link to use
+                    # linkat(AT_SYMLINK_FOLLOW), resolving this process's file
+                    # descriptor rather than the replaceable staging basename.
+                    try:
+                        if os.name == "posix" and sys.platform == "linux":
+                            stage_alias = Path(f"/proc/self/fd/{handle.fileno()}")
+                            if not stage_alias.is_file():
+                                raise ArtifactIntegrityError(
+                                    "Study staging file descriptor unavailable"
+                                )
+                            parent_descriptor = _open_directory_descriptor_nofollow(
+                                parent
+                            )
+                            try:
+                                os.link(
+                                    stage_alias,
+                                    pinned_target,
+                                    src_dir_fd=parent_descriptor,
+                                    follow_symlinks=True,
+                                )
+                            finally:
+                                os.close(parent_descriptor)
+                        else:
+                            # Non-Linux hard links preserve exclusivity only;
+                            # they do not guarantee source-inode immutability
+                            # under a non-cooperating staging-name replacement.
+                            os.link(staging, pinned_target)
+                    except FileExistsError as error:
+                        raise InvalidExperimentStateError(
+                            f"Study artifact already exists: {relative}"
+                        ) from error
             except BaseException:
                 try:
                     staging.unlink(missing_ok=True)

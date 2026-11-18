@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -10,6 +12,8 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.orders.model import OrderBookState
+from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarLifecycle
+from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 
 def _subnormal_dataset() -> MarketDataset:
@@ -203,3 +207,143 @@ def test_post_admission_empty_account_arrays_do_not_hide_holdings() -> None:
     book.contract_multipliers = np.empty(0, dtype=np.float64)
     with pytest.raises(ValueError, match="matching nonempty vector shapes"):
         _ = book.position_values
+
+
+@pytest.mark.parametrize("signed_position", (-1.0, 1.0))
+def test_subnormal_portfolio_equity_retains_actual_position_value(
+    signed_position: float,
+) -> None:
+    """Equity must distinguish a subnormal holding from a FLAT account."""
+    unit = float(np.nextafter(0.0, 1.0))
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=3.0 * unit,
+        mark_prices=np.array([1e-160]),
+        contract_multipliers=np.array([5e-164]),
+        peak_value=5.0 * unit,
+    )
+    with np.errstate(all="raise"):
+        assert book.position_values[0] == signed_position * unit
+        assert book.portfolio_value == (3.0 + signed_position) * unit
+
+
+@pytest.mark.parametrize("signed_position", (-1.0, 1.0))
+def test_subnormal_nonzero_funding_settles_under_strict_numpy(
+    signed_position: float,
+) -> None:
+    dataset = replace(
+        _subnormal_dataset(),
+        funding_rate=np.ones((3, 1), dtype=np.float64),
+    )
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=1_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    unit = float(np.nextafter(0.0, 1.0))
+    with np.errstate(all="raise"):
+        result = executor.execute_orders(
+            book, OrderBookState.empty(), (), start_index=0, bars=1
+        )
+        assert result.book.position_values[0] == signed_position * unit
+        assert result.book.funding_pnl == -signed_position * unit
+        assert result.interval_funding == -signed_position * unit
+
+
+@pytest.mark.parametrize("signed_position", (-1.0, 1.0))
+def test_funding_book_write_failure_does_not_count_unsettled_funding(
+    signed_position: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No funding aggregate can advance before the corresponding book credit."""
+    dataset = replace(
+        _subnormal_dataset(),
+        funding_rate=np.ones((3, 1), dtype=np.float64),
+    )
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([signed_position]),
+        cash=1_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    before_cash = runtime.book.cash
+    before_funding = runtime.book.funding_pnl
+    calls: list[float] = []
+
+    def injected_mark_failure(
+        _book: BookState, *, funding_amount: float, **_kwargs: object
+    ) -> float:
+        calls.append(funding_amount)
+        raise ValueError("synthetic book funding write refused")
+
+    monkeypatch.setattr(BookState, "mark_to_market", injected_mark_failure)
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="synthetic book funding write refused"):
+            lifecycle.finish_bar(runtime, context)
+    assert calls == [-signed_position * float(np.nextafter(0.0, 1.0))]
+    assert runtime.total_funding == 0.0
+    assert runtime.book.funding_pnl == before_funding
+    assert runtime.book.cash == before_cash
+    assert runtime.funding_evidence == []
+
+
+@pytest.mark.parametrize("n_symbols", (1, 9))
+def test_integer_mutation_cannot_wrap_account_notional(
+    n_symbols: int,
+) -> None:
+    book = BookState.zero(n_symbols, 1_000.0, np.ones(n_symbols))
+    book.quantities = np.full(n_symbols, np.iinfo(np.int64).max, dtype=np.int64)
+    book.mark_prices = np.full(n_symbols, 2, dtype=np.int64)
+    book.contract_multipliers = np.ones(n_symbols, dtype=np.int64)
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="non-float64"):
+            _ = book.position_values
+        with pytest.raises(ValueError, match="non-float64"):
+            _ = book.portfolio_value
+
+
+def test_broadcastable_funding_mark_shape_refused_before_counting_payment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed mark view must not be accepted because NumPy broadcasts it."""
+    dataset = _subnormal_dataset()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    observed_mark_requests: list[str] = []
+    actual_resolved = MarketDataset.resolved_array
+
+    def forged_mark(self: MarketDataset, name: str) -> np.ndarray:
+        if name == "mark_price":
+            observed_mark_requests.append(name)
+            return np.full((3, 1, 1), 1e-160)
+        return actual_resolved(self, name)
+
+    monkeypatch.setattr(MarketDataset, "resolved_array", forged_mark)
+    monkeypatch.setattr(
+        executor,
+        "_charge_carry",
+        lambda *_args, **_kwargs: (-1.0, 0.0),
+    )
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="pre-funding account valuation"):
+            lifecycle.finish_bar(runtime, context)
+    assert observed_mark_requests
+    assert runtime.total_funding == 0.0
+    assert runtime.book.funding_pnl == 0.0
+    assert runtime.funding_evidence == []

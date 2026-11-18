@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from trade_rl.simulation.accounting import _cash_interest_amount
+from trade_rl.simulation.accounting import (
+    _cash_interest_amount,
+    _require_finite_post_update_equity,
+)
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 if TYPE_CHECKING:
@@ -215,30 +218,31 @@ class StatefulBarLifecycle:
         runtime.total_borrow += borrow_amount
         if self._finish_retained_termination(runtime, context):
             return
-        runtime.total_funding += funding_amount
         mark_prices = dataset.resolved_array("mark_price")[processing_index]
         multipliers = runtime.book.contract_multipliers
         if multipliers is None:
             raise ValueError("stateful funding requires contract multipliers")
-        # Snapshot book cash and marked inventory before funding is credited.
-        # Deriving this from the post-funding equity would make closure tautological.
-        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
-            observed_positions = runtime.book.quantities * mark_prices * multipliers
-            equity_before_funding = float(
-                runtime.book.cash + np.sum(observed_positions)
+        # Snapshot the same validated account valuation used by BookState.
+        # Deriving it after crediting funding would make closure tautological.
+        try:
+            equity_before_funding = _require_finite_post_update_equity(
+                cash=runtime.book.cash,
+                quantities=runtime.book.quantities,
+                marks=mark_prices,
+                multipliers=multipliers,
             )
-        if (
-            not np.isfinite(observed_positions).all()
-            or not np.isfinite(equity_before_funding)
-            or np.any((runtime.book.quantities != 0.0) & (observed_positions == 0.0))
-        ):
-            raise ValueError("pre-funding account valuation cannot be represented")
+        except ValueError as error:
+            raise ValueError(
+                "pre-funding account valuation cannot be represented"
+            ) from error
         runtime.book.mark_to_market(
             mark_prices=mark_prices,
             funding_amount=funding_amount,
             period_start_value=context.period_start_value,
             unbounded_loss_metrics=(executor.insolvency_valuation == "retain_debt"),
         )
+        # Count funding only after the corresponding book transition succeeds.
+        runtime.total_funding += funding_amount
         runtime.record_funding_boundary(
             processing_index=processing_index,
             funding_amount=funding_amount,

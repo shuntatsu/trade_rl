@@ -100,11 +100,17 @@ def _require_representable_position_values(
             "account valuation arrays must have matching nonempty vector shapes"
         )
     if (
-        quantities.size <= 8
-        and quantities.dtype == np.float64
-        and marks.dtype == np.float64
-        and multipliers.dtype == np.float64
+        quantities.dtype != np.float64
+        or marks.dtype != np.float64
+        or multipliers.dtype != np.float64
     ):
+        # BookState admission always normalizes these arrays to binary64.
+        # A later direct dtype replacement has no trusted valuation meaning:
+        # integer multiplication can wrap without a NumPy overflow warning.
+        raise ValueError(
+            "non-float64 account arrays cannot guarantee nonzero position value"
+        )
+    if quantities.size <= 8:
         # Avoid several NumPy reductions and an errstate context per read in
         # the common independent/small-roster replay. Python float has the
         # same ordered binary64 products and does not inherit NumPy warnings.

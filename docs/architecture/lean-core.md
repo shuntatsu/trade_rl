@@ -556,6 +556,7 @@ retain their explicit reference-price sizing contract.
 
 不変条件:
 
+- `BookState.position_values` / `portfolio_value` とstateful bar終了時のfunding前equityは、呼出元のNumPyがunderflowで例外を要求していても、float64で表現可能な非ゼロsubnormalの保有価値を維持する。非ゼロ保有を評価した金額が0へ潰れるか非有限になる場合は、0保有や有限equityへすり替えず明示拒否する。公開mutableな保有配列・cashが後から変更された場合にも、帳簿のread境界で非有限・表現不能を検出する。これは評価精度の補正であり、既存のfill・fee・funding・marginや過去artifactは変えない。
 - order submissionとfillを区別する。
 - 明示`OrderIntent`のadmissionは、量子化後の非ゼロ数量について`abs(quantity) * admission_reference_price * contract_multiplier`（指値の場合は従来のmarketabilityに応じた価格）をBookStateと同じ左結合の浮動小数点演算で評価し、非有限なら既存のpretrade leverage拒否、0へのunderflowなら`unrepresentable_notional`で明示拒否する。下限設定0でも0金額の非ゼロ注文は受け入れず、正のsubnormal金額は保持する。実約定価格での台帳検証も別途維持する。
 - stateful admissionの仮想BookStateは約定済みではない注文のrisk reservationであり、現在の処理開始価格で既存保有の非ゼロ評価額がfloat0へ潰れる状態を受理しない。予約数量・現金の更新候補もBookStateと同じ有限・非ゼロ評価額の契約で**更新前に**検査し、失敗時は仮想口座の状態を変更しない。表現可能な正のsubnormal額はNumPy呼出元のunderflowエラーモードに左右されず許可する。

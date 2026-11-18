@@ -128,6 +128,7 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
     assert not published.exists(), "an unvalidated staging inode was published"
     assert not (published / "forged.txt").exists()
 
+
 @pytest.mark.skipif(
     os.name != "posix" or not Path("/proc/self/fd").is_dir(),
     reason="requires Linux process file descriptors for deterministic injection",

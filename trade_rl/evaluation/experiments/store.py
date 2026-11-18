@@ -6,8 +6,8 @@ import errno
 import json
 import os
 import shutil
-import sys
 import stat
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager

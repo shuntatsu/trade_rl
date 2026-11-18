@@ -127,3 +127,53 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
     published = store.root / "evidence" / "synthetic"
     assert not published.exists(), "an unvalidated staging inode was published"
     assert not (published / "forged.txt").exists()
+
+@pytest.mark.skipif(
+    os.name != "posix" or not Path("/proc/self/fd").is_dir(),
+    reason="requires Linux process file descriptors for deterministic injection",
+)
+def test_json_publish_never_links_replaced_staging_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After staged fsync, publish the checked file inode or refuse publication.
+
+    Both the replacement and the validated original stay under disposable tmp_path.
+    The injection is at the write/fsync boundary, independent of the final link
+    implementation; the expected result forbids publishing substituted bytes.
+    """
+    store = StudyStore(tmp_path / "study")
+    detached = tmp_path / "validated-json-detached"
+    real_fsync = os.fsync
+    swapped = False
+
+    def swap_after_staging_fsync(descriptor: int) -> None:
+        nonlocal swapped
+        real_fsync(descriptor)
+        if swapped:
+            return
+        try:
+            stage = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        except OSError:
+            return
+        if not stage.name.startswith(".synthetic.json.staging-"):
+            return
+        assert stage.read_bytes() == b'{"validated":true}'
+        stage.rename(detached)
+        stage.write_bytes(b'{"forged":true}')
+        swapped = True
+
+    monkeypatch.setattr(store_module.os, "fsync", swap_after_staging_fsync)
+    target = store.root / "evidence" / "synthetic.json"
+    try:
+        store.publish_json_once("evidence/synthetic.json", {"validated": True})
+    except (ArtifactIntegrityError, InvalidExperimentStateError, OSError):
+        assert swapped, "the source-file replacement must be exercised"
+        assert not target.exists(), "failure must not leave an unvalidated artifact"
+    else:
+        assert swapped, "the source-file replacement must be exercised"
+        assert store.read_json("evidence/synthetic.json") == {"validated": True}, (
+            "publication linked the forged staging name, not the checked inode"
+        )
+        assert target.stat().st_ino == detached.stat().st_ino, (
+            "published inode differs from the original fsynced JSON file"
+        )

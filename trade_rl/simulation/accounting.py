@@ -89,11 +89,44 @@ def _require_representable_position_values(
     *, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> np.ndarray:
     """Preserve valid subnormals while rejecting erased or non-finite holdings."""
+    if (
+        quantities.ndim != 1
+        or quantities.shape != marks.shape
+        or quantities.shape != multipliers.shape
+    ):
+        raise ValueError("account valuation arrays must have matching vector shapes")
+    if quantities.size == 0:
+        raise ValueError(
+            "account valuation arrays must have matching nonempty vector shapes"
+        )
+    if (
+        quantities.size <= 8
+        and quantities.dtype == np.float64
+        and marks.dtype == np.float64
+        and multipliers.dtype == np.float64
+    ):
+        # Avoid several NumPy reductions and an errstate context per read in
+        # the common independent/small-roster replay. Python float has the
+        # same ordered binary64 products and does not inherit NumPy warnings.
+        values: list[float] = []
+        for quantity, mark, multiplier in zip(
+            quantities, marks, multipliers, strict=True
+        ):
+            position = float(quantity) * float(mark) * float(multiplier)
+            if not math.isfinite(position):
+                raise ValueError("proposed account state became non-finite")
+            if quantity != 0.0 and position == 0.0:
+                raise ValueError("nonzero position value cannot be represented")
+            values.append(position)
+        return np.asarray(values, dtype=np.float64)
+
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         position_values = quantities * marks * multipliers
     if not np.isfinite(position_values).all():
         raise ValueError("proposed account state became non-finite")
-    if np.any((quantities != 0.0) & (position_values == 0.0)):
+    # A finite position can be nonzero only for a nonzero quantity. Preserve
+    # the count to reject every lost holding without another temporary mask.
+    if np.count_nonzero(position_values) != np.count_nonzero(quantities):
         raise ValueError("nonzero position value cannot be represented")
     return position_values
 

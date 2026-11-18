@@ -322,16 +322,13 @@ class BookState:
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        try:
-            # NumPy strict underflow flags even a representable subnormal.
-            with np.errstate(over="raise", under="raise", invalid="raise"):
-                return self.quantities * self.mark_prices * multipliers
-        except FloatingPointError:
-            return _require_representable_position_values(
-                quantities=self.quantities,
-                marks=self.mark_prices,
-                multipliers=multipliers,
-            )
+        # Validate even on the ordinary path: public quantity arrays are mutable,
+        # and non-finite values do not necessarily raise a NumPy warning.
+        return _require_representable_position_values(
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
 
     @property
     def portfolio_value(self) -> float:

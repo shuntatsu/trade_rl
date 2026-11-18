@@ -95,3 +95,20 @@ def test_mutated_cash_and_position_cannot_silently_report_infinite_equity() -> N
             _ = book.portfolio_value
     assert book.cash == 1e308
     assert book.quantities.tolist() == [1e308]
+
+
+@pytest.mark.parametrize("quantity", (float("nan"), float("inf"), float("-inf")))
+@pytest.mark.parametrize("strict", (False, True))
+def test_mutated_nonfinite_position_read_fails_closed(
+    quantity: float, strict: bool
+) -> None:
+    book = BookState.zero(1, 1_000.0, np.ones(1))
+    book.quantities[0] = quantity
+    with np.errstate(all="raise" if strict else "ignore"):
+        with pytest.raises(
+            ValueError, match="proposed account state became non-finite"
+        ):
+            _ = book.position_values
+        with pytest.raises(ValueError):
+            _ = book.portfolio_value
+    assert book.cash == 1_000.0

@@ -287,6 +287,30 @@ def _mkdir_study_root_nofollow(root: Path) -> None:
             os.close(descriptor)
 
 
+def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> bool:
+    """Clean a stage only if it is the regular-file inode this call created."""
+
+    if identity is None:
+        return False
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return True
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or (
+            current.st_dev,
+            current.st_ino,
+        )
+        != identity
+    ):
+        return False
+    # POSIX unlink remains name-based; non-cooperating writers can still
+    # replace the leaf after the check. Never claim atomic inode deletion.
+    path.unlink(missing_ok=True)
+    return True
+
+
 def _cleanup_owned_staging_directory(path: Path, descriptor: int) -> None:
     """Remove children through the opened stage, never an unverified basename."""
 
@@ -495,9 +519,12 @@ class StudyStore:
                 )
 
             staging = parent / f".{target.name}.staging-{_temporary_name_suffix()}"
+            stage_identity: tuple[int, int] | None = None
             try:
                 check_parent()
                 with staging.open("xb") as handle:
+                    opened = os.fstat(handle.fileno())
+                    stage_identity = (opened.st_dev, opened.st_ino)
                     handle.write(canonical_json_bytes(value))
                     handle.flush()
                     os.fsync(handle.fileno())
@@ -540,16 +567,21 @@ class StudyStore:
                         ) from error
             except BaseException:
                 try:
-                    staging.unlink(missing_ok=True)
+                    _unlink_owned_staging_file(staging, stage_identity)
                 except OSError:
                     # Preserve the primary publication failure.
                     pass
                 raise
 
             # Publication is committed; never report a cleanup error as a
-            # safe-to-retry ordinary failed write.
+            # safe-to-retry ordinary failed write. A substituted staging name
+            # belongs to the other writer and must be left untouched.
             try:
-                staging.unlink(missing_ok=True)
+                if not _unlink_owned_staging_file(staging, stage_identity):
+                    raise PublishedArtifactCleanupError(
+                        "Study artifact was published, but staging cleanup failed "
+                        f"(source name replaced): {relative}; do not retry publication"
+                    )
             except OSError as error:
                 raise PublishedArtifactCleanupError(
                     f"Study artifact was published, but staging cleanup failed: "

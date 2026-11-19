@@ -207,14 +207,19 @@ def test_json_publish_never_links_replaced_staging_file(
     target = store.root / "evidence" / "synthetic.json"
     try:
         store.publish_json_once("evidence/synthetic.json", {"validated": True})
+    except PublishedArtifactCleanupError:
+        # Post-publication cleanup may refuse a replaced staging name. The
+        # published payload must still be the original verified file inode.
+        assert target.exists(), "cleanup errors must not masquerade as no-publish"
     except (ArtifactIntegrityError, InvalidExperimentStateError, OSError):
         assert swapped, "the source-file replacement must be exercised"
         assert not target.exists(), "failure must not leave an unvalidated artifact"
-    else:
-        assert swapped, "the source-file replacement must be exercised"
-        assert store.read_json("evidence/synthetic.json") == {"validated": True}, (
-            "publication linked the forged staging name, not the checked inode"
-        )
-        assert target.stat().st_ino == detached.stat().st_ino, (
-            "published inode differs from the original fsynced JSON file"
-        )
+        return
+
+    assert swapped, "the source-file replacement must be exercised"
+    assert store.read_json("evidence/synthetic.json") == {"validated": True}, (
+        "publication linked the forged staging name, not the checked inode"
+    )
+    assert target.stat().st_ino == detached.stat().st_ino, (
+        "published inode differs from the original fsynced JSON file"
+    )

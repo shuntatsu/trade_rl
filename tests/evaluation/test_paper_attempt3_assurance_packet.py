@@ -463,6 +463,7 @@ def test_seal_start_authorization_and_launch_fields_are_pending_and_nothing_is_s
         ATTEMPT2_PACKET_DIGEST,
         IMPLEMENTATION_PACKET_DIGEST,
         SEAL_CANDIDATE_PACKET_DIGEST,
+        "ef9db6a90d6ff8472094600f34fbfab6a9f77648aaa2e02d3d1d81b462c4c5d5",  # Linux platform packet
     }
     for name, text in (("packet", packet_text), ("spec", spec), ("status", status)):
         digests = set(re.findall(r"\b[0-9a-f]{64}\b", text))

@@ -120,13 +120,6 @@ def _execution_cost(
         trigger.segment is TriggerSegment.OPEN
         and order.intent.eligible_index == processing_index
     )
-    venue_fee = (
-        executor.cost.maker_fee_rate
-        + dataset.resolved_array("maker_fee_rate")[processing_index, symbol]
-        if maker
-        else executor.cost.taker_fee_rate
-        + dataset.resolved_array("taker_fee_rate")[processing_index, symbol]
-    )
     spread_multiplier = 0.5 if maker else 1.0
     impact_scale = math.sqrt(participation_rate)
     impact = executor.cost.impact_rate * impact_scale
@@ -137,6 +130,13 @@ def _execution_cost(
         )[0]
     )
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        venue_fee = (
+            executor.cost.maker_fee_rate
+            + dataset.resolved_array("maker_fee_rate")[processing_index, symbol]
+            if maker
+            else executor.cost.taker_fee_rate
+            + dataset.resolved_array("taker_fee_rate")[processing_index, symbol]
+        )
         spread_base = (
             executor.cost.spread_rate
             + dataset.resolved_array("spread_rate")[processing_index, symbol]

@@ -497,3 +497,84 @@ def test_stateful_rejects_lost_spread_or_impact_despite_positive_fee() -> None:
                 filled_notional=1.0,
                 participation_rate=participation,
             )
+
+
+def test_depth_refuses_nonzero_fill_with_unrepresentable_notional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The notional itself must not collapse to zero before fee validation."""
+    book = BookState.zero(1, 1_000.0, np.array([1e-200]), np.array([1e-200]))
+    reached_accounting = False
+
+    def unexpected_fill(self: BookState, **kwargs: object) -> None:
+        nonlocal reached_accounting
+        reached_accounting = True
+
+    monkeypatch.setattr(BookState, "execute_fill", unexpected_fill)
+    now = datetime(2026, 11, 6, tzinfo=UTC)
+    with pytest.raises(ValueError, match="execution notional.*represented"):
+        execute_depth_order(
+            book=book,
+            symbol_index=0,
+            lot_count=1,
+            rules=DepthOrderRules(1.0, 0.0, 10.0, 0.0, None),
+            bids=((9e-201, 10.0),),
+            asks=((1e-200, 10.0),),
+            decision_at=now,
+            quote_at=now + timedelta(seconds=1),
+            execution_at=now + timedelta(seconds=2),
+            fee_bps=10.0,
+            adverse_bps=0.0,
+            depth_fraction=1.0,
+        )
+    assert not reached_accounting
+    assert book.quantities.tolist() == [0.0]
+    assert book.total_cost == 0.0
+
+
+@pytest.mark.parametrize("cost_multiplier", (0.0, 1.0))
+def test_stateful_strict_numpy_venue_fee_overflow_uses_cost_boundary(
+    cost_multiplier: float,
+) -> None:
+    """Strict NumPy must not leak raw FloatingPointError on inactive costs."""
+    dataset = replace(
+        _dataset(price=1.0, multiplier=1.0),
+        maker_fee_rate=np.full((4, 1), 1e308),
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            maker_fee_rate=1e308,
+            multiplier=cost_multiplier,
+        ),
+    )
+    runtime = SimpleNamespace(executor=executor)
+    order = SimpleNamespace(
+        intent=SimpleNamespace(
+            symbol_index=0, order_type=OrderType.LIMIT, eligible_index=0
+        )
+    )
+    with np.errstate(over="raise", invalid="raise"):
+        if cost_multiplier == 0.0:
+            assert (
+                _execution_cost(
+                    runtime,
+                    order,
+                    trigger=SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME),
+                    processing_index=1,
+                    filled_notional=1.0,
+                    participation_rate=0.5,
+                )
+                == 0.0
+            )
+        else:
+            with pytest.raises(ValueError, match="non-finite"):
+                _execution_cost(
+                    runtime,
+                    order,
+                    trigger=SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME),
+                    processing_index=1,
+                    filled_notional=1.0,
+                    participation_rate=0.5,
+                )

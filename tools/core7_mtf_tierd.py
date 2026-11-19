@@ -71,6 +71,8 @@ from trade_rl.integrations.market_store.rules import (
 EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_HALTED = 3
+EXIT_NOT_EVIDENCE = 4
+RUN_RECEIPT_NAME = "tierd-run-receipt.json"
 RECEIPT_NAME = "tierd-data-receipt.json"
 #: Earlier starts hit unregistered 2021 spot maintenance gaps (2021-08-13, 2021-09-29).
 DEFAULT_LOAD_START = datetime(2021, 10, 1, tzinfo=UTC)
@@ -526,6 +528,8 @@ def _receipt(
         "protocol_digest": protocol.protocol_digest(),
         "expected_protocol_digest": protocol.protocol_digest(),
         "tierd_contract": tierd.TIERD_CONTRACT,
+        # decided by run_study; recorded in the run receipt written after the run
+        "evidence_eligible": None,
         "dataset_id": dataset.dataset_id,
         "load_start": args.load_start.isoformat(),
         "load_end": load_end.isoformat(),
@@ -648,7 +652,24 @@ def main(
     ) as error:
         err.write(f"refused: {error}\n")
         return EXIT_REFUSED
+    eligible = decision.get("evidence_eligible") is True
+    run_receipt = {
+        "schema_version": "core7_mtf_tierd_run_receipt_v1",
+        "dataset_id": dataset.dataset_id,
+        "expected_protocol_digest": protocol.protocol_digest(),
+        "evidence_eligible": eligible,
+        "synthetic_only": decision.get("synthetic_only"),
+        "outcome": decision.get("outcome"),
+        "underlying_outcome": decision.get("underlying_outcome"),
+    }
+    (args.output_dir / RUN_RECEIPT_NAME).write_bytes(canonical_json_bytes(run_receipt))
     out.write(json.dumps(decision, indent=2, sort_keys=True, default=str) + "\n")
+    if not eligible:
+        err.write(
+            "not successful: the result is not evidence_eligible "
+            f"(outcome={decision.get('outcome')!r})\n"
+        )
+        return EXIT_NOT_EVIDENCE
     return EXIT_OK
 
 

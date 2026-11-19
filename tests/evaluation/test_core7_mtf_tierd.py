@@ -610,7 +610,7 @@ def test_run_calls_run_study_once_with_the_frozen_arguments(
 
     def spy(dataset: Any, **kwargs: Any) -> dict[str, object]:
         calls.append({"dataset": dataset, **kwargs})
-        return {"label": "spy"}
+        return {"outcome": "PASS_PARITY_ONLY", "evidence_eligible": True}
 
     monkeypatch.setattr(driver, "run_study", spy)
     out_dir = tmp_path / "out"
@@ -663,10 +663,22 @@ def test_the_loaded_dataset_runs_through_the_real_study_on_synthetic_prices(
     )
     assert code == driver.EXIT_OK, err
     decision = json.loads(out)
+    assert decision["evidence_eligible"] is True
+    run_receipt = json.loads(
+        (out_dir / driver.RUN_RECEIPT_NAME).read_text(encoding="utf-8")
+    )
+    assert run_receipt["evidence_eligible"] is True
+    assert (
+        run_receipt["dataset_id"]
+        == json.loads((out_dir / driver.RECEIPT_NAME).read_text(encoding="utf-8"))[
+            "dataset_id"
+        ]
+    )
     assert decision["roster_complete"] is True
     assert decision["synthetic_only"] is False
     assert {path.name for path in out_dir.iterdir()} == {
         driver.RECEIPT_NAME,
+        driver.RUN_RECEIPT_NAME,
         "decision.json",
         "study-manifest.json",
     }
@@ -890,7 +902,7 @@ def test_fallback_provenance_reaches_the_receipt_and_the_cli_flag_needs_an_archi
     assert code == driver.EXIT_REFUSED and "--archive-dir" in err_s.getvalue()
 
 
-def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v2() -> None:
+def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v3() -> None:
     assert driver.DEFAULT_LOAD_START == datetime(2021, 10, 1, tzinfo=UTC)
     args = driver.build_parser().parse_args(
         [
@@ -916,7 +928,34 @@ def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v2() -> None:
         ]
     )
     assert run_args.load_start == datetime(2021, 10, 1, tzinfo=UTC)
-    assert protocol.PROTOCOL_ID == "core7_mtf_shadow_anchor_ppo_v2"
+    assert protocol.PROTOCOL_ID == "core7_mtf_shadow_anchor_ppo_v3"
     assert protocol.protocol_digest() == (
-        "97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210"
+        "239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a"
     )
+
+
+def test_run_does_not_report_success_for_a_result_that_is_not_evidence_eligible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for verdict in (
+        {"outcome": "SYNTHETIC_ONLY_NOT_EVIDENCE", "evidence_eligible": False},
+        {"outcome": "PASS_PARITY_ONLY"},  # eligibility missing is not eligible
+    ):
+        monkeypatch.setattr(driver, "run_study", lambda *a, _v=verdict, **k: dict(_v))
+        out_dir = tmp_path / f"out{len(verdict)}"
+        code, out, err = _main(
+            [
+                "run",
+                *_cli_files(tmp_path),
+                "--output-dir",
+                str(out_dir),
+                "--authorization-url",
+                AUTH,
+            ]
+        )
+        assert code == driver.EXIT_NOT_EVIDENCE != driver.EXIT_OK
+        assert "not evidence_eligible" in err
+        receipt = json.loads(
+            (out_dir / driver.RUN_RECEIPT_NAME).read_text(encoding="utf-8")
+        )
+        assert receipt["evidence_eligible"] is False

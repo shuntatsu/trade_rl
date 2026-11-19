@@ -772,9 +772,17 @@ def test_raw_write_rechecks_a_directory_replaced_during_mkdir(
 ) -> None:
     """A symlink planted at the mkdir boundary is refused before staging."""
 
-    root = tmp_path / "store"
+    # On Windows, creating directory symlinks may require a missing privilege.
     outside = tmp_path / "outside"
     outside.mkdir()
+    probe = tmp_path / "symlink-permission-probe"
+    try:
+        probe.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable")
+    probe.unlink()
+
+    root = tmp_path / "store"
     target = _colliding_raw_target(CrossAssetStore(root))
     real_mkdir = Path.mkdir
     replaced = False

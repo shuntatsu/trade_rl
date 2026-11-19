@@ -341,7 +341,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16.15-bookworm
+        image: postgres:16.16-bookworm
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-only-throwaway-service-container

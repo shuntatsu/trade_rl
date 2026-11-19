@@ -131,6 +131,46 @@ def test_directory_publish_rejects_stage_swap_after_inode_check(
 
 @pytest.mark.skipif(
     os.name != "posix" or not Path("/proc/self/fd").is_dir(),
+    reason="requires POSIX directory-fd publication",
+)
+def test_directory_swap_with_denied_rollback_reports_unsafe_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed rollback must never pretend the unverified artifact is safe."""
+    store = StudyStore(tmp_path / "study")
+    detached = tmp_path / "verified-detached"
+    real_rename = store_module.atomic_rename_directory
+    calls = 0
+
+    def swap_then_block(source: str | Path, target: str | Path) -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            stage_name = store.root / Path(source).name
+            stage_name.rename(detached)
+            stage_name.mkdir()
+            (stage_name / "forged.txt").write_text("NOT VALIDATED", encoding="utf-8")
+            return real_rename(source, target)
+        raise PermissionError("synthetic rollback refused")
+
+    monkeypatch.setattr(store_module, "atomic_rename_directory", swap_then_block)
+
+    def build(stage: Path) -> None:
+        (stage / "genuine.txt").write_text("GENUINE", encoding="utf-8")
+
+    with pytest.raises(PublishedArtifactCleanupError, match="do not retry"):
+        store.publish_directory_once("evidence/synthetic", build)
+
+    assert calls == 2
+    assert (detached / "genuine.txt").read_text(encoding="utf-8") == "GENUINE"
+    # The exception signals that manual quarantine is still required.
+    assert (store.root / "evidence" / "synthetic" / "forged.txt").read_text(
+        encoding="utf-8"
+    ) == "NOT VALIDATED"
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not Path("/proc/self/fd").is_dir(),
     reason="requires Linux process file descriptors for deterministic injection",
 )
 def test_json_publish_never_links_replaced_staging_file(

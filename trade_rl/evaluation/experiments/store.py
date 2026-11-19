@@ -287,6 +287,53 @@ def _mkdir_study_root_nofollow(root: Path) -> None:
             os.close(descriptor)
 
 
+def _cleanup_owned_staging_directory(path: Path, descriptor: int) -> None:
+    """Remove children through the opened stage, never an unverified basename."""
+
+    if os.name == "posix":
+        # If no stage inode was pinned, or FD-safe traversal is unsupported,
+        # leave the stage for manual inspection rather than deleting a swap.
+        if descriptor < 0 or not shutil.rmtree.avoids_symlink_attacks:
+            return
+        try:
+            _assert_pinned_publication_parent(path, descriptor)
+        except ArtifactIntegrityError:
+            return
+        # Only recurse through the verified descriptor. rmtree's fd-safe
+        # variant refuses symlink substitutions in descendant directories.
+        # The pin is O_PATH on Linux; duplicate it as a readable directory
+        # through "." without ever resolving the replaceable stage basename.
+        readable = os.open(
+            ".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+        )
+        try:
+            for name in os.listdir(readable):
+                try:
+                    entry = os.stat(name, dir_fd=readable, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISDIR(entry.st_mode):
+                    shutil.rmtree(name, dir_fd=readable)
+                else:
+                    os.unlink(name, dir_fd=readable)
+        finally:
+            os.close(readable)
+        try:
+            _assert_pinned_publication_parent(path, descriptor)
+        except ArtifactIntegrityError:
+            return
+        # A concurrent replacement containing data cannot be rmdir'd.
+        os.rmdir(path)
+        return
+
+    # Portable fallback has no atomic protection against hostile swaps.
+    if path.exists() or path.is_symlink():
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
@@ -602,16 +649,39 @@ class StudyStore:
                         raise InvalidExperimentStateError(
                             f"Study artifact already exists: {relative}"
                         )
-                    # Exclusive rename uses the fd-anchored POSIX paths.
+                    # Exclusive rename protects the destination name, but
+                    # a non-cooperating writer could replace its source leaf
+                    # after the pre-rename inode check. Verify the moved inode
+                    # and retain any mismatch outside the trusted final path.
                     atomic_rename_directory(pinned_staging, pinned_target)
-                finally:
                     if staging_descriptor >= 0:
-                        os.close(staging_descriptor)
-                    if pinned_staging.exists() or pinned_staging.is_symlink():
-                        if pinned_staging.is_dir() and not pinned_staging.is_symlink():
-                            shutil.rmtree(pinned_staging)
-                        else:
-                            pinned_staging.unlink(missing_ok=True)
+                        try:
+                            _assert_pinned_publication_parent(
+                                pinned_target, staging_descriptor
+                            )
+                        except ArtifactIntegrityError as error:
+                            rejected = parent / (
+                                f".{target.name}.rejected-{_temporary_name_suffix()}"
+                            )
+                            try:
+                                atomic_rename_directory(pinned_target, rejected)
+                            except (OSError, ValueError) as rollback_error:
+                                raise PublishedArtifactCleanupError(
+                                    "Unverified Study directory may be published; "
+                                    "manual recovery required, do not retry"
+                                ) from rollback_error
+                            raise ArtifactIntegrityError(
+                                "Study staging inode changed during publication; "
+                                "unverified directory retained outside the final path"
+                            ) from error
+                finally:
+                    try:
+                        _cleanup_owned_staging_directory(
+                            pinned_staging, staging_descriptor
+                        )
+                    finally:
+                        if staging_descriptor >= 0:
+                            os.close(staging_descriptor)
                 try:
                     check_parent()
                     check_root()

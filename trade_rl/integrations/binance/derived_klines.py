@@ -12,6 +12,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from trade_rl.integrations.binance.source_clock import (
+    BinanceSourceClosePolicy,
+    _check_source_close_time,
+)
 from trade_rl.integrations.binance.vision import _interval_ms, _normalize_epoch_ms
 
 _KlineRow = Sequence[object]
@@ -24,6 +28,8 @@ def aggregate_klines(
     interval: str,
     start_ms: int,
     end_ms: int,
+    source_close_policy: BinanceSourceClosePolicy
+    | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
 ) -> tuple[list[list[object]], int]:
     """Aggregate ``base_interval`` kline rows into complete ``interval`` rows.
 
@@ -34,6 +40,7 @@ def aggregate_klines(
     millisecond. Windows with any missing base bar are dropped and counted.
     """
 
+    resolved_close_policy = BinanceSourceClosePolicy(source_close_policy)
     base_ms = _interval_ms(base_interval)
     step = _interval_ms(interval)
     if step % base_ms != 0 or step < base_ms:
@@ -46,6 +53,13 @@ def aggregate_klines(
         if len(row) < 8:
             raise ValueError("Binance kline row must contain at least eight fields")
         open_ms = _normalize_epoch_ms(row[0])
+        if start_ms <= open_ms < end_ms:
+            _check_source_close_time(
+                row,
+                open_ms=open_ms,
+                interval_ms=base_ms,
+                source_close_policy=resolved_close_policy,
+            )
         if open_ms in by_open:
             raise ValueError(f"duplicate Binance kline open time {open_ms}")
         by_open[open_ms] = row
@@ -88,8 +102,11 @@ class BaseIntervalAggregatingTransport:
         *,
         exchange_information: Any | None = None,
         base_interval: str = "1h",
+        source_close_policy: BinanceSourceClosePolicy
+        | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
     ) -> None:
         _interval_ms(base_interval)
+        self.source_close_policy = BinanceSourceClosePolicy(source_close_policy)
         self._klines = klines
         self._exchange_information = (
             klines if exchange_information is None else exchange_information
@@ -123,6 +140,7 @@ class BaseIntervalAggregatingTransport:
             interval=interval,
             start_ms=start_ms,
             end_ms=end_ms,
+            source_close_policy=self.source_close_policy,
         )
         self.dropped_windows[(symbol, interval)] = dropped
         return aggregated, source

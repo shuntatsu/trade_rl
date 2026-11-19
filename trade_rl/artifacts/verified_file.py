@@ -104,7 +104,14 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
         # The proc/dev FD alias is a privileged internal capability only for
         # the exact inode registered by this thread's active Study publisher.
         # An arbitrary caller-supplied number must not bypass ancestor nofollow.
-        source_fd = int(components[capability_index])
+        # Reject huge/padded decimal aliases before int() or os.dup(), which
+        # otherwise leak ValueError or OverflowError instead of OSError.
+        fd_text = components[capability_index]
+        if len(fd_text) > 10:
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
+        source_fd = int(fd_text)
+        if source_fd > 2_147_483_647:
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
         descriptor = os.dup(source_fd)
         status = os.fstat(descriptor)
         identity = (source_fd, status.st_dev, status.st_ino)

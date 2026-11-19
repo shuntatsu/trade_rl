@@ -298,3 +298,42 @@ def test_directory_descriptor_refuses_raw_parent_traversal_before_abspath(
     with pytest.raises(OSError, match="parent traversal"):
         descriptor = verified_file._open_directory_descriptor_nofollow(source)
         os.close(descriptor)
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not Path("/proc/self/fd").is_dir()
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="requires POSIX descriptor-based process FD paths",
+)
+@pytest.mark.parametrize(
+    "invalid_fd", ("9" * 30, "9" * 5000, "2147483648", "0" * 12 + "3")
+)
+def test_oversized_process_fd_alias_fails_with_safe_oserror(
+    invalid_fd: str,
+) -> None:
+    """A numeric alias exceeding the native FD range must fail closed normally."""
+    import errno
+
+    with pytest.raises(OSError) as error:
+        descriptor = verified_file._open_directory_descriptor_nofollow(
+            Path("/proc/self/fd") / invalid_fd
+        )
+        os.close(descriptor)
+    assert error.value.errno in (errno.ELOOP, errno.ENOTDIR)
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not Path("/proc/self/fd").is_dir()
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="requires POSIX descriptor-based process FD paths",
+)
+def test_reader_reports_invalid_large_fd_alias_as_parent_integrity_error() -> None:
+    """A regular-file caller must not receive raw OverflowError from os.dup."""
+    untrusted = Path("/proc/self/fd") / ("9" * 30) / "synthetic.json"
+    with pytest.raises(ValueError, match="parent"):
+        with verified_file.open_regular_binary(untrusted, field="synthetic"):
+            pytest.fail("malformed FD alias bypassed safe parent admission")

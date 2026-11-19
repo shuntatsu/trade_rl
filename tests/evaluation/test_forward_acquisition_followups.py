@@ -132,6 +132,41 @@ def test_leftover_temporary_cache_members_are_unexpected(
     assert acquire._cache_problems(world.item_plan, cache)[0] == unexpected
 
 
+def test_a_missing_archive_404_sidecar_is_an_unexpected_cache_member(
+    world: Scenario, tmp_path: Path
+) -> None:
+    """Acquisition is deliberately blind to nothing: a 404 record fails it closed.
+
+    The Binance download step writes ``<entry>.missing.json`` when the venue answers
+    HTTP 404 (used by the trend-stop study). A sealed acquisition must never see one:
+    a 404 for a planned archive already means the archive is missing, and the sidecar
+    is not a planned member, so it is reported as ``archives_unexpected``.
+    """
+
+    from trade_rl.integrations.binance import vision_cache_path
+    from trade_rl.integrations.binance.cache import write_missing_archive_evidence
+
+    cache = tmp_path / "cache"
+    for item in world.item_plan.archives:
+        path = vision_cache_path(cache, item.url)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+        path.with_suffix(".json").write_text(json.dumps({"url": item.url}))
+    for item in world.item_plan.fetched:
+        path = vision_cache_path(cache, item.checksum_url)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+        path.with_suffix(".json").write_text(json.dumps({"url": item.checksum_url}))
+    assert acquire._cache_problems(world.item_plan, cache)[0] == ()
+    first = world.item_plan.archives[0].url
+    write_missing_archive_evidence(
+        vision_cache_path(cache, first), url=first, downloader="test"
+    )
+    assert acquire._cache_problems(world.item_plan, cache)[0] == (
+        "archives_unexpected",
+    )
+
+
 def test_an_output_root_inside_the_checkout_is_refused(
     world: Scenario, tmp_path: Path
 ) -> None:

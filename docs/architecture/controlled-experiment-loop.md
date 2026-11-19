@@ -64,6 +64,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 `max_experiments` は後段の `StudyPlan` と同じ **1〜9,999** の上限を、JSON loaderと直接constructorの両方でsource acquisitionより前に検証する。10,000以上は源データを取得せず拒否する。
 
+Canonical bootstrapの設定JSON、Vision plan/resolution JSON、bootstrap manifest JSONのreaderは、`Path.is_file()`後にpath名から`read_text()`し直さず、共通`open_regular_binary`による確認済みregular-file descriptorから得たbyte列だけをUTF-8 decode / JSON parseする。POSIXで`O_NOFOLLOW`とdescriptor-relative directory traversalが利用できる場合、leafまたはancestorのsymlink差し替えを拒否する。portable fallbackでは静的symlink/junctionを拒否するが、同時差し替えへのatomic保護は保証しない。open済み通常ファイルのin-place変更、readerの入力byte総量、StudyStore側のJSON読込・mutation lockの独立した保証はこのbootstrap reader境界には含めない。
+
 公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
 
 このbootstrapは**baselineは実行しない**。`run_baseline`、Experiment定義/実行、winner選択、`freeze_study`、sealed unused-future / final authorizationはbootstrap責務ではない。成功直後の`study/`は`plan.json`と同期primitiveだけを持ち、baseline evidenceは存在しない。
@@ -221,11 +223,15 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 `.mutation.lock` は同期primitiveでありresearch evidenceではない。canonical evidenceはappend-onlyで既存targetを上書きしない。
 
+Study JSONのappend-only公開は同じtarget名を上書きしない。POSIX LinuxでのステージングJSON公開は、`fsync`済みで開いたままのregular-file descriptorを`/proc/self/fd/N`から`linkat(AT_SYMLINK_FOLLOW)`でhard-linkし、source basenameだけを別ファイルに替えてもその偽bytesを正式公開しない。公開失敗・成功後cleanupでは、作成済みの`(st_dev, st_ino)`と一致する通常ファイルだけを削除対象にし、未作成・置換されたstage名は残す。公開後のcleanup失敗は`PublishedArtifactCleanupError`として非再試行を明示する。**これはstage名の確認直後に非協調的writerが差し替える`unlink`競合、親directoryの同時差替えやopen済みinodeそのものの改変までを原子的に防ぐ保証ではない。** Linux以外のhard-link fallbackはsource inodeの差替え耐性を主張しない。強い攻撃者モデルの残課題はIssue #1131で管理する。
+
 ## Failure / tamper contract
 
 loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
 
-Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+協調するprocessが同じStudy mutation lock inodeを取得する場合、lock取得後に必ずdisk stateを再構築するため、freezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+
+POSIXで`O_NOFOLLOW`/`O_DIRECTORY`とdirectory-descriptor相対のopenが利用可能なら、`.mutation.lock`取得時はStudy rootまでのancestorをsymlinkを辿らずdescriptorで開き、lock fileも`O_NOFOLLOW | O_CREAT | O_APPEND | O_RDWR`で開いて`fstat`のregular-file確認後に既存のprocess lockを取得する。事前のpath check直後にleaf/rootがsymlinkへ差し替わっても、外部fileへlockを誤って向けずfail-closedにする。portable fallbackは静的なsymlink/junction/nonregular-fileを拒否するが、同時差し替えのatomic防御は保証しない。いずれの場合も、悪意ある通常file inodeのunlink/recreate、open済みinodeへの書込み、非協調的なwriterによる複数lock inode生成を完全には防げず、敵対的filesystem全体にわたるserialization証明ではない。
 
 `research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
 

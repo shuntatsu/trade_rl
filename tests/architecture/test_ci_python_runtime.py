@@ -40,6 +40,16 @@ def test_all_ci_uv_jobs_preinstall_python_from_runner_toolcache() -> None:
     assert "UV_PYTHON_DOWNLOADS: never" in source
 
 
+def test_lean_core_fetches_full_history_for_research_packet_source_binding() -> None:
+    """A shallow success can skip the source-closure comparison altogether."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    core = source.split("  core:\n", 1)[1].split("\n  ppo-runtime:\n", 1)[0]
+    checkout = core.split("- name: Checkout exact head\n", 1)[1].split(
+        "- name: Set up runner Python 3.12\n", 1
+    )[0]
+    assert "fetch-depth: 0" in checkout
+
+
 def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     assert source.count("name: Checkout exact head") >= 6

@@ -114,11 +114,11 @@ Development Study
 
 output rootは発行前に存在してはならず、Study rootの外側に置く。root、ancestor、artifact fileでsymlink traversalを許さない。
 
-publicationはprivate sibling staging directoryへcanonical JSONを書き、fileをflush/fsyncした後、final root名に対するsibling claimをexclusive createで取得してからrenameする。同じsubsystemを使う同時publisherのうちclaimを取得できるのは一つだけである。成功したpublisherはclaimをbest-effortで除去する。
+publicationはprivate sibling staging directoryへcanonical JSONを書き、fileをflush/fsyncした後、final root名に対するsibling claimをexclusive createで取得し、共有`atomic_rename_directory`のOS側no-replace renameで一度だけ公開する。同じsubsystemを使う同時publisherのうちclaimを取得できるのは一つだけであり、claimを使わない競合相手が最後の確認後に空dirを作った場合も置換しない。成功したpublisherはclaimをbest-effortで除去する。
 
 publication途中に失敗し、authorityが曖昧になり得る場合は安全側に倒す。stale claimが残ると再発行を止めることがあるが、unused futureを二重に開くよりfail closedを優先する。claimは同期primitiveでありresearch evidenceではない。
 
-rename競合・既存targetは生のfilesystem例外として外へ漏らさず、one-shot conflictとして扱う。final rootは`authorization.json`一つだけを許す。
+OS側no-replace renameの競合・既存targetは生のfilesystem例外として外へ漏らさず、one-shot conflictとして扱う。no-replace primitiveが利用できないOS/ファイルシステムではfail-closedとし、通常POSIX renameやcopyでのfallbackは禁止する。final rootは`authorization.json`一つだけを許す。
 
 ## Artifact immutability
 
@@ -159,7 +159,7 @@ test oracleはauthorization前後でStudy treeの全file bytes/digestが同一�
 9. Study bytesがauthorization前後で不変である。
 10. 二回目の同一root publicationを拒否する。
 11. concurrent publicationで成功者を一つに限定する。
-12. rename直前に別publisherがtargetをclaimしたraceをone-shot conflictとして拒否する。
+12. 最終OS側no-replace rename直前に別publisherが空または非空のtargetを作ったraceをone-shot conflictとして拒否する。未対応filesystemもfail-closedとなりstagingだけを清掃する。
 13. JSON/body tamper、non-canonical rewrite、別Study substitution、symlink root/ancestorを拒否する。
 14. packageがdata/execution pathをimportしない。
 15. full repository CIでdevelopment Study semanticsがGreenのままである。

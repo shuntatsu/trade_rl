@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
+import stat
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -16,9 +19,11 @@ from trade_rl.artifacts.atomic_write import (
     atomic_rename_directory,
 )
 from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     InvalidExperimentStateError,
+    PublishedArtifactCleanupError,
 )
 
 _LOCK_NAME = ".mutation.lock"
@@ -60,6 +65,96 @@ def _unlock_file(handle: BinaryIO) -> None:
     flock = getattr(fcntl, "flock")
     lock_un = getattr(fcntl, "LOCK_UN")
     flock(handle.fileno(), lock_un)
+
+
+def _open_mutation_lock(root: Path) -> BinaryIO:
+    """Open the Study lock without following symlinks on supported POSIX hosts."""
+
+    source = Path(os.path.abspath(root))
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
+    if os.name == "posix":
+        # A hostile FIFO must not block the open before fstat rejects its type.
+        flags |= getattr(os, "O_NONBLOCK", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    descriptor = -1
+    try:
+        if (
+            os.name == "posix"
+            and nofollow
+            and directory_flag
+            and os.open in os.supports_dir_fd
+        ):
+            directory_flags = (
+                getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
+            )
+            parent_fd = os.open(source.anchor, directory_flags)
+            try:
+                # Bind every ancestor to a directory descriptor, including root.
+                for component in source.parts[1:]:
+                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
+                    os.close(parent_fd)
+                    parent_fd = next_fd
+                descriptor = os.open(
+                    _LOCK_NAME, flags | nofollow, 0o666, dir_fd=parent_fd
+                )
+            finally:
+                os.close(parent_fd)
+        else:
+            # Non-POSIX fallback checks static links; it cannot close the
+            # concurrent replacement race without descriptor-relative opens.
+            for directory in (source, *source.parents):
+                if directory.is_symlink() or directory.is_junction():
+                    raise ArtifactIntegrityError(
+                        "Study mutation lock parent must not be a symlink or junction"
+                    )
+            lock_path = source / _LOCK_NAME
+            if lock_path.is_symlink() or lock_path.is_junction() or lock_path.is_dir():
+                raise ArtifactIntegrityError(
+                    "Study mutation lock must be a regular file"
+                )
+            descriptor = os.open(lock_path, flags | nofollow, 0o666)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ArtifactIntegrityError("Study mutation lock must be a regular file")
+        handle = os.fdopen(descriptor, "a+b")
+        descriptor = -1
+        return handle
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EISDIR):
+            raise ArtifactIntegrityError(
+                "Study mutation lock must be a regular file "
+                "in non-symlinked directories"
+            ) from error
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> bool:
+    """Delete a staging filename only if it is still the regular inode we opened.
+
+    POSIX unlink remains name-based: this check protects observed substitutions,
+    but a noncooperating writer may still race between lstat and unlink.
+    """
+
+    if identity is None:
+        return False
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return True
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or (
+            current.st_dev,
+            current.st_ino,
+        )
+        != identity
+    ):
+        return False
+    path.unlink(missing_ok=True)
+    return True
 
 
 class StudyStore:
@@ -137,7 +232,7 @@ class StudyStore:
                 raise ArtifactIntegrityError(
                     "Study mutation lock must not be a symlink"
                 )
-            with lock_path.open("a+b") as handle:
+            with _open_mutation_lock(self.root) as handle:
                 _lock_file(handle)
                 self._lock_depth = 1
                 try:
@@ -157,19 +252,81 @@ class StudyStore:
             )
 
         staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
+        stage_identity: tuple[int, int] | None = None
+        published = False
         try:
             with staging.open("xb") as handle:
+                opened = os.fstat(handle.fileno())
+                stage_identity = (opened.st_dev, opened.st_ino)
                 handle.write(canonical_json_bytes(value))
                 handle.flush()
                 os.fsync(handle.fileno())
-            if target.exists() or target.is_symlink():
-                raise InvalidExperimentStateError(
-                    f"Study artifact already exists: {relative}"
+                if target.exists() or target.is_symlink():
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    )
+                # The source basename can be replaced after fsync. On Linux,
+                # link from the still-open file descriptor, not that name.
+                # A src_dir_fd requests linkat(AT_SYMLINK_FOLLOW), so the
+                # process FD alias resolves to the validated source inode.
+                try:
+                    if os.name == "posix" and sys.platform == "linux":
+                        source_alias = Path(f"/proc/self/fd/{handle.fileno()}")
+                        if not source_alias.is_file():
+                            raise ArtifactIntegrityError(
+                                "Study staging file descriptor unavailable"
+                            )
+                        parent_fd = os.open(
+                            staging.parent,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        )
+                        try:
+                            os.link(
+                                source_alias,
+                                target,
+                                src_dir_fd=parent_fd,
+                                follow_symlinks=True,
+                            )
+                            # Once linkat succeeds the artifact is committed,
+                            # even if the parent FD subsequently fails to close.
+                            published = True
+                        finally:
+                            os.close(parent_fd)
+                    else:
+                        # Other platforms retain hard-link exclusivity but
+                        # cannot prove source-inode binding under name swaps.
+                        os.link(staging, target)
+                        published = True
+                except FileExistsError as error:
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    ) from error
+        except BaseException as error:
+            try:
+                _unlink_owned_staging_file(staging, stage_identity)
+            except OSError:
+                # Preserve the primary publication failure; staging may remain.
+                pass
+            if published:
+                raise PublishedArtifactCleanupError(
+                    "Study artifact was published, but finalizing the staging "
+                    f"file failed: {relative}; do not retry publication"
+                ) from error
+            raise
+
+        # The canonical target is already committed. A replaced staging
+        # basename belongs to another writer and must not be unlinked.
+        try:
+            if not _unlink_owned_staging_file(staging, stage_identity):
+                raise PublishedArtifactCleanupError(
+                    "Study artifact was published, but staging cleanup failed "
+                    f"(source name replaced): {relative}; do not retry publication"
                 )
-            staging.rename(target)
-        finally:
-            if staging.exists() or staging.is_symlink():
-                staging.unlink(missing_ok=True)
+        except OSError as error:
+            raise PublishedArtifactCleanupError(
+                f"Study artifact was published, but staging cleanup failed: {relative}; "
+                "do not retry publication"
+            ) from error
         return target
 
     def read_json(self, relative: str | Path) -> dict[str, object]:
@@ -178,9 +335,20 @@ class StudyStore:
         target = self._checked_target(relative)
         if target.is_symlink() or not target.is_file():
             raise ArtifactIntegrityError("Study artifact must be a regular file")
+        # Open the verified file descriptor before reading: a later symlink
+        # substitution must not redirect this read to a different artifact.
         try:
-            raw = cast(object, json.loads(target.read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            with open_regular_binary(target, field="Study artifact") as handle:
+                encoded = handle.read()
+        except ValueError as error:
+            raise ArtifactIntegrityError(
+                "Study artifact must be a regular file"
+            ) from error
+        except OSError as error:
+            raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
+        try:
+            raw = cast(object, json.loads(encoded.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
         if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
             raise ArtifactIntegrityError("Study artifact must contain a JSON object")

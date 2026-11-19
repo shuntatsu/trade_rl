@@ -93,6 +93,81 @@ def _reconcile(
     )
 
 
+@pytest.mark.parametrize("sign", [-1.0, 1.0])
+def test_decision_reference_gross_preserves_positive_subnormal_under_strict_numpy(
+    sign: float,
+) -> None:
+    book = BookState(
+        quantities=np.array([sign]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([5e-164]),
+    )
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = reconcile_target(
+            dataset_id="d" * 64,
+            target_identity="flatten-subnormal-reference",
+            execution_policy_digest="e" * 64,
+            target_weights=np.array([0.0]),
+            book=book,
+            order_book=OrderBookState.empty(),
+            reference_prices=np.array([1e-160]),
+            valuation_prices=np.array([1.0]),
+            decision_equity=1_000.0,
+            submit_index=0,
+            latency_bars=1,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+            expiry_index=None,
+            limit_offset_rate=0.0,
+            maximum_gross=1.0,
+        )
+    assert len(result.new_intents) == 1
+    assert result.new_intents[0].requested_quantity == -sign
+    assert result.new_intents[0].reduce_only
+    assert book.quantities.tolist() == [sign]
+    assert book.cash == 1_000.0
+
+
+@pytest.mark.parametrize("sign", [-1.0, 1.0])
+def test_decision_reference_gross_rejects_zero_underflow_without_mutation(
+    sign: float,
+) -> None:
+    book = BookState(
+        quantities=np.array([sign]),
+        cash=1_000.0,
+        mark_prices=np.array([1.0]),
+        peak_value=1_000.0,
+        contract_multipliers=np.array([1e-200]),
+    )
+    order_book = OrderBookState.empty()
+    with pytest.raises(
+        OrderReconciliationError, match="decision reference.*represented"
+    ):
+        reconcile_target(
+            dataset_id="d" * 64,
+            target_identity="flatten-zero-reference",
+            execution_policy_digest="e" * 64,
+            target_weights=np.array([0.0]),
+            book=book,
+            order_book=order_book,
+            reference_prices=np.array([1e-200]),
+            valuation_prices=np.array([1.0]),
+            decision_equity=1_000.0,
+            submit_index=0,
+            latency_bars=1,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.GTC,
+            expiry_index=None,
+            limit_offset_rate=0.0,
+            maximum_gross=1.0,
+        )
+    assert book.quantities.tolist() == [sign]
+    assert book.cash == 1_000.0
+    assert order_book == OrderBookState.empty()
+
+
 def test_reconciliation_does_not_double_submit_matching_active_residual() -> None:
     active = _active(3.0)
     result = _reconcile(

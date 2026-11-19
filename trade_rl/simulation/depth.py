@@ -191,7 +191,21 @@ def execute_depth_order(
     signed_lots = side * filled_count
     quantity = project_quantity(signed_lots * step)
     executed_notional = abs(quantity) * price * multiplier
+    if (
+        quantity != 0.0
+        and price != 0.0
+        and multiplier != 0.0
+        and executed_notional == 0.0
+    ):
+        raise ValueError("nonzero execution notional cannot be represented")
     fee = executed_notional * fee_bps / 10_000
+    if not math.isfinite(fee) and math.isfinite(executed_notional):
+        # Regroup only an overflowing intermediate; normal rounding stays fixed.
+        fee = executed_notional * (fee_bps / 10_000)
+    if not math.isfinite(fee):
+        raise ValueError("execution cost became non-finite")
+    if executed_notional != 0.0 and fee_bps != 0.0 and fee == 0.0:
+        raise ValueError("nonzero execution cost cannot be represented")
     fill_prices = book.mark_prices.copy()
     fill_prices[symbol_index] = price
     book.execute_fill(

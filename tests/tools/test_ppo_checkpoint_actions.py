@@ -1240,3 +1240,62 @@ def test_api_json_array_accepts_only_array_payloads(
             token="token",
             deadline=999999999.0,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "change", "pattern"),
+    [
+        ("python_version", "3.12.12 (historical runner build)", "Python runtime"),
+        ("workflow_sha256", "f" * 64, "workflow_sha256"),
+        ("workflow_sha", "e" * 40, "workflow identity"),
+    ],
+)
+def test_old_checkpoint_lineage_is_never_migrated_by_receipt_admission(
+    tmp_path: Path, field: str, change: str, pattern: str
+) -> None:
+    """A new runtime/workflow never rewrites old immutable stage bytes."""
+    from copy import deepcopy
+
+    prior = _receipt()
+    if prior[field] == change:
+        pytest.skip("synthetic mismatch became identical")
+    prior[field] = change
+    snapshot = deepcopy(prior)
+    checkpoint = tmp_path / "frozen-checkpoint"
+    checkpoint.write_bytes(b"do not modify checkpoint")
+    reference = transport.ArtifactReference(90, 34, "d" * 64)
+    metadata = {
+        "id": 90,
+        "expired": False,
+        "name": "ppo-feature-checkpoint-34-2",
+        "digest": f"sha256:{'d' * 64}",
+        "workflow_run": {
+            "id": 34,
+            "repository_id": 12,
+            "head_repository_id": 12,
+            "head_sha": "b" * 40,
+        },
+    }
+    identity = {
+        name: snapshot[name]
+        for name in (
+            "repository",
+            "repository_id",
+            "code_sha",
+            "workflow",
+            "workflow_ref",
+            "github_sha",
+        )
+    }
+    identity["workflow_sha"] = "b" * 40
+    with pytest.raises(ValueError, match=pattern):
+        transport.validate_prior_receipt(
+            prior,
+            reference,
+            metadata,
+            identity,
+            protocol_digest="c" * 64,
+            runtime=transport._runtime_provenance(),
+        )
+    assert prior == snapshot
+    assert checkpoint.read_bytes() == b"do not modify checkpoint"

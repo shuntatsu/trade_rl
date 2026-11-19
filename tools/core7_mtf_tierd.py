@@ -37,15 +37,26 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
 from trade_rl.evaluation.core7_mtf_study import protocol, tierd
 from trade_rl.evaluation.core7_mtf_study.runner import run_study
-from trade_rl.integrations.binance.carry import CarryScreenHalt
+from trade_rl.integrations.binance import BinanceMarket
+from trade_rl.integrations.binance.carry import CarryCoverageError, CarryScreenHalt
+from trade_rl.integrations.binance.vision import vision_kline_url
 from trade_rl.integrations.market_store.carry_source import (
     ArchiveDirFetcher,
     CarryRowSource,
     VisionArchiveSource,
     load_carry_pair,
 )
-from trade_rl.integrations.market_store.contracts import StoreMarket, Universe
-from trade_rl.integrations.market_store.embargo import SealedWindowEmbargoError
+from trade_rl.integrations.market_store.contracts import (
+    ArchiveKind,
+    ArchiveSpec,
+    PeriodKind,
+    StoreMarket,
+    Universe,
+)
+from trade_rl.integrations.market_store.embargo import (
+    EmbargoPolicy,
+    SealedWindowEmbargoError,
+)
 from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
 from trade_rl.integrations.market_store.rules import (
     ExchangeInfoError,
@@ -101,6 +112,155 @@ def load_rules(
             tierd.LegRules(float(perp_rule.lot_size), float(perp_rule.min_notional)),
         )
     return result
+
+
+class DailyFallbackSource:
+    """Fill hourly klines missing from the primary source from Vision *daily* archives.
+
+    Only an hour that the primary source lacks and that no declared spot halt wholly
+    contains is ever requested, and only from the checksum-verified daily archive of its
+    day (the same ``VisionArchiveSource`` verification, cache and retry rules). A daily
+    archive that is not published (HTTP 404) leaves its hours missing, so the strict
+    pair loader still refuses them: there is no forward fill and no REST path. An hour
+    present in the primary source is never replaced. Every filled hour is recorded in
+    :meth:`fills` with its archive URL and SHA-256, in ascending order.
+    """
+
+    def __init__(
+        self,
+        primary: CarryRowSource,
+        daily_factory: RowSourceFactory,
+        *,
+        halts: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+    ) -> None:
+        self._primary = primary
+        self._factory = daily_factory
+        self._halts = [
+            (int(lo.timestamp() * 1_000), int(hi.timestamp() * 1_000))
+            for lo, hi in halts
+        ]
+        self._fills: dict[tuple[str, str, int], dict[str, object]] = {}
+        self._daily_sources: list[Any] = []
+
+    def _explained(self, market: StoreMarket, start_ms: int, open_ms: int) -> bool:
+        return (
+            market is StoreMarket.SPOT
+            and open_ms != start_ms
+            and any(
+                lo <= open_ms and open_ms + tierd.HOUR_MS <= hi
+                for lo, hi in self._halts
+            )
+        )
+
+    def read_klines(
+        self,
+        market: StoreMarket,
+        symbol: str,
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[Any]:
+        rows = list(
+            self._primary.read_klines(market, symbol, interval, start_ms, end_ms)
+        )
+        present = {int(row.open_time_ms) for row in rows}
+        missing = [
+            stamp
+            for stamp in range(start_ms, end_ms, tierd.HOUR_MS)
+            if stamp not in present and not self._explained(market, start_ms, stamp)
+        ]
+        if not missing:
+            return rows
+        day_ms = 24 * tierd.HOUR_MS
+        days = sorted({stamp - stamp % day_ms for stamp in missing})
+        specs: list[ArchiveSpec] = []
+        for day_start in days:
+            day = datetime.fromtimestamp(day_start / 1_000, UTC)
+            url = vision_kline_url(BinanceMarket(market.binance), symbol, interval, day)
+            specs.append(
+                ArchiveSpec(
+                    kind=ArchiveKind.KLINES,
+                    market=market,
+                    symbol=symbol,
+                    interval=interval,
+                    period_kind=PeriodKind.DAILY,
+                    period_start=day,
+                    period_end=datetime.fromtimestamp(
+                        (day_start + day_ms) / 1_000, UTC
+                    ),
+                    url=url,
+                    checksum_url=f"{url}.CHECKSUM",
+                )
+            )
+        plan = IngestionPlan(
+            universe=Universe(symbols=(symbol,), interval=interval, markets=(market,)),
+            start=specs[0].period_start,
+            end=specs[-1].period_end,
+            embargo=EmbargoPolicy.enforced(),
+            specs=tuple(specs),
+            skipped=(),
+        )
+        daily: Any = self._factory(plan)
+        self._daily_sources.append(daily)
+        wanted = set(missing)
+        filled: list[Any] = []
+        for spec, day_start in zip(specs, days, strict=True):
+            hours = [
+                stamp for stamp in missing if day_start <= stamp < day_start + day_ms
+            ]
+            try:
+                got = daily.read_klines(
+                    market, symbol, interval, day_start, max(hours) + tierd.HOUR_MS
+                )
+            except CarryCoverageError:
+                continue  # not published: the hours stay missing and the load refuses
+            digest = next(
+                (
+                    item["archive_sha256"]
+                    for item in daily.evidence()
+                    if item["url"] == spec.url
+                ),
+                None,
+            )
+            for row in got:
+                opened = int(row.open_time_ms)
+                if opened in wanted:
+                    filled.append(row)
+                    self._fills[(market.value, symbol, opened)] = {
+                        "market": market.value,
+                        "symbol": symbol,
+                        "open_time": datetime.fromtimestamp(
+                            opened / 1_000, UTC
+                        ).isoformat(),
+                        "source": "vision_daily",
+                        "archive_url": spec.url,
+                        "archive_sha256": digest,
+                    }
+        return sorted([*rows, *filled], key=lambda row: int(row.open_time_ms))
+
+    def read_funding(
+        self, market: StoreMarket, symbol: str, start_ms: int, end_ms: int
+    ) -> list[Any]:
+        return list(self._primary.read_funding(market, symbol, start_ms, end_ms))
+
+    def fills(self) -> list[dict[str, object]]:
+        """Provenance of every filled hour, ascending by (market, symbol, hour)."""
+        return [self._fills[key] for key in sorted(self._fills)]
+
+    def evidence(self) -> list[dict[str, Any]]:
+        primary = getattr(self._primary, "evidence", None)
+        items: list[dict[str, Any]] = list(primary()) if callable(primary) else []
+        for daily in self._daily_sources:
+            items.extend(daily.evidence())
+        return sorted(
+            {item["url"]: item for item in items}.values(),
+            key=lambda item: item["url"],
+        )
+
+    def close(self) -> None:
+        close = getattr(self._primary, "close", None)
+        if callable(close):
+            close()
 
 
 def load_tierd_dataset(
@@ -215,6 +375,9 @@ def coverage_report(
         "load_start": start.isoformat(),
         "load_end": end.isoformat(),
         "complete": complete,
+        "daily_fallback_filled_hours": (
+            len(source.fills()) if hasattr(source, "fills") else 0
+        ),
         "legs": legs,
     }
 
@@ -237,6 +400,12 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--source", choices=("vision", "store"), default="vision")
         sub.add_argument("--archive-dir", type=Path, default=None)
         sub.add_argument("--allow-network", action="store_true")
+        sub.add_argument(
+            "--daily-fallback",
+            action="store_true",
+            help="fill hours missing from the primary source from checksum-verified "
+            "Vision daily archives (needs --archive-dir); provenance is recorded",
+        )
 
     def common(sub: argparse.ArgumentParser) -> None:
         source_args(sub)
@@ -309,8 +478,19 @@ def _resolve_rows(args: argparse.Namespace) -> RowSourceFactory:
     if args.source == "vision":
         if args.archive_dir is None:
             raise ValueError("--source vision requires --archive-dir")
-        return _vision_rows(args.archive_dir, args.allow_network)
-    return _store_rows
+        base = _vision_rows(args.archive_dir, args.allow_network)
+    else:
+        base = _store_rows
+    if not args.daily_fallback:
+        return base
+    if args.archive_dir is None:
+        raise ValueError("--daily-fallback requires --archive-dir")
+    daily = _vision_rows(args.archive_dir, args.allow_network)
+
+    def with_fallback(plan: IngestionPlan) -> CarryRowSource:
+        return DailyFallbackSource(base(plan), daily)
+
+    return with_fallback
 
 
 def _digest(payload: object) -> str:
@@ -331,6 +511,7 @@ def _receipt(
     load_end: datetime,
     rules_sha: dict[str, str],
     evidence: list[dict[str, Any]],
+    fills: list[dict[str, object]],
 ) -> dict[str, object]:
     return {
         "schema_version": "core7_mtf_tierd_receipt_v1",
@@ -344,6 +525,14 @@ def _receipt(
         "exchange_info_sha256": rules_sha,
         "archive_evidence_count": len(evidence),
         "archive_evidence_digest": _digest(evidence) if evidence else None,
+        "daily_fallback": {
+            "enabled": bool(args.daily_fallback),
+            "filled_hours": len(fills),
+            "fills_digest": _digest(fills) if fills else None,
+            "fills": fills,
+            "forward_fill": False,
+            "rest_fallback": False,
+        },
         "code_commit": commit,
         "working_tree_clean": clean,
     }
@@ -402,6 +591,8 @@ def main(
             )
             evidence_fn = getattr(source, "evidence", None)
             evidence = list(evidence_fn()) if callable(evidence_fn) else []
+            fills_fn = getattr(source, "fills", None)
+            fills = list(fills_fn()) if callable(fills_fn) else []
         finally:
             close = getattr(source, "close", None)
             if callable(close):
@@ -414,6 +605,7 @@ def main(
             load_end=load_end,
             rules_sha={"spot": spot_sha, "perp": perp_sha},
             evidence=evidence,
+            fills=fills,
         )
         if args.command == "dry-check":
             document = {"receipt": receipt, "summary": tierd.dataset_summary(dataset)}

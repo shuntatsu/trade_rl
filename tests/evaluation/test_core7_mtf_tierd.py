@@ -718,3 +718,170 @@ def test_coverage_reports_gaps_per_leg_without_building_a_dataset(
         driver.coverage_report(
             FakeRows(), load_start=START, load_end=tierd.DATA_END_EXCLUSIVE
         )
+
+
+# --- spot legs are not borrowable -------------------------------------------------------
+
+
+def test_spot_legs_are_not_borrowable_and_the_engine_enforces_it() -> None:
+    from trade_rl.simulation.execution import MarketExecutor
+
+    dataset = _load(FakeRows())
+    borrow = dataset.resolved_array("borrow_available")
+    assert not borrow[:, 0::2].any()  # every spot leg
+    assert borrow[:, 1::2].all()  # perpetuals short natively
+
+    executor = MarketExecutor(dataset, protocol.scenario_cost("BASE"))
+    desired = np.full(dataset.n_symbols, -5.0)
+    flat = np.zeros(dataset.n_symbols)
+    result = executor._constrain_borrow(desired, current=flat, index=3)
+    assert np.all(result[0::2] == 0.0)  # a spot short is clipped to flat
+    assert np.all(result[1::2] == -5.0)  # a perpetual short is allowed
+
+
+# --- Vision daily fallback for hours missing from the primary source -------------------
+
+
+def _daily_fallback(
+    perp_missing: frozenset[int],
+    *,
+    unpublished: frozenset[str] = frozenset(),
+) -> tuple[Any, Any]:
+    from tests.integrations.market_store.support import FakeFetcher, archive_bytes
+    from trade_rl.integrations.market_store.carry_source import VisionArchiveSource
+
+    fetcher = FakeFetcher()
+
+    def daily(plan: Any) -> Any:
+        for spec in plan.specs:
+            if spec.url not in fetcher.files and spec.url not in unpublished:
+                fetcher.add(spec.url, archive_bytes(spec))
+        return VisionArchiveSource(fetcher, plan)
+
+    primary = FakeRows(perp_missing=perp_missing)
+    return driver.DailyFallbackSource(primary, daily, halts=(HALT,)), fetcher
+
+
+def test_daily_fallback_fills_only_missing_hours_with_per_hour_provenance() -> None:
+    hole = frozenset(_ms(START) + h * HOUR_MS for h in (40, 41, 70))
+    source, fetcher = _daily_fallback(hole)
+    dataset = _load(source, halt_intervals=(HALT,))
+
+    fills = source.fills()
+    # one entry per filled hour and symbol, ascending, never forward-filled
+    assert len(fills) == 3 * len(protocol.ROSTER)
+    assert fills == sorted(
+        fills, key=lambda i: (i["market"], i["symbol"], i["open_time"])
+    )
+    assert [item["open_time"] for item in fills[:3]] == [
+        "2021-12-30T16:00:00+00:00",
+        "2021-12-30T17:00:00+00:00",
+        "2021-12-31T22:00:00+00:00",
+    ]
+    assert {item["source"] for item in fills} == {"vision_daily"}
+    assert {item["market"] for item in fills} == {"usds_m"}
+    for item in fills:
+        assert str(item["archive_url"]).endswith(
+            f"{item['symbol']}-1h-{str(item['open_time'])[:10]}.zip"
+        )
+        assert "/futures/um/daily/klines/" in str(item["archive_url"])
+        assert len(str(item["archive_sha256"])) == 64
+    # only the daily archives of the holes were requested (plus their checksums)
+    assert fetcher.requested and all("/daily/" in url for url in fetcher.requested)
+    # the 4h bar [16:00, 20:00) mixes two archive-filled hours with two primary rows
+    day = [
+        _kline(r)
+        for r in kline_csv_rows(
+            "BTCUSDT",
+            _ms(datetime(2021, 12, 30, tzinfo=UTC)),
+            _ms(datetime(2021, 12, 31, tzinfo=UTC)),
+        )
+    ]
+    primary = [_kline(r) for r in kline_csv_rows("BTCUSDT", _ms(START), _ms(END))]
+    bar = dataset.timestamps == np.datetime64("2021-12-30T20:00:00", "ns")
+    expected_high = max(
+        float(day[16].high),
+        float(day[17].high),
+        float(primary[42].high),
+        float(primary[43].high),
+    )
+    assert dataset.high[bar][0, 1] == expected_high
+    assert dataset.open[bar][0, 1] == float(day[16].open)
+    assert dataset.n_bars == 36
+    assert np.asarray(dataset.tradable)[:, 1::2].all()  # no perp bar is masked
+    # deterministic
+    again, _ = _daily_fallback(hole)
+    assert _load(again, halt_intervals=(HALT,)).dataset_id == dataset.dataset_id
+    assert again.fills() == fills
+
+
+def test_daily_fallback_never_overrides_present_rows_or_halt_explained_hours() -> None:
+    source, fetcher = _daily_fallback(frozenset())
+    clean = _load(FakeRows(), halt_intervals=())
+    same = _load(source, halt_intervals=())
+    assert same.dataset_id == clean.dataset_id
+    assert source.fills() == [] and fetcher.requested == []
+
+    halted, fetcher = _daily_fallback(frozenset())
+    halted._primary.spot_missing = _halt_skips()  # type: ignore[attr-defined]
+    _load(halted, halt_intervals=(HALT,))
+    assert halted.fills() == [] and fetcher.requested == []  # a halt is not a hole
+
+
+def test_an_unpublished_daily_archive_leaves_the_hole_and_the_load_refuses() -> None:
+    hole = frozenset({_ms(START) + 40 * HOUR_MS})
+    day = "BTCUSDT-1h-2021-12-30.zip"
+    source, _ = _daily_fallback(
+        hole,
+        unpublished=frozenset(
+            f"https://data.binance.vision/data/futures/um/daily/klines/{s}/1h/{s}-1h-2021-12-30.zip"
+            for s in protocol.ROSTER
+        ),
+    )
+    assert day
+    with pytest.raises(CarryCoverageError, match="missing hourly"):
+        _load(source, halt_intervals=(HALT,))
+    assert source.fills() == []
+
+
+def test_a_corrupt_daily_archive_is_an_integrity_halt() -> None:
+    from tests.integrations.market_store.support import FakeFetcher, archive_bytes
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+    from trade_rl.integrations.market_store.carry_source import VisionArchiveSource
+
+    fetcher = FakeFetcher()
+
+    def daily(plan: Any) -> Any:
+        for spec in plan.specs:
+            fetcher.add(spec.url, archive_bytes(spec), checksum=b"0" * 64 + b"  x\n")
+        return VisionArchiveSource(fetcher, plan)
+
+    hole = frozenset({_ms(START) + 40 * HOUR_MS})
+    source = driver.DailyFallbackSource(FakeRows(perp_missing=hole), daily)
+    with pytest.raises(CarryIntegrityHalt):
+        _load(source, halt_intervals=())
+
+
+def test_fallback_provenance_reaches_the_receipt_and_the_cli_flag_needs_an_archive_dir(
+    tmp_path: Path,
+) -> None:
+    hole = frozenset({_ms(START) + 40 * HOUR_MS})
+    source, _ = _daily_fallback(hole)
+    argv = [*_cli_files(tmp_path), "--daily-fallback"]
+    code, out, err = _main(["dry-check", *argv], source=source)  # type: ignore[arg-type]
+    assert code == driver.EXIT_OK, err
+    receipt = json.loads(out)["receipt"]["daily_fallback"]
+    assert receipt["enabled"] is True and receipt["filled_hours"] == 11
+    assert receipt["forward_fill"] is False and receipt["rest_fallback"] is False
+    assert len(receipt["fills_digest"]) == 64
+
+    # without an injected source the flag is refused unless an archive dir is given
+    out_s, err_s = io.StringIO(), io.StringIO()
+    code = driver.main(
+        ["dry-check", *argv],
+        stdout=out_s,
+        stderr=err_s,
+        state=lambda: ("a" * 40, True),
+        load_end=END,
+    )
+    assert code == driver.EXIT_REFUSED and "--archive-dir" in err_s.getvalue()

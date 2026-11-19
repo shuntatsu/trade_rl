@@ -403,6 +403,11 @@ def assemble_tierd_dataset(
         spread_rate=zero,
         lot_size=np.broadcast_to(np.asarray(lot, dtype=np.float64), shape),
         minimum_notional=np.broadcast_to(np.asarray(minimum, dtype=np.float64), shape),
+        # spot legs are not borrowable (no spot shorts; the engine enforces it, the
+        # policy already clips spot to >= 0); perpetuals short natively
+        borrow_available=np.broadcast_to(
+            np.tile(np.asarray([False, True]), len(roster)), shape
+        ),
         contract_multipliers=np.ones(n_legs, dtype=np.float64),
         mark_price=close,
     )
@@ -424,7 +429,7 @@ def assemble_tierd_dataset(
             "halted_bar_marks": "preceding_published_close_non_tradable_zero_volume",
             "dataset_costs": "zero_scenario_costs_additive_in_ExecutionCostConfig",
             "rules_assumption": "static_exchange_rule_snapshot_not_point_in_time",
-            "borrow_assumption": "dataset_default_borrowable_zero_rate",
+            "borrow_assumption": "spot_not_borrowable_perp_native_short_zero_borrow_rate",
             "mark_price_limitation": "bar_close_proxy",
             "production_eligible": False,
         }

@@ -82,7 +82,17 @@ def _cash_interest_amount(
         raise ValueError("annual_rate must be finite")
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
-    return float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(cash_basis):
+        raise ValueError("cash basis must be finite")
+    # An identity leg must not evaluate a potentially overflowing other leg.
+    if cash_basis == 0.0 or annual_rate == 0.0 or year_fraction == 0.0:
+        return 0.0
+    amount = float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(amount):
+        raise ValueError("cash interest amount became non-finite")
+    if amount == 0.0:
+        raise ValueError("nonzero cash interest amount cannot be represented")
+    return amount
 
 
 def _require_representable_position_values(
@@ -494,8 +504,18 @@ class BookState:
             raise ValueError("dividend_per_unit must match the book")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        with np.errstate(over="ignore", invalid="ignore"):
-            amount = float(np.dot(self.quantities * multipliers, dividend))
+        active = (self.quantities != 0.0) & (dividend != 0.0)
+        # A true-zero dividend leg is an identity, even when its unrelated
+        # quantity * multiplier intermediate would overflow.
+        dividend_basis = np.zeros(self.quantities.shape, dtype=np.float64)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            dividend_basis[active] = self.quantities[active] * multipliers[active]
+            contributions = dividend_basis * dividend
+            amount = float(np.dot(dividend_basis, dividend))
+        if not np.isfinite(contributions).all() or not math.isfinite(amount):
+            raise ValueError("dividend amount became non-finite")
+        if np.any(active & (contributions == 0.0)):
+            raise ValueError("nonzero dividend amount cannot be represented")
         cash_after = self.cash + amount
         _require_finite_post_update_equity(
             cash=cash_after,

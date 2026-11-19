@@ -2371,13 +2371,15 @@ def _preflight_receipt_pair_objects(
                     raise ValueError(
                         "failure receipt pair scalar field must not be a JSON container"
                     )
-                if pair_value_kind == "object" and char == 0x5B:
+                # Null retains legacy preflight field-set/duplicate diagnostics;
+                # the strict post-decode validator still rejects its wrong type.
+                if pair_value_kind == "object" and char not in (0x7B, 0x6E):
                     raise ValueError(
-                        "failure receipt pair object field must not be a JSON array"
+                        "failure receipt pair object field must be a JSON object"
                     )
-                if pair_value_kind == "array" and char == 0x7B:
+                if pair_value_kind == "array" and char not in (0x5B, 0x6E):
                     raise ValueError(
-                        "failure receipt pair array field must not be a JSON object"
+                        "failure receipt pair array field must be a JSON array"
                     )
                 pair_value_state = None
         # Remember the root count token without copying potentially huge bytes.

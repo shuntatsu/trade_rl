@@ -56,4 +56,3 @@ def test_failed_directory_publish_keeps_unrelated_substituted_staging(
         "cleanup must not delete an unrelated stage replacement"
     )
     assert (substituted[0] / "unrelated-keep.txt").read_text(encoding="utf-8") == "KEEP"
-

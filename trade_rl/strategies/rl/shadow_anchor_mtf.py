@@ -520,6 +520,8 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
         self._anc_eq = 1.0
         self._anc_eq0 = 1.0
         self._anc_prev_legs = np.zeros(len(self._expected_symbols), dtype=np.float64)
+        # Pre-risk target of the most recent rebalance bar (sent or deadband-held).
+        self._intended_target: tuple[float, ...] | None = None
 
     @property
     def config(self) -> ShadowAnchorMtfConfig:
@@ -701,12 +703,19 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
         step_offset = snapshot.index - self._config.start_index
 
         if step_offset % self._config.rebalance_every_bars != 0:
+            if drawdown_breached and self._intended_target is not None:
+                # Re-propose the cached *pre-risk* target. The account weights are
+                # already risk-scaled; feeding them back through PreTradeRisk would
+                # multiply risk_scale in again on every bar (geometric deleveraging
+                # followed by a snap back at the next rebalance).
+                return PortfolioTargetProposal(target_weights=self._intended_target)
             return PortfolioTargetProposal(
                 target_weights=snapshot.account.weights,
-                hold_current_quantity_symbols=() if drawdown_breached else all_holds,
+                hold_current_quantity_symbols=all_holds,
             )
 
         proposed = self._compute_rebalance_weights(k, snapshot)
+        self._intended_target = tuple(float(w) for w in proposed)
         l1_diff = sum(
             abs(target - current)
             for target, current in zip(proposed, snapshot.account.weights, strict=True)

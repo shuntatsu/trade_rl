@@ -19,6 +19,10 @@ class InvalidExperimentStateError(ControlledExperimentError, RuntimeError):
     """A lifecycle operation is not valid for the reconstructed Study state."""
 
 
+class PublishedArtifactCleanupError(InvalidExperimentStateError):
+    """Publication committed, but private staging cleanup failed; never retry."""
+
+
 class UncontrolledDeltaError(ControlledExperimentError, ValueError):
     """Resolved evidence contains an undeclared or otherwise invalid delta."""
 
@@ -37,6 +41,7 @@ __all__ = [
     "ControlledExperimentError",
     "ExperimentBudgetExceededError",
     "InvalidExperimentStateError",
+    "PublishedArtifactCleanupError",
     "StudyFrozenError",
     "UncontrolledDeltaError",
 ]

@@ -95,6 +95,11 @@ class ConflictError(IngestError):
         )
 
 
+#: Status of a response larger than the fetcher's byte bound: nothing was accepted,
+#: and retrying the same URL cannot help, but the failure says nothing about the data.
+RESPONSE_TOO_LARGE_STATUS = -2
+
+
 @dataclass(frozen=True, slots=True)
 class FetchResult:
     status: int
@@ -491,6 +496,7 @@ __all__ = [
     "IngestError",
     "IngestReport",
     "IngestStore",
+    "RESPONSE_TOO_LARGE_STATUS",
     "RunCounts",
     "SourceRecord",
     "diff_rows",

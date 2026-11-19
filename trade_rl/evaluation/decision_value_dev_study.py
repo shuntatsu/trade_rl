@@ -2233,15 +2233,23 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 raise ValueError("failure receipt JSON is malformed")
 
 
-def _preflight_receipt_pair_objects(raw: bytes) -> None:
+def _preflight_receipt_pair_objects(
+    raw: bytes, *, expected_max_ineligible_pairs: int | None = None
+) -> None:
     """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
     The canonical v2/v3 writer emits only fixed ASCII root field names. Refuse
     unknown or escaped root member names (including Unicode aliases for pairs)
     before JSON decoding. Direct pair-object field names use a fixed ASCII
     schema; refuse aliases and unknown names before broad allocations.
-    This bounded-depth lexical scan is not a JSON parser or pair cap:
-    the existing parser, canonicalizer, and validators remain authoritative.
+    Require every direct pair object to name each mandatory field exactly once
+    before decoding; names in nested content do not satisfy that requirement.
+    Also compare the root-declared count to direct pair objects before decoding.
+    Without an externally verified positive limit this lexical scan does not
+    impose a new pair-count cap on historical v2/v3 receipts. If the caller
+    supplies a limit from a separately verified frozen block specification,
+    reject excess direct pairs before allocating the decoded JSON array.
+    The existing parser, canonicalizer, and validators remain authoritative.
     """
     allowed_root_keys = tuple(name.encode("ascii") for name in _INCOMPLETE_RECEIPT_KEYS)
     max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
@@ -2250,19 +2258,46 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
         for name in (*_PAIR_KEYS, "reference_vintage", _QUARANTINE_FIELD)
     )
     max_pair_key_bytes = max(map(len, allowed_pair_keys))
+    required_pair_keys = frozenset(name.encode("ascii") for name in _PAIR_KEYS)
+    # These fields are scalars in both canonical v2 and v3 receipts. A JSON
+    # container here would be rejected by the shared validator after parsing;
+    # reject it before it can expand into a large list/dict in memory.
+    scalar_pair_keys = frozenset(
+        name.encode("ascii")
+        for name in _PAIR_KEYS
+        - {"baseline", "candidate", "candidate_action", "reason_codes"}
+    )
+    array_pair_keys = frozenset({b"candidate_action", b"reason_codes"})
+    # Every remaining non-scalar pair field is a JSON object in v2 and v3.
+    # The strict validator still owns primitive and nested schema validation.
+    if expected_max_ineligible_pairs is not None and (
+        type(expected_max_ineligible_pairs) is not int
+        or expected_max_ineligible_pairs <= 0
+    ):
+        raise ValueError(
+            "expected_max_ineligible_pairs must be a positive native integer"
+        )
     stack = [0x7B]  # The caller has already checked the root opening brace.
     in_string = False
     escaped = False
     root_key_start: int | None = None
     pair_key_start: int | None = None
     root_key_is_pairs = False
+    root_key_is_count = False
+    count_start: int | None = None
+    count_span: tuple[int, int] | None = None
+    actual_pair_count = 0
     want_root_key = True
     want_colon = False
     want_value = False
     seen_pairs = False
+    seen_root_keys: set[bytes] = set()
     pairs_depth: int | None = None
     want_pair = False
     want_pair_key = False
+    direct_pair_fields: set[bytes] = set()
+    pair_value_state: str | None = None
+    pair_value_kind: str | None = None
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2292,9 +2327,14 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         for name in allowed_root_keys
                     ):
                         raise ValueError("failure receipt fields are malformed")
-                    root_key_is_pairs = key_bytes == 5 and raw.startswith(
-                        b"pairs", root_key_start, offset
-                    )
+                    direct_root_key = raw[root_key_start:offset]
+                    if direct_root_key in seen_root_keys:
+                        if direct_root_key == b"pairs":
+                            raise ValueError("failure receipt pairs key is duplicated")
+                        raise ValueError("failure receipt root key is duplicated")
+                    seen_root_keys.add(direct_root_key)
+                    root_key_is_pairs = direct_root_key == b"pairs"
+                    root_key_is_count = direct_root_key == b"ineligible_pairs"
                     root_key_start = None
                     want_root_key = False
                     want_colon = True
@@ -2306,11 +2346,46 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                         for name in allowed_pair_keys
                     ):
                         raise ValueError("failure receipt pair field is not recognised")
+                    direct_key = raw[pair_key_start:offset]
+                    if direct_key in direct_pair_fields:
+                        raise ValueError("failure receipt pair key is duplicated")
+                    direct_pair_fields.add(direct_key)
+                    pair_value_kind = (
+                        "scalar"
+                        if direct_key in scalar_pair_keys
+                        else "array"
+                        if direct_key in array_pair_keys
+                        else "object"
+                    )
+                    pair_value_state = "colon"
                     pair_key_start = None
                     want_pair_key = False
             continue
         if char in b" \t\r\n":
             continue
+        if pairs_depth is not None and len(stack) == pairs_depth + 1:
+            if pair_value_state == "colon" and char == 0x3A:
+                pair_value_state = "value"
+            elif pair_value_state == "value":
+                if pair_value_kind == "scalar" and char in (0x7B, 0x5B):
+                    raise ValueError(
+                        "failure receipt pair scalar field must not be a JSON container"
+                    )
+                # Null retains legacy preflight field-set/duplicate diagnostics;
+                # the strict post-decode validator still rejects its wrong type.
+                if pair_value_kind == "object" and char not in (0x7B, 0x6E):
+                    raise ValueError(
+                        "failure receipt pair object field must be a JSON object"
+                    )
+                if pair_value_kind == "array" and char not in (0x5B, 0x6E):
+                    raise ValueError(
+                        "failure receipt pair array field must be a JSON array"
+                    )
+                pair_value_state = None
+        # Remember the root count token without copying potentially huge bytes.
+        if len(stack) == 1 and count_start is not None and char in (0x2C, 0x7D):
+            count_span = (count_start, offset)
+            count_start = None
         if len(stack) == 1:
             if want_colon:
                 if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
@@ -2320,18 +2395,35 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
                 continue
             if want_value:
                 want_value = False
+                if root_key_is_count:
+                    count_start = offset
                 if root_key_is_pairs:
                     if seen_pairs:
                         raise ValueError("failure receipt pairs key is duplicated")
                     seen_pairs = True
-                    if char == 0x5B:  # [
-                        pairs_depth = len(stack) + 1
-                        want_pair = True
+                    if char != 0x5B:  # [
+                        raise ValueError("failure receipt pairs must be a JSON array")
+                    pairs_depth = len(stack) + 1
+                    want_pair = True
+                elif char in (0x7B, 0x5B):
+                    raise ValueError(
+                        "failure receipt root scalar field must not be a JSON container"
+                    )
                 root_key_is_pairs = False
+                root_key_is_count = False
         if pairs_depth is not None and len(stack) == pairs_depth:
             if want_pair and char not in (0x7B, 0x5D):  # { or ]
                 raise ValueError("failure receipt pairs must contain JSON objects")
             if char == 0x7B:
+                actual_pair_count += 1
+                if (
+                    expected_max_ineligible_pairs is not None
+                    and actual_pair_count > expected_max_ineligible_pairs
+                ):
+                    raise ValueError(
+                        "failure receipt exceeds externally verified pair limit"
+                    )
+                direct_pair_fields.clear()
                 want_pair = False
                 want_pair_key = True
             elif char == 0x2C:
@@ -2349,6 +2441,16 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
         elif char in (0x7B, 0x5B):
             stack.append(char)
         elif char in (0x7D, 0x5D):
+            # Only a direct pair object closing here is checked. Nested
+            # endpoint/quarantine/reference_vintage keys are not pair keys.
+            if (
+                char == 0x7D
+                and pairs_depth is not None
+                and len(stack) == pairs_depth + 1
+                and stack[-1] == 0x7B
+                and not required_pair_keys.issubset(direct_pair_fields)
+            ):
+                raise ValueError("failure receipt pair fields are malformed")
             if stack:
                 stack.pop()
             if pairs_depth is not None and len(stack) < pairs_depth:
@@ -2359,9 +2461,25 @@ def _preflight_receipt_pair_objects(raw: bytes) -> None:
             elif pairs_depth is not None and len(stack) == pairs_depth + 1:
                 want_pair_key = True
 
+    # Detect a forged count before json.loads expands a wide pair array.
+    # This is a consistency check, not an arbitrary cap on historical v2/v3
+    # receipts; the strict decoder still validates the full record and digest.
+    if count_span is not None and seen_pairs:
+        start, end = count_span
+        while start < end and raw[start] in b" \t\r\n":
+            start += 1
+        while end > start and raw[end - 1] in b" \t\r\n":
+            end -= 1
+        expected = str(actual_pair_count).encode("ascii")
+        if end - start != len(expected) or not raw.startswith(expected, start):
+            raise ValueError("failure receipt pair count mismatch")
+
 
 def _decode_incomplete_receipt(
-    raw: bytes, *, expected_receipt_digest: str | None = None
+    raw: bytes,
+    *,
+    expected_receipt_digest: str | None = None,
+    expected_max_ineligible_pairs: int | None = None,
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
     _preflight_receipt_json_depth(raw)
@@ -2369,7 +2487,9 @@ def _decode_incomplete_receipt(
     # and other non-objects before the JSON decoder can allocate their elements.
     if not raw.startswith(b"{"):
         raise ValueError("failure receipt must contain a JSON object")
-    _preflight_receipt_pair_objects(raw)
+    _preflight_receipt_pair_objects(
+        raw, expected_max_ineligible_pairs=expected_max_ineligible_pairs
+    )
     try:
         loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
@@ -2418,6 +2538,11 @@ def _decode_incomplete_receipt(
         pairs
     ):
         raise ValueError("failure receipt pair count mismatch")
+    if (
+        expected_max_ineligible_pairs is not None
+        and len(pairs) > expected_max_ineligible_pairs
+    ):
+        raise ValueError("failure receipt exceeds externally verified pair limit")
     for pair in pairs:
         _validate_incomplete_pair_record(pair, allow_sentinel=allow_sentinel)
     if loaded["pairs_digest"] != content_digest(pairs):
@@ -2439,6 +2564,7 @@ def load_incomplete_pair_attempt(
     *,
     expected_receipt_digest: str | None = None,
     max_receipt_bytes: int = _DEFAULT_INCOMPLETE_RECEIPT_BYTES,
+    expected_max_ineligible_pairs: int | None = None,
 ) -> dict[str, object]:
     """Strictly reload a TD8 failure receipt; reject any tampering.
 
@@ -2456,6 +2582,12 @@ def load_incomplete_pair_attempt(
     An explicitly pinned trusted digest is required to request a larger finite
     budget, up to 512 MiB. Reading a larger file never falls back to an
     unbounded allocation, and changed regular-file metadata fails closed.
+
+    A caller may additionally supply a positive native integer ceiling derived
+    from an independently verified frozen block and action roster. When given,
+    excess direct pair objects are rejected before json.loads. The default None
+    retains historical v2/v3 acceptance; the ceiling is not self-authenticating
+    and does not prove an aggregate memory bound or research authorization.
     """
     if (
         type(max_receipt_bytes) is not int
@@ -2469,6 +2601,13 @@ def load_incomplete_pair_attempt(
         raise ValueError("larger receipt byte budget requires a pinned digest")
     if expected_receipt_digest is not None:
         require_sha256(expected_receipt_digest, field="expected_receipt_digest")
+    if expected_max_ineligible_pairs is not None and (
+        type(expected_max_ineligible_pairs) is not int
+        or expected_max_ineligible_pairs <= 0
+    ):
+        raise ValueError(
+            "expected_max_ineligible_pairs must be a positive native integer"
+        )
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
@@ -2511,7 +2650,9 @@ def load_incomplete_pair_attempt(
         if len(raw) != before.st_size or before_identity != after_identity:
             raise ValueError("failure receipt changed during read")
     return _decode_incomplete_receipt(
-        raw, expected_receipt_digest=expected_receipt_digest
+        raw,
+        expected_receipt_digest=expected_receipt_digest,
+        expected_max_ineligible_pairs=expected_max_ineligible_pairs,
     )
 
 

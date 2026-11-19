@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "c8c475ffd07e160d9abeb1561893820aba936dcad9478ad75e2630325e7809cd"
+      "sha256": "d0cf3c36a83e9d210a68530e6ddda9a4df8011dd10c358e5ba0844e0c87a1f95"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -238,12 +238,13 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "3f99b7c44bbd6f7fea6071d13927c3b7e0aeea5a7f56438ee2ebfac3331502e6",
+      "source_sha256": "f4016be58cdf53a1305180762e9ee1376aa8019df4fb37517b74d306af9bb68a",
       "label_ja": "約定・会計の所有者",
-      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。",
       "variables": [],
       "tests": [
-        "tests/simulation/test_execution_v2.py"
+        "tests/simulation/test_execution_v2.py",
+        "tests/simulation/test_execution_cost_representability.py"
       ]
     },
     {

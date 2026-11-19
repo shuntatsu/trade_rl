@@ -68,6 +68,36 @@ def test_config_rejects_invalid_values(kwargs: dict[str, object], message: str) 
         PerfectInformationBoundConfig(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("transaction_cost_rate", 10**500),
+        ("liquidation_cost_rate", -(10**500)),
+        ("max_abs_weight", 10**500),
+        ("max_gross", 10**500),
+        ("max_net_exposure", 10**500),
+        ("initial_weights", (10**500,)),
+        ("minimum_period_net_return", -(10**500)),
+        ("feasibility_tolerance", 10**500),
+        ("lexicographic_objective_tolerance", -(10**500)),
+    ],
+)
+def test_oversized_integer_constraints_fail_with_typed_validation(
+    field: str, value: object
+) -> None:
+    """An unrepresentable numeric input is invalid, not an uncaught OverflowError."""
+    with pytest.raises(ValueError, match=field):
+        PerfectInformationBoundConfig(n_assets=1, **{field: value})
+
+
+def test_representable_large_integer_retains_canonical_config_identity() -> None:
+    """Accept finite, representable ints and keep their float/digest identity."""
+    integer = PerfectInformationBoundConfig(n_assets=1, max_gross=10**308)
+    floating = PerfectInformationBoundConfig(n_assets=1, max_gross=1e308)
+    assert integer.max_gross == floating.max_gross
+    assert integer.digest == floating.digest
+
+
 def test_config_rejects_initial_weights_outside_constraints() -> None:
     with pytest.raises(ValueError, match="initial_weights"):
         PerfectInformationBoundConfig(

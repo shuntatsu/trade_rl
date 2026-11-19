@@ -132,6 +132,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up runner Python 3.12
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
@@ -340,7 +341,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16.15-bookworm
+        image: postgres:16.16-bookworm
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-only-throwaway-service-container

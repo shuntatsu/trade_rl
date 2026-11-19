@@ -69,10 +69,33 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set up trusted runner Python 3.12
+      - name: Refuse previous checkpoint workflow lineage
+        env:
+          CHECKPOINT_CODE_SHA: ${{ inputs.code_sha }}
+        run: |
+          if [[ ! "$CHECKPOINT_CODE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ "$(git rev-parse HEAD)" != "$CHECKPOINT_CODE_SHA" ]]; then
+            echo "Checkpoint checkout does not match the immutable input."
+            exit 1
+          fi
+          if ! grep -Fxq '          python-version: "3.12.16"' .github/workflows/ppo-feature-checkpoint.yml; then
+            echo "checkout workflow does not contain 3.12.16; previous lineage is not resumable"
+            exit 1
+          fi
+
+      - name: Require Python 3.12.16 in runner toolcache
+        run: |
+          cached_python="${RUNNER_TOOL_CACHE:?}/Python/3.12.16/x64/bin/python"
+          if [[ ! -x "$cached_python" ]]; then
+            echo "Pinned Python 3.12.16 is unavailable in the trusted runner toolcache."
+            exit 1
+          fi
+          "$cached_python" -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+
+      - name: Set up trusted runner Python 3.12.16
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
-          python-version: "3.12"
+          python-version: "3.12.16"
           check-latest: false
 
       - name: Install pinned uv
@@ -81,8 +104,17 @@ jobs:
           version: "0.10.0"
           enable-cache: false
 
+      - name: Verify exact checkpoint Python/uv environment
+        run: |
+          python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+          uv --version | grep -Fx 'uv 0.10.0'
+
       - name: Install frozen PPO runtime
         run: uv sync --locked --extra train-sb3
+
+      - name: Verify frozen environment Python identity
+        run: |
+          uv run --no-sync python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
 
       - name: Run bounded checkpoint transport
         id: transport

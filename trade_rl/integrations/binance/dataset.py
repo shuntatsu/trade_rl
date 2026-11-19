@@ -22,9 +22,16 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.integrations.binance.derived_klines import (
+    BaseIntervalAggregatingTransport,
+)
 from trade_rl.integrations.binance.metadata import (
     BinanceInstrumentMetadata,
     _metadata_from_exchange_info,
+)
+from trade_rl.integrations.binance.source_clock import (
+    BinanceSourceClosePolicy,
+    _check_source_close_time,
 )
 from trade_rl.integrations.binance.transport import BinancePublicTransport
 from trade_rl.integrations.binance.types import (
@@ -46,13 +53,19 @@ from trade_rl.integrations.binance.vision import (
 class BinanceGapPolicy(StrEnum):
     """How a kline range with missing bars is admitted.
 
-    ``STRICT`` (the default everywhere) rejects any missing or irregular bar.
-    ``NON_TRADABLE_ROWS`` is an explicit, opt-in policy for development data
-    with known archive holes:
+    ``STRICT`` is the default for direct ``BinanceMarketDataSource`` and
+    ``build_binance_market_dataset`` calls. It rejects missing bars anywhere
+    in the requested range, including its first and last closed intervals.
+    ``NON_TRADABLE_ROWS`` is the alternative for known archive holes;
+    ``export_market_dataset`` and the market-store export CLI select this
+    alternative by default, while direct Binance callers must opt in:
 
-    * a missing bar on the base clock is simply absent from that symbol's raw
-      series, so the builder materializes it as a ``row_present=False``,
-      non-tradable row with forward-filled marks;
+    * a missing bar on the base clock is absent from that symbol's raw
+      series. Within the shared observed first-to-last range, the builder
+      materializes a ``row_present=False``, non-tradable row with a carried
+      numeric mark even when every symbol misses an interior bar. At the
+      requested final boundary at least one symbol must have a published
+      bar or the Binance builder refuses the truncated range;
     * a missing bar on a higher native clock keeps the regular native grid with
       a price-carried zero-volume placeholder whose ``available_at`` is the end
       of the requested range, so every recursive/rolling feature that touches
@@ -79,7 +92,10 @@ def _parse_kline_rows(
     interval_ms: int,
     start_ms: int,
     end_ms: int,
+    source_close_policy: BinanceSourceClosePolicy
+    | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
 ) -> tuple[np.ndarray, ...]:
+    resolved_close_policy = BinanceSourceClosePolicy(source_close_policy)
     parsed: list[tuple[int, float, float, float, float, float]] = []
     for row in rows:
         if len(row) < 8:
@@ -90,6 +106,12 @@ def _parse_kline_rows(
         close_ms = open_ms + interval_ms
         if close_ms > end_ms:
             continue
+        _check_source_close_time(
+            row,
+            open_ms=open_ms,
+            interval_ms=interval_ms,
+            source_close_policy=resolved_close_policy,
+        )
         open_price = _finite_float(row[1], field="open")
         high = _finite_float(row[2], field="high")
         low = _finite_float(row[3], field="low")
@@ -103,6 +125,8 @@ def _parse_kline_rows(
         raise ValueError("Binance kline timestamps must be strictly increasing")
     if np.any(np.diff(timestamps) != interval_ms):
         raise ValueError("Binance kline range must be complete and exactly regular")
+    if timestamps[0] != start_ms + interval_ms or timestamps[-1] != end_ms:
+        raise ValueError("Binance kline range does not cover requested boundaries")
     return (
         timestamps.astype("datetime64[ms]").astype("datetime64[ns]"),
         np.asarray([item[1] for item in parsed], dtype=np.float64),
@@ -154,9 +178,12 @@ def _gap_tolerant_series(
     is_base_clock: bool,
     events: Sequence[tuple[int, float]],
     range_end: np.datetime64,
+    source_close_policy: BinanceSourceClosePolicy
+    | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
 ) -> tuple[RawMarketSeries, dict[str, int]]:
     """Build one series under :attr:`BinanceGapPolicy.NON_TRADABLE_ROWS`."""
 
+    resolved_close_policy = BinanceSourceClosePolicy(source_close_policy)
     parsed: dict[int, tuple[float, float, float, float, float]] = {}
     for row in rows:
         if len(row) < 8:
@@ -164,6 +191,12 @@ def _gap_tolerant_series(
         open_ms = _normalize_epoch_ms(row[0])
         if not start_ms <= open_ms < end_ms or open_ms + interval_ms > end_ms:
             continue
+        _check_source_close_time(
+            row,
+            open_ms=open_ms,
+            interval_ms=interval_ms,
+            source_close_policy=resolved_close_policy,
+        )
         if open_ms in parsed:
             raise ValueError(f"duplicate Binance kline {symbol} {open_ms}")
         parsed[open_ms] = (
@@ -234,8 +267,11 @@ class BinanceMarketDataSource(MarketDataSource):
         transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
         transport: Any | None = None,
         gap_policy: BinanceGapPolicy | str = BinanceGapPolicy.STRICT,
+        source_close_policy: BinanceSourceClosePolicy
+        | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
     ) -> None:
         self.market = _market(market)
+        self._source_close_policy = BinanceSourceClosePolicy(source_close_policy)
         self.gap_policy = BinanceGapPolicy(gap_policy)
         self.gap_report: dict[str, dict[str, int]] = {}
         self.interval = interval
@@ -253,6 +289,12 @@ class BinanceMarketDataSource(MarketDataSource):
         self._sources_used: set[str] = set()
         self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
         self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
+
+    @property
+    def source_close_policy(self) -> BinanceSourceClosePolicy:
+        # Admission policy also scopes the series cache and Dataset identity.
+        # Changing it after a load must not reuse cached legacy evidence as v2.
+        return self._source_close_policy
 
     @property
     def sources_used(self) -> tuple[str, ...]:
@@ -295,6 +337,45 @@ class BinanceMarketDataSource(MarketDataSource):
             raise ValueError(
                 f"Binance range boundaries must align to native timeframe {timeframe}"
             )
+        if self.source_close_policy is BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2:
+            # Returned higher-timeframe close fields alone cannot prove that
+            # the raw components were checked before any aggregation.
+            # The aggregator's own base interval (not this source's nominal
+            # interval) determines whether the returned rows are derived.
+            # Only the exact maintained class is trusted: a subclass can
+            # override load_klines without validating the original 1h rows.
+            if type(self.transport) is BaseIntervalAggregatingTransport:
+                # The maintained aggregator can validate only the raw rows
+                # it actually fetched. If its own base is already 4h/1d,
+                # an opaque inner transport could have synthesized that bar
+                # from unchecked lower-timeframe values. Require the exact
+                # native Binance transport for non-1h raw base acquisition.
+                if (
+                    self.transport.base_interval != "1h"
+                    and type(self.transport._klines) is not BinancePublicTransport
+                ):
+                    raise ValueError(
+                        "aggregate transport must verify native base source close_time"
+                    )
+                if (
+                    timeframe != self.transport.base_interval
+                    and self.transport.source_close_policy
+                    is not BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
+                ):
+                    raise ValueError(
+                        "aggregate transport must validate base source close_time"
+                    )
+            elif (
+                interval_ms != _interval_ms("1h")
+                and type(self.transport) is not BinancePublicTransport
+            ):
+                # Synthetic/direct 1h input remains useful for admission
+                # tests. Outside that fixed raw baseline an arbitrary
+                # transport may have synthesized a plausible source clock;
+                # the nominal source.interval does not establish provenance.
+                raise ValueError(
+                    "strict source close v2 requires verified higher-timeframe transport"
+                )
         key = (symbol, timeframe)
         cached = self._series_cache.get(key)
         if cached is not None:
@@ -321,6 +402,7 @@ class BinanceMarketDataSource(MarketDataSource):
                     self.end_time.replace(tzinfo=None),
                     "ns",
                 ),
+                source_close_policy=self.source_close_policy,
             )
             self.gap_report[f"{symbol}:{timeframe}"] = report
             self._series_cache[key] = gap_series
@@ -330,6 +412,7 @@ class BinanceMarketDataSource(MarketDataSource):
             interval_ms=interval_ms,
             start_ms=start_ms,
             end_ms=end_ms,
+            source_close_policy=self.source_close_policy,
         )
         funding, funding_available, funding_event_count = _align_funding(
             timestamps,
@@ -688,10 +771,26 @@ def build_binance_market_dataset(
     metadata_evidence: Mapping[str, object] | None = None,
     execution_economics: ExecutionEconomicsProfile | None = None,
     gap_policy: BinanceGapPolicy | str = BinanceGapPolicy.STRICT,
+    source_close_policy: BinanceSourceClosePolicy
+    | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
     resolved_market = _market(market)
+    resolved_close_policy = BinanceSourceClosePolicy(source_close_policy)
+    if (
+        metadata_evidence is not None
+        and "binance_source_close_policy" in metadata_evidence
+        and metadata_evidence["binance_source_close_policy"]
+        != resolved_close_policy.value
+    ):
+        raise ValueError("source close policy conflicts with metadata evidence")
+    identity_metadata: Mapping[str, object] | None = metadata_evidence
+    if resolved_close_policy is BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2:
+        identity_metadata = {
+            **(metadata_evidence or {}),
+            "binance_source_close_policy": resolved_close_policy.value,
+        }
     if resolved_market is BinanceMarket.COIN_M:
         raise BinanceUnsupportedContractError(
             "Binance COIN-M uses inverse contract value and PnL; the current linear "
@@ -821,6 +920,7 @@ def build_binance_market_dataset(
         transport_mode=resolved_mode,
         transport=client,
         gap_policy=gap_policy,
+        source_close_policy=resolved_close_policy,
     )
     dataset = MarketDatasetBuilder(
         MarketBuildConfig(
@@ -835,9 +935,21 @@ def build_binance_market_dataset(
     ).build(
         source,
         tuple(item.to_contract() for item in metadata),
-        identity_provenance=metadata_evidence,
+        identity_provenance=identity_metadata,
         execution_economics=execution_economics,
     )
+    # The generic builder resolves its clock from observed symbol rows. With
+    # NON_TRADABLE_ROWS, a missing final bar for every symbol would otherwise
+    # silently shorten the requested Dataset instead of preserving a gap.
+    expected_first = np.datetime64(
+        _epoch_ms(source.start_time) + source.interval_ms, "ms"
+    )
+    expected_last = np.datetime64(_epoch_ms(source.end_time), "ms")
+    if (
+        dataset.timestamps[0] != expected_first
+        or dataset.timestamps[-1] != expected_last
+    ):
+        raise ValueError("Binance dataset does not cover requested boundaries")
     sources = set(source.sources_used)
     if metadata_source is not None:
         sources.add(metadata_source)

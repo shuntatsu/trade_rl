@@ -77,7 +77,12 @@ def _require_metric_number(metrics: Mapping[str, object], field: str) -> float:
     value = metrics.get(field)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ArtifactIntegrityError(f"candidate metric {field} is malformed")
-    resolved = float(value)
+    try:
+        resolved = float(value)
+    except OverflowError as error:
+        raise ArtifactIntegrityError(
+            f"candidate metric {field} is non-finite"
+        ) from error
     if not np.isfinite(resolved):
         raise ArtifactIntegrityError(f"candidate metric {field} is non-finite")
     return resolved

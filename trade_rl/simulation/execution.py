@@ -616,13 +616,30 @@ class MarketExecutor:
         self._rng = np.random.default_rng(resolved)
         self._reset_compatibility_chain()
 
-    def _slippage_rates(self, size: int) -> np.ndarray:
+    def _slippage_rates(
+        self, size: int, *, chargeable_mask: np.ndarray | None = None
+    ) -> np.ndarray:
+        if chargeable_mask is not None and chargeable_mask.shape != (size,):
+            raise ValueError("slippage chargeable mask must match symbols")
         if self.cost.slippage_std == 0.0 or size == 0:
             return np.zeros(size, dtype=np.float64)
-        rates = np.abs(self._rng.normal(0.0, self.cost.slippage_std, size=size))
-        if self.cost.tail_slippage_probability > 0.0:
-            tails = self._rng.random(size) < self.cost.tail_slippage_probability
-            rates[tails] *= self.cost.tail_slippage_multiplier
+        # Retain the unscaled draw so underflow cannot manufacture a free fill.
+        # Standard-normal draws preserve the existing normal RNG stream.
+        normal = self._rng.standard_normal(size)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            rates = np.abs(normal * self.cost.slippage_std)
+            if self.cost.tail_slippage_probability > 0.0:
+                tails = self._rng.random(size) < self.cost.tail_slippage_probability
+                recoverable = tails & (normal != 0.0) & (rates == 0.0)
+                rates[tails] *= self.cost.tail_slippage_multiplier
+                if np.any(recoverable):
+                    rates[recoverable] = np.abs(normal[recoverable]) * (
+                        self.cost.slippage_std * self.cost.tail_slippage_multiplier
+                    )
+        if chargeable_mask is not None and np.any(
+            chargeable_mask & (normal != 0.0) & (rates == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
         return rates
 
     def _round_prices(
@@ -923,39 +940,83 @@ class MarketExecutor:
 
         positive_capacity = capacity_notional > 0.0
         participation = np.zeros_like(capacity_notional)
-        participation[positive_capacity] = (
-            np.abs(filled_notional_vector[positive_capacity])
-            / capacity_notional[positive_capacity]
-        )
-        impact = self.cost.impact_rate * np.sqrt(participation)
-        slippage = self._slippage_rates(len(price_vector))
+        # A nonzero fill / large capacity can round the ratio to float zero.
+        # Handle the NumPy underflow mode without claiming zero economic impact.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            participation[positive_capacity] = (
+                np.abs(filled_notional_vector[positive_capacity])
+                / capacity_notional[positive_capacity]
+            )
+        if (
+            self.cost.impact_rate != 0.0
+            and self.cost.multiplier != 0.0
+            and np.any(
+                positive_capacity
+                & (filled_notional_vector != 0.0)
+                & (participation == 0.0)
+            )
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
         # Forced close bypasses limit resting/price rules and therefore takes
         # liquidity even when the configured ordinary order type is LIMIT.
         takes_liquidity = force_market or self.cost.order_type != "limit"
         spread_multiplier = 1.0 if takes_liquidity else 0.5
-        venue_fee = (
-            self.cost.taker_fee_rate
-            + self.dataset.resolved_array("taker_fee_rate")[market_index]
-            if takes_liquidity
-            else self.cost.maker_fee_rate
-            + self.dataset.resolved_array("maker_fee_rate")[market_index]
-        )
-        unit_cost = self.cost.multiplier * (
-            self.cost.fee_rate
-            + self.dataset.resolved_array("fee_rate")[market_index]
-            + venue_fee
-            + spread_multiplier
-            * (
+        chargeable = (filled_notional_vector != 0.0) & (self.cost.multiplier != 0.0)
+        # NumPy strict underflow must not silently turn a nonzero booked fee
+        # into a zero-cost fill. Validate only symbols that actually fill.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            impact_scale = np.sqrt(participation)
+            impact = self.cost.impact_rate * impact_scale
+            slippage = self._slippage_rates(
+                len(price_vector), chargeable_mask=chargeable
+            )
+            venue_fee = (
+                self.cost.taker_fee_rate
+                + self.dataset.resolved_array("taker_fee_rate")[market_index]
+                if takes_liquidity
+                else self.cost.maker_fee_rate
+                + self.dataset.resolved_array("maker_fee_rate")[market_index]
+            )
+            spread_base = (
                 self.cost.spread_rate
                 + self.dataset.resolved_array("spread_rate")[market_index]
             )
-            + impact
-            + slippage
-        )
-        cost_vector = np.abs(filled_notional_vector) * unit_cost
-        cost_amount = float(np.sum(cost_vector))
-        if not math.isfinite(cost_amount):
+            spread_component = spread_multiplier * spread_base
+            base_rate = (
+                self.cost.fee_rate
+                + self.dataset.resolved_array("fee_rate")[market_index]
+                + venue_fee
+                + spread_component
+                + impact
+                + slippage
+            )
+            unit_cost = self.cost.multiplier * base_rate
+            cost_vector = np.where(
+                chargeable, np.abs(filled_notional_vector) * unit_cost, 0.0
+            )
+            cost_amount = float(np.sum(cost_vector))
+        if (
+            not np.isfinite(spread_component[chargeable]).all()
+            or not np.isfinite(impact[chargeable]).all()
+            or not np.isfinite(base_rate[chargeable]).all()
+            or not np.isfinite(unit_cost[chargeable]).all()
+            or not np.isfinite(cost_vector).all()
+            or not math.isfinite(cost_amount)
+        ):
             raise ValueError("execution cost became non-finite")
+        if np.any(chargeable & (spread_base != 0.0) & (spread_component == 0.0)):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(
+            chargeable
+            & (self.cost.impact_rate != 0.0)
+            & (impact_scale != 0.0)
+            & (impact == 0.0)
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(chargeable & (base_rate != 0.0) & (unit_cost == 0.0)):
+            raise ValueError("nonzero execution cost rate cannot be represented")
+        if np.any(chargeable & (unit_cost != 0.0) & (cost_vector == 0.0)):
+            raise ValueError("nonzero execution cost cannot be represented")
 
         fills_before = book.fill_count
         events_before = book.rebalance_events
@@ -998,12 +1059,28 @@ class MarketExecutor:
             or year_fraction < 0.0
         ):
             raise ValueError("borrow year_fraction must be finite and non-negative")
+        if year_fraction == 0.0 or self.cost.borrow_rate_multiplier == 0.0:
+            return 0.0
         short_values = np.maximum(-book.position_values, 0.0)
-        borrow_amount = float(
-            np.sum(short_values * self.dataset.resolved_array("borrow_rate")[index])
-            * year_fraction
-            * self.cost.borrow_rate_multiplier
-        )
+        borrow_rates = self.dataset.resolved_array("borrow_rate")[index]
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            contributions = short_values * borrow_rates
+            rate_total = float(np.sum(contributions))
+        if not np.isfinite(contributions).all() or not math.isfinite(rate_total):
+            raise ValueError("borrow amount became non-finite")
+        active = (short_values != 0.0) & (borrow_rates != 0.0)
+        if np.any(active & (contributions == 0.0)):
+            raise ValueError("nonzero borrow amount cannot be represented")
+        year_scaled = rate_total * year_fraction
+        if not math.isfinite(year_scaled):
+            raise ValueError("borrow amount became non-finite")
+        if rate_total != 0.0 and year_scaled == 0.0:
+            raise ValueError("nonzero borrow amount cannot be represented")
+        borrow_amount = year_scaled * self.cost.borrow_rate_multiplier
+        if not math.isfinite(borrow_amount):
+            raise ValueError("borrow amount became non-finite")
+        if year_scaled != 0.0 and borrow_amount == 0.0:
+            raise ValueError("nonzero borrow amount cannot be represented")
         if borrow_amount > 0.0:
             book.charge_borrow(borrow_amount)
         return borrow_amount
@@ -1021,11 +1098,32 @@ class MarketExecutor:
         if self.dataset.funding_price_rate is None:
             funding_notional = self.dataset.quantity_notional(index, book.quantities)
             funding_rate = self.dataset.funding_rate[index]
+            active_source = (funding_notional != 0.0) & (funding_rate != 0.0)
         else:
             multipliers = self.dataset.resolved_array("contract_multipliers")
-            funding_notional = book.quantities * multipliers
             funding_rate = self.dataset.funding_price_rate[index]
-        funding_amount = -float(np.dot(funding_notional, funding_rate * funding_due))
+            active_source = (
+                (book.quantities != 0.0)
+                & (multipliers != 0.0)
+                & (funding_rate != 0.0)
+                & (funding_due != 0.0)
+            )
+            # Zero effect must not evaluate an unrelated inf * 0 notional.
+            funding_notional = np.zeros(book.quantities.shape, dtype=np.float64)
+            with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+                funding_notional[active_source] = (
+                    book.quantities[active_source] * multipliers[active_source]
+                )
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            due_rates = funding_rate * funding_due
+            contributions = funding_notional * due_rates
+            # Preserve the original dot aggregation and cancellation semantics.
+            funding_amount = -float(np.dot(funding_notional, due_rates))
+        active_source &= funding_due != 0.0
+        if not np.isfinite(contributions).all() or not math.isfinite(funding_amount):
+            raise ValueError("funding amount became non-finite")
+        if np.any(active_source & (contributions == 0.0)):
+            raise ValueError("nonzero funding amount cannot be represented")
         previous_index = max(0, index - 1)
         resolved_year_fraction = (
             self.dataset.elapsed_year_fraction(previous_index, index)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from inspect import signature
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,8 @@ from trade_rl.integrations.binance.derived_klines import (
     BaseIntervalAggregatingTransport,
     aggregate_klines,
 )
+from trade_rl.integrations.market_store.cli import build_parser
+from trade_rl.integrations.market_store.export import export_market_dataset
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 HOUR_MS = 3_600_000
@@ -136,6 +139,51 @@ def test_strict_is_the_default_and_rejects_a_missing_bar() -> None:
     assert source.gap_report == {}
 
 
+@pytest.mark.parametrize(
+    "missing_indices",
+    ((0,), (47,), (0, 47)),
+    ids=("missing-first", "missing-last", "missing-both"),
+)
+def test_strict_rejects_missing_requested_boundary_bars(
+    missing_indices: tuple[int, ...],
+) -> None:
+    """A gap at either endpoint must not silently shorten a requested range."""
+    source = _source(HourlyTransport({SYMBOLS[0]: set(missing_indices)}))
+    with pytest.raises(ValueError, match="does not cover requested boundaries"):
+        source.load(SYMBOLS[0])
+    assert source.gap_report == {}
+
+
+def test_direct_and_market_store_gap_policy_defaults_are_distinct() -> None:
+    """The different defaults are deliberate; do not claim STRICT everywhere."""
+    assert (
+        signature(BinanceMarketDataSource).parameters["gap_policy"].default
+        is BinanceGapPolicy.STRICT
+    )
+    assert (
+        signature(build_binance_market_dataset).parameters["gap_policy"].default
+        is BinanceGapPolicy.STRICT
+    )
+    assert (
+        signature(export_market_dataset).parameters["gap_policy"].default
+        is BinanceGapPolicy.NON_TRADABLE_ROWS
+    )
+    args = build_parser().parse_args(
+        [
+            "export",
+            "--market",
+            "spot",
+            "--start",
+            "2020-12-01",
+            "--end",
+            "2021-01-01",
+            "--output-dir",
+            "unused-output",
+        ]
+    )
+    assert args.gap_policy == BinanceGapPolicy.NON_TRADABLE_ROWS.value
+
+
 def test_strict_builder_default_rejects_a_missing_bar() -> None:
     transport = BaseIntervalAggregatingTransport(HourlyTransport({SYMBOLS[1]: {40}}))
 
@@ -233,6 +281,44 @@ def test_gap_policy_rejects_unknown_values_and_duplicate_rows() -> None:
     source = _source(Duplicating(), policy=BinanceGapPolicy.NON_TRADABLE_ROWS)
     with pytest.raises(ValueError, match="duplicate"):
         source.load(SYMBOLS[0])
+
+
+def test_shared_missing_interior_hour_keeps_non_tradable_clock_row() -> None:
+    """An interior hole in every symbol still has a shared clock position."""
+    missing = {symbol: {100} for symbol in SYMBOLS}
+    result = _build(BaseIntervalAggregatingTransport(HourlyTransport(missing)))
+    dataset = result.dataset
+    assert dataset.n_bars == 20 * 24
+    assert not bool(dataset.tradable[100, :].any())
+    assert bool(dataset.tradable[99, :].all())
+    assert bool(dataset.tradable[101, :].all())
+    for symbol in SYMBOLS:
+        assert result.gap_report[f"{symbol}:1h"]["missing_bars"] == 1
+
+
+def test_shared_missing_final_bar_cannot_shorten_requested_dataset() -> None:
+    """No symbol can supply the final clock: refuse rather than omit it."""
+    last_hour = 20 * 24 - 1
+    missing = {symbol: {last_hour} for symbol in SYMBOLS}
+    with pytest.raises(ValueError, match="does not cover requested boundaries"):
+        _build(BaseIntervalAggregatingTransport(HourlyTransport(missing)))
+
+
+def test_single_symbol_missing_final_bar_keeps_complete_common_clock() -> None:
+    """The other symbol's final mark keeps the missing slot non-tradable."""
+    last_hour = 20 * 24 - 1
+    result = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport({SYMBOLS[0]: {last_hour}}))
+    )
+    dataset = result.dataset
+    assert dataset.n_bars == 20 * 24
+    assert dataset.timestamps[-1] == np.datetime64(
+        (START + timedelta(days=20)).replace(tzinfo=None), "ns"
+    )
+    assert not bool(dataset.tradable[-1, 0])
+    assert bool(dataset.tradable[-1, 1])
+    assert result.gap_report[f"{SYMBOLS[0]}:1h"]["missing_bars"] == 1
+    assert result.gap_report[f"{SYMBOLS[1]}:1h"]["missing_bars"] == 0
 
 
 def test_built_dataset_marks_gap_rows_non_tradable_and_masks_recursive_features() -> (

@@ -124,3 +124,37 @@ def test_market_build_request_still_rejects_unknown_root_field(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="market build config contains unknown fields"):
         load_market_build_request(path)
+
+
+@pytest.mark.parametrize(
+    ("scope", "field"),
+    (
+        ("feature", "max_staleness_hours"),
+        ("instrument", "contract_multiplier"),
+    ),
+)
+def test_build_request_rejects_oversized_integer_with_field_error(
+    tmp_path: Path, scope: str, field: str
+) -> None:
+    """JSON accepts large integer digits, but the float boundary must be typed."""
+    feature: dict[str, object] = {"name": "ret", "kind": "log_return"}
+    instrument: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "listed_at": "2020-01-01T00:00:00Z",
+    }
+    target = feature if scope == "feature" else instrument
+    target[field] = 10**500
+    path = tmp_path / "invalid-build.json"
+    path.write_text(
+        json.dumps(
+            {
+                "source_root": ".",
+                "base_timeframe": "1h",
+                "features": [feature],
+                "instruments": [instrument],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=field):
+        load_market_build_request(path)

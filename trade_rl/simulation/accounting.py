@@ -360,7 +360,8 @@ class BookState:
     @property
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
-        assert multipliers is not None
+        if multipliers is None:
+            raise ValueError("account valuation requires contract_multipliers")
         # Validate even on the ordinary path: public quantity arrays are mutable,
         # and non-finite values do not necessarily raise a NumPy warning.
         return _require_representable_position_values(

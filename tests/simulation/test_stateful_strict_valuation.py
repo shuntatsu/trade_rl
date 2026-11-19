@@ -193,10 +193,10 @@ def test_post_admission_float32_arrays_cannot_gain_precision(
     book.quantities = np.full(n_symbols, 1e-18, dtype=np.float32)
     book.mark_prices = np.full(n_symbols, 1e-18, dtype=np.float32)
     book.contract_multipliers = np.full(n_symbols, 1e-18, dtype=np.float32)
-    # Left-associated float32 products vanish; promotion to Python binary64
-    # would invent a position that was not present in the supplied view.
+    # Even if the float32 products vanish, reject dtype drift *before*
+    # arithmetic. Another set of float32 values may be representable.
     with np.errstate(all="raise"):
-        with pytest.raises(ValueError, match="nonzero position value"):
+        with pytest.raises(ValueError, match="non-float64"):
             _ = book.position_values
 
 
@@ -346,4 +346,82 @@ def test_broadcastable_funding_mark_shape_refused_before_counting_payment(
     assert observed_mark_requests
     assert runtime.total_funding == 0.0
     assert runtime.book.funding_pnl == 0.0
+    assert runtime.funding_evidence == []
+
+
+@pytest.mark.parametrize("n_symbols", (1, 9))
+@pytest.mark.parametrize("field", ("quantities", "mark_prices", "contract_multipliers"))
+@pytest.mark.parametrize("dtype", (np.float32, np.int64, np.uint64))
+def test_single_post_admission_dtype_replacement_is_rejected(
+    n_symbols: int, field: str, dtype: type[np.generic]
+) -> None:
+    book = BookState.zero(n_symbols, 1_000.0, np.ones(n_symbols))
+    setattr(book, field, np.ones(n_symbols, dtype=dtype))
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="non-float64"):
+            _ = book.position_values
+        with pytest.raises(ValueError, match="non-float64"):
+            _ = book.portfolio_value
+
+
+def test_mutated_missing_multiplier_read_fails_closed() -> None:
+    book = BookState.zero(1, 1_000.0, np.ones(1))
+    book.contract_multipliers = None
+    with pytest.raises(ValueError, match="contract_multipliers"):
+        _ = book.position_values
+    with pytest.raises(ValueError, match="contract_multipliers"):
+        _ = book.portfolio_value
+
+
+def test_invalid_next_mark_rejected_before_real_borrow_is_charged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bad process-bar marks must not leave real borrow debited on failure."""
+    rows = 3
+    shape = (rows, 1)
+    prices = np.full(shape, 100.0)
+    dataset = replace(
+        _subnormal_dataset(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        contract_multipliers=np.ones(1),
+        borrow_rate=np.full(shape, 0.5),
+        funding_price_rate=np.zeros(shape),
+    )
+    executor = MarketExecutor(
+        dataset, replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0)
+    )
+    book = BookState(
+        quantities=np.array([-1.0]),
+        cash=1_000.0,
+        mark_prices=prices[0],
+        peak_value=1_000.0,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    cash_before = runtime.book.cash
+    marks_before = runtime.book.mark_prices.copy()
+    borrow_before = runtime.book.borrow_cost
+    original = MarketDataset.resolved_array
+
+    def malformed_mark(self: MarketDataset, name: str) -> np.ndarray:
+        if name == "mark_price":
+            return np.full((rows, 1, 1), 100.0)
+        return original(self, name)
+
+    monkeypatch.setattr(MarketDataset, "resolved_array", malformed_mark)
+
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="pre-funding account valuation"):
+            lifecycle.finish_bar(runtime, context)
+    assert runtime.total_borrow == 0.0
+    assert runtime.book.borrow_cost == borrow_before
+    assert runtime.book.cash == cash_before
+    np.testing.assert_array_equal(runtime.book.mark_prices, marks_before)
+    assert runtime.total_funding == 0.0
     assert runtime.funding_evidence == []

@@ -10,6 +10,7 @@ import numpy as np
 from trade_rl.simulation.accounting import (
     _cash_interest_amount,
     _require_finite_post_update_equity,
+    _require_representable_position_values,
 )
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
@@ -199,6 +200,26 @@ class StatefulBarLifecycle:
             )
             executor._flatten_after_termination(runtime.book, context.open_prices)
 
+        # Validate the processing marks before any dividend, interest, or borrow
+        # writes. A late malformed mark must not leave partial carry in a
+        # runtime that ultimately rejects this bar.
+        mark_prices = dataset.resolved_array("mark_price")[processing_index]
+        multipliers = runtime.book.contract_multipliers
+        if multipliers is None:
+            raise ValueError("stateful funding requires contract multipliers")
+        try:
+            _require_representable_position_values(
+                quantities=runtime.book.quantities,
+                marks=mark_prices,
+                multipliers=multipliers,
+            )
+            if np.any(mark_prices <= 0.0):
+                raise ValueError("mark_prices must be strictly positive")
+        except ValueError as error:
+            raise ValueError(
+                "pre-funding account valuation cannot be represented"
+            ) from error
+
         runtime.total_dividend += runtime.book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
         )
@@ -218,10 +239,6 @@ class StatefulBarLifecycle:
         runtime.total_borrow += borrow_amount
         if self._finish_retained_termination(runtime, context):
             return
-        mark_prices = dataset.resolved_array("mark_price")[processing_index]
-        multipliers = runtime.book.contract_multipliers
-        if multipliers is None:
-            raise ValueError("stateful funding requires contract multipliers")
         # Snapshot the same validated account valuation used by BookState.
         # Deriving it after crediting funding would make closure tautological.
         try:

@@ -10,6 +10,7 @@ import pytest
 from trade_rl.evaluation.experiments import store as store_module
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
+    InvalidExperimentStateError,
     PublishedArtifactCleanupError,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
@@ -67,3 +68,59 @@ def test_reader_rejects_forged_staging_inode_before_publisher_commits(
     assert interleaved.get("rejected"), (
         f"Reader accepted uncommitted forged evidence: {interleaved!r}"
     )
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not Path("/proc/self/fd").is_dir(),
+    reason="requires POSIX descriptor-relative directory publication",
+)
+def test_independent_store_reader_cannot_observe_precommit_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second StudyStore must refuse even genuine bytes before commit."""
+    writer = StudyStore(tmp_path / "study")
+    reader = StudyStore(writer.root)
+    original_rename = store_module.atomic_rename_directory
+    interleaved: dict[str, object] = {}
+
+    def publish_then_read(source: str | Path, target: str | Path) -> Path:
+        result = original_rename(source, target)
+        try:
+            interleaved["payload"] = reader.read_json("evidence/synthetic/genuine.json")
+        except ArtifactIntegrityError:
+            interleaved["rejected"] = True
+        return result
+
+    monkeypatch.setattr(store_module, "atomic_rename_directory", publish_then_read)
+
+    writer.publish_directory_once(
+        "evidence/synthetic",
+        lambda stage: (stage / "genuine.json").write_text(
+            '{"is_validated":true}', encoding="utf-8"
+        ),
+    )
+    assert interleaved.get("rejected"), (
+        f"An independent Study reader saw the directory before commit: {interleaved!r}"
+    )
+    assert reader.read_json("evidence/synthetic/genuine.json") == {"is_validated": True}
+
+
+def test_same_store_cannot_recursively_publish_over_pending_directory(
+    tmp_path: Path,
+) -> None:
+    """An inner call must not erase the outer pending-read reservation."""
+    store = StudyStore(tmp_path / "study")
+
+    def build(stage: Path) -> None:
+        with pytest.raises(InvalidExperimentStateError, match="in progress"):
+            store.publish_directory_once(
+                "evidence/synthetic",
+                lambda child: (child / "forged.json").write_text(
+                    '{"is_validated":false}', encoding="utf-8"
+                ),
+            )
+        (stage / "genuine.json").write_text('{"is_validated":true}', encoding="utf-8")
+
+    store.publish_directory_once("evidence/synthetic", build)
+    assert store.read_json("evidence/synthetic/genuine.json") == {"is_validated": True}
+    assert not (store.root / "evidence" / "synthetic" / "forged.json").exists()

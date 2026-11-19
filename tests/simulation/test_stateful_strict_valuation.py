@@ -425,3 +425,136 @@ def test_invalid_next_mark_rejected_before_real_borrow_is_charged(
     np.testing.assert_array_equal(runtime.book.mark_prices, marks_before)
     assert runtime.total_funding == 0.0
     assert runtime.funding_evidence == []
+
+
+def test_real_funding_overflow_after_borrow_keeps_runtime_unchanged() -> None:
+    """A rejected actual funding credit must not preserve prior borrow writes."""
+    shape = (3, 1)
+    prices = np.full(shape, 100.0)
+    dataset = replace(
+        _subnormal_dataset(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        contract_multipliers=np.ones(1),
+        borrow_rate=np.full(shape, 0.5),
+        funding_price_rate=np.full(shape, 1e308),
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0),
+    )
+    book = BookState(
+        quantities=np.array([-1.0]),
+        cash=1e308,
+        mark_prices=prices[0],
+        peak_value=1e308,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    previous = runtime.book.clone()
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="non-finite"):
+            lifecycle.finish_bar(runtime, context)
+    assert runtime.book.cash == previous.cash
+    assert runtime.book.borrow_cost == previous.borrow_cost
+    assert runtime.book.funding_pnl == previous.funding_pnl
+    assert runtime.book.returns_history == previous.returns_history
+    assert runtime.book.peak_value == previous.peak_value
+    assert runtime.total_borrow == 0.0
+    assert runtime.total_funding == 0.0
+    assert runtime.total_dividend == 0.0
+    assert runtime.total_cash_interest == 0.0
+    assert runtime.funding_evidence == []
+    assert runtime.events == []
+
+
+def test_funding_evidence_failure_rolls_back_book_and_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The book credit, aggregate total, and receipt must commit together."""
+    shape = (3, 1)
+    prices = np.full(shape, 100.0)
+    dataset = replace(
+        _subnormal_dataset(),
+        open=prices.copy(),
+        high=prices.copy(),
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=prices.copy(),
+        contract_multipliers=np.ones(1),
+        funding_price_rate=np.full(shape, 0.25),
+    )
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=prices[0],
+        peak_value=1_100.0,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    runtime.book.returns_history.extend([0.02, -0.03])
+    previous = runtime.book.clone()
+    calls: list[float] = []
+    record_real_evidence = StatefulExecutionRuntime.record_funding_boundary
+
+    def refuse_receipt(
+        _runtime: StatefulExecutionRuntime,
+        *,
+        funding_amount: float,
+        **kwargs: object,
+    ) -> None:
+        calls.append(funding_amount)
+        # Exercise the authentic write-once evidence append, then fail.
+        record_real_evidence(_runtime, funding_amount=funding_amount, **kwargs)
+        assert len(_runtime.funding_evidence) == 1
+        raise ValueError("synthetic funding evidence receipt refusal")
+
+    monkeypatch.setattr(
+        StatefulExecutionRuntime, "record_funding_boundary", refuse_receipt
+    )
+    with np.errstate(all="raise"):
+        with pytest.raises(
+            ValueError, match="synthetic funding evidence receipt refusal"
+        ):
+            lifecycle.finish_bar(runtime, context)
+    assert calls == [-0.25]
+    assert runtime.book.cash == previous.cash
+    assert runtime.book.funding_pnl == previous.funding_pnl
+    assert runtime.book.returns_history == previous.returns_history
+    assert runtime.book.peak_value == previous.peak_value
+    assert runtime.total_funding == 0.0
+    assert runtime.funding_evidence == []
+    assert runtime.events == []
+
+
+def test_successful_staged_bar_preserves_book_and_history_identity() -> None:
+    """Transaction staging must not deep-copy cumulative return history per bar."""
+    dataset = _subnormal_dataset()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    runtime.book.returns_history.extend([0.02, -0.01, 0.005])
+    identity_before = id(runtime.book)
+    history_before = runtime.book.returns_history
+    with np.errstate(all="raise"):
+        lifecycle.finish_bar(runtime, context)
+    assert id(runtime.book) == identity_before
+    assert runtime.book.returns_history is history_before
+    assert history_before == [0.02, -0.01, 0.005, 0.0]
+    assert runtime.book.funding_pnl == 0.0

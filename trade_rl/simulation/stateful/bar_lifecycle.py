@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import copy
+from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -183,6 +184,41 @@ class StatefulBarLifecycle:
         return amount
 
     def finish_bar(
+        self,
+        runtime: StatefulExecutionRuntime,
+        context: StatefulBarContext,
+    ) -> None:
+        # Stage book mutations; share only append-only evidence lists, whose
+        # newly appended suffixes are reverted on failure. This keeps the
+        # cost independent of cumulative return and event history length.
+        book = runtime.book
+        staged_book = copy(book)
+        staged_book.quantities = book.quantities.copy()
+        staged_book.mark_prices = book.mark_prices.copy()
+        if book.contract_multipliers is not None:
+            staged_book.contract_multipliers = book.contract_multipliers.copy()
+        staged_book.returns_history = []
+        staged = replace(runtime, book=staged_book)
+        event_count = len(runtime.events)
+        evidence_count = len(runtime.funding_evidence)
+        try:
+            self._finish_bar_staged(staged, context)
+        except BaseException:
+            del runtime.events[event_count:]
+            del runtime.funding_evidence[evidence_count:]
+            raise
+        # Commit into the original book, preserving object/history identity.
+        for field in fields(book):
+            if field.name != "returns_history":
+                setattr(book, field.name, getattr(staged_book, field.name))
+        book.returns_history.extend(staged_book.returns_history)
+        runtime.order_book = staged.order_book
+        runtime.total_dividend = staged.total_dividend
+        runtime.total_cash_interest = staged.total_cash_interest
+        runtime.total_borrow = staged.total_borrow
+        runtime.total_funding = staged.total_funding
+
+    def _finish_bar_staged(
         self,
         runtime: StatefulExecutionRuntime,
         context: StatefulBarContext,

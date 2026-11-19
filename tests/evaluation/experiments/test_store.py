@@ -72,7 +72,9 @@ def test_json_publish_rejects_competitor_at_link_syscall(
     real_link = os.link
     injected = False
 
-    def competing_link(source: os.PathLike[str], destination: os.PathLike[str]) -> None:
+    def competing_link(
+        source: os.PathLike[str], destination: os.PathLike[str], **kwargs: object
+    ) -> None:
         nonlocal injected
         if Path(destination) == target:
             assert not injected
@@ -80,7 +82,7 @@ def test_json_publish_rejects_competitor_at_link_syscall(
             assert Path(source).is_file()
             target.write_bytes(b"late owner")
             injected = True
-        real_link(source, destination)
+        real_link(source, destination, **kwargs)
 
     monkeypatch.setattr(os, "link", competing_link)
     with pytest.raises(InvalidExperimentStateError, match="already exists"):
@@ -97,7 +99,9 @@ def test_json_publish_fails_closed_when_exclusive_links_are_unsupported(
     """Never fall back to an ordinary POSIX rename that can overwrite."""
     store = StudyStore(tmp_path / "study")
 
-    def unavailable(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+    def unavailable(
+        _source: os.PathLike[str], _destination: os.PathLike[str], **_kwargs: object
+    ) -> None:
         raise OSError(errno.ENOTSUP, "hard links unsupported")
 
     monkeypatch.setattr(os, "link", unavailable)
@@ -150,7 +154,9 @@ def test_json_publish_cleanup_failure_preserves_primary_link_error(
             raise PermissionError(errno.EACCES, "injected staging cleanup refusal")
         original_unlink(path, missing_ok=missing_ok)
 
-    def fail_link(_source: os.PathLike[str], _destination: os.PathLike[str]) -> None:
+    def fail_link(
+        _source: os.PathLike[str], _destination: os.PathLike[str], **_kwargs: object
+    ) -> None:
         if link_failure == "competing_target":
             target.write_bytes(b"owner")
             raise FileExistsError(errno.EEXIST, "late owner")

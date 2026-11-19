@@ -558,3 +558,119 @@ def test_successful_staged_bar_preserves_book_and_history_identity() -> None:
     assert runtime.book.returns_history is history_before
     assert history_before == [0.02, -0.01, 0.005, 0.0]
     assert runtime.book.funding_pnl == 0.0
+
+
+def test_finish_bar_does_not_copy_cumulative_return_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even a 200k-bar replay must not traverse the old return history."""
+
+    class UnreadableHistory(list[float]):
+        def __iter__(self) -> object:
+            raise AssertionError("finished-bar code traversed prior return history")
+
+        def __deepcopy__(self, _memo: object) -> object:
+            raise AssertionError("finished-bar code deep-copied return history")
+
+    dataset = _subnormal_dataset()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=dataset.close[0],
+        peak_value=1_000.0,
+        contract_multipliers=dataset.contract_multipliers,
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    context = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    history = UnreadableHistory([0.0] * 200_000)
+    runtime.book.returns_history = history
+
+    def disallow_cloning(_book: BookState) -> BookState:
+        raise AssertionError("BookState.clone would copy the whole return history")
+
+    monkeypatch.setattr(BookState, "clone", disallow_cloning)
+    with np.errstate(all="raise"):
+        lifecycle.finish_bar(runtime, context)
+    assert runtime.book.returns_history is history
+    assert len(history) == 200_001
+    assert list.__getitem__(history, 0) == 0.0
+    assert list.__getitem__(history, -1) == 0.0
+
+
+def test_two_bar_real_funding_overflow_preserves_prior_settlement() -> None:
+    """Bar 2 must not erase successful bar-1 evidence or credit attempted carry."""
+    shape = (3, 1)
+    prices = np.full(shape, 100.0)
+    mark_prices = prices.copy()
+    mark_prices[2, 0] = 120.0
+    high = prices.copy()
+    high[2, 0] = 120.0
+    dataset = replace(
+        _subnormal_dataset(),
+        open=prices.copy(),
+        high=high,
+        low=prices.copy(),
+        close=prices.copy(),
+        mark_price=mark_prices,
+        contract_multipliers=np.ones(1),
+        borrow_rate=np.full(shape, 1e295),
+        funding_price_rate=np.array([[0.0], [0.25], [1e308]]),
+        funding_due=np.ones(shape, dtype=np.bool_),
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), borrow_rate_multiplier=1.0),
+    )
+    book = BookState(
+        quantities=np.array([-1.0]),
+        cash=1e308,
+        mark_prices=prices[0],
+        peak_value=1e308,
+        contract_multipliers=np.ones(1),
+    )
+    runtime = StatefulExecutionRuntime.create(executor, book, OrderBookState.empty())
+    lifecycle = StatefulBarLifecycle(executor)
+    first = lifecycle.begin_bar(runtime, previous_index=0, processing_index=1)
+    with np.errstate(all="raise"):
+        lifecycle.finish_bar(runtime, first)
+    assert len(runtime.funding_evidence) == 1
+    assert len(runtime.book.returns_history) == 1
+    assert runtime.book.borrow_cost > 0.0
+    assert runtime.total_funding == 0.25
+
+    previous = runtime.book.clone()
+    first_evidence = list(runtime.funding_evidence)
+    prior_total_borrow = runtime.total_borrow
+    prior_total_funding = runtime.total_funding
+    evidence_alias = runtime.funding_evidence
+    returns_alias = runtime.book.returns_history
+    book_alias = runtime.book
+    second = lifecycle.begin_bar(runtime, previous_index=1, processing_index=2)
+
+    # Positive control: the real borrow computation on this exact fixture would
+    # change cash by more than one ULP, so an incomplete rollback is observable.
+    hypothetical = runtime.book.clone()
+    charged = executor._charge_borrow(
+        hypothetical,
+        index=2,
+        year_fraction=second.processing_year_fraction,
+    )
+    assert charged > 0.0
+    assert hypothetical.cash < runtime.book.cash
+
+    with np.errstate(all="raise"):
+        with pytest.raises(ValueError, match="non-finite"):
+            lifecycle.finish_bar(runtime, second)
+    assert runtime.book is book_alias
+    assert runtime.book.cash == previous.cash
+    assert runtime.book.borrow_cost == previous.borrow_cost
+    assert runtime.book.funding_pnl == previous.funding_pnl
+    np.testing.assert_array_equal(runtime.book.mark_prices, previous.mark_prices)
+    assert runtime.book.returns_history is returns_alias
+    assert runtime.book.returns_history == previous.returns_history
+    assert runtime.total_borrow == prior_total_borrow
+    assert runtime.total_funding == prior_total_funding
+    assert runtime.funding_evidence is evidence_alias
+    assert runtime.funding_evidence == first_evidence

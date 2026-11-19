@@ -36,14 +36,15 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v1.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v2.json"
+PACKET_V1_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v1.json"
 SPEC_PATH = ROOT / "docs" / "specs" / "core7-mtf-shadow-anchor-ppo.md"
 
 PINNED_PROTOCOL_DIGEST = (
     "97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210"
 )
 PINNED_PACKET_DIGEST = (
-    "ce369ac6d66687ba0c822c56bcfe5930c144dd287edda19894fb1e0d7cd70ea6"
+    "474d77259f177694b6d5e74eca313bf9fa844ab6f7c1898c085c686e263ed057"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -466,6 +467,21 @@ def _bound_code_paths(head: str) -> list[str]:
             if target is not None:
                 pending.append(target)
     return sorted(seen)
+
+
+def test_prior_v1_packet_is_immutable_history_and_unreviewed() -> None:
+    """The v1 packet (protocol v1) is superseded by v2 and never re-pinned or edited."""
+    record: dict[str, Any] = json.loads(PACKET_V1_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "ce369ac6d66687ba0c822c56bcfe5930c144dd287edda19894fb1e0d7cd70ea6"
+    )
+    assert record["identity"]["implementation_head"] == (
+        "edc910ae4f8030523b4b5e39d63fa1cf7d006450"
+    )
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert verified.economic_execution_authorized is False
 
 
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:

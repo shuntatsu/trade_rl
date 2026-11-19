@@ -223,6 +223,8 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 `.mutation.lock` は同期primitiveでありresearch evidenceではない。canonical evidenceはappend-onlyで既存targetを上書きしない。
 
+Study JSONのappend-only公開は同じtarget名を上書きしない。POSIX LinuxでのステージングJSON公開は、`fsync`済みで開いたままのregular-file descriptorを`/proc/self/fd/N`から`linkat(AT_SYMLINK_FOLLOW)`でhard-linkし、source basenameだけを別ファイルに替えてもその偽bytesを正式公開しない。公開失敗・成功後cleanupでは、作成済みの`(st_dev, st_ino)`と一致する通常ファイルだけを削除対象にし、未作成・置換されたstage名は残す。公開後のcleanup失敗は`PublishedArtifactCleanupError`として非再試行を明示する。**これはstage名の確認直後に非協調的writerが差し替える`unlink`競合、親directoryの同時差替えやopen済みinodeそのものの改変までを原子的に防ぐ保証ではない。** Linux以外のhard-link fallbackはsource inodeの差替え耐性を主張しない。強い攻撃者モデルの残課題はIssue #1131で管理する。
+
 ## Failure / tamper contract
 
 loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。

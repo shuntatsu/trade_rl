@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import stat
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -130,6 +131,32 @@ def _open_mutation_lock(root: Path) -> BinaryIO:
             os.close(descriptor)
 
 
+def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> bool:
+    """Delete a staging filename only if it is still the regular inode we opened.
+
+    POSIX unlink remains name-based: this check protects observed substitutions,
+    but a noncooperating writer may still race between lstat and unlink.
+    """
+
+    if identity is None:
+        return False
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return True
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or (
+            current.st_dev,
+            current.st_ino,
+        )
+        != identity
+    ):
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
@@ -225,37 +252,76 @@ class StudyStore:
             )
 
         staging = target.with_name(f".{target.name}.staging-{_temporary_name_suffix()}")
+        stage_identity: tuple[int, int] | None = None
+        published = False
         try:
             with staging.open("xb") as handle:
+                opened = os.fstat(handle.fileno())
+                stage_identity = (opened.st_dev, opened.st_ino)
                 handle.write(canonical_json_bytes(value))
                 handle.flush()
                 os.fsync(handle.fileno())
-            if target.exists() or target.is_symlink():
-                raise InvalidExperimentStateError(
-                    f"Study artifact already exists: {relative}"
-                )
-            # An exclusive hard link publishes the already-fsynced bytes without
-            # the POSIX rename race that could replace a competing file.
-            # Both paths share a parent, so the operation stays on one filesystem.
-            # Filesystems without hard-link support fail closed, never copy/rename.
+                if target.exists() or target.is_symlink():
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    )
+                # The source basename can be replaced after fsync. On Linux,
+                # link from the still-open file descriptor, not that name.
+                # A src_dir_fd requests linkat(AT_SYMLINK_FOLLOW), so the
+                # process FD alias resolves to the validated source inode.
+                try:
+                    if os.name == "posix" and sys.platform == "linux":
+                        source_alias = Path(f"/proc/self/fd/{handle.fileno()}")
+                        if not source_alias.is_file():
+                            raise ArtifactIntegrityError(
+                                "Study staging file descriptor unavailable"
+                            )
+                        parent_fd = os.open(
+                            staging.parent,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        )
+                        try:
+                            os.link(
+                                source_alias,
+                                target,
+                                src_dir_fd=parent_fd,
+                                follow_symlinks=True,
+                            )
+                            # Once linkat succeeds the artifact is committed,
+                            # even if the parent FD subsequently fails to close.
+                            published = True
+                        finally:
+                            os.close(parent_fd)
+                    else:
+                        # Other platforms retain hard-link exclusivity but
+                        # cannot prove source-inode binding under name swaps.
+                        os.link(staging, target)
+                        published = True
+                except FileExistsError as error:
+                    raise InvalidExperimentStateError(
+                        f"Study artifact already exists: {relative}"
+                    ) from error
+        except BaseException as error:
             try:
-                os.link(staging, target)
-            except FileExistsError as error:
-                raise InvalidExperimentStateError(
-                    f"Study artifact already exists: {relative}"
-                ) from error
-        except BaseException:
-            try:
-                staging.unlink(missing_ok=True)
+                _unlink_owned_staging_file(staging, stage_identity)
             except OSError:
                 # Preserve the primary publication failure; staging may remain.
                 pass
+            if published:
+                raise PublishedArtifactCleanupError(
+                    "Study artifact was published, but finalizing the staging "
+                    f"file failed: {relative}; do not retry publication"
+                ) from error
             raise
 
-        # The canonical target is already committed. Do not turn a cleanup
-        # error into an ambiguous ordinary publication failure (or retry it).
+        # The canonical target is already committed. A replaced staging
+        # basename belongs to another writer and must not be unlinked.
         try:
-            staging.unlink(missing_ok=True)
+            if not _unlink_owned_staging_file(staging, stage_identity):
+                raise PublishedArtifactCleanupError(
+                    "Study artifact was published, but staging cleanup failed "
+                    f"(source name replaced): {relative}; do not retry publication"
+                )
         except OSError as error:
             raise PublishedArtifactCleanupError(
                 f"Study artifact was published, but staging cleanup failed: {relative}; "

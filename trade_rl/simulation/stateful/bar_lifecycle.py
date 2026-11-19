@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import copy
+from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from trade_rl.simulation.accounting import _cash_interest_amount
+from trade_rl.simulation.accounting import (
+    _cash_interest_amount,
+    _require_finite_post_update_equity,
+    _require_representable_position_values,
+)
 from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 if TYPE_CHECKING:
@@ -183,6 +188,41 @@ class StatefulBarLifecycle:
         runtime: StatefulExecutionRuntime,
         context: StatefulBarContext,
     ) -> None:
+        # Stage book mutations; share only append-only evidence lists, whose
+        # newly appended suffixes are reverted on failure. This keeps the
+        # cost independent of cumulative return and event history length.
+        book = runtime.book
+        staged_book = copy(book)
+        staged_book.quantities = book.quantities.copy()
+        staged_book.mark_prices = book.mark_prices.copy()
+        if book.contract_multipliers is not None:
+            staged_book.contract_multipliers = book.contract_multipliers.copy()
+        staged_book.returns_history = []
+        staged = replace(runtime, book=staged_book)
+        event_count = len(runtime.events)
+        evidence_count = len(runtime.funding_evidence)
+        try:
+            self._finish_bar_staged(staged, context)
+        except BaseException:
+            del runtime.events[event_count:]
+            del runtime.funding_evidence[evidence_count:]
+            raise
+        # Commit into the original book, preserving object/history identity.
+        for field in fields(book):
+            if field.name != "returns_history":
+                setattr(book, field.name, getattr(staged_book, field.name))
+        book.returns_history.extend(staged_book.returns_history)
+        runtime.order_book = staged.order_book
+        runtime.total_dividend = staged.total_dividend
+        runtime.total_cash_interest = staged.total_cash_interest
+        runtime.total_borrow = staged.total_borrow
+        runtime.total_funding = staged.total_funding
+
+    def _finish_bar_staged(
+        self,
+        runtime: StatefulExecutionRuntime,
+        context: StatefulBarContext,
+    ) -> None:
         executor = runtime.executor
         dataset = executor.dataset
         processing_index = context.processing_index
@@ -195,6 +235,26 @@ class StatefulBarLifecycle:
                 reason="economic_termination",
             )
             executor._flatten_after_termination(runtime.book, context.open_prices)
+
+        # Validate the processing marks before any dividend, interest, or borrow
+        # writes. A late malformed mark must not leave partial carry in a
+        # runtime that ultimately rejects this bar.
+        mark_prices = dataset.resolved_array("mark_price")[processing_index]
+        multipliers = runtime.book.contract_multipliers
+        if multipliers is None:
+            raise ValueError("stateful funding requires contract multipliers")
+        try:
+            _require_representable_position_values(
+                quantities=runtime.book.quantities,
+                marks=mark_prices,
+                multipliers=multipliers,
+            )
+            if np.any(mark_prices <= 0.0):
+                raise ValueError("mark_prices must be strictly positive")
+        except ValueError as error:
+            raise ValueError(
+                "pre-funding account valuation cannot be represented"
+            ) from error
 
         runtime.total_dividend += runtime.book.apply_dividend(
             dataset.resolved_array("dividend")[processing_index]
@@ -215,23 +275,27 @@ class StatefulBarLifecycle:
         runtime.total_borrow += borrow_amount
         if self._finish_retained_termination(runtime, context):
             return
-        runtime.total_funding += funding_amount
-        mark_prices = dataset.resolved_array("mark_price")[processing_index]
-        multipliers = runtime.book.contract_multipliers
-        if multipliers is None:
-            raise ValueError("stateful funding requires contract multipliers")
-        # Snapshot book cash and marked inventory before funding is credited.
-        # Deriving this from the post-funding equity would make closure tautological.
-        equity_before_funding = float(
-            runtime.book.cash
-            + np.sum(runtime.book.quantities * mark_prices * multipliers)
-        )
+        # Snapshot the same validated account valuation used by BookState.
+        # Deriving it after crediting funding would make closure tautological.
+        try:
+            equity_before_funding = _require_finite_post_update_equity(
+                cash=runtime.book.cash,
+                quantities=runtime.book.quantities,
+                marks=mark_prices,
+                multipliers=multipliers,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "pre-funding account valuation cannot be represented"
+            ) from error
         runtime.book.mark_to_market(
             mark_prices=mark_prices,
             funding_amount=funding_amount,
             period_start_value=context.period_start_value,
             unbounded_loss_metrics=(executor.insolvency_valuation == "retain_debt"),
         )
+        # Count funding only after the corresponding book transition succeeds.
+        runtime.total_funding += funding_amount
         runtime.record_funding_boundary(
             processing_index=processing_index,
             funding_amount=funding_amount,

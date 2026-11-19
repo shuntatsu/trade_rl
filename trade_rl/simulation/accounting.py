@@ -85,19 +85,69 @@ def _cash_interest_amount(
     return float(cash_basis * annual_rate * year_fraction)
 
 
+def _require_representable_position_values(
+    *, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
+) -> np.ndarray:
+    """Preserve valid subnormals while rejecting erased or non-finite holdings."""
+    if (
+        quantities.ndim != 1
+        or quantities.shape != marks.shape
+        or quantities.shape != multipliers.shape
+    ):
+        raise ValueError("account valuation arrays must have matching vector shapes")
+    if quantities.size == 0:
+        raise ValueError(
+            "account valuation arrays must have matching nonempty vector shapes"
+        )
+    if (
+        quantities.dtype != np.float64
+        or marks.dtype != np.float64
+        or multipliers.dtype != np.float64
+    ):
+        # BookState admission always normalizes these arrays to binary64.
+        # A later direct dtype replacement has no trusted valuation meaning:
+        # integer multiplication can wrap without a NumPy overflow warning.
+        raise ValueError(
+            "non-float64 account arrays cannot guarantee nonzero position value"
+        )
+    if quantities.size <= 8:
+        # Avoid several NumPy reductions and an errstate context per read in
+        # the common independent/small-roster replay. Python float has the
+        # same ordered binary64 products and does not inherit NumPy warnings.
+        values: list[float] = []
+        for quantity, mark, multiplier in zip(
+            quantities, marks, multipliers, strict=True
+        ):
+            position = float(quantity) * float(mark) * float(multiplier)
+            if not math.isfinite(position):
+                raise ValueError("proposed account state became non-finite")
+            if quantity != 0.0 and position == 0.0:
+                raise ValueError("nonzero position value cannot be represented")
+            values.append(position)
+        return np.asarray(values, dtype=np.float64)
+
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        position_values = quantities * marks * multipliers
+    if not np.isfinite(position_values).all():
+        raise ValueError("proposed account state became non-finite")
+    # A finite position can be nonzero only for a nonzero quantity. Preserve
+    # the count to reject every lost holding without another temporary mask.
+    if np.count_nonzero(position_values) != np.count_nonzero(quantities):
+        raise ValueError("nonzero position value cannot be represented")
+    return position_values
+
+
 def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> float:
     """Reject an unrepresentable proposed account transition before mutation."""
+    position_values = _require_representable_position_values(
+        quantities=quantities, marks=marks, multipliers=multipliers
+    )
     with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
-        position_values = quantities * marks * multipliers
         equity = float(cash + position_values.sum())
-    if not np.isfinite(position_values).all() or not all(
-        math.isfinite(value) for value in (cash, equity)
-    ):
+    if not all(math.isfinite(value) for value in (cash, equity)):
         raise ValueError("proposed account state became non-finite")
-    if np.any((quantities != 0.0) & (position_values == 0.0)):
-        raise ValueError("nonzero position value cannot be represented")
     return equity
 
 
@@ -310,12 +360,24 @@ class BookState:
     @property
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
-        assert multipliers is not None
-        return self.quantities * self.mark_prices * multipliers
+        if multipliers is None:
+            raise ValueError("account valuation requires contract_multipliers")
+        # Validate even on the ordinary path: public quantity arrays are mutable,
+        # and non-finite values do not necessarily raise a NumPy warning.
+        return _require_representable_position_values(
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
 
     @property
     def portfolio_value(self) -> float:
-        return float(self.cash + self.position_values.sum())
+        # The publicly mutable account values may have changed since admission.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            value = float(self.cash + self.position_values.sum())
+        if not math.isfinite(value):
+            raise ValueError("portfolio value became non-finite")
+        return value
 
     @property
     def effective_portfolio_value(self) -> float:

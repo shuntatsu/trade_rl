@@ -16,6 +16,7 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.publication import (
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
@@ -116,8 +117,16 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"{label} must be a regular file")
     try:
-        decoded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        # Decode one verified descriptor rather than reopening the checked name.
+        with open_regular_binary(path, field=label) as handle:
+            encoded = handle.read()
+    except ValueError as error:
+        raise ValueError(f"{label} must be a regular file") from error
+    except OSError as error:
+        raise ValueError(f"{label} is invalid JSON") from error
+    try:
+        decoded = json.loads(encoded.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"{label} is invalid JSON") from error
     if not isinstance(decoded, dict) or any(
         not isinstance(key, str) for key in decoded

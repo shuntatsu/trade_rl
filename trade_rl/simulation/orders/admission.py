@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Protocol
@@ -32,7 +33,22 @@ class _AdmissionBookView(Protocol):
 
 
 def _projection_tolerance(price: float, projected: float) -> float:
-    return 4.0 * max(math.ulp(price), math.ulp(projected))
+    """Allow at most one binary64 ULP of representation noise per grid image."""
+
+    # Dense grids are checked by exact projected tick images, not an ULP
+    # window. A four-ULP fallback here would admit an off-grid price below
+    # a power-of-two boundary because the projected ULP is twice as large.
+    return max(math.ulp(price), math.ulp(projected))
+
+
+def _needs_exact_tick_count(price: float, tick: float, quotient: float) -> bool:
+    """Use decimal ticks where binary64 cannot preserve the grid identity."""
+
+    return (
+        not math.isfinite(quotient)
+        or tick < sys.float_info.min
+        or tick <= 8.0 * math.ulp(price)
+    )
 
 
 def price_on_tick_grid(price: float, tick_size: float) -> bool:
@@ -55,8 +71,51 @@ def price_on_tick_grid(price: float, tick_size: float) -> bool:
     if price_exact % tick_exact == 0:
         return True
 
-    nearest_count = round(resolved_price / resolved_tick)
-    projected = nearest_count * resolved_tick
+    # If ticks are close to float64 resolution, an off-grid quote can lie
+    # within several ULPs of a grid point. Conversely a valid integer tick
+    # can round to a float whose shortest decimal spelling is off-grid.
+    # Exactly match the binary64 projection of either neighboring decimal
+    # tick instead of inferring membership from decimal proximity.
+    if resolved_tick <= 8.0 * math.ulp(resolved_price):
+        # Float rounding is asymmetric at powers of two. The nearest integer
+        # in the exact price/tick ratio can round to a different float while
+        # the other adjacent positive tick rounds back to resolved_price.
+        dense_ratio = Fraction.from_float(resolved_price) / tick_exact
+        for candidate_count in (math.floor(dense_ratio), math.ceil(dense_ratio)):
+            if candidate_count <= 0:
+                continue
+            try:
+                if float(candidate_count * tick_exact) == resolved_price:
+                    return True
+            except OverflowError:
+                # An adjacent rational tick above max float64 is not a valid
+                # binary64 projection; test the other side before refusing.
+                continue
+        return False
+
+    # A finite float quotient can still lose more than one whole tick near
+    # binary64's unit-precision limit. Use the decimal authority when one
+    # tick is subnormal or within the 4-ULP tolerance, or division overflows.
+    quotient = resolved_price / resolved_tick
+    use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
+    nearest_count = round(price_exact / tick_exact) if use_exact else round(quotient)
+    if nearest_count <= 0:
+        return False
+    # A float count * float tick can move by an ULP at large notionals.
+    # Project the accepted decimal tick count in the canonical rational grid.
+    try:
+        projected = float(nearest_count * tick_exact)
+    except OverflowError:
+        return False
+    # A positive off-grid quote cannot be represented by tick zero, and an
+    # infinite nearest price must never grant membership via inf <= inf.
+    if nearest_count <= 0 or not math.isfinite(projected) or projected <= 0.0:
+        return False
+    # Four ULPs can exceed half a tick at binary64's subnormal boundary.
+    # Such an allowance is not representation noise: it would grant a
+    # genuinely off-tick midpoint a valid grid identity.
+    if 2 * abs(price_exact - nearest_count * tick_exact) >= tick_exact:
+        return False
     return abs(resolved_price - projected) <= _projection_tolerance(
         resolved_price,
         projected,
@@ -80,20 +139,79 @@ def snap_price_to_tick(
     if resolved_tick == 0.0:
         return resolved_price
 
-    ratio = resolved_price / resolved_tick
-    nearest_count = round(ratio)
-    nearest = nearest_count * resolved_tick
-    if abs(resolved_price - nearest) <= _projection_tolerance(
-        resolved_price,
-        nearest,
-    ):
+    # The decimal venue grid is authoritative. A point already on that
+    # grid must remain unchanged, rather than drifting by an ULP through
+    # a binary64 count * tick projection (possibly against round_up).
+    if Fraction(str(resolved_price)) % Fraction(str(resolved_tick)) == 0:
+        return resolved_price
+
+    exact_tick = Fraction(str(resolved_tick))
+    dense_grid = resolved_tick <= 8.0 * math.ulp(resolved_price)
+    # An already valid binary64 tick image must not move when snapping.
+    # Exact decimal membership above is an even stronger special case.
+    if dense_grid and price_on_tick_grid(resolved_price, resolved_tick):
+        return resolved_price
+
+    quotient = resolved_price / resolved_tick
+    use_exact = _needs_exact_tick_count(resolved_price, resolved_tick, quotient)
+    if use_exact:
+        # Floating division can lose complete tick counts near binary64's
+        # integer precision limit. Use the canonical decimal grid instead.
+        nearest_count = round(Fraction(str(resolved_price)) / exact_tick)
+    else:
+        nearest_count = round(quotient)
+    # Even in the finite-quotient path, never project via float count*tick.
+    try:
+        nearest = float(nearest_count * exact_tick)
+    except OverflowError:
+        nearest = math.inf
+    # The float-ULP tolerance is only meaningful for a *positive, finite*
+    # grid point. Count zero and an infinite nearest must use conservative
+    # directional snapping, not become false grid matches.
+    # On a dense grid, nearest-distance tolerance may exceed half a tick.
+    # Off-grid bounds must take the exact directional floor/ceil path.
+    nearest_is_valid = (
+        not dense_grid
+        and nearest_count > 0
+        and math.isfinite(nearest)
+        and nearest > 0.0
+    )
+    if nearest_is_valid:
+        tolerance = _projection_tolerance(resolved_price, nearest)
+        if abs(resolved_price - nearest) > tolerance:
+            nearest_is_valid = False
+        else:
+            # Any floated nearest price within the ULP tolerance must still
+            # be closer than half a decimal tick. The former 2*tolerance
+            # gate allowed a false nearest just above that boundary and
+            # could reverse conservative ceil/floor snapping.
+            exact_tick = Fraction(str(resolved_tick))
+            nearest_is_valid = (
+                2 * abs(Fraction(str(resolved_price)) - nearest_count * exact_tick)
+                < exact_tick
+            )
+    if nearest_is_valid:
+        # The current float is already an accepted grid representation. A
+        # one-ULP projection cannot be allowed to reverse the order bound.
+        if (round_up and nearest < resolved_price) or (
+            not round_up and nearest > resolved_price
+        ):
+            return resolved_price
         count = nearest_count
     else:
-        count = math.ceil(ratio) if round_up else math.floor(ratio)
+        # Preserve the actual binary64 order bound: decimal str(price) may
+        # lie up to half an ULP on the opposite side of its float value.
+        direction_ratio = Fraction.from_float(resolved_price) / exact_tick
+        count = math.ceil(direction_ratio) if round_up else math.floor(direction_ratio)
 
     if count <= 0:
         raise ValueError("positive order price has no valid tick-grid projection")
-    snapped = count * resolved_tick
+    try:
+        snapped = float(count * exact_tick)
+    except OverflowError as error:
+        raise ValueError(
+            "tick-grid projection must remain finite and positive"
+        ) from error
     if not math.isfinite(snapped) or snapped <= 0.0:
         raise ValueError("tick-grid projection must remain finite and positive")
     return float(snapped)
@@ -298,17 +416,22 @@ class OrderAdmissionPolicy:
             sell_marketable = admitted_quantity < 0.0 and price >= limit_price
             if not (buy_marketable or sell_marketable):
                 notional_price = limit_price
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             admitted_notional = abs(admitted_quantity) * notional_price * multiplier
         if not math.isfinite(admitted_notional):
             return self._reject("pretrade_leverage_exceeded")
+        # BookState rejects a nonzero fill whose left-associated notional
+        # underflows to zero. Reject at admission rather than fail during fill.
+        if admitted_notional == 0.0:
+            return self._reject("unrepresentable_notional")
         if admitted_notional + _TOLERANCE < minimum_notional:
             return self._reject("below_minimum_notional")
 
-        with np.errstate(over="ignore", invalid="ignore"):
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
             projected = quantities.copy()
             projected[symbol] += admitted_quantity
-            gross_notional = float(np.sum(np.abs(projected * prices * multipliers)))
+            projected_values = projected * prices * multipliers
+            gross_notional = float(np.sum(np.abs(projected_values)))
             current_gross_notional = float(
                 np.sum(np.abs(quantities * prices * multipliers))
             )
@@ -318,6 +441,12 @@ class OrderAdmissionPolicy:
             or not math.isfinite(current_gross_notional)
         ):
             return self._reject("pretrade_leverage_exceeded")
+        # A nonmarketable limit uses its limit for minimum notional, but the
+        # sequential admission book reserves at the processing-open mark.
+        # Reject before the caller emits an eligible event if that reservation
+        # would have an unrepresentable nonzero position value.
+        if np.any((projected != 0.0) & (projected_values == 0.0)):
+            return self._reject("unrepresentable_notional")
         equity = book.portfolio_value
         leverage_exceeded = gross_notional > equity * self.max_leverage + _TOLERANCE
         over_cap_reduction = (

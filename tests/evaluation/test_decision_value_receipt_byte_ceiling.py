@@ -275,6 +275,72 @@ def test_json_canonicalization_recursion_fails_as_value_error(
     assert receipt.read_bytes() == raw
 
 
+@pytest.mark.parametrize(
+    "field", ("block_id", "fit_admitted", "ineligible_pairs", "observed_view_digest")
+)
+def test_scalar_root_field_rejects_broad_array_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """Schema-scalar root members cannot expand a wide JSON container."""
+    raw = b'{"' + field.encode("ascii") + b'":[' + b"0," * 100_000 + b"0]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("scalar root array reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt root scalar field"):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    "field", ("schema", "intervention_index", "admissible_for_fit")
+)
+def test_scalar_pair_field_rejects_broad_array_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """Direct pair scalars must be checked before allocating parsed arrays."""
+    pair = study.canonical_json_bytes(dict.fromkeys(study._PAIR_KEYS))
+    key = b'"' + field.encode("ascii") + b'":null'
+    assert pair.count(key) == 1
+    pair = pair.replace(key, key[:-4] + b"[" + b"0," * 100_000 + b"0]")
+    raw = b'{"pairs":[' + pair + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("scalar pair array reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair scalar field"):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    (
+        (b'{"block_id":{}}', "root scalar field"),
+        (b'{"pairs":{}}', "pairs must be a JSON array"),
+        (
+            b'{"pairs":['
+            + study.canonical_json_bytes(dict.fromkeys(study._PAIR_KEYS)).replace(
+                b'"schema":null', b'"schema":{}'
+            )
+            + b"]}",
+            "pair scalar field",
+        ),
+    ),
+)
+def test_invalid_root_and_pair_object_types_refuse_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes, message: str
+) -> None:
+    """Only schema-allowed containers may cross the untrusted JSON boundary."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("malformed container reached JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match=message):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_shallow_non_object_receipt_is_refused_before_json_decode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -331,7 +397,7 @@ def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decod
             b'{"observed_view_digest":{"pairs":[]},"pairs":['
             + b"0," * 100_000
             + b"0]}",
-            "failure receipt pairs must contain JSON objects",
+            "failure receipt root scalar field",
             id="nested-decoy",
         ),
         pytest.param(
@@ -380,9 +446,10 @@ def test_duplicate_known_root_fields_fail_before_json_decode(
 
 def test_root_duplicate_guard_ignores_nested_key_lookalikes() -> None:
     """Nested and quoted names cannot forge duplicate direct root fields."""
-    raw = (
-        b'{"observed_view_digest":{"fit_admitted":false},'
-        b'"fit_admitted":false,"reason":"quoted fit_admitted pairs"}'
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair["reference_vintage"] = {"fit_admitted": False}
+    raw = study.canonical_json_bytes(
+        {"pairs": [pair], "fit_admitted": False, "reason": "quoted fit_admitted pairs"}
     )
     study._preflight_receipt_pair_objects(raw)
 

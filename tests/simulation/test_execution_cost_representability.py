@@ -578,3 +578,82 @@ def test_stateful_strict_numpy_venue_fee_overflow_uses_cost_boundary(
                     filled_notional=1.0,
                     participation_rate=0.5,
                 )
+
+
+@pytest.mark.parametrize(
+    ("impact_rate", "cost_multiplier", "must_reject"),
+    ((1e100, 1.0, True), (0.0, 1.0, False), (1e100, 0.0, False)),
+)
+def test_legacy_impact_participation_underflow_is_never_free_or_raw_numpy_error(
+    impact_rate: float, cost_multiplier: float, must_reject: bool
+) -> None:
+    """Tiny real fills against huge positive capacity cannot erase impact."""
+    dataset = replace(
+        _dataset(price=1.0, multiplier=1.0), volume=np.full((4, 1), 1e130)
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            impact_rate=impact_rate,
+            multiplier=cost_multiplier,
+            max_participation_rate=1.0,
+        ),
+    )
+    book = BookState.zero(1, 1000.0, np.ones(1))
+
+    def fill() -> object:
+        return executor._fill_toward_quantities(
+            book,
+            np.array([1e-200]),
+            prices=np.ones(1),
+            capacity_volume=np.array([1e130]),
+            tradable=np.array([True]),
+            turnover_denominator=1000.0,
+            market_index=1,
+        )
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        if must_reject:
+            with pytest.raises(ValueError, match="execution cost rate.*represented"):
+                fill()
+        else:
+            result = fill()
+            assert result.filled_notional == 1e-200
+            assert book.quantities.tolist() == [1e-200]
+            assert result.cost_amount == 0.0
+
+    if must_reject:
+        assert book.quantities.tolist() == [0.0]
+        assert book.total_cost == 0.0
+
+
+def test_legacy_impact_keeps_representable_subnormal_participation() -> None:
+    """Reject only a lost ratio, not a valid tiny positive participation."""
+    dataset = replace(
+        _dataset(price=1.0, multiplier=1.0), volume=np.full((4, 1), 1e120)
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            impact_rate=1e100,
+            max_participation_rate=1.0,
+        ),
+    )
+    book = BookState.zero(1, 1000.0, np.ones(1))
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        result = executor._fill_toward_quantities(
+            book,
+            np.array([1e-200]),
+            prices=np.ones(1),
+            capacity_volume=np.array([1e120]),
+            tradable=np.array([True]),
+            turnover_denominator=1000.0,
+            market_index=1,
+        )
+    expected = 1e-200 * (1e100 * np.sqrt(1e-320))
+    assert result.max_participation > 0.0
+    assert result.filled_notional == 1e-200
+    assert result.cost_amount == pytest.approx(expected, rel=1e-13)
+    assert book.total_cost == pytest.approx(expected, rel=1e-13)

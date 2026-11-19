@@ -940,10 +940,23 @@ class MarketExecutor:
 
         positive_capacity = capacity_notional > 0.0
         participation = np.zeros_like(capacity_notional)
-        participation[positive_capacity] = (
-            np.abs(filled_notional_vector[positive_capacity])
-            / capacity_notional[positive_capacity]
-        )
+        # A nonzero fill / large capacity can round the ratio to float zero.
+        # Handle the NumPy underflow mode without claiming zero economic impact.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            participation[positive_capacity] = (
+                np.abs(filled_notional_vector[positive_capacity])
+                / capacity_notional[positive_capacity]
+            )
+        if (
+            self.cost.impact_rate != 0.0
+            and self.cost.multiplier != 0.0
+            and np.any(
+                positive_capacity
+                & (filled_notional_vector != 0.0)
+                & (participation == 0.0)
+            )
+        ):
+            raise ValueError("nonzero execution cost rate cannot be represented")
         # Forced close bypasses limit resting/price rules and therefore takes
         # liquidity even when the configured ordinary order type is LIMIT.
         takes_liquidity = force_market or self.cost.order_type != "limit"

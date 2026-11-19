@@ -29,7 +29,7 @@ PACKET_PATH = ROOT / "report" / "sd2-signal-diagnosis-research-assurance-2026111
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "008abcb8b66e3c6dbefa90646520a15ece8f1bdc570243369e989e22d7f1ecb2"
+PINNED_DIGEST = "f3c5f9bce179dfb26e8679314c013ae164c92da93888b2e26bfcb2ac7d85a19b"
 PINNED_PROTOCOL_DIGEST = (
     "1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3"
 )

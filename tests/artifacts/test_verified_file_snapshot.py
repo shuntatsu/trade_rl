@@ -337,3 +337,25 @@ def test_reader_reports_invalid_large_fd_alias_as_parent_integrity_error() -> No
     with pytest.raises(ValueError, match="parent"):
         with verified_file.open_regular_binary(untrusted, field="synthetic"):
             pytest.fail("malformed FD alias bypassed safe parent admission")
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not Path("/proc/self/fd").is_dir()
+    or not getattr(os, "O_NOFOLLOW", 0),
+    reason="requires POSIX process FD path handling",
+)
+def test_trusted_fd_cannot_be_spelled_as_noncanonical_process_alias(
+    tmp_path: Path,
+) -> None:
+    """Even a registered FD cannot bless a nonexistent zero-padded alias."""
+    descriptor = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with verified_file._trusted_process_directory_fd(descriptor):
+            with pytest.raises(OSError, match="untrusted"):
+                opened = verified_file._open_directory_descriptor_nofollow(
+                    Path("/proc/self/fd") / f"0{descriptor}"
+                )
+                os.close(opened)
+    finally:
+        os.close(descriptor)

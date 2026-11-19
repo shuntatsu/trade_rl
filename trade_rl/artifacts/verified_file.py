@@ -107,7 +107,7 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
         # Reject huge/padded decimal aliases before int() or os.dup(), which
         # otherwise leak ValueError or OverflowError instead of OSError.
         fd_text = components[capability_index]
-        if len(fd_text) > 10:
+        if len(fd_text) > 10 or (len(fd_text) > 1 and fd_text[0] == "0"):
             raise OSError(errno.ELOOP, "untrusted process directory FD alias")
         source_fd = int(fd_text)
         if source_fd > 2_147_483_647:

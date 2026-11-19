@@ -674,14 +674,31 @@ class StudyStore:
                                 "Study staging inode changed during publication; "
                                 "unverified directory retained outside the final path"
                             ) from error
-                finally:
+                except BaseException:
+                    # Preserve the causal publication or builder error: an
+                    # unrelated cleanup failure must not hide what was refused.
                     try:
                         _cleanup_owned_staging_directory(
                             pinned_staging, staging_descriptor
                         )
-                    finally:
-                        if staging_descriptor >= 0:
-                            os.close(staging_descriptor)
+                    except OSError:
+                        pass
+                    raise
+                else:
+                    # If publication succeeded, a cleanup error is explicitly
+                    # non-retryable because the evidence may already be live.
+                    try:
+                        _cleanup_owned_staging_directory(
+                            pinned_staging, staging_descriptor
+                        )
+                    except OSError as error:
+                        raise PublishedArtifactCleanupError(
+                            f"Study directory was published, but staging cleanup "
+                            f"failed: {relative}; do not retry publication"
+                        ) from error
+                finally:
+                    if staging_descriptor >= 0:
+                        os.close(staging_descriptor)
                 try:
                     check_parent()
                     check_root()

@@ -56,3 +56,49 @@ def test_failed_directory_publish_keeps_unrelated_substituted_staging(
         "cleanup must not delete an unrelated stage replacement"
     )
     assert (substituted[0] / "unrelated-keep.txt").read_text(encoding="utf-8") == "KEEP"
+
+
+def test_failed_directory_builder_preserves_primary_error_when_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unrelated cleanup refusal must not replace the causal builder error."""
+    store = StudyStore(tmp_path / "study")
+
+    def fail_cleanup(_stage: Path, _descriptor: int) -> None:
+        raise PermissionError("synthetic cleanup failure")
+
+    monkeypatch.setattr(store_module, "_cleanup_owned_staging_directory", fail_cleanup)
+
+    def fail_builder(stage: Path) -> None:
+        (stage / "partial.txt").write_text("partial", encoding="utf-8")
+        raise RuntimeError("synthetic builder failed")
+
+    with pytest.raises(RuntimeError, match="synthetic builder failed"):
+        store.publish_directory_once("evidence/synthetic", fail_builder)
+
+    assert not (store.root / "evidence" / "synthetic").exists()
+    assert len(list(store.root.glob(".synthetic.staging-*"))) == 1
+
+
+def test_published_directory_cleanup_failure_is_nonretryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A committed publication stays present despite failed cleanup."""
+    from trade_rl.evaluation.experiments.errors import PublishedArtifactCleanupError
+
+    store = StudyStore(tmp_path / "study")
+
+    def fail_cleanup(_stage: Path, _descriptor: int) -> None:
+        raise PermissionError("synthetic cleanup refusal")
+
+    monkeypatch.setattr(store_module, "_cleanup_owned_staging_directory", fail_cleanup)
+
+    def build(stage: Path) -> None:
+        (stage / "evidence.txt").write_text("GENUINE", encoding="utf-8")
+
+    with pytest.raises(PublishedArtifactCleanupError, match="do not retry"):
+        store.publish_directory_once("evidence/synthetic", build)
+
+    assert (store.root / "evidence" / "synthetic" / "evidence.txt").read_text(
+        encoding="utf-8"
+    ) == "GENUINE"

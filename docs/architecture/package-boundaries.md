@@ -948,7 +948,16 @@ A verification read followed by an unverified second read is forbidden: a
 source file changed between checks must not introduce a new value under the
 old manifest digest. Missing or mismatched raw bytes halt the loader; source
 verification does not upgrade latest-at-capture values to historical
-first-release point-in-time evidence.
+first-release point-in-time evidence. On refetch, the old raw bytes are
+likewise read once and checked against the full recorded SHA-256 *before*
+being parsed for a revision summary or reused as an identical vintage.
+An unreadable or tampered previous raw is recorded as
+`revision={"unreadable_previous":true}`; even an equal incoming digest does
+not allow an `unchanged` receipt against unverified old bytes. The new
+capture is stored separately and no historical manifest or raw file is rewritten.
+This ensures the compared previous values came from one verified snapshot,
+but is not a claim of immunity against an arbitrary same-UID writer changing
+the original pathname after the snapshot was checked.
 
 ### Revision risk and default membership
 

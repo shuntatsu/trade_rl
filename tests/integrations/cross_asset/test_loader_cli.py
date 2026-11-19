@@ -459,3 +459,68 @@ def test_live_fred_fetch_parses(tmp_path: Path) -> None:
     )
     assert record["status"] == "ok"
     assert int(str(record["n_obs"])) > 1_000
+
+
+@pytest.mark.parametrize("corruption", ("missing", "tampered"))
+def test_same_sha_refetch_never_reuses_unverified_raw(
+    tmp_path: Path, corruption: str
+) -> None:
+    """A reused digest cannot excuse an unreadable or altered old raw file."""
+    store = seed_store(tmp_path)
+    previous = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    prior_path = tmp_path / str(previous["path"])
+    if corruption == "missing":
+        prior_path.unlink()
+    else:
+        prior_path.write_bytes(b"tampered raw capture")
+    spec = series_by_key("SP500")
+    days = weekdays(420)
+    original_values = random_walk(420, seed=0)
+    (new,) = fetch_all(
+        store,
+        (spec,),
+        FakeTransport({"id=SP500": fred_payload("SP500", days, original_values)}),
+        now=clock(FETCHED_AT + timedelta(days=2)),
+        sleep=lambda _s: None,
+    )
+    assert new["status"] == "ok"
+    assert new["revision"] == {"unreadable_previous": True}
+    assert new["path"] != previous["path"]
+    assert store.verify_raw(new)
+    assert not store.verify_raw(previous)
+
+
+def test_revision_comparison_uses_a_single_verified_previous_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The manifest digest must describe the same bytes sent to the parser."""
+    store = seed_store(tmp_path)
+    previous = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    prior_path = tmp_path / str(previous["path"])
+    actual_read = store.read_raw
+    calls = 0
+
+    def read_then_mutate(record: Mapping[str, object]) -> bytes:
+        nonlocal calls
+        payload = actual_read(record)
+        if record["key"] == "SP500":
+            calls += 1
+            if calls == 1:
+                prior_path.write_bytes(b"tampered after verified read")
+        return payload
+
+    monkeypatch.setattr(store, "read_raw", read_then_mutate)
+    days = weekdays(420)
+    revised_values = random_walk(420, seed=0)
+    revised_values[300] *= 1.2
+    (new,) = fetch_all(
+        store,
+        (series_by_key("SP500"),),
+        FakeTransport({"id=SP500": fred_payload("SP500", days, revised_values)}),
+        now=clock(FETCHED_AT + timedelta(days=2)),
+        sleep=lambda _s: None,
+    )
+    assert calls == 1
+    assert new["status"] == "ok"
+    assert new["revision"]["changed"] == 1
+    assert store.verify_raw(new)

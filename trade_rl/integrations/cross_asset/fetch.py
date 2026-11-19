@@ -181,8 +181,26 @@ def _fetch_one(
     record["bytes"] = len(payload)
     digest = hashlib.sha256(payload).hexdigest()
     record["sha256"] = digest
-    if previous is not None and previous.get("sha256") == digest:
-        # The bytes are the vintage first captured earlier; do not restamp them.
+
+    # Compare and reuse only one immutable verified previous byte snapshot.
+    # Reading a raw vintage again after the digest check would reintroduce
+    # the check/use race; a missing or tampered vintage is never an unchanged
+    # refetch, even if its recorded digest equals the newly fetched payload.
+    previous_bytes: bytes | None = None
+    if previous is not None and previous.get("status") in USABLE_STATUSES:
+        try:
+            candidate = store.read_raw(previous)
+            if hashlib.sha256(candidate).hexdigest() == previous.get("sha256"):
+                previous_bytes = candidate
+        except (OSError, ValueError):
+            pass
+
+    if (
+        previous is not None
+        and previous_bytes is not None
+        and previous.get("sha256") == digest
+    ):
+        # The validated bytes are the vintage first captured earlier.
         record.update(
             status="unchanged",
             path=previous["path"],
@@ -193,13 +211,16 @@ def _fetch_one(
     path, _digest = store.write_raw(
         spec.source, spec.key, fetched_at, payload, extension=_EXTENSION[spec.source]
     )
-    revision = None
+    revision: dict[str, object] | None = None
     if previous is not None and previous.get("status") in USABLE_STATUSES:
-        try:
-            old = parser(store.read_raw(previous), spec.symbol)
-            revision = diff_observations(old, parsed)
-        except (OSError, ValueError):
+        if previous_bytes is None:
             revision = {"unreadable_previous": True}
+        else:
+            try:
+                old = parser(previous_bytes, spec.symbol)
+                revision = diff_observations(old, parsed)
+            except (OSError, ValueError):
+                revision = {"unreadable_previous": True}
     record.update(
         status="ok",
         path=path,

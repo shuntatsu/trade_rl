@@ -345,6 +345,18 @@ class BinanceMarketDataSource(MarketDataSource):
             # Only the exact maintained class is trusted: a subclass can
             # override load_klines without validating the original 1h rows.
             if type(self.transport) is BaseIntervalAggregatingTransport:
+                # The maintained aggregator can validate only the raw rows
+                # it actually fetched. If its own base is already 4h/1d,
+                # an opaque inner transport could have synthesized that bar
+                # from unchecked lower-timeframe values. Require the exact
+                # native Binance transport for non-1h raw base acquisition.
+                if (
+                    self.transport.base_interval != "1h"
+                    and type(self.transport._klines) is not BinancePublicTransport
+                ):
+                    raise ValueError(
+                        "aggregate transport must verify native base source close_time"
+                    )
                 if (
                     timeframe != self.transport.base_interval
                     and self.transport.source_close_policy

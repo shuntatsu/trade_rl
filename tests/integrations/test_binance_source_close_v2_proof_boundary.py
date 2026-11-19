@@ -326,3 +326,115 @@ def test_v2_allows_maintained_native_higher_timeframe_transport(
     series = source.load_timeframe("BTCUSDT", "4h")
     assert len(series.timestamps) == 6
     assert all(series.tradable)
+
+
+def test_v2_rejects_nested_unverified_aggregator_with_mismatched_base() -> None:
+    """An outer v2 marker cannot authenticate inner legacy-derived 4h bars."""
+    inner_legacy = BaseIntervalAggregatingTransport(
+        SyntheticTransport(damage_at=3, delta=-HOUR),
+        base_interval="1h",
+    )
+    outer = BaseIntervalAggregatingTransport(
+        inner_legacy,
+        base_interval="4h",
+        source_close_policy=_V2,
+    )
+    source = BinanceMarketDataSource(
+        market="usds-m",
+        interval="1h",
+        start_time=START,
+        end_time=START + timedelta(hours=24),
+        transport=outer,
+        source_close_policy=_V2,
+    )
+    with pytest.raises(ValueError, match="(aggregate|source close|verified)"):
+        source.load_timeframe("BTCUSDT", "4h")
+    assert inner_legacy.dropped_windows == {}
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        float(START_MS + HOUR - 1),
+        True,
+        " 1767259199999",
+        "-1",
+        "١٧٦٧٢٥٩١٩٩٩٩",
+    ),
+)
+def test_v2_rejects_noninteger_source_close_type(value: object) -> None:
+    from trade_rl.integrations.binance.source_clock import _check_source_close_time
+
+    row = _rows(count=1)[0]
+    row[6] = value
+    with pytest.raises(ValueError, match="source close_time"):
+        _check_source_close_time(
+            row,
+            open_ms=START_MS,
+            interval_ms=HOUR,
+            source_close_policy=_V2,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_open",
+    (
+        START_MS + 1,
+        START_MS * 1000 + 1,
+        START_MS * 1_000_000,
+        START_MS // 1000,
+    ),
+)
+def test_v2_rejects_invalid_source_open_unit_or_offset(invalid_open: int) -> None:
+    from trade_rl.integrations.binance.source_clock import _check_source_close_time
+
+    row = _rows(count=1)[0]
+    row[0] = invalid_open
+    with pytest.raises(ValueError, match="invalid native open time"):
+        _check_source_close_time(
+            row,
+            open_ms=START_MS,
+            interval_ms=HOUR,
+            source_close_policy=_V2,
+        )
+
+
+def test_v2_allows_verified_native_4h_base_in_maintained_aggregator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An authentic native 4h owner is distinct from pre-aggregated opaque 4h."""
+    from trade_rl.integrations.binance.transport import BinancePublicTransport
+
+    native = BinancePublicTransport(allow_network=False)
+
+    def native_four_hour(**kwargs: object) -> tuple[list[list[object]], str]:
+        assert kwargs["interval"] == "4h"
+        rows = _rows(count=6)
+        for i, row in enumerate(rows):
+            open_ms = START_MS + i * 4 * HOUR
+            row[0] = open_ms
+            row[6] = open_ms + 4 * HOUR - 1
+        return rows, "synthetic-direct-native-4h"
+
+    def no_funding(**kwargs: object) -> tuple[list[object], str]:
+        return [], "synthetic"
+
+    monkeypatch.setattr(native, "load_klines", native_four_hour)
+    monkeypatch.setattr(native, "load_funding_rates", no_funding)
+
+    aggregator = BaseIntervalAggregatingTransport(
+        native,
+        base_interval="4h",
+        source_close_policy=_V2,
+    )
+    source = BinanceMarketDataSource(
+        market="usds-m",
+        interval="1h",
+        start_time=START,
+        end_time=START + timedelta(hours=24),
+        transport=aggregator,
+        source_close_policy=_V2,
+    )
+    result = source.load_timeframe("BTCUSDT", "4h")
+    assert len(result.timestamps) == 6
+    assert all(result.tradable)

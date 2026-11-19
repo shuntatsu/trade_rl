@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,7 @@ from trade_rl.evaluation.core7_mtf_study import (
     INVALID,
     PASS_PARITY_ONLY,
     STOP_FAIL_NO_RESCUE,
+    SYNTHETIC_ONLY_NOT_EVIDENCE,
     CellSummary,
     decide,
     protocol,
@@ -63,6 +65,25 @@ def test_synthetic_marker_is_content_bound() -> None:
     close[5, 0] = min(close[5, 0], float(marked.high[5, 0]))
     tampered = replace(marked, close=close)
     assert protocol.is_synthetic_dataset(tampered) is False
+    # ... including arrays outside the OHLCV core: mark_price, available_at, features,
+    # funding_price_rate
+    mark = np.asarray(marked.resolved_array("mark_price"), dtype=np.float64).copy()
+    mark[5, 0] = mark[5, 0] * 1.001
+    assert protocol.is_synthetic_dataset(replace(marked, mark_price=mark)) is False
+    feats = np.asarray(marked.features).copy()
+    feats[3, 0, 0] += 1.0
+    assert protocol.is_synthetic_dataset(replace(marked, features=feats)) is False
+    ts = np.asarray(marked.timestamps, dtype="datetime64[ns]")
+    late = np.broadcast_to(ts[:, None], (marked.n_bars, marked.n_symbols)).copy()
+    late[7, :] += np.timedelta64(1, "h")
+    info = np.ones((marked.n_bars, marked.n_symbols), dtype=bool)
+    info[7, :] = False
+    delayed = replace(marked, available_at=late, information_available=info)
+    assert protocol.is_synthetic_dataset(delayed) is False
+    fpr = np.zeros((marked.n_bars, marked.n_symbols), dtype=np.float64)
+    assert (
+        protocol.is_synthetic_dataset(replace(marked, funding_price_rate=fpr)) is False
+    )
 
 
 def test_run_study_refuses_synthetic_bypass_on_unmarked_dataset(
@@ -86,7 +107,7 @@ def test_run_study_refuses_synthetic_bypass_on_unmarked_dataset(
         start_iso="2026-09-01T00:00:00",
         seed=88,
     )
-    with pytest.raises(ValueError, match="synthetic"):
+    with pytest.raises(ValueError, match="always enforces the Pre-FS1 embargo"):
         run_study(
             ds_future,
             output_dir=tmp_path / "embargo_off",
@@ -98,6 +119,47 @@ def test_run_study_refuses_synthetic_bypass_on_unmarked_dataset(
             fit_stop_index=8,
         )
     assert not (tmp_path / "unauth").exists()
+
+
+def test_marked_post_embargo_url_less_run_is_refused(tmp_path: Path) -> None:
+    """Haiku's case: payload-free, post-embargo, marked, URL-less, full scenarios."""
+    ds_future = _synthetic(
+        _make_alternating_dataset(
+            n_bars=40,
+            pairs=("BTCUSDT", "ETHUSDT"),
+            start_iso="2026-09-01T00:00:00",
+            seed=88,
+        )
+    )
+    assert protocol.is_synthetic_dataset(ds_future)
+    common: dict[str, Any] = {
+        "expected_protocol_digest": _digest(),
+        "allow_synthetic_unauthenticated": True,
+        "scenarios": protocol.SCENARIOS,
+        "start_index": 8,
+        "stop_index": 38,
+        "fit_stop_index": 8,
+    }
+    with pytest.raises(ValueError, match="Pre-FS1 embargo"):
+        run_study(ds_future, output_dir=tmp_path / "default", **common)
+    with pytest.raises(ValueError, match="always enforces the Pre-FS1 embargo"):
+        run_study(
+            ds_future, output_dir=tmp_path / "off", enforce_pre_fs1=False, **common
+        )
+    # available_at at/after the embargo with in-window timestamps is refused too
+    ds = _synthetic(
+        _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=88)
+    )
+    ts = np.asarray(ds.timestamps, dtype="datetime64[ns]")
+    late = np.broadcast_to(ts[:, None], (ds.n_bars, ds.n_symbols)).copy()
+    late[-1, :] = np.datetime64("2026-08-02T00:00:00", "ns")
+    info = np.ones((ds.n_bars, ds.n_symbols), dtype=bool)
+    info[-1, :] = False
+    late_ds = _synthetic(replace(ds, available_at=late, information_available=info))
+    with pytest.raises(ValueError, match="Pre-FS1 embargo"):
+        run_study(late_ds, output_dir=tmp_path / "late_available", **common)
+    assert not (tmp_path / "default").exists()
+    assert not (tmp_path / "off").exists()
     assert not (tmp_path / "embargo_off").exists()
 
 
@@ -176,10 +238,39 @@ def test_marked_synthetic_run_succeeds_and_records_binding(tmp_path: Path) -> No
         stop_index=48,
         fit_stop_index=8,
     )
-    assert res["outcome"] == PASS_PARITY_ONLY
+    # a URL-less run is never parity/stop evidence, whatever the cells say
+    assert res["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
+    assert res["underlying_outcome"] == PASS_PARITY_ONLY
+    assert res["evidence_eligible"] is False
     assert res["synthetic_only"] is True
     assert res["protocol_digest"] == _digest()
     assert res["scenarios"] == list(protocol.SCENARIOS)
+    import json
+
+    manifest = json.loads((tmp_path / "ok" / "study-manifest.json").read_text())
+    decision_file = json.loads((tmp_path / "ok" / "decision.json").read_text())
+    assert manifest["synthetic_only"] is True
+    assert decision_file["synthetic_only"] is True
+    assert decision_file["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
+
+
+def test_decide_url_less_never_reports_stop_or_pass() -> None:
+    grid = {
+        (arm, sc): _good_cell(arm, sc)
+        for arm in protocol.ARMS
+        for sc in protocol.SCENARIOS
+    }
+    res = decide(grid, evidence_eligible=False)
+    assert res["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
+    grid[("CORE7_SPARSE_PPO", "BASE")] = _good_cell(
+        "CORE7_SPARSE_PPO", "BASE", max_drawdown=0.35
+    )
+    stopped = decide(grid, evidence_eligible=False)
+    assert stopped["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
+    assert stopped["underlying_outcome"] == STOP_FAIL_NO_RESCUE
+    grid[("CASH", "BASE")] = _good_cell("CASH", "BASE", ledger_reconciled=False)
+    assert decide(grid, evidence_eligible=False)["outcome"] == INVALID
+    assert decide(grid)["outcome"] == INVALID
 
 
 def test_decide_refuses_pass_without_the_full_scenario_set() -> None:
@@ -584,3 +675,83 @@ def test_probe_and_authorized_study_accept_identity_payload_datasets(
     )
     assert manifest["dataset_id"] == original_id
     assert manifest["authorization_url"] == AUTH_URL
+
+
+def _shift_turnover(ledger: Any, from_position: int, delta: float) -> Any:
+    """Shift cumulative turnover from ``from_position`` on, keeping every chain intact."""
+    intervals = list(ledger.intervals.intervals)
+    for i in range(from_position, len(intervals)):
+        iv = intervals[i]
+        before_shift = delta if i > from_position else 0.0
+        intervals[i] = replace(
+            iv,
+            turnover_total_before=iv.turnover_total_before + before_shift,
+            turnover_total_after=iv.turnover_total_after + delta,
+        )
+    inner = replace(
+        ledger.intervals,
+        intervals=tuple(intervals),
+        final_turnover_total=ledger.intervals.final_turnover_total + delta,
+    )
+    return replace(ledger, intervals=inner)
+
+
+def test_ledger_reconcile_turnover_rebuild_is_load_bearing() -> None:
+    """A chain-consistent turnover error is caught only by the per-interval rebuild."""
+    ledger, ds = _replayed_ledger()
+    intervals = ledger.intervals.intervals
+    pos = next(
+        i
+        for i, iv in enumerate(intervals)
+        if any(ev.filled_quantity != 0.0 for ev in iv.order_events)
+    )
+    shifted = _shift_turnover(ledger, pos, 3.0)
+    # chain and terminal aggregates still agree with each other
+    assert (
+        shifted.intervals.intervals[-1].turnover_total_after
+        == shifted.intervals.final_turnover_total
+    )
+    assert study_runner._check_ledger_reconciled(shifted, ds, 100_000.0) is False
+    assert study_runner._check_ledger_reconciled(ledger, ds, 100_000.0) is True
+
+
+def _fake_replay(max_drawdown: float, termination: tuple[str, ...] = ()) -> Any:
+    return SimpleNamespace(
+        ledger_evidence=None,
+        book=SimpleNamespace(
+            quantities=(0.0, 0.0),
+            insolvent=False,
+            max_drawdown=max_drawdown,
+            portfolio_value=90_000.0,
+        ),
+        diagnostics=SimpleNamespace(
+            termination_reasons=termination,
+            total_cost=1.0,
+            funding_pnl=0.0,
+            turnover_total=1.0,
+        ),
+        returns=SimpleNamespace(values=(0.01, -0.01, 0.0)),
+    )
+
+
+def test_runner_emits_max_drawdown_hard_stop_reason() -> None:
+    ds = _make_alternating_dataset(n_bars=20, pairs=("BTCUSDT", "ETHUSDT"), seed=1)
+
+    def summarize(result: Any) -> CellSummary:
+        return study_runner._summarize_replay_cell(
+            arm="CORE7_SPARSE_PPO",
+            scenario="BASE",
+            result=result,
+            dataset=ds,
+            initial_capital=100_000.0,
+            causality_passed=True,
+        )
+
+    breached = summarize(_fake_replay(0.35))
+    assert breached.stop_reason == "max_drawdown_hard_stop"
+    assert breached.complete is True  # a stop is not an integrity failure
+    healthy = summarize(_fake_replay(0.19))
+    assert healthy.stop_reason is None
+    # an engine termination reason takes precedence over the derived one
+    engine = summarize(_fake_replay(0.35, ("insolvent",)))
+    assert engine.stop_reason == "insolvent"

@@ -13,7 +13,7 @@ Status: Active
 
 詳細なパッケージ責務・依存方向は [architecture/package-boundaries.md](../architecture/package-boundaries.md#core7-mtf-shadow-anchor-ppo-boundary)、Research Assurance Gate の正本は [architecture/research-assurance.md](../architecture/research-assurance.md) を参照する。
 
-## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v2`）
+## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v3`）
 
 ### 2.1 対象ユニバース（11 ペア / 22 交互レッグ）
 
@@ -47,10 +47,10 @@ Status: Active
 
 - `DELAY_1BAR` 設計注記: 本リポジトリの共有約定エンジンでは `order_latency_bars` の `0` と `1` がいずれも次バー始値約定となり、`1` は単に `agent_stop_index` を 1 バー短縮するだけである。そのため `DELAY_1BAR` は `order_latency_bars=0` を維持しつつポリシー層 `ShadowAnchorMtfConfig(signal_lag_bars=1)` によって真正な 1 バー信号遅延を与える。
 - 20% ハードドローダウン: `max_drawdown >= drawdown_stop(0.20)` のセルは `decision.py` で停止扱い（`STOP_FAIL_NO_RESCUE`）となり、`PASS_PARITY_ONLY` は発行されない。`PASS_PARITY_ONLY` は `scenarios == SCENARIOS` の完全集合でのみ定義され、部分集合は `INVALID`。
-- 認可（fail-closed）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とする。`allow_synthetic_unauthenticated` および `enforce_pre_fs1=False` は `protocol.mark_synthetic_dataset` による内容束縛の合成マーカー付き（identity payload なし）データセットでのみ使用でき、それ以外は G4 URL・完全 11 銘柄・禁輸・`scenarios == SCENARIOS` が必須。
+- 認可（fail-closed）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とし、Pre-FS1 禁輸（`timestamp` と `available_at`）を常に強制する（`enforce_pre_fs1=False` は拒否。引数は呼出互換のため残す）。G4 URL 付き実行は完全 11 銘柄と `scenarios == SCENARIOS` を要し通常ラベルを出す。URL 無し実行は `allow_synthetic_unauthenticated=True` と `protocol.mark_synthetic_dataset` の合成マーカー付き（identity payload なし）データセットに限られ、結果は `SYNTHETIC_ONLY_NOT_EVIDENCE`（`INVALID` は `INVALID` のまま。算出ラベルは `underlying_outcome`）で、`synthetic_only=true` が manifest と decision に記録され、パリティ／停止の証拠にならない。合成マーカーは全 identity 配列（`mark_price`・`available_at`・`features`・`funding_price_rate` 等）に束縛されるが、誰でも付与できるため認可ではなく誤用防止の便宜に過ぎない。
 - `processing_bar_volume_capacity=False`: 全シナリオで 1% 参加率上限を**先行完了バー `t - 1` の出来高**だけで判定し、約定バー自身の出来高ルックアヘッドを遮断する。
 - ハードリスク整合: `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20, emergency_turnover_override=True)` と `ExecutionCostConfig(max_leverage=2.5, maintenance_margin_rate=0.05, max_participation_rate=0.01, minimum_notional=10.0)` の整合を保つ。
-- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除する。非リバランスバーでは直近リバランスの**リスク適用前**目標を再提案し、`PreTradeRisk` の `risk_scale` を一度だけ適用する（縮小済み現在ウェイトを再投入すると縮小が毎バー複利化しリバランスで跳ね戻るため）。リバランスバーの deadband もドローダウン中は解除する。
+- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除する。非リバランスバーでは直近リバランスの**リスク適用前**目標を再提案し、`PreTradeRisk` の `risk_scale` を一度だけ適用する（縮小済み現在ウェイトを再投入すると縮小が毎バー複利化しリバランスで跳ね戻るため）。リバランスバーの deadband もドローダウン中は解除する。ドローダウン中に `risk_scale < 1` の間は厳密数量 HOLD を使えない（リスクが保持ウェイトを再度縮小するため）。非リバランスバーでリスク縮小後目標が現在ウェイトから deadband（L1 < 0.04）内であれば、リスクが現在ウェイトへ写像する逆像 `current / risk_scale` を提案して微小な再約定を抑え、`risk_scale` 自体が下がるか乖離が deadband を超えた場合のみ意図目標へ再調整する。期待ターンオーバーは終値→次始値ギャップ由来の微小ドリフト（リプレイ試験で 1 バー 0.10 以下、平均 0.02 以下）である。
 
 ## 3. 事前データ露出（Pre-FS1 Rounds 1–12）の開示
 
@@ -66,8 +66,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v2.json`（`-v1.json` は protocol v1 の履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `8f49dfa024cf796c65949962aa55181a2a872bf1`
-- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v2`
-- Pinned Protocol Digest: `97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210`
-- Pinned Packet Digest: `474d77259f177694b6d5e74eca313bf9fa844ab6f7c1898c085c686e263ed057`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v3.json`（`-v1.json` / `-v2.json` は旧プロトコルの履歴であり不変・再ピンしない）
+- Pinned Implementation Head: `9f95a8faf388e637305a0cc915fb0dadede7ae41`
+- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v3`
+- Pinned Protocol Digest: `239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a`
+- Pinned Packet Digest: `e66ef4f381318da2162b74fc20bf1042f9416788f4f33472f1de19fe2b4b35bc`

@@ -511,7 +511,9 @@ def test_drawdown_deleveraging_tracks_risk_scale_without_compounding() -> None:
         assert target_gross <= scale * _gross(intended) + 1e-9
         assert target_gross >= 0.95 * scale * _gross(intended)
         if not is_rebalance:
-            assert decision.proposal_weights == intended
+            # the proposal is the intended target or its deadband pre-image; either way
+            # risk scales it exactly once
+            assert target_gross <= scale * _gross(decision.proposal_weights) + 1e-9
         if previous_gross is not None:
             max_jump = max(max_jump, abs(target_gross - previous_gross))
         previous_gross = target_gross
@@ -678,3 +680,109 @@ def test_leg_weight_projection_caps_spot_nonnegative_and_gross() -> None:
         )
     )
     assert np.all(spot_only[0::2] > 0.0) and np.all(spot_only[1::2] <= 0.0)
+
+
+def test_breach_bars_do_not_churn_within_the_deadband() -> None:
+    """Non-rebalance breach bars re-target only on real drift or a risk_scale change.
+
+    An exact-quantity HOLD is impossible while ``risk_scale < 1`` (risk would scale the
+    held weights again), so inside the deadband the policy proposes the pre-image that
+    ``PreTradeRisk`` maps back onto the current weights. Bound: per-bar turnover stays
+    bounded (<= 0.10), drift-sized trades are suppressed on several bars, and the
+    non-rebalance cost is a small share of the breach-period cost.
+    """
+    ds = _make_alternating_dataset(n_bars=90, pairs=("BTCUSDT", "ETHUSDT"), seed=1)
+    risk = _replay_risk()
+    res = run_shared_portfolio_replay(
+        ds,
+        ShadowAnchorMtfPolicy(
+            signal_pack=build_mtf6_signal_pack(ds),
+            config=ShadowAnchorMtfConfig(
+                mode="anc_bidir_75_25",
+                start_index=10,
+                fit_stop_index=10,
+                alpha_scale=6.0,
+            ),
+        ),
+        start_index=10,
+        stop_index=88,
+        initial_capital=100_000.0,
+        execution_cost=_replay_cost(),
+        risk=risk,
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+    )
+    assert res.ledger_evidence is not None
+    non_rebalance_turnover: list[float] = []
+    non_rebalance_cost = 0.0
+    breach_cost = 0.0
+    previous_scale = 1.0
+    for decision, interval in zip(
+        res.decisions, res.ledger_evidence.intervals.intervals, strict=True
+    ):
+        scale = risk.risk_scale(interval.max_drawdown_before)
+        scale_changed = scale != previous_scale
+        previous_scale = scale
+        if scale >= 1.0:
+            continue
+        breach_cost += interval.interval_cost
+        # a bar on which risk_scale itself dropped legitimately de-levers
+        if (decision.index - 10) % 6 != 0 and not scale_changed:
+            non_rebalance_turnover.append(
+                interval.turnover_total_after - interval.turnover_total_before
+            )
+            non_rebalance_cost += interval.interval_cost
+    assert len(non_rebalance_turnover) >= 20
+    assert max(non_rebalance_turnover) <= 0.10  # drift beyond the deadband re-targets
+    assert sum(non_rebalance_turnover) / len(non_rebalance_turnover) <= 0.02
+    assert sum(1 for t in non_rebalance_turnover if t == 0.0) >= 3
+    assert non_rebalance_cost <= 0.10 * breach_cost
+
+
+def test_breach_proposal_is_preimage_within_deadband_and_intended_otherwise() -> None:
+    ds = _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=55)
+    pack = build_mtf6_signal_pack(ds)
+
+    def make() -> ShadowAnchorMtfPolicy:
+        return ShadowAnchorMtfPolicy(
+            signal_pack=pack,
+            config=ShadowAnchorMtfConfig(
+                mode="anc_bidir_75_25", start_index=10, fit_stop_index=10
+            ),
+        )
+
+    zero = (0.0,) * ds.n_symbols
+    risk = _replay_risk()
+    pol = make()
+    intended = pol.decide_portfolio(
+        _snapshot(ds, index=10, weights=zero, portfolio_value=100_000.0)
+    ).target_weights
+    scale = risk.risk_scale(0.12)
+    assert 0.0 < scale < 1.0
+    scaled = tuple(w * scale for w in intended)
+
+    # current already at risk_scale * intended: risk must map the proposal onto current
+    near = pol.decide_portfolio(
+        _snapshot(ds, index=11, weights=scaled, portfolio_value=88_000.0)
+    )
+    assert near.hold_current_quantity_symbols == ()
+    constrained = risk.constrain(
+        np.asarray(near.target_weights), current=np.asarray(scaled), drawdown=0.12
+    )
+    np.testing.assert_allclose(constrained.weights, scaled, atol=1e-12)
+
+    # current far from risk_scale * intended: the intended pre-risk target
+    far = pol.decide_portfolio(
+        _snapshot(ds, index=12, weights=zero, portfolio_value=88_000.0)
+    )
+    assert far.target_weights == intended
+
+    # a deeper drawdown changes risk_scale: the intended target again (risk shrinks it)
+    deeper = make()
+    deeper.decide_portfolio(
+        _snapshot(ds, index=10, weights=zero, portfolio_value=100_000.0)
+    )
+    shrink = deeper.decide_portfolio(
+        _snapshot(ds, index=11, weights=scaled, portfolio_value=82_000.0)
+    )
+    assert shrink.target_weights == intended

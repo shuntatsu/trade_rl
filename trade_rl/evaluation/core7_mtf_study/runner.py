@@ -393,10 +393,10 @@ def run_causality_probe(
     if fit_stop_index > start_index:
         raise ValueError("fit_stop_index must not exceed start_index")
 
-    pack_base = build_mtf6_signal_pack(dataset, enforce_pre_fs1=enforce_pre_fs1)
+    pack_base = build_mtf6_signal_pack(dataset, enforce_pre_fs1=True)
     pack_cut = build_mtf6_signal_pack(
         _perturb_future_market_rows(dataset, cut_index=cut_index, seed=seed),
-        enforce_pre_fs1=enforce_pre_fs1,
+        enforce_pre_fs1=True,
     )
     pack_future = build_mtf6_signal_pack(
         _perturb_future_market_rows(dataset, cut_index=start_index, seed=seed + 1),
@@ -725,43 +725,39 @@ def _authorize_run(
     scenarios: tuple[str, ...],
     enforce_pre_fs1: bool,
 ) -> tuple[str | None, bool, bool]:
-    """Fail-closed run authorization; returns ``(url, synthetic, must_complete_roster)``."""
+    """Fail-closed run authorization; returns ``(url, synthetic_only, must_complete_roster)``.
+
+    The Pre-FS1 embargo is not waivable here. A run with the G4 URL needs the complete
+    roster and exactly ``protocol.SCENARIOS``. A URL-less run is a synthetic-only run: it
+    needs ``allow_synthetic_unauthenticated`` and a dataset carrying the (convenience)
+    synthetic marker, and its decision can never be parity or stop evidence.
+    """
     if expected_protocol_digest != protocol.protocol_digest():
         raise ValueError(
             "expected protocol digest does not match the frozen protocol digest "
             f"{protocol.protocol_digest()}"
         )
-    synthetic = protocol.is_synthetic_dataset(dataset)
-    if allow_synthetic_unauthenticated and not synthetic:
+    if not enforce_pre_fs1:
         raise ValueError(
-            "allow_synthetic_unauthenticated requires an explicitly synthetic-marked "
-            "dataset (protocol.mark_synthetic_dataset)"
+            "run_study always enforces the Pre-FS1 embargo; enforce_pre_fs1=False is refused"
         )
-    if not enforce_pre_fs1 and not synthetic:
-        raise ValueError(
-            "enforce_pre_fs1=False requires an explicitly synthetic-marked dataset"
-        )
-    if not synthetic and scenarios != protocol.SCENARIOS:
-        raise ValueError(
-            f"scenarios must equal the frozen protocol scenarios {protocol.SCENARIOS!r}"
-        )
-    resolved_url: str | None = None
-    if allow_synthetic_unauthenticated:
-        if authorization_url is not None:
-            resolved_url = protocol.validate_authorization_url(authorization_url)
-    else:
-        if authorization_url is None:
-            raise ValueError(
-                "authorization_url is required unless allow_synthetic_unauthenticated=True"
-            )
+    if authorization_url is not None:
         resolved_url = protocol.validate_authorization_url(authorization_url)
-    if not synthetic:
-        must_complete = True
-    elif require_full_roster is None:
-        must_complete = not allow_synthetic_unauthenticated
-    else:
-        must_complete = require_full_roster
-    return resolved_url, synthetic, must_complete
+        if scenarios != protocol.SCENARIOS:
+            raise ValueError(
+                f"scenarios must equal the frozen protocol scenarios {protocol.SCENARIOS!r}"
+            )
+        return resolved_url, False, True
+    if not allow_synthetic_unauthenticated:
+        raise ValueError(
+            "authorization_url is required unless allow_synthetic_unauthenticated=True"
+        )
+    if not protocol.is_synthetic_dataset(dataset):
+        raise ValueError(
+            "a URL-less run requires a synthetic-marked dataset "
+            "(protocol.mark_synthetic_dataset)"
+        )
+    return None, True, bool(require_full_roster)
 
 
 def run_study(
@@ -786,13 +782,15 @@ def run_study(
     """Run the 5-arm Core7 MTF study exclusively via ``run_shared_portfolio_replay``.
 
     Authorization is fail-closed. ``expected_protocol_digest`` must equal the frozen
-    protocol digest. An unauthenticated run, a waived embargo or a partial scenario set
-    is only possible on a dataset explicitly marked synthetic
-    (``protocol.mark_synthetic_dataset``); any other dataset needs the owner G4 URL, the
-    complete roster, the embargo and exactly ``protocol.SCENARIOS``.
+    protocol digest and the Pre-FS1 embargo is always enforced (``enforce_pre_fs1`` is
+    kept for call compatibility and must be ``True``). With the owner G4 URL the run needs
+    the complete roster and exactly ``protocol.SCENARIOS`` and yields the normal labels.
+    Without a URL only a synthetic-marked dataset may run, and the outcome is then
+    ``SYNTHETIC_ONLY_NOT_EVIDENCE`` (``INVALID`` stays ``INVALID``), never parity/stop
+    evidence.
     """
     resolved_scenarios = tuple(scenarios)
-    resolved_auth_url, synthetic, must_complete_roster = _authorize_run(
+    resolved_auth_url, synthetic_only, must_complete_roster = _authorize_run(
         dataset,
         expected_protocol_digest=expected_protocol_digest,
         authorization_url=authorization_url,
@@ -816,8 +814,7 @@ def run_study(
             f"dataset pair roster {pair_names!r} does not match complete 11-symbol ROSTER"
         )
 
-    if enforce_pre_fs1:
-        enforce_pre_fs1_boundary(dataset)
+    enforce_pre_fs1_boundary(dataset)
 
     resolved_stop = dataset.n_bars - 1 if stop_index is None else stop_index
     if not 0 <= fit_stop_index <= start_index < resolved_stop < dataset.n_bars:
@@ -834,7 +831,7 @@ def run_study(
     for sc in resolved_scenarios:
         protocol.scenario_cost(sc)
 
-    signal_pack = build_mtf6_signal_pack(dataset, enforce_pre_fs1=enforce_pre_fs1)
+    signal_pack = build_mtf6_signal_pack(dataset, enforce_pre_fs1=True)
     cut_idx = (
         causality_cut_index
         if causality_cut_index is not None
@@ -848,11 +845,11 @@ def run_study(
     # every (arm, signal lag) probe; signals are compared on all pack arrays.
     pack_cut = build_mtf6_signal_pack(
         _perturb_future_market_rows(dataset, cut_index=cut_idx, seed=17),
-        enforce_pre_fs1=enforce_pre_fs1,
+        enforce_pre_fs1=True,
     )
     pack_future = build_mtf6_signal_pack(
         _perturb_future_market_rows(dataset, cut_index=start_index, seed=18),
-        enforce_pre_fs1=enforce_pre_fs1,
+        enforce_pre_fs1=True,
     )
     signal_diff = max(
         _max_prefix_pack_diff(signal_pack, pack_cut, cut_index=cut_idx),
@@ -954,7 +951,9 @@ def run_study(
                 causality_passed=probe.passed,
             )
 
-    decision_payload = decision.decide(cells, scenarios=resolved_scenarios)
+    decision_payload = decision.decide(
+        cells, scenarios=resolved_scenarios, evidence_eligible=not synthetic_only
+    )
     weights_digests = {
         arm: (
             ShadowAnchorMlpWeights.zero_residual(
@@ -969,7 +968,6 @@ def run_study(
         arm: weights_by_arm is None or arm not in weights_by_arm
         for arm in protocol.RL_ARMS
     }
-    synthetic_only = synthetic and allow_synthetic_unauthenticated
 
     manifest: dict[str, object] = {
         "protocol_id": protocol.PROTOCOL_ID,
@@ -985,8 +983,7 @@ def run_study(
         "scenarios": list(resolved_scenarios),
         "authorization_url": resolved_auth_url,
         "synthetic_only": synthetic_only,
-        "synthetic_marker_verified": synthetic,
-        "enforce_pre_fs1": enforce_pre_fs1,
+        "enforce_pre_fs1": True,
         "weights_digests": weights_digests,
         "weights_are_zero_residual": weights_are_zero_residual,
         "causality_probes": {key: res.to_dict() for key, res in probe_results.items()},

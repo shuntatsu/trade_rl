@@ -21,6 +21,7 @@ from trade_rl.evaluation.core7_mtf_study import (
     INVALID,
     PASS_PARITY_ONLY,
     STOP_FAIL_NO_RESCUE,
+    SYNTHETIC_ONLY_NOT_EVIDENCE,
     CellSummary,
     decide,
     protocol,
@@ -36,15 +37,16 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v2.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v3.json"
+PACKET_V2_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v2.json"
 PACKET_V1_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v1.json"
 SPEC_PATH = ROOT / "docs" / "specs" / "core7-mtf-shadow-anchor-ppo.md"
 
 PINNED_PROTOCOL_DIGEST = (
-    "97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210"
+    "239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a"
 )
 PINNED_PACKET_DIGEST = (
-    "474d77259f177694b6d5e74eca313bf9fa844ab6f7c1898c085c686e263ed057"
+    "e66ef4f381318da2162b74fc20bf1042f9416788f4f33472f1de19fe2b4b35bc"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -373,7 +375,7 @@ def test_runner_fail_closed_refusals_causality_leak_trap_and_synthetic_e2e(
         fit_stop_index=8,
         rebalance_every_bars=6,
     )
-    assert res["outcome"] == PASS_PARITY_ONLY
+    assert res["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
     assert res["edge_claim"] is False
     assert res["production_eligible"] is False
     assert res["live_trading_authorized"] is False
@@ -477,6 +479,21 @@ def test_prior_v1_packet_is_immutable_history_and_unreviewed() -> None:
     )
     assert record["identity"]["implementation_head"] == (
         "edc910ae4f8030523b4b5e39d63fa1cf7d006450"
+    )
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_v2_packet_is_immutable_history_and_unreviewed() -> None:
+    """The v2 packet (protocol v2) is superseded by v3 and never re-pinned or edited."""
+    record: dict[str, Any] = json.loads(PACKET_V2_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "474d77259f177694b6d5e74eca313bf9fa844ab6f7c1898c085c686e263ed057"
+    )
+    assert record["identity"]["implementation_head"] == (
+        "8f49dfa024cf796c65949962aa55181a2a872bf1"
     )
     verified = evaluate_assurance(record)
     assert verified.status == "UNREVIEWED"

@@ -14,8 +14,8 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
-PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v2"
-PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v2"
+PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v3"
+PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v3"
 DATA_END_EXCLUSIVE: Final = "2026-08-01T00:00:00"
 SYNTHETIC_MARKER_DOMAIN: Final = "core7_mtf_synthetic_dataset_v2"
 G4_AUTHORIZATION_URL_PATTERN: Final = re.compile(
@@ -156,21 +156,28 @@ def validate_authorization_url(url: str) -> str:
 
 
 def _synthetic_content_digest(dataset: MarketDataset) -> str:
+    """Digest over *every* identity array of the dataset plus its contract payload."""
     digest = hashlib.sha256(SYNTHETIC_MARKER_DOMAIN.encode("utf-8"))
-    digest.update("\x00".join(dataset.symbols).encode("utf-8"))
-    digest.update(np.ascontiguousarray(dataset.timestamps).tobytes())
-    for name in ("open", "high", "low", "close", "volume", "funding_rate", "tradable"):
-        digest.update(name.encode("utf-8"))
-        digest.update(np.ascontiguousarray(getattr(dataset, name)).tobytes())
+    digest.update(
+        repr(sorted(dataset.identity_contract_payload().items())).encode("utf-8")
+    )
+    arrays = dataset.identity_arrays()
+    for name in sorted(arrays):
+        array = np.ascontiguousarray(arrays[name])
+        digest.update(f"|{name}|{array.dtype.str}|{array.shape}|".encode("utf-8"))
+        digest.update(array.tobytes())
     return digest.hexdigest()
 
 
 def mark_synthetic_dataset(dataset: MarketDataset) -> MarketDataset:
-    """Return ``dataset`` re-identified as an explicit, content-bound synthetic fixture.
+    """Return ``dataset`` re-identified as a content-bound synthetic fixture.
 
-    Only a payload-free dataset can be marked: a dataset carrying a content identity
-    payload (the form real market data takes) is refused, so the marker can never be
-    obtained by relabelling an identity-verified dataset.
+    This is a convenience that stops *accidental* URL-less runs on a dataset nobody
+    declared synthetic. It is **not** an attestation: anyone can mark a payload-free
+    dataset. The guarantees that matter do not rely on it: ``run_study`` always enforces
+    the Pre-FS1 embargo, and a URL-less run can only ever emit
+    ``SYNTHETIC_ONLY_NOT_EVIDENCE``, never a parity or stop label. The marker covers all
+    identity arrays (prices, ``mark_price``, ``available_at``, features, funding, ...).
     """
     if dataset.identity_payload_json is not None:
         raise ValueError(
@@ -219,8 +226,9 @@ def protocol_payload() -> dict[str, object]:
         "authorization": {
             "scenarios_must_equal_protocol": True,
             "expected_protocol_digest_required": True,
-            "synthetic_bypass_requires_marked_dataset": True,
-            "embargo_waiver_requires_marked_dataset": True,
+            "embargo_always_enforced_by_run_study": True,
+            "url_less_run_requires_marked_dataset_convenience": True,
+            "url_less_run_outcome": "SYNTHETIC_ONLY_NOT_EVIDENCE",
             "drawdown_hard_stop": rc.drawdown_stop,
         },
         "initial_capital": DEFAULT_INITIAL_CAPITAL,

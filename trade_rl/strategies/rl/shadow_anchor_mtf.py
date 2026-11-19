@@ -691,6 +691,50 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
             gross_cap=cfg.gross_cap,
         )
 
+    @staticmethod
+    def _risk_scale(snapshot: PortfolioDecisionSnapshot) -> float:
+        """``PreTradeRisk.risk_scale`` of the snapshot's drawdown (same linear ramp)."""
+        peak = max(float(snapshot.account.peak_value), 1e-12)
+        current_dd = max(0.0, 1.0 - float(snapshot.account.portfolio_value) / peak)
+        drawdown = min(1.0, max(current_dd, float(snapshot.account.max_drawdown)))
+        start = float(snapshot.risk.drawdown_start)
+        stop = float(snapshot.risk.drawdown_stop)
+        if drawdown <= start:
+            return 1.0
+        if drawdown >= stop or stop == start:
+            return 0.0
+        return 1.0 - (drawdown - start) / (stop - start)
+
+    def _breach_proposal(
+        self,
+        snapshot: PortfolioDecisionSnapshot,
+        intended: tuple[float, ...],
+    ) -> PortfolioTargetProposal:
+        """Non-rebalance proposal while the drawdown stage is active.
+
+        The cached pre-risk target is re-proposed so ``PreTradeRisk`` applies
+        ``risk_scale`` exactly once. An exact-quantity HOLD cannot be used here: risk
+        would scale the held (already scaled) weights again. When the risk-scaled target
+        is within the deadband of the current weights the proposal is instead the
+        pre-image ``current / risk_scale`` that risk maps back onto the current weights,
+        so drift-sized re-trades are not churned every bar, while a real change of
+        ``risk_scale`` or a drift beyond the deadband still re-targets the intended book.
+        """
+        scale = self._risk_scale(snapshot)
+        current = np.asarray(snapshot.account.weights, dtype=np.float64)
+        scaled = np.asarray(intended, dtype=np.float64) * scale
+        if scale > 0.0 and float(np.sum(np.abs(scaled - current))) < (
+            self._config.deadband
+        ):
+            pre_image = current / scale
+            if float(np.max(np.abs(pre_image), initial=0.0)) <= float(
+                snapshot.risk.max_abs_weight
+            ) and float(np.sum(np.abs(pre_image))) <= float(snapshot.risk.max_gross):
+                return PortfolioTargetProposal(
+                    target_weights=tuple(float(w) for w in pre_image)
+                )
+        return PortfolioTargetProposal(target_weights=intended)
+
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
@@ -704,11 +748,7 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
 
         if step_offset % self._config.rebalance_every_bars != 0:
             if drawdown_breached and self._intended_target is not None:
-                # Re-propose the cached *pre-risk* target. The account weights are
-                # already risk-scaled; feeding them back through PreTradeRisk would
-                # multiply risk_scale in again on every bar (geometric deleveraging
-                # followed by a snap back at the next rebalance).
-                return PortfolioTargetProposal(target_weights=self._intended_target)
+                return self._breach_proposal(snapshot, self._intended_target)
             return PortfolioTargetProposal(
                 target_weights=snapshot.account.weights,
                 hold_current_quantity_symbols=all_holds,

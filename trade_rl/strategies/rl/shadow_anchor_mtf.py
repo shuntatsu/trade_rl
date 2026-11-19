@@ -522,6 +522,8 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
         self._anc_prev_legs = np.zeros(len(self._expected_symbols), dtype=np.float64)
         # Pre-risk target of the most recent rebalance bar (sent or deadband-held).
         self._intended_target: tuple[float, ...] | None = None
+        # risk_scale of the previous decision (1.0 before any drawdown stage)
+        self._last_risk_scale = 1.0
 
     @property
     def config(self) -> ShadowAnchorMtfConfig:
@@ -717,14 +719,20 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
         would scale the held (already scaled) weights again. When the risk-scaled target
         is within the deadband of the current weights the proposal is instead the
         pre-image ``current / risk_scale`` that risk maps back onto the current weights,
-        so drift-sized re-trades are not churned every bar, while a real change of
-        ``risk_scale`` or a drift beyond the deadband still re-targets the intended book.
+        so drift-sized re-trades are not churned every bar. Any decrease of
+        ``risk_scale`` since the previous decision, or a drift beyond the deadband,
+        re-targets the intended book.
         """
         scale = self._risk_scale(snapshot)
         current = np.asarray(snapshot.account.weights, dtype=np.float64)
         scaled = np.asarray(intended, dtype=np.float64) * scale
-        if scale > 0.0 and float(np.sum(np.abs(scaled - current))) < (
-            self._config.deadband
+        # any decrease of risk_scale since the previous decision must re-target, however
+        # small: absorbing it in the deadband would leave exposure above risk-intended
+        scale_decreased = scale < self._last_risk_scale - 1e-12
+        if (
+            scale > 0.0
+            and not scale_decreased
+            and float(np.sum(np.abs(scaled - current))) < self._config.deadband
         ):
             pre_image = current / scale
             if float(np.max(np.abs(pre_image), initial=0.0)) <= float(
@@ -738,6 +746,11 @@ class ShadowAnchorMtfPolicy(PortfolioPolicy):
     def decide_portfolio(
         self, snapshot: PortfolioDecisionSnapshot
     ) -> PortfolioTargetProposal:
+        proposal = self._decide(snapshot)
+        self._last_risk_scale = self._risk_scale(snapshot)
+        return proposal
+
+    def _decide(self, snapshot: PortfolioDecisionSnapshot) -> PortfolioTargetProposal:
         k = self._validate_snapshot(snapshot)
         self._advance_causal_anchor_proxy(k)
 

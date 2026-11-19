@@ -37,16 +37,17 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v3.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v4.json"
+PACKET_V3_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v3.json"
 PACKET_V2_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v2.json"
 PACKET_V1_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v1.json"
 SPEC_PATH = ROOT / "docs" / "specs" / "core7-mtf-shadow-anchor-ppo.md"
 
 PINNED_PROTOCOL_DIGEST = (
-    "239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a"
+    "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "e66ef4f381318da2162b74fc20bf1042f9416788f4f33472f1de19fe2b4b35bc"
+    "c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -243,7 +244,7 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
             else:
                 cells[(arm, sc)] = _cell(arm, sc)
 
-    res_pass = decide(cells)
+    res_pass = decide(cells, evidence_eligible=True)
     assert res_pass["outcome"] == PASS_PARITY_ONLY
     assert res_pass["edge_claim"] is False
     assert res_pass["production_eligible"] is False
@@ -264,7 +265,7 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
     cells_stop[("ORTH6_CUSH_PPO", "HIGH_COST")] = _cell(
         "ORTH6_CUSH_PPO", "HIGH_COST", stop_reason="drawdown_stop"
     )
-    assert decide(cells_stop)["outcome"] == STOP_FAIL_NO_RESCUE
+    assert decide(cells_stop, evidence_eligible=True)["outcome"] == STOP_FAIL_NO_RESCUE
 
     # Missing or invalid -> INVALID
     for bad_override in (
@@ -278,11 +279,11 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
         cells_inv[("ANC_BIDIR_75_25", "BASE")] = _cell(
             "ANC_BIDIR_75_25", "BASE", **bad_override
         )
-        assert decide(cells_inv)["outcome"] == INVALID
+        assert decide(cells_inv, evidence_eligible=True)["outcome"] == INVALID
 
     cells_missing = dict(cells)
     cells_missing.pop(("CASH", "DELAY_1BAR"))
-    assert decide(cells_missing)["outcome"] == INVALID
+    assert decide(cells_missing, evidence_eligible=True)["outcome"] == INVALID
 
 
 def test_runner_fail_closed_refusals_causality_leak_trap_and_synthetic_e2e(
@@ -494,6 +495,21 @@ def test_prior_v2_packet_is_immutable_history_and_unreviewed() -> None:
     )
     assert record["identity"]["implementation_head"] == (
         "8f49dfa024cf796c65949962aa55181a2a872bf1"
+    )
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_v3_packet_is_immutable_history_and_unreviewed() -> None:
+    """The v3 packet (protocol v3) is superseded by v4 and never re-pinned or edited."""
+    record: dict[str, Any] = json.loads(PACKET_V3_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "e66ef4f381318da2162b74fc20bf1042f9416788f4f33472f1de19fe2b4b35bc"
+    )
+    assert record["identity"]["implementation_head"] == (
+        "9f95a8faf388e637305a0cc915fb0dadede7ae41"
     )
     verified = evaluate_assurance(record)
     assert verified.status == "UNREVIEWED"

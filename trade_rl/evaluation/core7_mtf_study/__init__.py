@@ -7,6 +7,7 @@ from trade_rl.evaluation.core7_mtf_study.decision import (
     PASS_PARITY_ONLY,
     STOP_FAIL_NO_RESCUE,
     SYNTHETIC_ONLY_NOT_EVIDENCE,
+    UNAUTHENTICATED_NOT_EVIDENCE,
     CellSummary,
     arm_passes_parity,
     cell_valid,
@@ -30,11 +31,13 @@ from trade_rl.evaluation.core7_mtf_study.protocol import (
     RL_ARMS,
     ROSTER,
     SCENARIOS,
+    AuthorizationReceipt,
     protocol_digest,
     protocol_payload,
     risk_config,
     scenario_cost,
     scenario_signal_delay_bars,
+    validate_authorization_receipt,
     validate_authorization_url,
 )
 from trade_rl.evaluation.core7_mtf_study.runner import (
@@ -65,6 +68,8 @@ __all__ = [
     "SCENARIOS",
     "STOP_FAIL_NO_RESCUE",
     "SYNTHETIC_ONLY_NOT_EVIDENCE",
+    "UNAUTHENTICATED_NOT_EVIDENCE",
+    "AuthorizationReceipt",
     "CausalityProbeResult",
     "CellSummary",
     "arm_passes_parity",
@@ -77,5 +82,6 @@ __all__ = [
     "run_study",
     "scenario_cost",
     "scenario_signal_delay_bars",
+    "validate_authorization_receipt",
     "validate_authorization_url",
 ]

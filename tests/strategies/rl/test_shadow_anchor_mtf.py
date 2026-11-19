@@ -739,50 +739,86 @@ def test_breach_bars_do_not_churn_within_the_deadband() -> None:
     assert non_rebalance_cost <= 0.10 * breach_cost
 
 
+def _breach_policy(ds: MarketDataset) -> ShadowAnchorMtfPolicy:
+    return ShadowAnchorMtfPolicy(
+        signal_pack=build_mtf6_signal_pack(ds),
+        config=ShadowAnchorMtfConfig(
+            mode="anc_bidir_75_25", start_index=10, fit_stop_index=10
+        ),
+    )
+
+
 def test_breach_proposal_is_preimage_within_deadband_and_intended_otherwise() -> None:
     ds = _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=55)
-    pack = build_mtf6_signal_pack(ds)
-
-    def make() -> ShadowAnchorMtfPolicy:
-        return ShadowAnchorMtfPolicy(
-            signal_pack=pack,
-            config=ShadowAnchorMtfConfig(
-                mode="anc_bidir_75_25", start_index=10, fit_stop_index=10
-            ),
-        )
-
     zero = (0.0,) * ds.n_symbols
     risk = _replay_risk()
-    pol = make()
+    pol = _breach_policy(ds)
     intended = pol.decide_portfolio(
         _snapshot(ds, index=10, weights=zero, portfolio_value=100_000.0)
     ).target_weights
     scale = risk.risk_scale(0.12)
     assert 0.0 < scale < 1.0
-    scaled = tuple(w * scale for w in intended)
+    scaled = np.asarray(intended) * scale
 
-    # current already at risk_scale * intended: risk must map the proposal onto current
+    # the first breach bar: risk_scale fell from 1.0, so the intended book is re-proposed
+    first = pol.decide_portfolio(
+        _snapshot(ds, index=11, weights=tuple(scaled), portfolio_value=88_000.0)
+    )
+    assert first.target_weights == intended
+
+    # same risk_scale, current slightly off risk_scale * intended (inside the deadband):
+    # the pre-image, which differs from the intended target yet risk maps onto current
+    drifted = scaled * 1.01
+    assert float(np.sum(np.abs(drifted - scaled))) < 0.04
     near = pol.decide_portfolio(
-        _snapshot(ds, index=11, weights=scaled, portfolio_value=88_000.0)
+        _snapshot(ds, index=12, weights=tuple(drifted), portfolio_value=88_000.0)
     )
     assert near.hold_current_quantity_symbols == ()
+    assert near.target_weights != intended
     constrained = risk.constrain(
-        np.asarray(near.target_weights), current=np.asarray(scaled), drawdown=0.12
+        np.asarray(near.target_weights), current=drifted, drawdown=0.12
     )
-    np.testing.assert_allclose(constrained.weights, scaled, atol=1e-12)
+    np.testing.assert_allclose(constrained.weights, drifted, atol=1e-12)
 
-    # current far from risk_scale * intended: the intended pre-risk target
+    # same risk_scale, far from risk_scale * intended: the intended pre-risk target
     far = pol.decide_portfolio(
-        _snapshot(ds, index=12, weights=zero, portfolio_value=88_000.0)
+        _snapshot(ds, index=13, weights=zero, portfolio_value=88_000.0)
     )
     assert far.target_weights == intended
 
-    # a deeper drawdown changes risk_scale: the intended target again (risk shrinks it)
-    deeper = make()
-    deeper.decide_portfolio(
+
+def test_any_risk_scale_decrease_retargets_even_inside_the_deadband() -> None:
+    """Drawdown 0.120 -> 0.123 (scale 0.80 -> 0.77): gross must fall, not stay at 0.80."""
+    ds = _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=55)
+    zero = (0.0,) * ds.n_symbols
+    risk = _replay_risk()
+    pol = _breach_policy(ds)
+    intended = pol.decide_portfolio(
         _snapshot(ds, index=10, weights=zero, portfolio_value=100_000.0)
+    ).target_weights
+    assert risk.risk_scale(0.120) == pytest.approx(0.80)
+    assert risk.risk_scale(0.123) == pytest.approx(0.77)
+    book = np.asarray(intended) * 0.80
+    pol.decide_portfolio(
+        _snapshot(ds, index=11, weights=tuple(book), portfolio_value=88_000.0)
     )
-    shrink = deeper.decide_portfolio(
-        _snapshot(ds, index=11, weights=scaled, portfolio_value=82_000.0)
+    # unchanged scale: absorbed (zero trade); the book stays at 0.80 * intended
+    steady = pol.decide_portfolio(
+        _snapshot(ds, index=12, weights=tuple(book), portfolio_value=88_000.0)
     )
-    assert shrink.target_weights == intended
+    held = risk.constrain(
+        np.asarray(steady.target_weights), current=book, drawdown=0.12
+    )
+    assert _gross(held.weights) == pytest.approx(_gross(book), rel=1e-9)
+    # scale 0.80 -> 0.77: L1(0.77 * intended - book) is inside the 0.04 deadband, yet
+    # the target must fall to 0.77 * intended
+    assert float(np.sum(np.abs(np.asarray(intended) * 0.77 - book))) < 0.04
+    dropped = pol.decide_portfolio(
+        _snapshot(ds, index=13, weights=tuple(book), portfolio_value=87_700.0)
+    )
+    assert dropped.target_weights == intended
+    after = risk.constrain(
+        np.asarray(dropped.target_weights), current=book, drawdown=0.123
+    )
+    assert _gross(after.weights) == pytest.approx(0.77 * _gross(intended), rel=1e-9)
+    assert _gross(after.weights) < _gross(book) - 1e-6

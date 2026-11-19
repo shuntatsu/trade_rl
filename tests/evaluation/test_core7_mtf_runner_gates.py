@@ -25,6 +25,8 @@ from trade_rl.evaluation.core7_mtf_study import (
     PASS_PARITY_ONLY,
     STOP_FAIL_NO_RESCUE,
     SYNTHETIC_ONLY_NOT_EVIDENCE,
+    UNAUTHENTICATED_NOT_EVIDENCE,
+    AuthorizationReceipt,
     CellSummary,
     decide,
     protocol,
@@ -49,6 +51,20 @@ def _synthetic(ds: MarketDataset) -> MarketDataset:
 
 def _digest() -> str:
     return protocol.protocol_digest()
+
+
+def _receipt(**over: Any) -> AuthorizationReceipt:
+    fields: dict[str, Any] = {
+        "authorization_url": AUTH_URL,
+        "comment_id": 1,
+        "author_login": "shuntatsu",
+        "author_id": 148511409,
+        "body_sha256": "a" * 64,
+        "fetched_at": "2026-11-20T00:00:00+00:00",
+        "quoted_protocol_digest": protocol.protocol_digest(),
+    }
+    fields.update(over)
+    return AuthorizationReceipt(**fields)
 
 
 # --------------------------------------------------------------------------- B1
@@ -270,12 +286,14 @@ def test_decide_url_less_never_reports_stop_or_pass() -> None:
     assert stopped["underlying_outcome"] == STOP_FAIL_NO_RESCUE
     grid[("CASH", "BASE")] = _good_cell("CASH", "BASE", ledger_reconciled=False)
     assert decide(grid, evidence_eligible=False)["outcome"] == INVALID
-    assert decide(grid)["outcome"] == INVALID
+    assert decide(grid, evidence_eligible=True)["outcome"] == INVALID
 
 
 def test_decide_refuses_pass_without_the_full_scenario_set() -> None:
     cells = {(arm, "BASE"): _good_cell(arm, "BASE") for arm in protocol.ARMS}
-    assert decide(cells, scenarios=("BASE",))["outcome"] == INVALID
+    assert (
+        decide(cells, scenarios=("BASE",), evidence_eligible=True)["outcome"] == INVALID
+    )
 
 
 # --------------------------------------------------------------------------- B7
@@ -318,15 +336,20 @@ def _full_grid(**over_for_cell: Any) -> dict[tuple[str, str], CellSummary]:
 def test_twenty_percent_drawdown_is_a_hard_stop_not_a_pass() -> None:
     drawdown_stop = protocol.risk_config().drawdown_stop
     assert drawdown_stop == 0.20
-    assert decide(_full_grid(max_drawdown=0.19))["outcome"] == PASS_PARITY_ONLY
+    assert (
+        decide(_full_grid(max_drawdown=0.19), evidence_eligible=True)["outcome"]
+        == PASS_PARITY_ONLY
+    )
     for breach in (drawdown_stop, 0.35, 1.0):
-        res = decide(_full_grid(max_drawdown=breach))
+        res = decide(_full_grid(max_drawdown=breach), evidence_eligible=True)
         assert res["outcome"] == STOP_FAIL_NO_RESCUE, breach
         assert res["stopped_cells"] == ["CORE7_SPARSE_PPO__BASE"]
     breached = _good_cell("CORE7_SPARSE_PPO", "BASE", max_drawdown=0.35)
     assert breached.to_dict()["cell_valid"] is False
     # an integrity failure still dominates a stop
-    inv = decide(_full_grid(max_drawdown=0.35, ledger_reconciled=False))
+    inv = decide(
+        _full_grid(max_drawdown=0.35, ledger_reconciled=False), evidence_eligible=True
+    )
     assert inv["outcome"] == INVALID
 
 
@@ -663,18 +686,165 @@ def test_probe_and_authorized_study_accept_identity_payload_datasets(
         output_dir=tmp_path / "authorized",
         expected_protocol_digest=_digest(),
         authorization_url=AUTH_URL,
+        authorization_receipt=_receipt(),
         start_index=8,
         stop_index=58,
         fit_stop_index=8,
     )
     assert res["outcome"] == PASS_PARITY_ONLY
     assert res["synthetic_only"] is False
+    assert res["authorization_authenticated"] is True
     assert res["dataset_id"] == original_id
     manifest = json.loads(
         (tmp_path / "authorized" / "study-manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["dataset_id"] == original_id
     assert manifest["authorization_url"] == AUTH_URL
+    assert manifest["authorization_check"] == "receipt_shape_and_binding"
+    assert manifest["authorization_authenticated"] is True
+    assert manifest["authorization_receipt"]["author_id"] == 148511409
+    assert manifest["evidence_eligible"] is True
+
+
+def test_fabricated_url_without_receipt_is_not_evidence(tmp_path: Path) -> None:
+    """Haiku's case: unmarked 11-symbol pre-embargo data, well-formed fabricated URL."""
+    import json
+
+    ds = _make_alternating_dataset(
+        n_bars=60, pairs=protocol.ROSTER, seed=21, start_iso="2026-05-01T00:00:00"
+    )
+    assert protocol.is_synthetic_dataset(ds) is False
+    res = run_study(
+        ds,
+        output_dir=tmp_path / "fabricated",
+        expected_protocol_digest=_digest(),
+        authorization_url="https://github.com/shuntatsu/trade_rl/issues/1#issuecomment-999",
+        start_index=8,
+        stop_index=58,
+        fit_stop_index=8,
+    )
+    assert res["outcome"] == UNAUTHENTICATED_NOT_EVIDENCE
+    assert res["underlying_outcome"] == PASS_PARITY_ONLY
+    assert res["evidence_eligible"] is False
+    assert res["authorization_authenticated"] is False
+    manifest = json.loads(
+        (tmp_path / "fabricated" / "study-manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["authorization_check"] == "url_format_only"
+    assert manifest["authorization_authenticated"] is False
+    assert manifest["authorization_receipt"] is None
+    assert manifest["evidence_eligible"] is False
+
+
+def test_authorization_receipt_must_bind_url_digest_and_have_a_valid_shape(
+    tmp_path: Path,
+) -> None:
+    ds = _make_alternating_dataset(
+        n_bars=60, pairs=protocol.ROSTER, seed=21, start_iso="2026-05-01T00:00:00"
+    )
+    other_url = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-2"
+
+    def attempt(name: str, receipt: Any, url: str | None = AUTH_URL) -> None:
+        run_study(
+            ds,
+            output_dir=tmp_path / name,
+            expected_protocol_digest=_digest(),
+            authorization_url=url,
+            authorization_receipt=receipt,
+            start_index=8,
+            stop_index=58,
+            fit_stop_index=8,
+        )
+
+    with pytest.raises(ValueError, match="receipt URL does not match"):
+        attempt("url_mismatch", _receipt(authorization_url=other_url, comment_id=2))
+    with pytest.raises(ValueError, match="quoted protocol digest"):
+        attempt("digest_mismatch", _receipt(quoted_protocol_digest="0" * 64))
+    with pytest.raises(ValueError, match="comment_id does not match"):
+        attempt("id_mismatch", _receipt(comment_id=7))
+    for name, over in (
+        ("bad_author", {"author_login": "bad login!"}),
+        ("bad_author_id", {"author_id": 0}),
+        ("bool_id", {"author_id": True}),
+        ("bad_body", {"body_sha256": "xyz"}),
+        ("naive_time", {"fetched_at": "2026-11-20T00:00:00"}),
+        ("bad_time", {"fetched_at": "yesterday"}),
+    ):
+        with pytest.raises(ValueError, match="authorization receipt"):
+            attempt(name, _receipt(**over))
+    with pytest.raises(TypeError, match="AuthorizationReceipt"):
+        attempt("not_a_receipt", {"comment_id": 1})
+    with pytest.raises(ValueError, match="requires authorization_url"):
+        attempt("receipt_without_url", _receipt(), url=None)
+    for name in (
+        "url_mismatch",
+        "digest_mismatch",
+        "id_mismatch",
+        "receipt_without_url",
+        "not_a_receipt",
+    ):
+        assert not (tmp_path / name).exists()
+
+
+def test_decide_evidence_eligible_is_required() -> None:
+    with pytest.raises(TypeError, match="evidence_eligible"):
+        decide({})  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="non-evidence label"):
+        decide({}, evidence_eligible=False, non_evidence_label="PASS_PARITY_ONLY")
+    grid = {
+        (arm, sc): _good_cell(arm, sc)
+        for arm in protocol.ARMS
+        for sc in protocol.SCENARIOS
+    }
+    res = decide(
+        grid,
+        evidence_eligible=False,
+        non_evidence_label=UNAUTHENTICATED_NOT_EVIDENCE,
+    )
+    assert res["outcome"] == UNAUTHENTICATED_NOT_EVIDENCE
+    assert res["underlying_outcome"] == PASS_PARITY_ONLY
+
+
+def test_pre_fs1_boundary_refuses_misaligned_row_arrays() -> None:
+    ds = _make_alternating_dataset(n_bars=20, pairs=("BTCUSDT", "ETHUSDT"), seed=5)
+    fake = SimpleNamespace(
+        timestamps=ds.timestamps,
+        available_at=None,
+        features=np.zeros((ds.n_bars + 1, ds.n_symbols, 1)),
+        global_features=ds.global_features,
+        funding_rate=ds.funding_rate,
+        funding_price_rate=None,
+    )
+    with pytest.raises(ValueError, match="features rows are not aligned"):
+        enforce_pre_fs1_boundary(fake)  # type: ignore[arg-type]
+    fake.features = ds.features
+    fake.funding_price_rate = np.zeros((ds.n_bars - 1, ds.n_symbols))
+    with pytest.raises(ValueError, match="funding_price_rate rows are not aligned"):
+        enforce_pre_fs1_boundary(fake)  # type: ignore[arg-type]
+    fake.funding_price_rate = None
+    enforce_pre_fs1_boundary(fake)  # type: ignore[arg-type]
+
+
+def test_micro_available_at_is_embargoed() -> None:
+    ds = _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=5)
+    ts = np.asarray(ds.timestamps, dtype="datetime64[ns]")[:, None] + np.zeros(
+        (1, 2), dtype="timedelta64[ns]"
+    )
+    late = ts.copy()
+    late[10, :] = np.datetime64("2026-08-02T00:00:00", "ns")
+    with pytest.raises(ValueError, match="micro_available_at must be strictly before"):
+        build_mtf6_signal_pack(
+            ds,
+            micro_15m=np.zeros((40, 2, 3)),
+            micro_1h=np.zeros((40, 2, 2)),
+            micro_available_at=late,
+        )
+
+
+def test_run_causality_probe_has_no_embargo_switch() -> None:
+    import inspect
+
+    assert "enforce_pre_fs1" not in inspect.signature(run_causality_probe).parameters
 
 
 def _shift_turnover(ledger: Any, from_position: int, delta: float) -> Any:

@@ -959,3 +959,34 @@ def test_run_does_not_report_success_for_a_result_that_is_not_evidence_eligible(
             (out_dir / driver.RUN_RECEIPT_NAME).read_text(encoding="utf-8")
         )
         assert receipt["evidence_eligible"] is False
+
+
+@pytest.mark.parametrize("digest", (None, "a" * 63, "g" * 64))
+def test_daily_fallback_refuses_unverified_source_digest_before_filling(
+    digest: str | None,
+) -> None:
+    """Source bytes without valid archive provenance cannot become a 4h leg."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    missing_hour = _ms(START) + 40 * HOUR_MS
+
+    class UnverifiedDaily(FakeRows):
+        def __init__(self, archive_url: str) -> None:
+            super().__init__()
+            self.archive_url = archive_url
+
+        def evidence(self) -> list[dict[str, object]]:
+            return (
+                []
+                if digest is None
+                else [{"url": self.archive_url, "archive_sha256": digest}]
+            )
+
+    source = driver.DailyFallbackSource(
+        FakeRows(perp_missing=frozenset({missing_hour})),
+        lambda plan: UnverifiedDaily(plan.specs[0].url),
+        halts=(),
+    )
+    with pytest.raises(CarryIntegrityHalt, match="archive digest"):
+        _load(source, halt_intervals=())
+    assert source.fills() == []

@@ -43,7 +43,11 @@ from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
 from trade_rl.evaluation.core7_mtf_study import protocol, tierd
 from trade_rl.evaluation.core7_mtf_study.runner import run_study
 from trade_rl.integrations.binance import BinanceMarket
-from trade_rl.integrations.binance.carry import CarryCoverageError, CarryScreenHalt
+from trade_rl.integrations.binance.carry import (
+    CarryCoverageError,
+    CarryIntegrityHalt,
+    CarryScreenHalt,
+)
 from trade_rl.integrations.binance.vision import vision_kline_url
 from trade_rl.integrations.market_store.carry_source import (
     ArchiveDirFetcher,
@@ -231,6 +235,16 @@ class DailyFallbackSource:
                 ),
                 None,
             )
+            if got and (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in digest)
+            ):
+                raise CarryIntegrityHalt(
+                    "daily fallback archive digest missing or malformed for "
+                    + spec.url,
+                    {"archive_url": spec.url, "market": market.value, "symbol": symbol},
+                )
             for row in got:
                 opened = int(row.open_time_ms)
                 if opened in wanted:

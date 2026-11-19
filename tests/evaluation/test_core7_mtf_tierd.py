@@ -990,3 +990,152 @@ def test_daily_fallback_refuses_unverified_source_digest_before_filling(
     with pytest.raises(CarryIntegrityHalt, match="archive digest"):
         _load(source, halt_intervals=())
     assert source.fills() == []
+
+
+def test_daily_fallback_refuses_partial_fills_across_two_day_source_failure() -> None:
+    """A later bad daily digest cannot leave earlier per-call fill provenance."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    base = _ms(START)
+    holes = frozenset({base + 2 * HOUR_MS, base + 26 * HOUR_MS})
+
+    class OnlyFirstDayVerified(FakeRows):
+        def __init__(self, first_url: str) -> None:
+            super().__init__()
+            self.first_url = first_url
+
+        def evidence(self) -> list[dict[str, object]]:
+            return [{"url": self.first_url, "archive_sha256": "a" * 64}]
+
+    source = driver.DailyFallbackSource(
+        FakeRows(perp_missing=holes),
+        lambda plan: OnlyFirstDayVerified(plan.specs[0].url),
+        halts=(),
+    )
+    with pytest.raises(CarryIntegrityHalt, match="archive digest"):
+        source.read_klines(
+            StoreMarket.USDS_M,
+            protocol.ROSTER[0],
+            "1h",
+            base,
+            base + 48 * HOUR_MS,
+        )
+    assert source.fills() == []
+    assert source.evidence() == []
+
+
+def test_daily_fallback_failed_retry_preserves_only_previous_committed_fills() -> None:
+    """A failed larger read must not add to or erase earlier completed fills."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    base = _ms(START)
+    holes = frozenset(
+        {
+            base + 2 * HOUR_MS,
+            base + 3 * HOUR_MS,
+            base + 26 * HOUR_MS,
+        }
+    )
+
+    class OnlyFirstDayVerified(FakeRows):
+        def __init__(self, first_url: str, digest: str) -> None:
+            super().__init__()
+            self.first_url = first_url
+            self.digest = digest
+
+        def evidence(self) -> list[dict[str, object]]:
+            return [{"url": self.first_url, "archive_sha256": self.digest}]
+
+    source_calls = 0
+
+    def daily_factory(plan: Any) -> OnlyFirstDayVerified:
+        nonlocal source_calls
+        source_calls += 1
+        return OnlyFirstDayVerified(
+            plan.specs[0].url,
+            "a" * 64 if source_calls == 1 else "b" * 64,
+        )
+
+    source = driver.DailyFallbackSource(
+        FakeRows(perp_missing=holes),
+        daily_factory,
+        halts=(),
+    )
+    source.read_klines(
+        StoreMarket.USDS_M,
+        protocol.ROSTER[0],
+        "1h",
+        base,
+        base + 3 * HOUR_MS,
+    )
+    prior = source.fills()
+    prior_evidence = source.evidence()
+    assert len(prior) == 1 and prior[0]["archive_sha256"] == "a" * 64
+    assert len(prior_evidence) == 1
+
+    with pytest.raises(CarryIntegrityHalt, match="archive digest"):
+        source.read_klines(
+            StoreMarket.USDS_M,
+            protocol.ROSTER[0],
+            "1h",
+            base,
+            base + 48 * HOUR_MS,
+        )
+    assert source.fills() == prior
+    assert source.evidence() == prior_evidence
+
+
+def test_daily_fallback_rejects_wrong_archive_day_provenance() -> None:
+    """A valid day-1 SHA cannot justify a missing row belonging to day 2."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    base = _ms(START)
+    holes = frozenset({base + 2 * HOUR_MS, base + 26 * HOUR_MS})
+
+    class SourceWithWrongDayRow(FakeRows):
+        def __init__(self, archive_url: str) -> None:
+            super().__init__()
+            self.archive_url = archive_url
+
+        def evidence(self) -> list[dict[str, object]]:
+            return [{"url": self.archive_url, "archive_sha256": "a" * 64}]
+
+        def read_klines(
+            self,
+            market: StoreMarket,
+            symbol: str,
+            interval: str,
+            start_ms: int,
+            end_ms: int,
+        ) -> list[KlineRow]:
+            if start_ms != base:
+                return []
+            rows = super().read_klines(
+                market,
+                symbol,
+                interval,
+                start_ms,
+                end_ms,
+            )
+            forged = kline_csv_rows(
+                symbol,
+                base + 26 * HOUR_MS,
+                base + 27 * HOUR_MS,
+            )
+            rows.append(_kline(forged[0]))
+            return rows
+
+    source = driver.DailyFallbackSource(
+        FakeRows(perp_missing=holes),
+        lambda plan: SourceWithWrongDayRow(plan.specs[0].url),
+        halts=(),
+    )
+    with pytest.raises(CarryIntegrityHalt, match="daily.*day"):
+        source.read_klines(
+            StoreMarket.USDS_M,
+            protocol.ROSTER[0],
+            "1h",
+            base,
+            base + 48 * HOUR_MS,
+        )
+    assert source.fills() == []

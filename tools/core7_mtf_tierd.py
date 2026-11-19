@@ -214,9 +214,9 @@ class DailyFallbackSource:
             skipped=(),
         )
         daily: Any = self._factory(plan)
-        self._daily_sources.append(daily)
         wanted = set(missing)
         filled: list[Any] = []
+        pending_fills: dict[tuple[str, str, int], dict[str, object]] = {}
         for spec, day_start in zip(specs, days, strict=True):
             hours = [
                 stamp for stamp in missing if day_start <= stamp < day_start + day_ms
@@ -247,9 +247,18 @@ class DailyFallbackSource:
                 )
             for row in got:
                 opened = int(row.open_time_ms)
+                if not day_start <= opened < day_start + day_ms:
+                    raise CarryIntegrityHalt(
+                        "daily fallback row belongs to a different archive day",
+                        {
+                            "archive_url": spec.url,
+                            "market": market.value,
+                            "symbol": symbol,
+                        },
+                    )
                 if opened in wanted:
                     filled.append(row)
-                    self._fills[(market.value, symbol, opened)] = {
+                    pending_fills[(market.value, symbol, opened)] = {
                         "market": market.value,
                         "symbol": symbol,
                         "open_time": datetime.fromtimestamp(
@@ -259,7 +268,12 @@ class DailyFallbackSource:
                         "archive_url": spec.url,
                         "archive_sha256": digest,
                     }
-        return sorted([*rows, *filled], key=lambda row: int(row.open_time_ms))
+        combined = sorted([*rows, *filled], key=lambda row: int(row.open_time_ms))
+        # A later day/row failure must not publish partial provenance from this
+        # read, while earlier successfully committed reads stay untouched.
+        self._daily_sources.append(daily)
+        self._fills.update(pending_fills)
+        return combined
 
     def read_funding(
         self, market: StoreMarket, symbol: str, start_ms: int, end_ms: int

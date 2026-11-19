@@ -235,6 +235,8 @@ POSIXで`O_NOFOLLOW`/`O_DIRECTORY`とdirectory-descriptor相対のopenが利用�
 
 `StudyStore.publish_directory_once`はbuilderから公開後のinode検証と必要な退避まで同一Studyのmutation lockを保持し、`StudyStore.read_json`はPOSIXで非blockingなshared lockを取得できなければ拒否する。同じStoreからの再入時も、未commitの公開先以下にあるJSONは拒否する。別Store・別processによる公式readerの競合を含む合成回帰で、公開完了前の読取を拒否できる範囲を固定する。ただし`Path.open`等の非協調的な直接read、lock inodeの外部差替えや既公開bytesの改変までの保護ではない。前段の#1131の制約は残り、完全なfilesystem-level atomic publicationを宣言しない。
 
+ステージングdirectory作成の`mkdir`は作成inodeを開いたFDとして返さないため、作成直後にstage leafが別directoryへ差し替えられる余地もある。POSIXではbuilderを呼ぶ前に固定したFDからstage contentsを列挙し、**事前に一つでもentryが存在すれば拒否**して、未確認の代替directoryにあるentryをcleanupしない。これはforeign pre-populated stageを正式公開する既知の#1131反例への必要条件であり、**空の代替stageの差替えや確認後の追記まで防ぐ完全な作成inodeの証明ではない**。非協調的な同一権限writerを含む強い攻撃者モデルでは追加のOS境界/認証済みevidence契約が未実装で、#1131の最終解消判定は保留する。
+
 `research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
 
 unused/final/sealed、mixed、または消費済みを立証できない入力はTier Uとして、既存のstrict authorization・candidate freeze・one-shot・consumed-ledger controlsに従う。technical retryはsealed dataをunsealせず、Tier UをTier Dへ自動変更しない。

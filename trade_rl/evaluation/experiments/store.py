@@ -680,6 +680,9 @@ class StudyStore:
                 check_root()
                 pinned_staging.mkdir()
                 staging_descriptor = -1
+                # A replacement leaf first observed after mkdir is not ours
+                # to delete. Portable cleanup retains its prior best effort.
+                staging_cleanup_allowed = os.name != "posix"
                 try:
                     check_root()
                     if os.name == "posix":
@@ -688,6 +691,28 @@ class StudyStore:
                         staging_descriptor = _open_directory_descriptor_nofollow(
                             pinned_staging
                         )
+                        # mkdir does not return an inode FD. If another writer
+                        # installed a pre-populated directory in the gap before
+                        # the first open, refuse it *without deleting its data*.
+                        # This is a necessary admission check, not a proof that
+                        # an otherwise empty substituted inode is ours.
+                        readable = os.open(
+                            ".",
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=staging_descriptor,
+                        )
+                        try:
+                            # Examine only the first entry: a hostile stage may
+                            # contain millions of files and listdir would
+                            # allocate all their names before we can refuse.
+                            with os.scandir(readable) as entries:
+                                if next(entries, None) is not None:
+                                    raise ArtifactIntegrityError(
+                                        "Study staging contains files before builder"
+                                    )
+                        finally:
+                            os.close(readable)
+                        staging_cleanup_allowed = True
                         stage_alias: Path | None = None
                         for prefix in ("/proc/self/fd", "/dev/fd"):
                             candidate = Path(prefix) / str(staging_descriptor)
@@ -739,14 +764,15 @@ class StudyStore:
                                 "unverified directory retained outside the final path"
                             ) from error
                 except BaseException:
-                    # Preserve the causal publication or builder error: an
-                    # unrelated cleanup failure must not hide what was refused.
-                    try:
-                        _cleanup_owned_staging_directory(
-                            pinned_staging, staging_descriptor
-                        )
-                    except OSError:
-                        pass
+                    # Preserve the causal publication or builder error, and
+                    # never delete a pre-pin substitute that was not admitted.
+                    if staging_cleanup_allowed:
+                        try:
+                            _cleanup_owned_staging_directory(
+                                pinned_staging, staging_descriptor
+                            )
+                        except OSError:
+                            pass
                     raise
                 else:
                     # If publication succeeded, a cleanup error is explicitly

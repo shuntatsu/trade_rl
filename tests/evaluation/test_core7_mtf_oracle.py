@@ -243,7 +243,7 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
             else:
                 cells[(arm, sc)] = _cell(arm, sc)
 
-    res_pass = decide(cells)
+    res_pass = decide(cells, evidence_eligible=True)
     assert res_pass["outcome"] == PASS_PARITY_ONLY
     assert res_pass["edge_claim"] is False
     assert res_pass["production_eligible"] is False
@@ -264,7 +264,7 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
     cells_stop[("ORTH6_CUSH_PPO", "HIGH_COST")] = _cell(
         "ORTH6_CUSH_PPO", "HIGH_COST", stop_reason="drawdown_stop"
     )
-    assert decide(cells_stop)["outcome"] == STOP_FAIL_NO_RESCUE
+    assert decide(cells_stop, evidence_eligible=True)["outcome"] == STOP_FAIL_NO_RESCUE
 
     # Missing or invalid -> INVALID
     for bad_override in (
@@ -278,11 +278,11 @@ def test_decision_truth_table_and_nonrl_regime_gate_diagnostics() -> None:
         cells_inv[("ANC_BIDIR_75_25", "BASE")] = _cell(
             "ANC_BIDIR_75_25", "BASE", **bad_override
         )
-        assert decide(cells_inv)["outcome"] == INVALID
+        assert decide(cells_inv, evidence_eligible=True)["outcome"] == INVALID
 
     cells_missing = dict(cells)
     cells_missing.pop(("CASH", "DELAY_1BAR"))
-    assert decide(cells_missing)["outcome"] == INVALID
+    assert decide(cells_missing, evidence_eligible=True)["outcome"] == INVALID
 
 
 def test_runner_fail_closed_refusals_causality_leak_trap_and_synthetic_e2e(

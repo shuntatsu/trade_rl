@@ -13,7 +13,7 @@ Status: Active
 
 詳細なパッケージ責務・依存方向は [architecture/package-boundaries.md](../architecture/package-boundaries.md#core7-mtf-shadow-anchor-ppo-boundary)、Research Assurance Gate の正本は [architecture/research-assurance.md](../architecture/research-assurance.md) を参照する。
 
-## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v3`）
+## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v4`）
 
 ### 2.1 対象ユニバース（11 ペア / 22 交互レッグ）
 
@@ -47,10 +47,10 @@ Status: Active
 
 - `DELAY_1BAR` 設計注記: 本リポジトリの共有約定エンジンでは `order_latency_bars` の `0` と `1` がいずれも次バー始値約定となり、`1` は単に `agent_stop_index` を 1 バー短縮するだけである。そのため `DELAY_1BAR` は `order_latency_bars=0` を維持しつつポリシー層 `ShadowAnchorMtfConfig(signal_lag_bars=1)` によって真正な 1 バー信号遅延を与える。
 - 20% ハードドローダウン: `max_drawdown >= drawdown_stop(0.20)` のセルは `decision.py` で停止扱い（`STOP_FAIL_NO_RESCUE`）となり、`PASS_PARITY_ONLY` は発行されない。`PASS_PARITY_ONLY` は `scenarios == SCENARIOS` の完全集合でのみ定義され、部分集合は `INVALID`。
-- 認可（fail-closed）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とし、Pre-FS1 禁輸（`timestamp` と `available_at`）を常に強制する（`enforce_pre_fs1=False` は拒否。引数は呼出互換のため残す）。G4 URL 付き実行は完全 11 銘柄と `scenarios == SCENARIOS` を要し通常ラベルを出す。URL 無し実行は `allow_synthetic_unauthenticated=True` と `protocol.mark_synthetic_dataset` の合成マーカー付き（identity payload なし）データセットに限られ、結果は `SYNTHETIC_ONLY_NOT_EVIDENCE`（`INVALID` は `INVALID` のまま。算出ラベルは `underlying_outcome`）で、`synthetic_only=true` が manifest と decision に記録され、パリティ／停止の証拠にならない。合成マーカーは全 identity 配列（`mark_price`・`available_at`・`features`・`funding_price_rate` 等）に束縛されるが、誰でも付与できるため認可ではなく誤用防止の便宜に過ぎない。
+- 認可（fail-closed、`trade_rl` はネットワーク不使用）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とし、Pre-FS1 禁輸（`timestamp`・`available_at`・行整列した `features`/`global_features`/`funding_rate`/`funding_price_rate`、および外部 micro 配列の `micro_available_at`）を常に強制する（`enforce_pre_fs1=False` は拒否。引数は呼出互換のため残す。`run_causality_probe` に禁輸解除引数は無い）。G4 URL（`authorization_url`）は `trade_rl` 内では**形式検査のみ**（`authorization_check = url_format_only`）であり、コメントの実在・投稿者・本文は検証できない。証拠適格（`evidence_eligible`）には、tools 層（#1282 のアダプタ）が GitHub から取得して構築する `AuthorizationReceipt`（`authorization_url`・`comment_id`・`author_login`・`author_id`・`body_sha256`・`fetched_at`（tz 付き ISO-8601）・`quoted_protocol_digest`）を `authorization_receipt` として渡す必要がある。ランナーは receipt の形状、URL との一致、URL 内コメント ID との一致、引用 digest とプロトコル digest の一致のみを検査し（`authorization_check = receipt_shape_and_binding`、`authorization_authenticated = true`）、真正性自体は証明できない（呼出側証明）。receipt 無しの URL 実行は `scenarios == SCENARIOS` と完全 11 銘柄を要するが結果は `UNAUTHENTICATED_NOT_EVIDENCE`、URL 無し実行は `allow_synthetic_unauthenticated=True` と `protocol.mark_synthetic_dataset` の合成マーカー付き（identity payload なし）データセットに限られ結果は `SYNTHETIC_ONLY_NOT_EVIDENCE`。いずれも `INVALID` は `INVALID` のままで、算出ラベルは `underlying_outcome` に残り、パリティ／停止の証拠にならない。`decide()` の `evidence_eligible` は必須キーワード（既定なし）。合成マーカーは全 identity 配列（`mark_price`・`available_at`・`features`・`funding_price_rate` 等）に束縛されるが、誰でも付与できるため認可ではなく誤用防止の便宜に過ぎない。
 - `processing_bar_volume_capacity=False`: 全シナリオで 1% 参加率上限を**先行完了バー `t - 1` の出来高**だけで判定し、約定バー自身の出来高ルックアヘッドを遮断する。
 - ハードリスク整合: `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20, emergency_turnover_override=True)` と `ExecutionCostConfig(max_leverage=2.5, maintenance_margin_rate=0.05, max_participation_rate=0.01, minimum_notional=10.0)` の整合を保つ。
-- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除する。非リバランスバーでは直近リバランスの**リスク適用前**目標を再提案し、`PreTradeRisk` の `risk_scale` を一度だけ適用する（縮小済み現在ウェイトを再投入すると縮小が毎バー複利化しリバランスで跳ね戻るため）。リバランスバーの deadband もドローダウン中は解除する。ドローダウン中に `risk_scale < 1` の間は厳密数量 HOLD を使えない（リスクが保持ウェイトを再度縮小するため）。非リバランスバーでリスク縮小後目標が現在ウェイトから deadband（L1 < 0.04）内であれば、リスクが現在ウェイトへ写像する逆像 `current / risk_scale` を提案して微小な再約定を抑え、`risk_scale` 自体が下がるか乖離が deadband を超えた場合のみ意図目標へ再調整する。期待ターンオーバーは終値→次始値ギャップ由来の微小ドリフト（リプレイ試験で 1 バー 0.10 以下、平均 0.02 以下）である。
+- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除する。非リバランスバーでは直近リバランスの**リスク適用前**目標を再提案し、`PreTradeRisk` の `risk_scale` を一度だけ適用する（縮小済み現在ウェイトを再投入すると縮小が毎バー複利化しリバランスで跳ね戻るため）。リバランスバーの deadband もドローダウン中は解除する。ドローダウン中に `risk_scale < 1` の間は厳密数量 HOLD を使えない（リスクが保持ウェイトを再度縮小するため）。非リバランスバーで、`risk_scale` が前回判断から**わずかでも低下した場合は常に**意図目標へ再調整する（`risk_scale` 低下を deadband で吸収すると、露出がリスク意図より最大 0.04 L1 高いまま残るため）。`risk_scale` が不変または上昇し、かつリスク縮小後目標が現在ウェイトから deadband（L1 < 0.04）内であれば、リスクが現在ウェイトへ写像する逆像 `current / risk_scale` を提案して微小な再約定を抑え、乖離が deadband を超えた場合は意図目標へ再調整する。残余ターンオーバーは終値→次始値ギャップ由来の微小ドリフトで、**全モード（`ANC_BIDIR_75_25`・`ANC_REGIME_GATE_NONRL` の Non-RL 対照を含む）**でドローダウン中の非リバランスバーの一部は依然として再約定する（合成フィクスチャ seed 1 の実測: 非リバランス・ブリーチバー 45 本中 26 本が約定し 19 本はゼロ約定、非リバランス合計ターンオーバー約 0.56（うち 0.15 は `risk_scale` 低下バーの正当な縮小）、ブリーチ期間コストの約 5%、`risk_scale` 不変バーの 1 バー最大約 0.07。リプレイ試験の境界は 1 バー 0.10 以下・平均 0.02 以下の実測値であり実データでの保証ではない）。この再約定は凍結コストモデルで課金されるため結果をより保守的にするのみで、会計不具合ではなく、RL と Non-RL 対照に等しく掛かる回転効率の問題である。
 
 ## 3. 事前データ露出（Pre-FS1 Rounds 1–12）の開示
 
@@ -64,10 +64,14 @@ Status: Active
 2. **FM2（因果性・`SPOT_HALTS`・Pre-FS1 境界）**: `k_cut` 以降の価格・出来高・Funding 摂動に対する `k_cut` 以前の全パック配列・ゲート・提案重み・HOLD タプルの差分が `== 0.0` であること。プローブは非自明な口座パス上で全決定バー（リバランス有無を問わない）とシナリオ遅延（`DELAY_1BAR`）ごとに実行し、`index + 1` 行を読む意図的リークポリシーを検出する。`SPOT_HALTS` が前方補間・NaN なくマスクされ、`>= 2026-08-01T00:00:00` および `fit_stop_index > start_index` が fail-closed に拒否されること。
 3. **FM3（先行出来高ロック・リスク／レバレッジ整合・独立 Decimal 台帳）**: 1% 上限でクリップされたリバランス約定の実行バー出来高をショックしても `processing_bar_volume_capacity=False` では約定が不変であり（クリップが拘束することを断言）、`True` の陽性対照では変化すること、`synthesize_alternating_leg_weights` の直接テスト（スポット `>= 0`・`|w| <= 0.55`・総 `<= 2.5`）とリプレイ上の `minimum_notional=10` / 1% 参加率、`max_leverage=1.0` と `max_gross=2.5` の不整合が拒否されること、および本番会計を import しない独立 50 桁 `Decimal` 2 ペア 4 レッグ台帳が全バーの現金・純資産・コスト（手数料＋スプレッド＋`impact_rate * sqrt(participation)`）・Funding PnL・ターンオーバー・終端フラット性を `abs <= 2e-9` / `rel <= 2e-12` で再現すること。ランナーの `ledger_reconciled` は生約定から現金・数量・純資産・ターンオーバーを再構成して照合し、各項目の改ざんを検出すること。
 
+## 4.1 既知の未検証事項
+
+- `execution.py` の `order_minimum_notional` の reduce-only 分岐（`market_order_profile` と `reduce_only_exits` が必要）は Phase 0 の 4 シナリオでは到達不能のため未テスト。`symbol_fills.py` の `allocate_symbol_capacity` 呼出しの外側 `minimum_notional` はリクエスト個別値に常に上書きされる等価変異である。
+
 ## 5. Packet Pin
 
 - Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v3.json`（`-v1.json` / `-v2.json` は旧プロトコルの履歴であり不変・再ピンしない）
 - Pinned Implementation Head: `9f95a8faf388e637305a0cc915fb0dadede7ae41`
-- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v3`
+- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a`
 - Pinned Packet Digest: `e66ef4f381318da2162b74fc20bf1042f9416788f4f33472f1de19fe2b4b35bc`

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Final
 
 import numpy as np
@@ -14,8 +15,8 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
-PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v3"
-PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v3"
+PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v4"
+PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v4"
 DATA_END_EXCLUSIVE: Final = "2026-08-01T00:00:00"
 SYNTHETIC_MARKER_DOMAIN: Final = "core7_mtf_synthetic_dataset_v2"
 G4_AUTHORIZATION_URL_PATTERN: Final = re.compile(
@@ -144,7 +145,12 @@ def risk_config() -> PreTradeRiskConfig:
 
 
 def validate_authorization_url(url: str) -> str:
-    """Validate GitHub owner G4 authorization comment URL format."""
+    """Check the *format* of a GitHub owner G4 authorization comment URL.
+
+    This is a format check only: ``trade_rl`` is network-free and cannot verify that the
+    comment exists, who wrote it or what it says. Authentication is the caller's
+    (tools layer) job and is attested by an ``AuthorizationReceipt``.
+    """
     if not isinstance(url, str):
         raise TypeError("authorization_url must be a string")
     cleaned = url.strip()
@@ -153,6 +159,85 @@ def validate_authorization_url(url: str) -> str:
             "authorization_url must match https://github.com/shuntatsu/trade_rl/(issues|pull)/<id>#issuecomment-<id>"
         )
     return cleaned
+
+
+_LOGIN_PATTERN: Final = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+_SHA256_PATTERN: Final = re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizationReceipt:
+    """Caller-attested record of the fetched G4 authorization comment.
+
+    The tools layer fetches the comment from GitHub and builds this record; the runner
+    only checks its shape and its binding to ``authorization_url`` and to the protocol
+    digest. It cannot prove the comment is genuine, so a receipt makes the run
+    *caller-attested*, not independently authenticated.
+    """
+
+    authorization_url: str
+    comment_id: int
+    author_login: str
+    author_id: int
+    body_sha256: str
+    fetched_at: str
+    quoted_protocol_digest: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "authorization_url": self.authorization_url,
+            "comment_id": self.comment_id,
+            "author_login": self.author_login,
+            "author_id": self.author_id,
+            "body_sha256": self.body_sha256,
+            "fetched_at": self.fetched_at,
+            "quoted_protocol_digest": self.quoted_protocol_digest,
+        }
+
+
+def validate_authorization_receipt(
+    receipt: AuthorizationReceipt, *, authorization_url: str
+) -> AuthorizationReceipt:
+    """Validate a receipt's shape and its binding to the URL and the protocol digest."""
+    if not isinstance(receipt, AuthorizationReceipt):
+        raise TypeError("authorization_receipt must be an AuthorizationReceipt")
+    expected_url = validate_authorization_url(authorization_url)
+    if validate_authorization_url(receipt.authorization_url) != expected_url:
+        raise ValueError("authorization receipt URL does not match authorization_url")
+    for name in ("comment_id", "author_id"):
+        value = getattr(receipt, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"authorization receipt {name} must be a positive integer")
+    if receipt.comment_id != int(expected_url.rsplit("-", 1)[1]):
+        raise ValueError("authorization receipt comment_id does not match the URL")
+    if (
+        not isinstance(receipt.author_login, str)
+        or _LOGIN_PATTERN.fullmatch(receipt.author_login) is None
+    ):
+        raise ValueError("authorization receipt author_login is malformed")
+    if (
+        not isinstance(receipt.body_sha256, str)
+        or _SHA256_PATTERN.fullmatch(receipt.body_sha256) is None
+    ):
+        raise ValueError(
+            "authorization receipt body_sha256 must be a sha256 hex digest"
+        )
+    if not isinstance(receipt.fetched_at, str):
+        raise ValueError("authorization receipt fetched_at must be an ISO-8601 string")
+    try:
+        fetched = datetime.fromisoformat(receipt.fetched_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            "authorization receipt fetched_at must be an ISO-8601 string"
+        ) from exc
+    if fetched.tzinfo is None:
+        raise ValueError("authorization receipt fetched_at must carry a timezone")
+    if receipt.quoted_protocol_digest != protocol_digest():
+        raise ValueError(
+            "authorization receipt quoted protocol digest does not match the frozen "
+            "protocol digest"
+        )
+    return receipt
 
 
 def _synthetic_content_digest(dataset: MarketDataset) -> str:
@@ -226,6 +311,9 @@ def protocol_payload() -> dict[str, object]:
         "authorization": {
             "scenarios_must_equal_protocol": True,
             "expected_protocol_digest_required": True,
+            "authorization_url_check": "format_only_in_trade_rl",
+            "evidence_requires_authorization_receipt": True,
+            "url_without_receipt_outcome": "UNAUTHENTICATED_NOT_EVIDENCE",
             "embargo_always_enforced_by_run_study": True,
             "url_less_run_requires_marked_dataset_convenience": True,
             "url_less_run_outcome": "SYNTHETIC_ONLY_NOT_EVIDENCE",
@@ -252,6 +340,7 @@ __all__ = [
     "DEFAULT_REBALANCE_EVERY_BARS",
     "DEVIATIONS",
     "G4_AUTHORIZATION_URL_PATTERN",
+    "AuthorizationReceipt",
     "LEG_ROSTER",
     "MAX_PAIRS",
     "MIN_PAIRS",
@@ -270,5 +359,6 @@ __all__ = [
     "risk_config",
     "scenario_cost",
     "scenario_signal_delay_bars",
+    "validate_authorization_receipt",
     "validate_authorization_url",
 ]

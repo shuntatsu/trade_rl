@@ -376,7 +376,6 @@ def run_causality_probe(
     deadband: float = protocol.DEFAULT_DEADBAND,
     signal_lag_bars: int = 0,
     seed: int = 17,
-    enforce_pre_fs1: bool = True,
     policy_factory: PolicyFactory | None = None,
 ) -> CausalityProbeResult:
     """Verify future bars cannot alter signals or proposals at any decision up to the cut.
@@ -400,7 +399,7 @@ def run_causality_probe(
     )
     pack_future = build_mtf6_signal_pack(
         _perturb_future_market_rows(dataset, cut_index=start_index, seed=seed + 1),
-        enforce_pre_fs1=enforce_pre_fs1,
+        enforce_pre_fs1=True,
     )
     sig_diff = max(
         _max_prefix_pack_diff(pack_base, pack_cut, cut_index=cut_index),
@@ -715,22 +714,54 @@ def _write_json_canonical(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_bytes(canonical_json_bytes(dict(payload)))
 
 
+@dataclass(frozen=True, slots=True)
+class _RunAuthorization:
+    url: str | None
+    receipt: protocol.AuthorizationReceipt | None
+    synthetic_only: bool
+    authenticated: bool
+    must_complete_roster: bool
+
+    @property
+    def check(self) -> str:
+        if self.url is None:
+            return "none_synthetic_only"
+        return "receipt_shape_and_binding" if self.authenticated else "url_format_only"
+
+    @property
+    def evidence_eligible(self) -> bool:
+        return self.authenticated and not self.synthetic_only
+
+    @property
+    def non_evidence_label(self) -> str:
+        return (
+            decision.SYNTHETIC_ONLY_NOT_EVIDENCE
+            if self.synthetic_only
+            else decision.UNAUTHENTICATED_NOT_EVIDENCE
+        )
+
+
 def _authorize_run(
     dataset: MarketDataset,
     *,
     expected_protocol_digest: str,
     authorization_url: str | None,
+    authorization_receipt: protocol.AuthorizationReceipt | None,
     allow_synthetic_unauthenticated: bool,
     require_full_roster: bool | None,
     scenarios: tuple[str, ...],
     enforce_pre_fs1: bool,
-) -> tuple[str | None, bool, bool]:
-    """Fail-closed run authorization; returns ``(url, synthetic_only, must_complete_roster)``.
+) -> _RunAuthorization:
+    """Fail-closed run authorization.
 
-    The Pre-FS1 embargo is not waivable here. A run with the G4 URL needs the complete
-    roster and exactly ``protocol.SCENARIOS``. A URL-less run is a synthetic-only run: it
-    needs ``allow_synthetic_unauthenticated`` and a dataset carrying the (convenience)
-    synthetic marker, and its decision can never be parity or stop evidence.
+    ``trade_rl`` is network-free, so the owner URL is only *format* checked here. A run
+    is evidence-eligible only when the caller also passes an ``AuthorizationReceipt``
+    (built by the tools layer after fetching the comment) whose URL equals
+    ``authorization_url`` and whose quoted digest equals the frozen protocol digest; the
+    runner validates that shape and binding but cannot prove the comment is genuine.
+    A URL without a receipt runs as ``UNAUTHENTICATED_NOT_EVIDENCE``; a URL-less run needs
+    ``allow_synthetic_unauthenticated`` plus the synthetic marker and runs as
+    ``SYNTHETIC_ONLY_NOT_EVIDENCE``. The Pre-FS1 embargo is never waivable.
     """
     if expected_protocol_digest != protocol.protocol_digest():
         raise ValueError(
@@ -741,13 +772,26 @@ def _authorize_run(
         raise ValueError(
             "run_study always enforces the Pre-FS1 embargo; enforce_pre_fs1=False is refused"
         )
+    if authorization_url is None and authorization_receipt is not None:
+        raise ValueError("authorization_receipt requires authorization_url")
     if authorization_url is not None:
         resolved_url = protocol.validate_authorization_url(authorization_url)
         if scenarios != protocol.SCENARIOS:
             raise ValueError(
                 f"scenarios must equal the frozen protocol scenarios {protocol.SCENARIOS!r}"
             )
-        return resolved_url, False, True
+        receipt = None
+        if authorization_receipt is not None:
+            receipt = protocol.validate_authorization_receipt(
+                authorization_receipt, authorization_url=resolved_url
+            )
+        return _RunAuthorization(
+            url=resolved_url,
+            receipt=receipt,
+            synthetic_only=False,
+            authenticated=receipt is not None,
+            must_complete_roster=True,
+        )
     if not allow_synthetic_unauthenticated:
         raise ValueError(
             "authorization_url is required unless allow_synthetic_unauthenticated=True"
@@ -757,7 +801,13 @@ def _authorize_run(
             "a URL-less run requires a synthetic-marked dataset "
             "(protocol.mark_synthetic_dataset)"
         )
-    return None, True, bool(require_full_roster)
+    return _RunAuthorization(
+        url=None,
+        receipt=None,
+        synthetic_only=True,
+        authenticated=False,
+        must_complete_roster=bool(require_full_roster),
+    )
 
 
 def run_study(
@@ -766,6 +816,7 @@ def run_study(
     output_dir: Path,
     expected_protocol_digest: str,
     authorization_url: str | None = None,
+    authorization_receipt: protocol.AuthorizationReceipt | None = None,
     allow_synthetic_unauthenticated: bool = False,
     require_full_roster: bool | None = None,
     start_index: int = 0,
@@ -790,10 +841,11 @@ def run_study(
     evidence.
     """
     resolved_scenarios = tuple(scenarios)
-    resolved_auth_url, synthetic_only, must_complete_roster = _authorize_run(
+    auth = _authorize_run(
         dataset,
         expected_protocol_digest=expected_protocol_digest,
         authorization_url=authorization_url,
+        authorization_receipt=authorization_receipt,
         allow_synthetic_unauthenticated=allow_synthetic_unauthenticated,
         require_full_roster=require_full_roster,
         scenarios=resolved_scenarios,
@@ -809,7 +861,7 @@ def run_study(
 
     pair_names = validate_alternating_spot_perp_dataset(dataset)
     roster_complete = pair_names == protocol.ROSTER
-    if must_complete_roster and not roster_complete:
+    if auth.must_complete_roster and not roster_complete:
         raise ValueError(
             f"dataset pair roster {pair_names!r} does not match complete 11-symbol ROSTER"
         )
@@ -952,7 +1004,10 @@ def run_study(
             )
 
     decision_payload = decision.decide(
-        cells, scenarios=resolved_scenarios, evidence_eligible=not synthetic_only
+        cells,
+        scenarios=resolved_scenarios,
+        evidence_eligible=auth.evidence_eligible,
+        non_evidence_label=auth.non_evidence_label,
     )
     weights_digests = {
         arm: (
@@ -981,8 +1036,14 @@ def run_study(
         "fit_stop_index": fit_stop_index,
         "causality_cut_index": cut_idx,
         "scenarios": list(resolved_scenarios),
-        "authorization_url": resolved_auth_url,
-        "synthetic_only": synthetic_only,
+        "authorization_url": auth.url,
+        "authorization_check": auth.check,
+        "authorization_authenticated": auth.authenticated,
+        "authorization_receipt": None
+        if auth.receipt is None
+        else auth.receipt.to_dict(),
+        "evidence_eligible": auth.evidence_eligible,
+        "synthetic_only": auth.synthetic_only,
         "enforce_pre_fs1": True,
         "weights_digests": weights_digests,
         "weights_are_zero_residual": weights_are_zero_residual,
@@ -993,8 +1054,10 @@ def run_study(
         "protocol_id": protocol.PROTOCOL_ID,
         "protocol_digest": protocol.protocol_digest(),
         "dataset_id": dataset.dataset_id,
-        "synthetic_only": synthetic_only,
-        "authorization_url": resolved_auth_url,
+        "synthetic_only": auth.synthetic_only,
+        "authorization_url": auth.url,
+        "authorization_check": auth.check,
+        "authorization_authenticated": auth.authenticated,
         "roster_complete": roster_complete,
         "weights_are_zero_residual": weights_are_zero_residual,
         "cells": {

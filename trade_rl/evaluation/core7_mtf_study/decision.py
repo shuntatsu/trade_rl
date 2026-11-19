@@ -13,6 +13,8 @@ PASS_PARITY_ONLY = "PASS_PARITY_ONLY"
 STOP_FAIL_NO_RESCUE = "STOP_FAIL_NO_RESCUE"
 INVALID = "INVALID"
 SYNTHETIC_ONLY_NOT_EVIDENCE = "SYNTHETIC_ONLY_NOT_EVIDENCE"
+UNAUTHENTICATED_NOT_EVIDENCE = "UNAUTHENTICATED_NOT_EVIDENCE"
+_NON_EVIDENCE_LABELS = (SYNTHETIC_ONLY_NOT_EVIDENCE, UNAUTHENTICATED_NOT_EVIDENCE)
 
 _CONTROL_BENCHMARKS: tuple[str, ...] = ("ANC_BIDIR_75_25", "ANC_REGIME_GATE_NONRL")
 
@@ -178,14 +180,19 @@ def decide(
     cells: Mapping[tuple[str, str], CellSummary],
     *,
     scenarios: Sequence[str] = protocol.SCENARIOS,
-    evidence_eligible: bool = True,
+    evidence_eligible: bool,
+    non_evidence_label: str = SYNTHETIC_ONLY_NOT_EVIDENCE,
 ) -> dict[str, object]:
     """Evaluate all ``(arm, scenario)`` cells into a strict fail-closed study outcome.
 
-    ``evidence_eligible=False`` (a URL-less synthetic run) can never report a parity
-    pass or a stop as evidence: those outcomes become ``SYNTHETIC_ONLY_NOT_EVIDENCE``
-    and the computed label is kept as ``underlying_outcome``. ``INVALID`` is kept.
+    ``evidence_eligible`` is required (no default): a run that is not authenticated
+    (URL-less synthetic, or a URL without a verified receipt) can never report a parity
+    pass or a stop as evidence. Those outcomes become ``non_evidence_label``
+    (``SYNTHETIC_ONLY_NOT_EVIDENCE`` or ``UNAUTHENTICATED_NOT_EVIDENCE``) and the computed
+    label is kept as ``underlying_outcome``. ``INVALID`` is kept.
     """
+    if non_evidence_label not in _NON_EVIDENCE_LABELS:
+        raise ValueError(f"unsupported non-evidence label: {non_evidence_label!r}")
     scenario_tuple = tuple(scenarios)
     expected_pairs = {(arm, sc) for arm in protocol.ARMS for sc in scenario_tuple}
 
@@ -218,7 +225,7 @@ def decide(
 
     underlying_outcome = outcome
     if not evidence_eligible and outcome != INVALID:
-        outcome = SYNTHETIC_ONLY_NOT_EVIDENCE
+        outcome = non_evidence_label
 
     return {
         "outcome": outcome,
@@ -248,6 +255,7 @@ __all__ = [
     "PASS_PARITY_ONLY",
     "STOP_FAIL_NO_RESCUE",
     "SYNTHETIC_ONLY_NOT_EVIDENCE",
+    "UNAUTHENTICATED_NOT_EVIDENCE",
     "CellSummary",
     "arm_passes_parity",
     "cell_valid",

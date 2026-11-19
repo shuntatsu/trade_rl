@@ -119,6 +119,14 @@ def enforce_pre_fs1_boundary(dataset: MarketDataset) -> None:
                 "Pre-FS1 embargo violated: available_at must be strictly before "
                 f"{DATA_END_EXCLUSIVE_ISO}Z"
             )
+    # Every row-aligned array shares the ``timestamps`` axis, so rows at or after the
+    # embargo are already refused above; refuse a misaligned array rather than trust it.
+    for name in ("features", "global_features", "funding_rate", "funding_price_rate"):
+        rows = getattr(dataset, name, None)
+        if rows is not None and np.shape(rows)[0] != ts_ns.shape[0]:
+            raise ValueError(
+                f"Pre-FS1 embargo violated: {name} rows are not aligned with timestamps"
+            )
 
 
 def _ema_causal(x: np.ndarray, halflife_bars: float) -> np.ndarray:
@@ -323,6 +331,7 @@ def _validate_micro_availability(
     micro_available_at: np.ndarray | None,
     shape: tuple[int, int],
     *micro: np.ndarray | None,
+    enforce_pre_fs1: bool = True,
 ) -> None:
     if micro_available_at is None:
         raise ValueError("external micro arrays require micro_available_at")
@@ -333,6 +342,11 @@ def _validate_micro_availability(
         )
     avail_ns = avail.astype("datetime64[ns]").astype(np.int64)
     ts_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+    if enforce_pre_fs1 and np.any(avail_ns >= DATA_END_EXCLUSIVE_NS):
+        raise ValueError(
+            "Pre-FS1 embargo violated: micro_available_at must be strictly before "
+            f"{DATA_END_EXCLUSIVE_ISO}Z"
+        )
     if np.any(np.isnat(avail)) or np.any(avail_ns > ts_ns[:, None]):
         raise ValueError(
             "micro_available_at is after the 4h row timestamp (non-causal micro input)"
@@ -515,7 +529,12 @@ def build_mtf6_signal_pack(
     # 15m and 1h micro inputs (external causal aligned or causal 4h bar proxies)
     if micro_15m is not None or micro_1h is not None:
         _validate_micro_availability(
-            dataset, micro_available_at, (t_len, p_len), micro_15m, micro_1h
+            dataset,
+            micro_available_at,
+            (t_len, p_len),
+            micro_15m,
+            micro_1h,
+            enforce_pre_fs1=enforce_pre_fs1,
         )
     elif micro_available_at is not None:
         raise ValueError("micro_available_at requires micro_15m or micro_1h")

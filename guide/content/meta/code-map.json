@@ -238,12 +238,13 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "89c86c0931d29ab9abfe96167d407d7133456c089efe20259b5d583bb28f5d7a",
+      "source_sha256": "f4016be58cdf53a1305180762e9ee1376aa8019df4fb37517b74d306af9bb68a",
       "label_ja": "約定・会計の所有者",
-      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。",
       "variables": [],
       "tests": [
-        "tests/simulation/test_execution_v2.py"
+        "tests/simulation/test_execution_v2.py",
+        "tests/simulation/test_execution_cost_representability.py"
       ]
     },
     {

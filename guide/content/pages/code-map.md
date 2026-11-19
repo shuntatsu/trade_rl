@@ -99,6 +99,8 @@ strict v1入口とTier-2 facadeは変わりません。inference loaderとscenar
 `publish_four_family_portfolio_scenario_result_artifact_v2` / `load_four_family_portfolio_scenario_result_artifact_v2`も明示的なv2 result APIです。
 この保存機能はscenarioやnumeric stress recipeを選ばず、gate・経済結果の証拠も作りません。
 
+約定コストは、実際にfillした非ゼロ費用を浮動小数点のunderflowで0に潰して無償約定と扱わないよう、BookStateへ反映する前に検査します。zero fillや真のゼロ費用は認めます。詳細は「約定コストと会計」を参照してください。
+
 約定の標準破産評価は口座価値をゼロで下限処理します。人工研究で明示的に
 `MarketExecutor(insolvency_valuation="retain_debt")` を選んだ場合だけ、
 負債を持つraw `BookState` を維持し、破産後の注文・追加barを停止します。

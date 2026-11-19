@@ -106,13 +106,18 @@ class BaseIntervalAggregatingTransport:
         | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
     ) -> None:
         _interval_ms(base_interval)
-        self.source_close_policy = BinanceSourceClosePolicy(source_close_policy)
+        self._source_close_policy = BinanceSourceClosePolicy(source_close_policy)
         self._klines = klines
         self._exchange_information = (
             klines if exchange_information is None else exchange_information
         )
         self.base_interval = base_interval
         self.dropped_windows: dict[tuple[str, str], int] = {}
+
+    @property
+    def source_close_policy(self) -> BinanceSourceClosePolicy:
+        # A cached derived kline must not be re-labelled as validated source.
+        return self._source_close_policy
 
     def load_klines(
         self,

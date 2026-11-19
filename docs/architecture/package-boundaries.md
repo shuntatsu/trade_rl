@@ -956,6 +956,8 @@ The package imports numpy, the standard library and `comparison.bootstrap` only.
 
 `evaluation/core7_mtf_study/` は凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v1`）・データ非依存判定と Non-RL レジームゲート比較診断（`decision.py`）・因果性摂動プローブおよび `run_shared_portfolio_replay` 専用ランナー（`runner.py`）を所有する。第 2 のバックテスタや独自台帳・約定モデル・ネットワーク経路を持たず、`DELAY_1BAR` ストレスは `order_latency_bars=0` のまま `signal_lag_bars=1` で実信号遅延を適用し、`processing_bar_volume_capacity=False` により先行完了バーの 1% 出来高制限を維持する。正本仕様は [specs/core7-mtf-shadow-anchor-ppo.md](../specs/core7-mtf-shadow-anchor-ppo.md)。
 
+`evaluation/core7_mtf_study/tierd.py` は Phase 1 Tier D の**データ組立のみ**を所有する純粋モジュールで、store・DB・ネットワーク・replay・収益計算を import しない。時間足 1h の `RawMarketSeries` ペアから、`protocol.ROSTER` 順の 4h・11 ペア・22 交互レッグ `MarketDataset`（`timestamps` は bar close）を組み立て、ロード時に `2026-08-01T00:00:00Z` を fail-closed に拒否する（`GuardedRowSource` は要求範囲を読込**前**に、返却行を読込**時**に検査し、最終 4h バーは close `2026-07-31T20:00Z` まで）。`SPOT_HALTS` は非取引（`tradable=False`・出来高 0）、ロスター欠落・余剰・クロック不一致・funding 欠落・未説明の欠損行は拒否し、データセット側コスト列は 0（`ExecutionCostConfig` と加算されるため）とする。store を読む配線は market-store boundary（`trade_rl` 内の他パッケージは store を import しない）のため `tools/core7_mtf_tierd.py`（`python -m tools.core7_mtf_tierd coverage | dry-check | run`）に置く。`dry-check` と `coverage` は `run_study` を呼ばず収益を計算しない。`run` は owner G4 認可 URL（既定値なし）・clean checkout・新規出力 directory を要求する。このドライバ自体は経済実験を認可しない。
+
 ## Public API policy
 
 Intentionally maintainedなpackage-level importは、内部private file移動より優先して安定させる。

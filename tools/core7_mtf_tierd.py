@@ -1,0 +1,455 @@
+"""Phase 1 Tier D driver for the Core7 MTF study: dry check and (separately authorized) run.
+
+``python -m tools.core7_mtf_tierd dry-check | run``
+
+The wiring lives here, outside ``trade_rl``, because the market-data store package may
+be imported by nothing else under ``trade_rl`` (an architecture test pins that). The
+pure assembly (embargo guard, 4h aggregation, 22-leg Dataset) is
+``trade_rl.evaluation.core7_mtf_study.tierd``; the economics are ``run_study``.
+
+``dry-check`` only loads the Dataset and prints its shape, time range, per-leg
+availability counts and content hash. It never calls ``run_study`` and computes no
+return, signal or decision. ``run`` additionally requires an owner G4
+authorization comment URL (no default), a clean checkout and a *new* output directory,
+and calls ``run_study`` exactly once. A passing dry check authorizes nothing.
+
+Rows come from checksum-verified Binance Vision archives (``--source vision``, offline
+unless ``--allow-network``) or from a populated market store (``--source store``,
+connection URL only from ``TRADE_RL_MARKET_STORE_URL``). Exchange lot/min-notional rules
+come from two raw ``exchangeInfo`` payload files whose SHA-256 is recorded; they are a
+static snapshot, not point-in-time rules.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, TextIO
+
+from trade_rl.artifacts import canonical_json_bytes
+from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
+from trade_rl.evaluation.core7_mtf_study import protocol, tierd
+from trade_rl.evaluation.core7_mtf_study.runner import run_study
+from trade_rl.integrations.binance.carry import CarryScreenHalt
+from trade_rl.integrations.market_store.carry_source import (
+    ArchiveDirFetcher,
+    CarryRowSource,
+    VisionArchiveSource,
+    load_carry_pair,
+)
+from trade_rl.integrations.market_store.contracts import StoreMarket, Universe
+from trade_rl.integrations.market_store.embargo import SealedWindowEmbargoError
+from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
+from trade_rl.integrations.market_store.rules import (
+    ExchangeInfoError,
+    parse_symbol_rules,
+)
+
+EXIT_OK = 0
+EXIT_REFUSED = 2
+EXIT_HALTED = 3
+RECEIPT_NAME = "tierd-data-receipt.json"
+
+GitState = Callable[[], tuple[str, bool]]
+RowSourceFactory = Callable[[IngestionPlan], CarryRowSource]
+
+
+def _parse_day(text: str) -> datetime:
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"expected YYYY-MM-DD, got {text!r}"
+        ) from error
+
+
+def build_plan(load_start: datetime, now: datetime) -> IngestionPlan:
+    """Hourly klines for both markets and perpetual funding, ``[load_start, 2026-08-01)``."""
+    universe = Universe(
+        symbols=protocol.ROSTER,
+        interval=tierd.BASE_INTERVAL,
+        markets=(StoreMarket.USDS_M, StoreMarket.SPOT),
+    )
+    return plan_ingestion(
+        universe, start=load_start, end=tierd.DATA_END_EXCLUSIVE, now=now
+    )
+
+
+def load_rules(
+    spot_payload: bytes, perp_payload: bytes
+) -> dict[str, tuple[tierd.LegRules, tierd.LegRules]]:
+    """Per-symbol ``(spot, perpetual)`` rules from raw ``exchangeInfo`` payloads."""
+    spot = parse_symbol_rules(
+        spot_payload, market=StoreMarket.SPOT, symbols=protocol.ROSTER
+    )
+    perp = parse_symbol_rules(
+        perp_payload, market=StoreMarket.USDS_M, symbols=protocol.ROSTER
+    )
+    result: dict[str, tuple[tierd.LegRules, tierd.LegRules]] = {}
+    for spot_rule, perp_rule in zip(spot, perp, strict=True):
+        if spot_rule.symbol != perp_rule.symbol:
+            raise ExchangeInfoError("exchange rules are not in roster order")
+        result[spot_rule.symbol] = (
+            tierd.LegRules(float(spot_rule.lot_size), float(spot_rule.min_notional)),
+            tierd.LegRules(float(perp_rule.lot_size), float(perp_rule.min_notional)),
+        )
+    return result
+
+
+def load_tierd_dataset(
+    source: CarryRowSource,
+    *,
+    rules: dict[str, tuple[tierd.LegRules, tierd.LegRules]],
+    load_start: datetime,
+    load_end: datetime = tierd.LOAD_END,
+    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+) -> MarketDataset:
+    """Read every roster pair through the embargo guard and assemble the Dataset.
+
+    Any missing symbol, unexplained gap or incomplete funding calendar raises; no
+    symbol is excluded and nothing is filled.
+    """
+    start, end = tierd.validate_load_window(load_start, load_end)
+    guarded = tierd.GuardedRowSource(source)
+    pairs = {
+        symbol: load_carry_pair(
+            guarded,
+            symbol,
+            start_time=start,
+            end_time=end,
+            halt_intervals=halt_intervals,
+        )
+        for symbol in protocol.ROSTER
+    }
+    return tierd.assemble_tierd_dataset(
+        pairs, rules=rules, spot_halt_intervals=halt_intervals
+    )
+
+
+def _ranges(open_times_ms: list[int]) -> list[dict[str, object]]:
+    """Merge ascending hourly opens into ``{first_missing_open, hours}`` runs."""
+    runs: list[tuple[int, int]] = []
+    for stamp in open_times_ms:
+        if runs and runs[-1][0] + runs[-1][1] * tierd.HOUR_MS == stamp:
+            runs[-1] = (runs[-1][0], runs[-1][1] + 1)
+        else:
+            runs.append((stamp, 1))
+    return [
+        {
+            "first_missing_open": datetime.fromtimestamp(
+                first / 1_000, UTC
+            ).isoformat(),
+            "hours": hours,
+        }
+        for first, hours in runs
+    ]
+
+
+def coverage_report(
+    source: CarryRowSource,
+    *,
+    load_start: datetime,
+    load_end: datetime = tierd.LOAD_END,
+    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+) -> dict[str, object]:
+    """Per-leg hourly row coverage and funding counts; reads through the embargo guard.
+
+    Builds no Dataset and no return. A missing hour is *unexplained* unless a declared
+    spot halt wholly contains it. ``complete`` is true only if no leg has an
+    unexplained gap and every perpetual has funding events.
+    """
+    start, end = tierd.validate_load_window(load_start, load_end)
+    start_ms, end_ms = int(start.timestamp() * 1_000), int(end.timestamp() * 1_000)
+    halts = [
+        (int(lo.timestamp() * 1_000), int(hi.timestamp() * 1_000))
+        for lo, hi in halt_intervals
+    ]
+    guarded = tierd.GuardedRowSource(source)
+    legs: dict[str, dict[str, object]] = {}
+    complete = True
+    for symbol in protocol.ROSTER:
+        for market, name in ((StoreMarket.SPOT, "spot"), (StoreMarket.USDS_M, "perp")):
+            rows = guarded.read_klines(
+                market, symbol, tierd.BASE_INTERVAL, start_ms, end_ms
+            )
+            present = {int(row.open_time_ms) for row in rows}
+            expected = range(start_ms, end_ms, tierd.HOUR_MS)
+            missing = [stamp for stamp in expected if stamp not in present]
+            explained = [
+                stamp
+                for stamp in missing
+                if market is StoreMarket.SPOT
+                and stamp != start_ms
+                and any(lo <= stamp and stamp + tierd.HOUR_MS <= hi for lo, hi in halts)
+            ]
+            unexplained = [stamp for stamp in missing if stamp not in set(explained)]
+            entry: dict[str, object] = {
+                "rows": len(rows),
+                "expected_rows": len(expected),
+                "missing_hours": len(missing),
+                "explained_by_halt_hours": len(explained),
+                "unexplained_missing_hours": len(unexplained),
+                "unexplained_gaps": _ranges(unexplained),
+            }
+            if market is StoreMarket.USDS_M:
+                funding = guarded.read_funding(market, symbol, start_ms, end_ms)
+                stamps = [
+                    int(row.funding_time_ms)
+                    for row in funding
+                    if int(row.funding_time_ms) < end_ms
+                ]
+                entry["funding_events"] = len(stamps)
+                if not stamps:
+                    complete = False
+            if unexplained:
+                complete = False
+            legs[f"{symbol}:{name}"] = entry
+    return {
+        "load_start": start.isoformat(),
+        "load_end": end.isoformat(),
+        "complete": complete,
+        "legs": legs,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m tools.core7_mtf_tierd",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    def source_args(sub: argparse.ArgumentParser) -> None:
+        sub.add_argument(
+            "--load-start",
+            type=_parse_day,
+            required=True,
+            help="warm-up start, 2021-01-01..2022-01-01 (replay starts 2022-01-01)",
+        )
+        sub.add_argument("--source", choices=("vision", "store"), default="vision")
+        sub.add_argument("--archive-dir", type=Path, default=None)
+        sub.add_argument("--allow-network", action="store_true")
+
+    def common(sub: argparse.ArgumentParser) -> None:
+        source_args(sub)
+        sub.add_argument("--exchange-info-spot", type=Path, required=True)
+        sub.add_argument("--exchange-info-perp", type=Path, required=True)
+
+    coverage = commands.add_parser(
+        "coverage",
+        help="read-only per-leg row/gap/funding report; builds no Dataset",
+    )
+    source_args(coverage)
+    dry = commands.add_parser(
+        "dry-check", help="load the Dataset only; print shape, range, counts, hash"
+    )
+    common(dry)
+    run = commands.add_parser(
+        "run", help="run_study on the loaded Dataset (needs owner G4 authorization)"
+    )
+    common(run)
+    run.add_argument("--authorization-url", required=True)
+    run.add_argument("--output-dir", type=Path, required=True)
+    run.add_argument(
+        "--fit-stop-index",
+        type=int,
+        default=None,
+        help="default: the replay start index (zero-residual RL arms fit nothing)",
+    )
+    return parser
+
+
+def git_state() -> tuple[str, bool]:
+    """The checked-out commit and whether the working tree is clean."""
+    root = Path(__file__).resolve().parents[1]
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return commit, not status.strip()
+
+
+def _vision_rows(archive_dir: Path, allow_network: bool) -> RowSourceFactory:
+    def factory(plan: IngestionPlan) -> CarryRowSource:
+        inner = None
+        if allow_network:
+            from trade_rl.integrations.market_store.fetch import VisionFetcher
+
+            inner = VisionFetcher(max_attempts=1)
+        return VisionArchiveSource(ArchiveDirFetcher(archive_dir, inner), plan)
+
+    return factory
+
+
+def _store_rows(plan: IngestionPlan) -> CarryRowSource:
+    from trade_rl.integrations.market_store.store import PostgresMarketStore
+
+    return PostgresMarketStore.open()
+
+
+def _resolve_rows(args: argparse.Namespace) -> RowSourceFactory:
+    if args.source == "vision":
+        if args.archive_dir is None:
+            raise ValueError("--source vision requires --archive-dir")
+        return _vision_rows(args.archive_dir, args.allow_network)
+    return _store_rows
+
+
+def _digest(payload: object) -> str:
+    return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def _read_payload(path: Path) -> tuple[bytes, str]:
+    data = path.read_bytes()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def _receipt(
+    *,
+    dataset: MarketDataset,
+    commit: str,
+    clean: bool,
+    args: argparse.Namespace,
+    load_end: datetime,
+    rules_sha: dict[str, str],
+    evidence: list[dict[str, Any]],
+) -> dict[str, object]:
+    return {
+        "schema_version": "core7_mtf_tierd_receipt_v1",
+        "protocol_id": protocol.PROTOCOL_ID,
+        "protocol_digest": protocol.protocol_digest(),
+        "tierd_contract": tierd.TIERD_CONTRACT,
+        "dataset_id": dataset.dataset_id,
+        "load_start": args.load_start.isoformat(),
+        "load_end": load_end.isoformat(),
+        "source": args.source,
+        "exchange_info_sha256": rules_sha,
+        "archive_evidence_count": len(evidence),
+        "archive_evidence_digest": _digest(evidence) if evidence else None,
+        "code_commit": commit,
+        "working_tree_clean": clean,
+    }
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+    state: GitState = git_state,
+    rows_factory: RowSourceFactory | None = None,
+    load_end: datetime = tierd.LOAD_END,
+) -> int:
+    out = sys.stdout if stdout is None else stdout
+    err = sys.stderr if stderr is None else stderr
+    args = build_parser().parse_args(argv)
+    try:
+        if args.command == "run":
+            # the authorization shape is checked before any file or row is touched
+            protocol.validate_authorization_url(args.authorization_url)
+            if args.output_dir.exists():
+                raise FileExistsError(
+                    f"{args.output_dir} exists; outputs are write-once"
+                )
+        tierd.validate_load_window(args.load_start, load_end)
+        commit, clean = state()
+        if args.command == "run" and not clean:
+            raise ValueError("the working tree must be clean so the commit is exact")
+        if args.command == "coverage":
+            if rows_factory is None:
+                rows_factory = _resolve_rows(args)
+            source = rows_factory(build_plan(args.load_start, datetime.now(UTC)))
+            try:
+                report = coverage_report(
+                    source, load_start=args.load_start, load_end=load_end
+                )
+            finally:
+                close = getattr(source, "close", None)
+                if callable(close):
+                    close()
+            out.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+            return EXIT_OK if report["complete"] else EXIT_REFUSED
+        spot_payload, spot_sha = _read_payload(args.exchange_info_spot)
+        perp_payload, perp_sha = _read_payload(args.exchange_info_perp)
+        rules = load_rules(spot_payload, perp_payload)
+        if rows_factory is None:
+            rows_factory = _resolve_rows(args)
+        source = rows_factory(build_plan(args.load_start, datetime.now(UTC)))
+        try:
+            dataset = load_tierd_dataset(
+                source,
+                rules=rules,
+                load_start=args.load_start,
+                load_end=load_end,
+            )
+            evidence_fn = getattr(source, "evidence", None)
+            evidence = list(evidence_fn()) if callable(evidence_fn) else []
+        finally:
+            close = getattr(source, "close", None)
+            if callable(close):
+                close()
+        receipt = _receipt(
+            dataset=dataset,
+            commit=commit,
+            clean=clean,
+            args=args,
+            load_end=load_end,
+            rules_sha={"spot": spot_sha, "perp": perp_sha},
+            evidence=evidence,
+        )
+        if args.command == "dry-check":
+            document = {"receipt": receipt, "summary": tierd.dataset_summary(dataset)}
+            out.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+            return EXIT_OK
+        start_index, _ = tierd.replay_indices(dataset)
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+        (args.output_dir / RECEIPT_NAME).write_bytes(canonical_json_bytes(receipt))
+        decision = run_study(
+            tierd.without_identity_payload(dataset),
+            output_dir=args.output_dir,
+            authorization_url=args.authorization_url,
+            allow_synthetic_unauthenticated=False,
+            require_full_roster=True,
+            start_index=start_index,
+            fit_stop_index=(
+                start_index if args.fit_stop_index is None else args.fit_stop_index
+            ),
+            enforce_pre_fs1=True,
+        )
+    except CarryScreenHalt as error:
+        state_word = "resumable" if error.resumable else "not resumable"
+        err.write(f"halted ({error.kind}, {state_word}): {error}\n")
+        return EXIT_HALTED
+    except (
+        ValueError,
+        SealedWindowEmbargoError,
+        FileExistsError,
+        ExchangeInfoError,
+        OSError,
+    ) as error:
+        err.write(f"refused: {error}\n")
+        return EXIT_REFUSED
+    out.write(json.dumps(decision, indent=2, sort_keys=True, default=str) + "\n")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

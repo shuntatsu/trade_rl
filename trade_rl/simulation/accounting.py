@@ -660,18 +660,15 @@ class BookState:
         )
         if not np.isfinite(requirement) or requirement < 0.0:
             raise ValueError("maintenance_requirement must be finite and non-negative")
+        # Public BookState arrays and cash can change after admission. Validate
+        # the current account before any margin field is modified, including
+        # when an explicit requirement bypasses the position-based default.
+        value = self.portfolio_value
         self.margin_used = float(margin_used)
         self.maintenance_margin = float(maintenance_margin)
         self.maintenance_requirement = requirement
-        self.margin_deficit = max(
-            0.0,
-            requirement - max(self.portfolio_value, 0.0),
-        )
-        if (
-            self.portfolio_value > 0.0
-            and requirement > 0.0
-            and self.portfolio_value < requirement - _TOLERANCE
-        ):
+        self.margin_deficit = max(0.0, requirement - max(value, 0.0))
+        if value > 0.0 and requirement > 0.0 and value < requirement - _TOLERANCE:
             self.terminate(EconomicTerminationReason.MARGIN_CALL)
 
     def terminate(self, reason: EconomicTerminationReason | str) -> None:

@@ -407,6 +407,89 @@ def test_posix_signal_module_without_sigbreak_installs_only_sigterm():
     assert posix.seen == [15]
 
 
+class FakePosixSignals(FakeSignals):
+    SIGHUP = 1
+
+
+def test_posix_hangup_and_termination_are_recorded_as_permanent_failures(
+    tmp_path, monkeypatch
+):
+    """A terminal hangup or a service stop must leave the same permanent marker."""
+    fake = FakePosixSignals()
+    installed = install_termination_handlers(
+        lambda _name: None, signal_module=fake, platform="linux"
+    )
+    assert installed == ["SIGTERM", "SIGBREAK", "SIGHUP"]
+    assert set(fake.handlers) == {1, 15, 21}
+    with pytest.raises(CollectorTerminated, match="signal 1"):
+        fake.handlers[1](1, None)
+    for number, name in ((1, "SIGHUP"), (15, "SIGTERM")):
+        root, digest, clock, feed = setup(tmp_path / name, monkeypatch)
+        with pytest.raises(CollectorTerminated):
+            with collector(root, digest, clock, feed):
+                fake.handlers[number](number, None)
+        record = failure_of(root)
+        assert record["error_type"] == "CollectorTerminated"
+        assert record["error"] == f"terminated by signal {number}"
+        assert record["failure_class"] == "I"
+
+
+def test_windows_never_installs_a_hangup_handler_and_stays_unchanged():
+    fake, kernel = FakePosixSignals(), FakeKernel32()
+    installed = install_termination_handlers(
+        lambda _name: None,
+        signal_module=fake,
+        platform="win32",
+        kernel32=kernel,
+        function_type=lambda function: function,
+    )
+    assert installed == ["SIGTERM", "SIGBREAK", "console_ctrl_handler"]
+    assert set(fake.handlers) == {15, 21}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals only")
+@pytest.mark.parametrize("name", ["SIGHUP", "SIGTERM"])
+def test_a_real_posix_signal_interrupts_a_blocked_process_and_leaves_a_marker(
+    tmp_path, name
+):
+    script = "\n".join(
+        [
+            "import sys, time",
+            "from pathlib import Path",
+            "from trade_rl.evaluation.paper.failure import write_collection_failure",
+            "from trade_rl.evaluation.paper.watchdog import (",
+            "    CollectorTerminated, install_termination_handlers)",
+            "install_termination_handlers(lambda _name: None)",
+            "print('ready', flush=True)",
+            "try:",
+            "    time.sleep(60)",
+            "except CollectorTerminated as error:",
+            "    write_collection_failure(Path(sys.argv[1]), protocol_sha256='0' * 64,",
+            "        error_type=type(error).__name__, error=str(error))",
+            "    sys.exit(3)",
+        ]
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-I", "-c", script, str(tmp_path)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "ready"
+        child.send_signal(getattr(signal, name))
+        assert child.wait(timeout=30) == 3
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+        if child.stdout is not None:
+            child.stdout.close()
+    record = failure_of(tmp_path)
+    assert record["error_type"] == "CollectorTerminated"
+    assert record["error"] == f"terminated by signal {int(getattr(signal, name))}"
+
+
 class FakeKernel32:
     def __init__(self, result=1):
         self.result, self.callback, self.enabled = result, None, None

@@ -13,6 +13,11 @@ from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.bar_path import TriggerSegment
 from trade_rl.simulation.depth import DepthOrderRules, execute_depth_order
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.liquidity import (
+    LiquidityPriority,
+    LiquidityRequest,
+    allocate_symbol_capacity,
+)
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -657,3 +662,66 @@ def test_legacy_impact_keeps_representable_subnormal_participation() -> None:
     assert result.filled_notional == 1e-200
     assert result.cost_amount == pytest.approx(expected, rel=1e-13)
     assert book.total_cost == pytest.approx(expected, rel=1e-13)
+
+
+@pytest.mark.parametrize(
+    ("impact_rate", "cost_multiplier", "must_reject"),
+    ((1e100, 1.0, True), (0.0, 1.0, False), (1e100, 0.0, False)),
+)
+def test_stateful_impact_does_not_trust_allocator_participation_underflow(
+    impact_rate: float, cost_multiplier: float, must_reject: bool
+) -> None:
+    """An actual allocator's zero-rounded ratio must not create a free impact fill."""
+    allocations, _ = allocate_symbol_capacity(
+        requests=(
+            LiquidityRequest(
+                order_id="a" * 64,
+                remaining_quantity=1.0,
+                execution_price=1e-200,
+                available_volume_fraction=1.0,
+                priority=LiquidityPriority.MARKET,
+                eligible_index=0,
+            ),
+        ),
+        processing_volume=1e130,
+        processing_market_notional=1e130,
+        price=1e-200,
+        contract_multiplier=1.0,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+    allocation = allocations[0]
+    assert allocation.filled_quantity == 1.0
+    assert allocation.filled_notional == 1e-200
+    assert allocation.participation_rate == 0.0
+    executor = MarketExecutor(
+        _dataset(price=1e-200, multiplier=1.0),
+        replace(
+            ExecutionCostConfig.zero(),
+            impact_rate=impact_rate,
+            multiplier=cost_multiplier,
+        ),
+    )
+    order = SimpleNamespace(
+        intent=SimpleNamespace(
+            symbol_index=0, order_type=OrderType.LIMIT, eligible_index=0
+        )
+    )
+
+    def cost() -> float:
+        return _execution_cost(
+            SimpleNamespace(executor=executor),
+            order,
+            trigger=SimpleNamespace(segment=TriggerSegment.FIRST_EXTREME),
+            processing_index=1,
+            filled_notional=allocation.filled_notional,
+            participation_rate=allocation.participation_rate,
+        )
+
+    with np.errstate(over="raise", under="raise", invalid="raise"):
+        if must_reject:
+            with pytest.raises(ValueError, match="execution cost rate.*represented"):
+                cost()
+        else:
+            assert cost() == 0.0

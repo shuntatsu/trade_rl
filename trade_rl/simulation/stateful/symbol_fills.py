@@ -121,9 +121,13 @@ def _execution_cost(
         and order.intent.eligible_index == processing_index
     )
     spread_multiplier = 0.5 if maker else 1.0
+    chargeable = filled_notional != 0.0 and executor.cost.multiplier != 0.0
+    # The allocator's nonzero notional / large market capacity may round to
+    # a zero participation ratio. Do not erase real impact charges.
+    if chargeable and executor.cost.impact_rate != 0.0 and participation_rate == 0.0:
+        raise ValueError("nonzero execution cost rate cannot be represented")
     impact_scale = math.sqrt(participation_rate)
     impact = executor.cost.impact_rate * impact_scale
-    chargeable = filled_notional != 0.0 and executor.cost.multiplier != 0.0
     slippage = float(
         executor._slippage_rates(
             1, chargeable_mask=np.array([chargeable], dtype=np.bool_)

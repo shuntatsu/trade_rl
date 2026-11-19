@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Protocol
 
@@ -436,18 +436,6 @@ def assemble_tierd_dataset(
     )
 
 
-def without_identity_payload(dataset: MarketDataset) -> MarketDataset:
-    """The same arrays and ``dataset_id`` without the self-verifying identity payload.
-
-    ``run_study``'s causality probe perturbs a ``dataclasses.replace`` copy under a new
-    id; a copy that still carries the source identity payload is refused by
-    ``MarketDataset`` (the id no longer matches payload and arrays). Until the study
-    runner drops the payload from its probe copy itself, the driver hands it a dataset
-    whose content id is unchanged but whose payload is not re-verified.
-    """
-    return replace(dataset, identity_payload_json=None)
-
-
 def replay_indices(dataset: MarketDataset) -> tuple[int, int]:
     """``(start_index, stop_index)`` of the Tier D replay.
 
@@ -507,5 +495,4 @@ __all__ = [
     "dataset_summary",
     "replay_indices",
     "validate_load_window",
-    "without_identity_payload",
 ]

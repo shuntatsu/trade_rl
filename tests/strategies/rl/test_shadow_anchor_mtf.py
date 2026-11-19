@@ -9,10 +9,15 @@ import pytest
 
 from tests.data.test_mtf6_signals import _make_alternating_dataset
 from trade_rl.data.features.mtf6_signals import build_mtf6_signal_pack
-from trade_rl.evaluation.replay import run_shared_portfolio_replay
+from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.replay import (
+    SharedCashPortfolioReplayResult,
+    run_shared_portfolio_replay,
+)
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.native_transition import validate_risk_execution_compatibility
+from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.strategies.portfolio import (
     PortfolioAccountSnapshot,
     PortfolioDecisionSnapshot,
@@ -22,6 +27,7 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
     ShadowAnchorMlpWeights,
     ShadowAnchorMtfConfig,
     ShadowAnchorMtfPolicy,
+    synthesize_alternating_leg_weights,
 )
 
 
@@ -295,9 +301,7 @@ def test_hold_and_deadband_and_drawdown_hold_release() -> None:
     assert p12.hold_current_quantity_symbols == ()
 
 
-def test_risk_execution_compatibility_and_fm3_previous_bar_capacity_and_stress() -> (
-    None
-):
+def test_risk_execution_compatibility_refuses_leverage_mismatch() -> None:
     ds_base = _make_alternating_dataset(
         n_bars=55, pairs=("BTCUSDT", "ETHUSDT"), seed=61
     )
@@ -313,56 +317,128 @@ def test_risk_execution_compatibility_and_fm3_previous_bar_capacity_and_stress()
     cost_ok = _replay_cost(processing_bar_volume_capacity=False)
     validate_risk_execution_compatibility(risk_obj, MarketExecutor(ds_base, cost_ok))
 
-    # FM3: processing_bar_volume_capacity=False ignores current-bar processing volume shock
-    # Tighten volume around bar 14 so 1% capacity clips orders, then test future volume spike at 14
-    vol_a = np.asarray(ds_base.volume, dtype=np.float64).copy()
-    vol_a[13, :] = 12.0  # t-1 completed bar tight volume for bar 14 fill
-    vol_b = vol_a.copy()
-    vol_b[14, :] = (
-        500_000.0  # future/processing bar volume shock at 14 (ignored when flag=False)
-    )
-    ds_a = replace(ds_base, dataset_id="a" * 64, volume=vol_a)
-    ds_b = replace(ds_base, dataset_id="b" * 64, volume=vol_b)
 
-    pack_a = build_mtf6_signal_pack(ds_a)
-    pack_b = build_mtf6_signal_pack(ds_b)
-    w_rl = _nonzero_weights(seed=5, fit_stop_index=10)
-    res_a = run_shared_portfolio_replay(
-        ds_a,
+def _fm3_replay(
+    ds_base: MarketDataset,
+    volume: np.ndarray,
+    *,
+    processing_bar_volume_capacity: bool,
+    dataset_id: str,
+) -> SharedCashPortfolioReplayResult:
+    ds = replace(ds_base, dataset_id=dataset_id, volume=volume)
+    return run_shared_portfolio_replay(
+        ds,
         ShadowAnchorMtfPolicy(
-            signal_pack=pack_a,
+            signal_pack=build_mtf6_signal_pack(ds),
             config=ShadowAnchorMtfConfig(
-                mode="core7_sparse_ppo", start_index=10, fit_stop_index=10
+                mode="anc_bidir_75_25", start_index=10, fit_stop_index=10
             ),
-            weights=w_rl,
         ),
         start_index=10,
-        stop_index=15,  # Executes bars 11..14; bar 14 fill reads volume[13] == 12.0 on both!
+        stop_index=20,
         initial_capital=100_000.0,
-        execution_cost=cost_ok,
+        execution_cost=_replay_cost(
+            processing_bar_volume_capacity=processing_bar_volume_capacity
+        ),
         risk=_replay_risk(),
         settle_terminal_position=False,
         capture_ledger_evidence=True,
     )
-    res_b = run_shared_portfolio_replay(
-        ds_b,
-        ShadowAnchorMtfPolicy(
-            signal_pack=pack_b,
-            config=ShadowAnchorMtfConfig(
-                mode="core7_sparse_ppo", start_index=10, fit_stop_index=10
-            ),
-            weights=w_rl,
-        ),
-        start_index=10,
-        stop_index=15,
-        initial_capital=100_000.0,
-        execution_cost=cost_ok,
-        risk=_replay_risk(),
-        settle_terminal_position=False,
-        capture_ledger_evidence=True,
+
+
+def _fills(result: SharedCashPortfolioReplayResult) -> list[tuple[int, OrderEvent]]:
+    assert result.ledger_evidence is not None
+    return [
+        (interval.start_index, event)
+        for interval in result.ledger_evidence.intervals.intervals
+        for event in interval.order_events
+        if event.filled_quantity != 0.0
+    ]
+
+
+def test_fm3_previous_bar_capacity_shock_discriminates_from_processing_bar() -> None:
+    """Shock the volume of the bar a *clipped* rebalance fill executes in.
+
+    The rebalance at bar 10 fills at bar 11 with a 1% cap. Bar 10's volume is made
+    tight so the clip binds. With ``processing_bar_volume_capacity=False`` the cap reads
+    the completed bar 10, so shocking bar 11 changes nothing; with ``True`` the cap
+    reads bar 11, so the same shock must change the fills (positive control).
+    """
+    ds_base = _make_alternating_dataset(
+        n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=61
     )
+    vol_a = np.asarray(ds_base.volume, dtype=np.float64).copy()
+    vol_a[10, :] = 120.0  # completed bar before the bar-11 fill: tight
+    vol_b = vol_a.copy()
+    vol_b[11, :] = 5e8  # the bar the fill executes in: shocked
+
+    res_a = _fm3_replay(
+        ds_base, vol_a, processing_bar_volume_capacity=False, dataset_id="a" * 64
+    )
+    res_b = _fm3_replay(
+        ds_base, vol_b, processing_bar_volume_capacity=False, dataset_id="b" * 64
+    )
+    fills_a = _fills(res_a)
+    # the clip binds on the rebalance fill: non-zero, partial, at the 1% cap
+    first = [event for start, event in fills_a if start == 10]
+    assert first, "rebalance at bar 10 must produce fills"
+    for event in first:
+        assert abs(event.filled_quantity) < abs(event.requested_quantity)
+        assert event.participation_rate == pytest.approx(0.01, rel=1e-9)
     np.testing.assert_array_equal(res_a.book.quantities, res_b.book.quantities)
     assert res_a.book.portfolio_value == res_b.book.portfolio_value
+    assert [e.filled_quantity for _, e in fills_a] == [
+        e.filled_quantity for _, e in _fills(res_b)
+    ]
+
+    # positive control: the processing-bar flag reads bar 11, so the shock must matter
+    res_a_true = _fm3_replay(
+        ds_base, vol_a, processing_bar_volume_capacity=True, dataset_id="a" * 64
+    )
+    res_b_true = _fm3_replay(
+        ds_base, vol_b, processing_bar_volume_capacity=True, dataset_id="b" * 64
+    )
+    assert not np.array_equal(res_a_true.book.quantities, res_b_true.book.quantities)
+    assert [e.filled_quantity for _, e in _fills(res_a_true)] != [
+        e.filled_quantity for _, e in _fills(res_b_true)
+    ]
+
+
+def test_replay_participation_cap_and_minimum_notional_bind() -> None:
+    """Native 1% participation and 10 USDT minimum notional hold on a real replay."""
+    ds_base = _make_alternating_dataset(
+        n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=61
+    )
+    vol = np.asarray(ds_base.volume, dtype=np.float64).copy()
+    vol[10, :] = 120.0  # clip at bar 11
+    vol[16, :] = 2.0  # cap notional ~2 USDT (< 10) for the bar-17 fill
+    res = _fm3_replay(
+        ds_base, vol, processing_bar_volume_capacity=False, dataset_id="c" * 64
+    )
+    fills = _fills(res)
+    assert fills
+    cost = _replay_cost()
+    assert any(
+        event.participation_rate == pytest.approx(0.01, rel=1e-9) for _, event in fills
+    ), "the 1% participation cap must bind on at least one fill"
+    for _, event in fills:
+        assert event.participation_rate <= cost.max_participation_rate + 1e-12
+        assert event.filled_notional >= cost.minimum_notional - 1e-9
+    # bar-16 rebalance: capacity below the minimum notional yields no fill at all
+    assert [start for start, _ in fills if start == 16] == []
+    vol_ctrl = vol.copy()
+    vol_ctrl[16, :] = 150_000.0
+    ctrl = _fills(
+        _fm3_replay(
+            ds_base,
+            vol_ctrl,
+            processing_bar_volume_capacity=False,
+            dataset_id="d" * 64,
+        )
+    )
+    assert any(start == 16 for start, _ in ctrl), (
+        "control: without the tight volume the bar-16 rebalance trades"
+    )
 
 
 def test_fit_stop_after_start_refused() -> None:
@@ -377,3 +453,228 @@ def test_fit_stop_after_start_refused() -> None:
     w_leak = _nonzero_weights(seed=1, fit_stop_index=8)
     with pytest.raises(ValueError, match="exceeds start_index"):
         ShadowAnchorMtfPolicy(signal_pack=pack, config=cfg, weights=w_leak)
+
+
+def _gross(weights: tuple[float, ...] | np.ndarray) -> float:
+    return float(np.sum(np.abs(np.asarray(weights, dtype=np.float64))))
+
+
+def test_drawdown_deleveraging_tracks_risk_scale_without_compounding() -> None:
+    """After a drawdown breach the book follows ``risk_scale * intended`` gross.
+
+    A non-rebalance bar must re-propose the cached pre-risk target so ``PreTradeRisk``
+    scales it exactly once. Feeding risk-scaled current weights back through the risk
+    controller compounds the scale every bar and then snaps back at the next rebalance.
+    """
+    ds = _make_alternating_dataset(n_bars=90, pairs=("BTCUSDT", "ETHUSDT"), seed=1)
+    pack = build_mtf6_signal_pack(ds)
+    start = 10
+    risk = _replay_risk()
+    res = run_shared_portfolio_replay(
+        ds,
+        ShadowAnchorMtfPolicy(
+            signal_pack=pack,
+            config=ShadowAnchorMtfConfig(
+                mode="anc_bidir_75_25",
+                start_index=start,
+                fit_stop_index=start,
+                alpha_scale=6.0,  # large enough to reach the 10% drawdown
+            ),
+        ),
+        start_index=start,
+        stop_index=88,
+        initial_capital=100_000.0,
+        execution_cost=_replay_cost(),
+        risk=risk,
+        settle_terminal_position=False,
+        capture_ledger_evidence=True,
+    )
+    assert res.ledger_evidence is not None
+    intervals = res.ledger_evidence.intervals.intervals
+    decisions = res.decisions
+    assert len(intervals) == len(decisions)
+
+    intended: tuple[float, ...] | None = None
+    breached_bars = 0
+    previous_gross: float | None = None
+    max_jump = 0.0
+    for decision, interval in zip(decisions, intervals, strict=True):
+        is_rebalance = (decision.index - start) % 6 == 0
+        if is_rebalance:
+            intended = decision.proposal_weights
+        scale = risk.risk_scale(interval.max_drawdown_before)
+        if scale >= 1.0 or intended is None:
+            previous_gross = None
+            continue
+        breached_bars += 1
+        target_gross = _gross(decision.target_weights)
+        assert target_gross <= scale * _gross(intended) + 1e-9
+        assert target_gross >= 0.95 * scale * _gross(intended)
+        if not is_rebalance:
+            assert decision.proposal_weights == intended
+        if previous_gross is not None:
+            max_jump = max(max_jump, abs(target_gross - previous_gross))
+        previous_gross = target_gross
+    assert breached_bars >= 12, "the replay must exercise sustained deleveraging"
+    assert max_jump <= 0.15, f"gross snapped by {max_jump}"
+
+
+def _snapshot(
+    ds: MarketDataset,
+    *,
+    index: int,
+    weights: tuple[float, ...],
+    portfolio_value: float,
+    peak_value: float = 100_000.0,
+) -> PortfolioDecisionSnapshot:
+    ts_ns = ds.timestamps.astype("datetime64[ns]").astype(np.int64)
+    n = ds.n_symbols
+    return PortfolioDecisionSnapshot(
+        index=index,
+        timestamp_ns=int(ts_ns[index]),
+        agent_stop_index=ds.n_bars - 1,
+        remaining_decisions=ds.n_bars - 1 - index,
+        symbols=ds.symbols,
+        feature_names=ds.feature_names,
+        global_feature_names=ds.global_feature_names,
+        features=tuple((0.0,) for _ in range(n)),
+        feature_available=tuple((True,) for _ in range(n)),
+        feature_staleness=tuple((0.0,) for _ in range(n)),
+        global_features=(0.0,),
+        global_feature_available=(True,),
+        account=PortfolioAccountSnapshot(
+            cash=portfolio_value,
+            portfolio_value=portfolio_value,
+            peak_value=peak_value,
+            max_drawdown=max(0.0, 1.0 - portfolio_value / peak_value),
+            exact_quantities=("0",) * n,
+            quantities=(0.0,) * n,
+            weights=weights,
+            mark_prices=tuple(float(v) for v in ds.close[index]),
+            contract_multipliers=(1.0,) * n,
+            turnover_total=0.0,
+            total_cost=0.0,
+            funding_pnl=0.0,
+            borrow_cost=0.0,
+            margin_used=0.0,
+            maintenance_margin=0.0,
+            maintenance_requirement=0.0,
+            margin_deficit=0.0,
+            insolvent=False,
+            termination_reason=None,
+        ),
+        active_orders=(),
+        risk=PortfolioRiskLimits(2.5, 0.55, 2.5, 0.10, 0.20, True, 1e-9),
+    )
+
+
+def test_deadband_is_released_on_a_rebalance_bar_during_drawdown() -> None:
+    """A sub-deadband rebalance holds when healthy but must trade when breached."""
+    ds = _make_alternating_dataset(n_bars=40, pairs=("BTCUSDT", "ETHUSDT"), seed=55)
+    pack = build_mtf6_signal_pack(ds)
+
+    def make() -> ShadowAnchorMtfPolicy:
+        return ShadowAnchorMtfPolicy(
+            signal_pack=pack,
+            config=ShadowAnchorMtfConfig(
+                mode="anc_bidir_75_25",
+                start_index=10,
+                fit_stop_index=10,
+                deadband=0.04,
+            ),
+        )
+
+    zero = (0.0,) * ds.n_symbols
+    proposed = make().decide_portfolio(
+        _snapshot(ds, index=10, weights=zero, portfolio_value=100_000.0)
+    )
+    assert proposed.hold_current_quantity_symbols == ()
+    target = proposed.target_weights
+    assert _gross(target) > 0.1  # a non-trivial anchor so the comparison is meaningful
+
+    # current weights == the proposal: |proposal - current| = 0 < deadband
+    healthy = make().decide_portfolio(
+        _snapshot(ds, index=10, weights=target, portfolio_value=100_000.0)
+    )
+    assert healthy.hold_current_quantity_symbols == (0, 1, 2, 3)
+    assert healthy.target_weights == target
+
+    breached = make().decide_portfolio(
+        _snapshot(ds, index=10, weights=target, portfolio_value=88_000.0)
+    )
+    assert breached.hold_current_quantity_symbols == ()
+    assert breached.target_weights == target
+
+
+def _leg_inputs(
+    n_pairs: int, *, carry: float, alpha: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    c = np.full(n_pairs, carry, dtype=np.float64)
+    a = np.full(n_pairs, alpha, dtype=np.float64)
+    a[1::2] *= -1.0
+    on = np.ones(n_pairs, dtype=bool)
+    return c, a, on, on.copy()
+
+
+def test_leg_weight_projection_caps_spot_nonnegative_and_gross() -> None:
+    """Direct unit oracle for ``synthesize_alternating_leg_weights``."""
+    # oversized carry and alpha across 6 pairs: leg clips alone give 6.6 gross
+    c, a, cm, pm = _leg_inputs(6, carry=3.0, alpha=3.0)
+    legs = np.asarray(
+        synthesize_alternating_leg_weights(
+            c, a, c_scale=1.0, a_scale=1.0, carry_mask=cm, perp_mask=pm
+        )
+    )
+    assert legs.shape == (12,)
+    assert np.all(legs[0::2] >= 0.0)  # spot never short
+    assert np.max(np.abs(legs)) <= 0.55 + 1e-12
+    assert _gross(legs) == pytest.approx(2.5, abs=1e-9)  # gross cap binds exactly
+
+    # the gross rescale preserves leg proportions (it is a uniform scale)
+    raw = np.asarray(
+        synthesize_alternating_leg_weights(
+            c, a, c_scale=1.0, a_scale=1.0, carry_mask=cm, perp_mask=pm, gross_cap=99.0
+        )
+    )
+    assert _gross(raw) == pytest.approx(6.6, abs=1e-9)
+    np.testing.assert_allclose(legs, raw * (2.5 / 6.6), atol=1e-12)
+
+    # a single extreme alpha must be leg-clipped at 0.55 (not merely gross-scaled)
+    c1 = np.zeros(6)
+    a1 = np.zeros(6)
+    a1[0], a1[1] = 10.0, -0.01
+    one = np.asarray(
+        synthesize_alternating_leg_weights(
+            c1, a1, c_scale=1.0, a_scale=1.0, carry_mask=cm, perp_mask=pm
+        )
+    )
+    assert one[1] == pytest.approx(0.55, abs=1e-12)
+    assert np.max(np.abs(one)) <= 0.55 + 1e-12
+
+    # negative carry input never produces a negative spot leg or a short-carry perp
+    neg = np.asarray(
+        synthesize_alternating_leg_weights(
+            np.full(6, -2.0),
+            np.zeros(6),
+            c_scale=1.0,
+            a_scale=0.0,
+            carry_mask=cm,
+            perp_mask=pm,
+        )
+    )
+    np.testing.assert_array_equal(neg, np.zeros(12))
+
+    # masks: carry off removes spot/carry; perp off removes alpha
+    off = np.zeros(6, dtype=bool)
+    masked = np.asarray(
+        synthesize_alternating_leg_weights(
+            c, a, c_scale=1.0, a_scale=1.0, carry_mask=off, perp_mask=off
+        )
+    )
+    np.testing.assert_array_equal(masked, np.zeros(12))
+    spot_only = np.asarray(
+        synthesize_alternating_leg_weights(
+            c, a, c_scale=1.0, a_scale=1.0, carry_mask=cm, perp_mask=off
+        )
+    )
+    assert np.all(spot_only[0::2] > 0.0) and np.all(spot_only[1::2] <= 0.0)

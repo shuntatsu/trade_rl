@@ -57,7 +57,7 @@ def _readonly(
 
 @dataclass(frozen=True, slots=True)
 class Mtf6SignalPack:
-    """Strictly causal 6-timeframe signals and anchor/gate arrays for 2P alternating legs."""
+    """Strictly causal multi-timeframe signals (4h/1d/3d/1w; 15m/1h are 4h-OHLC proxies unless micro arrays are supplied) and anchor/gate arrays for 2P alternating legs."""
 
     pair_names: tuple[str, ...]
     timestamps: np.ndarray
@@ -112,6 +112,13 @@ def enforce_pre_fs1_boundary(dataset: MarketDataset) -> None:
         raise ValueError(
             f"Pre-FS1 embargo violated: timestamps must be strictly before {DATA_END_EXCLUSIVE_ISO}Z"
         )
+    if dataset.available_at is not None:
+        avail_ns = dataset.available_at.astype("datetime64[ns]").astype(np.int64)
+        if avail_ns.size > 0 and int(np.max(avail_ns)) >= DATA_END_EXCLUSIVE_NS:
+            raise ValueError(
+                "Pre-FS1 embargo violated: available_at must be strictly before "
+                f"{DATA_END_EXCLUSIVE_ISO}Z"
+            )
 
 
 def _ema_causal(x: np.ndarray, halflife_bars: float) -> np.ndarray:
@@ -311,6 +318,32 @@ def _causal_log_ret(
     return out
 
 
+def _validate_micro_availability(
+    dataset: MarketDataset,
+    micro_available_at: np.ndarray | None,
+    shape: tuple[int, int],
+    *micro: np.ndarray | None,
+) -> None:
+    if micro_available_at is None:
+        raise ValueError("external micro arrays require micro_available_at")
+    avail = np.asarray(micro_available_at)
+    if avail.shape != shape or not np.issubdtype(avail.dtype, np.datetime64):
+        raise ValueError(
+            f"micro_available_at must be a datetime64 array of shape {shape}"
+        )
+    avail_ns = avail.astype("datetime64[ns]").astype(np.int64)
+    ts_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
+    if np.any(np.isnat(avail)) or np.any(avail_ns > ts_ns[:, None]):
+        raise ValueError(
+            "micro_available_at is after the 4h row timestamp (non-causal micro input)"
+        )
+    for arr in micro:
+        if arr is not None and not np.all(
+            np.isfinite(np.asarray(arr, dtype=np.float64))
+        ):
+            raise ValueError("micro arrays must be finite")
+
+
 def _availability_mask(dataset: MarketDataset) -> np.ndarray:
     t_len = dataset.n_bars
     n_syms = dataset.n_symbols
@@ -366,9 +399,17 @@ def build_mtf6_signal_pack(
     *,
     micro_15m: np.ndarray | None = None,
     micro_1h: np.ndarray | None = None,
+    micro_available_at: np.ndarray | None = None,
     enforce_pre_fs1: bool = True,
 ) -> Mtf6SignalPack:
-    """Build strictly causal 6-TF ``CORE7`` / ``ORTH6`` signals and anchors on a ``MarketDataset``."""
+    """Build strictly causal ``CORE7`` / ``ORTH6`` signals and anchors on a 4h ``MarketDataset``.
+
+    Four effective timeframes (4h, 1d, 3d, 1w) come from the dataset. The 15m and 1h
+    inputs are causal proxies of the same 4h OHLC bars unless ``micro_15m`` /
+    ``micro_1h`` are supplied; supplied micro arrays must be finite, shaped
+    ``(T, P, 3)`` / ``(T, P, 2)`` and accompanied by ``micro_available_at`` ``(T, P)``
+    that is not later than the 4h row timestamp.
+    """
     pair_names = validate_alternating_spot_perp_dataset(dataset)
     if enforce_pre_fs1:
         enforce_pre_fs1_boundary(dataset)
@@ -472,6 +513,12 @@ def build_mtf6_signal_pack(
     z_fr = _neutral_z(fr_3d, perp_mask, min_valid=MIN_PAIRS, clip_z=3.0)
 
     # 15m and 1h micro inputs (external causal aligned or causal 4h bar proxies)
+    if micro_15m is not None or micro_1h is not None:
+        _validate_micro_availability(
+            dataset, micro_available_at, (t_len, p_len), micro_15m, micro_1h
+        )
+    elif micro_available_at is not None:
+        raise ValueError("micro_available_at requires micro_15m or micro_1h")
     if micro_15m is not None:
         m15 = np.asarray(micro_15m, dtype=np.float64)
         if m15.shape != (t_len, p_len, 3):

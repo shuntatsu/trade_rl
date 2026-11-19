@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import replace
 from typing import Final
 
+import numpy as np
+
 from trade_rl.artifacts import canonical_json_bytes
+from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
-PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v1"
-PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v1"
+PROTOCOL_SCHEMA: Final = "core7_mtf_shadow_anchor_protocol_v2"
+PROTOCOL_ID: Final = "core7_mtf_shadow_anchor_ppo_v2"
 DATA_END_EXCLUSIVE: Final = "2026-08-01T00:00:00"
+SYNTHETIC_MARKER_DOMAIN: Final = "core7_mtf_synthetic_dataset_v2"
 G4_AUTHORIZATION_URL_PATTERN: Final = re.compile(
     r"^https://github\.com/shuntatsu/trade_rl/(issues|pull)/[0-9]+#issuecomment-[0-9]+$"
 )
@@ -81,6 +86,9 @@ DEVIATIONS: Final[tuple[str, ...]] = (
     "nonrl_benchmark: ANC_REGIME_GATE_NONRL applies fixed causal sigmoid/clip regime gates "
     "(g_alpha, g_carry) from 6D opportunity state as a mandatory Non-RL control alongside "
     "CASH and static ANC_BIDIR_75_25",
+    "timeframe_inputs: four effective timeframes (4h, 1d, 3d, 1w) are derived from the 4h "
+    "MarketDataset; the 15m and 1h inputs are causal proxies computed from the same 4h OHLC "
+    "bars unless external micro_15m/micro_1h arrays with a causal micro_available_at are supplied",
     "phase0_scope: Phase 0 establishes software/oracle/causality/fail-closed validity on synthetic "
     "inputs only; real-data parity (Phase 1+) requires independent G0-G2 review and separate owner G4 URL",
 )
@@ -147,6 +155,38 @@ def validate_authorization_url(url: str) -> str:
     return cleaned
 
 
+def _synthetic_content_digest(dataset: MarketDataset) -> str:
+    digest = hashlib.sha256(SYNTHETIC_MARKER_DOMAIN.encode("utf-8"))
+    digest.update("\x00".join(dataset.symbols).encode("utf-8"))
+    digest.update(np.ascontiguousarray(dataset.timestamps).tobytes())
+    for name in ("open", "high", "low", "close", "volume", "funding_rate", "tradable"):
+        digest.update(name.encode("utf-8"))
+        digest.update(np.ascontiguousarray(getattr(dataset, name)).tobytes())
+    return digest.hexdigest()
+
+
+def mark_synthetic_dataset(dataset: MarketDataset) -> MarketDataset:
+    """Return ``dataset`` re-identified as an explicit, content-bound synthetic fixture.
+
+    Only a payload-free dataset can be marked: a dataset carrying a content identity
+    payload (the form real market data takes) is refused, so the marker can never be
+    obtained by relabelling an identity-verified dataset.
+    """
+    if dataset.identity_payload_json is not None:
+        raise ValueError(
+            "a dataset with a content identity payload cannot be synthetic"
+        )
+    return replace(dataset, dataset_id=_synthetic_content_digest(dataset))
+
+
+def is_synthetic_dataset(dataset: MarketDataset) -> bool:
+    """True iff the dataset id is the content-bound synthetic marker of its own arrays."""
+    return (
+        dataset.identity_payload_json is None
+        and dataset.dataset_id == _synthetic_content_digest(dataset)
+    )
+
+
 def protocol_payload() -> dict[str, object]:
     """Return canonical frozen protocol payload for digesting."""
     rc = risk_config()
@@ -175,6 +215,13 @@ def protocol_payload() -> dict[str, object]:
             "drawdown_start": rc.drawdown_start,
             "drawdown_stop": rc.drawdown_stop,
             "emergency_turnover_override": rc.emergency_turnover_override,
+        },
+        "authorization": {
+            "scenarios_must_equal_protocol": True,
+            "expected_protocol_digest_required": True,
+            "synthetic_bypass_requires_marked_dataset": True,
+            "embargo_waiver_requires_marked_dataset": True,
+            "drawdown_hard_stop": rc.drawdown_stop,
         },
         "initial_capital": DEFAULT_INITIAL_CAPITAL,
         "rebalance_every_bars": DEFAULT_REBALANCE_EVERY_BARS,
@@ -207,6 +254,9 @@ __all__ = [
     "RL_ARMS",
     "ROSTER",
     "SCENARIOS",
+    "SYNTHETIC_MARKER_DOMAIN",
+    "is_synthetic_dataset",
+    "mark_synthetic_dataset",
     "protocol_digest",
     "protocol_payload",
     "risk_config",

@@ -4,7 +4,7 @@ Status: Active
 
 ## 1. 目的と位置づけ（Phase 0: Software Validity Only）
 
-本仕様書は、[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) 配下の 6 時間軸・11 銘柄・22 レッグ（`:spot` / `:perp` 交互配列）Shadow-Anchor PPO 統合アーキテクチャおよび固定因果 Non-RL レジームゲート対照ベンチマーク（`ANC_REGIME_GATE_NONRL`）の**Phase 0（ソフトウェア整合性・合成オラクル・境界契約のみ）**を定義する。
+本仕様書は、[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) 配下の 実効 4 時間軸（4h/1d/3d/1w）＋ 4h OHLC 由来の 15m/1h 近似入力・11 銘柄・22 レッグ（`:spot` / `:perp` 交互配列）Shadow-Anchor PPO 統合アーキテクチャおよび固定因果 Non-RL レジームゲート対照ベンチマーク（`ANC_REGIME_GATE_NONRL`）の**Phase 0（ソフトウェア整合性・合成オラクル・境界契約のみ）**を定義する。
 
 - 現在の証拠水準: `software_validity`（`edge_claim = false`, `production_eligible = false`, `live_trading_authorized = false`）。
 - 次の許可行動クラス: `synthetic_verification_only`（合成入力と不変境界テストのみ。実市場データの読込・学習・リプレイは禁止）。
@@ -13,7 +13,7 @@ Status: Active
 
 詳細なパッケージ責務・依存方向は [architecture/package-boundaries.md](../architecture/package-boundaries.md#core7-mtf-shadow-anchor-ppo-boundary)、Research Assurance Gate の正本は [architecture/research-assurance.md](../architecture/research-assurance.md) を参照する。
 
-## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v1`）
+## 2. 凍結プロトコル（`core7_mtf_shadow_anchor_ppo_v2`）
 
 ### 2.1 対象ユニバース（11 ペア / 22 交互レッグ）
 
@@ -21,7 +21,8 @@ Status: Active
 
 ### 2.2 時間境界・データ整合性
 
-- Pre-FS1 ハード境界: 全バーの timestamp は `2026-08-01T00:00:00`（UTC）**未満**でなければならない（`>= 2026-08-01T00:00:00` は fail-closed 拒否）。
+- Pre-FS1 ハード境界: 全バーの `timestamp` および `available_at` は `2026-08-01T00:00:00`（UTC）**未満**でなければならない（`>= 2026-08-01T00:00:00` は fail-closed 拒否）。
+- 時間軸入力: `MarketDataset` は 4h 足であり、実効時間軸は 4h/1d/3d/1w の 4 つである。15m・1h 入力は外部 `micro_15m`/`micro_1h` が供給されない限り同一 4h OHLC バーからの因果近似（proxy）であり、実 15m/1h データではない。外部 micro 配列を渡す場合は有限値・形状 `(T,P,3)`/`(T,P,2)` と、4h 行 timestamp 以前の `micro_available_at (T,P)` が必須で、欠落・遅延は拒否する。
 - `SPOT_HALTS` ギャップ（例: Binance Spot 停止区間）は前方補間やゼロ埋めリターン結合を行わず非取引マスク（`spot_usable = False`, `carry_mask = False`）として遮断する。
 - ウォークフォワード境界: `fit_stop_index <= start_index` を設定および重み成果物の両面で強制する。
 
@@ -45,9 +46,11 @@ Status: Active
 | `DELAY_1BAR` | `0.0004` | `0.0002` | `0.0002` | `1` | `0` | `False` |
 
 - `DELAY_1BAR` 設計注記: 本リポジトリの共有約定エンジンでは `order_latency_bars` の `0` と `1` がいずれも次バー始値約定となり、`1` は単に `agent_stop_index` を 1 バー短縮するだけである。そのため `DELAY_1BAR` は `order_latency_bars=0` を維持しつつポリシー層 `ShadowAnchorMtfConfig(signal_lag_bars=1)` によって真正な 1 バー信号遅延を与える。
+- 20% ハードドローダウン: `max_drawdown >= drawdown_stop(0.20)` のセルは `decision.py` で停止扱い（`STOP_FAIL_NO_RESCUE`）となり、`PASS_PARITY_ONLY` は発行されない。`PASS_PARITY_ONLY` は `scenarios == SCENARIOS` の完全集合でのみ定義され、部分集合は `INVALID`。
+- 認可（fail-closed）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とする。`allow_synthetic_unauthenticated` および `enforce_pre_fs1=False` は `protocol.mark_synthetic_dataset` による内容束縛の合成マーカー付き（identity payload なし）データセットでのみ使用でき、それ以外は G4 URL・完全 11 銘柄・禁輸・`scenarios == SCENARIOS` が必須。
 - `processing_bar_volume_capacity=False`: 全シナリオで 1% 参加率上限を**先行完了バー `t - 1` の出来高**だけで判定し、約定バー自身の出来高ルックアヘッドを遮断する。
 - ハードリスク整合: `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20, emergency_turnover_override=True)` と `ExecutionCostConfig(max_leverage=2.5, maintenance_margin_rate=0.05, max_participation_rate=0.01, minimum_notional=10.0)` の整合を保つ。
-- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除して `PreTradeRisk` による縮小・緊急フラット化を妨げない。
+- HOLD／Deadband とドローダウン保護: リバランス間隔外または L1 目標変化が `deadband=0.04` 未満のバーでは `hold_current_quantity_symbols` を返し不要なドリフト約定を防ぐ一方、現在または最大ドローダウンが `drawdown_start` に達した場合は HOLD を解除する。非リバランスバーでは直近リバランスの**リスク適用前**目標を再提案し、`PreTradeRisk` の `risk_scale` を一度だけ適用する（縮小済み現在ウェイトを再投入すると縮小が毎バー複利化しリバランスで跳ね戻るため）。リバランスバーの deadband もドローダウン中は解除する。
 
 ## 3. 事前データ露出（Pre-FS1 Rounds 1–12）の開示
 
@@ -57,14 +60,14 @@ Status: Active
 
 ## 4. Phase 0 合成 G2 オラクル（FM1–FM3 + 独立 Decimal 台帳）
 
-1. **FM1（ゼロ残差・HOLD・Non-RL 対照整合）**: `ShadowAnchorMlpWeights.zero_residual()` を与えた `core7_sparse_ppo` / `orth6_cush_ppo` が `anc_bidir_75_25` と目標重み・終端資産ともに `< 1e-12` で一致すること。非リバランスおよび deadband 内で不要約定がゼロであり、ドローダウン発動時に HOLD が解除されること。
-2. **FM2（因果性・`SPOT_HALTS`・Pre-FS1 境界）**: `k_cut` 以降の価格・出来高・Funding 摂動に対する `k_cut` 以前の全 6 時間軸特徴・ゲート・提案重み差分が `== 0.0` であること。`SPOT_HALTS` が前方補間・NaN なくマスクされ、`>= 2026-08-01T00:00:00` および `fit_stop_index > start_index` が fail-closed に拒否されること。
-3. **FM3（先行出来高ロック・リスク／レバレッジ整合・独立 Decimal 台帳）**: `processing_bar_volume_capacity=False` により実行バー自身の出来高ショックへ不変であること、`max_leverage=1.0` と `max_gross=2.5` の不整合が拒否されること、および本番会計を import しない独立 50 桁 `Decimal` 2 ペア 4 レッグ台帳が全バーの現金・純資産・コスト（手数料＋スプレッド＋`impact_rate * sqrt(participation)`）・Funding PnL・ターンオーバー・終端フラット性を `abs <= 2e-9` / `rel <= 2e-12` で再現すること。
+1. **FM1（ゼロ残差・HOLD・Non-RL 対照整合）**: `ShadowAnchorMlpWeights.zero_residual()` を与えた `core7_sparse_ppo` / `orth6_cush_ppo` が `anc_bidir_75_25` と目標重み・終端資産ともに `< 1e-12` で一致すること。非リバランスおよび deadband 内で不要約定がゼロであり、ドローダウン発動時に HOLD が解除され、リプレイ上で総ポジションが `risk_scale × 意図した総ポジション` に追従して複利縮小・跳ね戻りしないこと。
+2. **FM2（因果性・`SPOT_HALTS`・Pre-FS1 境界）**: `k_cut` 以降の価格・出来高・Funding 摂動に対する `k_cut` 以前の全パック配列・ゲート・提案重み・HOLD タプルの差分が `== 0.0` であること。プローブは非自明な口座パス上で全決定バー（リバランス有無を問わない）とシナリオ遅延（`DELAY_1BAR`）ごとに実行し、`index + 1` 行を読む意図的リークポリシーを検出する。`SPOT_HALTS` が前方補間・NaN なくマスクされ、`>= 2026-08-01T00:00:00` および `fit_stop_index > start_index` が fail-closed に拒否されること。
+3. **FM3（先行出来高ロック・リスク／レバレッジ整合・独立 Decimal 台帳）**: 1% 上限でクリップされたリバランス約定の実行バー出来高をショックしても `processing_bar_volume_capacity=False` では約定が不変であり（クリップが拘束することを断言）、`True` の陽性対照では変化すること、`synthesize_alternating_leg_weights` の直接テスト（スポット `>= 0`・`|w| <= 0.55`・総 `<= 2.5`）とリプレイ上の `minimum_notional=10` / 1% 参加率、`max_leverage=1.0` と `max_gross=2.5` の不整合が拒否されること、および本番会計を import しない独立 50 桁 `Decimal` 2 ペア 4 レッグ台帳が全バーの現金・純資産・コスト（手数料＋スプレッド＋`impact_rate * sqrt(participation)`）・Funding PnL・ターンオーバー・終端フラット性を `abs <= 2e-9` / `rel <= 2e-12` で再現すること。ランナーの `ledger_reconciled` は生約定から現金・数量・純資産・ターンオーバーを再構成して照合し、各項目の改ざんを検出すること。
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v1.json`
-- Pinned Implementation Head: `edc910ae4f8030523b4b5e39d63fa1cf7d006450`
-- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v1`
-- Pinned Protocol Digest: `c61d96248f58e4515254cd17a4bc8562714273bce626d627da9eeb9a9c6968f4`
-- Pinned Packet Digest: `ce369ac6d66687ba0c822c56bcfe5930c144dd287edda19894fb1e0d7cd70ea6`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v2.json`（`-v1.json` は protocol v1 の履歴であり不変・再ピンしない）
+- Pinned Implementation Head: `8f49dfa024cf796c65949962aa55181a2a872bf1`
+- Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v2`
+- Pinned Protocol Digest: `97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210`
+- Pinned Packet Digest: `474d77259f177694b6d5e74eca313bf9fa844ab6f7c1898c085c686e263ed057`

@@ -492,18 +492,11 @@ def test_replay_window_starts_at_the_first_tier_d_bar_and_summary_has_no_returns
         tierd.replay_indices(short)
 
 
-def test_study_copy_keeps_the_content_id_but_not_the_identity_payload() -> None:
-    # run_study's probe perturbs a replace() copy under a new id; an identity-bound
-    # copy would be refused by MarketDataset, so the driver strips the payload only
+def test_the_identity_bound_dataset_passes_the_causality_probe_unchanged() -> None:
     dataset = _load(FakeRows())
     assert dataset.identity_payload_json is not None
-    study = tierd.without_identity_payload(dataset)
-    assert study.dataset_id == dataset.dataset_id
-    assert study.identity_payload_json is None
-    np.testing.assert_array_equal(study.close, dataset.close)
-    np.testing.assert_array_equal(study.tradable, dataset.tradable)
     assert run_causality_probe(
-        study, cut_index=26, policy_mode="anc_bidir_75_25", start_index=18
+        dataset, cut_index=26, policy_mode="anc_bidir_75_25", start_index=18
     ).passed
 
 
@@ -642,9 +635,15 @@ def test_run_calls_run_study_once_with_the_frozen_arguments(
     assert call["start_index"] == call["fit_stop_index"] == 18
     assert call["output_dir"] == out_dir
     assert call["dataset"].symbols == protocol.LEG_ROSTER
-    assert call["dataset"].identity_payload_json is None
+    # the real, identity-verified dataset flows through unchanged
+    assert call["dataset"].identity_payload_json is not None
+    _, dry, _ = _main(["dry-check", *_cli_files(tmp_path)])
+    assert call["dataset"].dataset_id == json.loads(dry)["summary"]["dataset_id"]
+    assert call["expected_protocol_digest"] == protocol.protocol_digest()
     receipt = json.loads((out_dir / driver.RECEIPT_NAME).read_text(encoding="utf-8"))
     assert receipt["dataset_id"] == call["dataset"].dataset_id
+    assert receipt["expected_protocol_digest"] == protocol.protocol_digest()
+    assert receipt["protocol_digest"] == protocol.protocol_digest()
     assert receipt["code_commit"] == "a" * 40
 
 
@@ -742,6 +741,9 @@ def test_spot_legs_are_not_borrowable_and_the_engine_enforces_it() -> None:
 # --- Vision daily fallback for hours missing from the primary source -------------------
 
 
+_DAILY_ARCHIVES: dict[str, bytes] = {}  # zip bytes embed a clock: build each url once
+
+
 def _daily_fallback(
     perp_missing: frozenset[int],
     *,
@@ -755,7 +757,8 @@ def _daily_fallback(
     def daily(plan: Any) -> Any:
         for spec in plan.specs:
             if spec.url not in fetcher.files and spec.url not in unpublished:
-                fetcher.add(spec.url, archive_bytes(spec))
+                payload = _DAILY_ARCHIVES.setdefault(spec.url, archive_bytes(spec))
+                fetcher.add(spec.url, payload)
         return VisionArchiveSource(fetcher, plan)
 
     primary = FakeRows(perp_missing=perp_missing)
@@ -885,3 +888,35 @@ def test_fallback_provenance_reaches_the_receipt_and_the_cli_flag_needs_an_archi
         load_end=END,
     )
     assert code == driver.EXIT_REFUSED and "--archive-dir" in err_s.getvalue()
+
+
+def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v2() -> None:
+    assert driver.DEFAULT_LOAD_START == datetime(2021, 10, 1, tzinfo=UTC)
+    args = driver.build_parser().parse_args(
+        [
+            "dry-check",
+            "--exchange-info-spot",
+            "s.json",
+            "--exchange-info-perp",
+            "p.json",
+        ]
+    )
+    assert args.load_start == datetime(2021, 10, 1, tzinfo=UTC)
+    run_args = driver.build_parser().parse_args(
+        [
+            "run",
+            "--exchange-info-spot",
+            "s.json",
+            "--exchange-info-perp",
+            "p.json",
+            "--authorization-url",
+            AUTH,
+            "--output-dir",
+            "o",
+        ]
+    )
+    assert run_args.load_start == datetime(2021, 10, 1, tzinfo=UTC)
+    assert protocol.PROTOCOL_ID == "core7_mtf_shadow_anchor_ppo_v2"
+    assert protocol.protocol_digest() == (
+        "97a6942d2d90faf947c72f0f199a145c8cd16fef98bdd8986392dc5e66989210"
+    )

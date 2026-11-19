@@ -18,6 +18,11 @@ unless ``--allow-network``) or from a populated market store (``--source store``
 connection URL only from ``TRADE_RL_MARKET_STORE_URL``). Exchange lot/min-notional rules
 come from two raw ``exchangeInfo`` payload files whose SHA-256 is recorded; they are a
 static snapshot, not point-in-time rules.
+
+``--load-start`` defaults to 2021-10-01 (the warm-up allowed before the 2022-01-01 replay
+start). Earlier starts run into unregistered 2021 spot maintenance gaps (2021-08-13,
+2021-09-29) that no declared halt explains, so the strict loader refuses them; the
+protocol registers only the 2023-03-24 spot halt.
 """
 
 from __future__ import annotations
@@ -67,6 +72,8 @@ EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_HALTED = 3
 RECEIPT_NAME = "tierd-data-receipt.json"
+#: Earlier starts hit unregistered 2021 spot maintenance gaps (2021-08-13, 2021-09-29).
+DEFAULT_LOAD_START = datetime(2021, 10, 1, tzinfo=UTC)
 
 GitState = Callable[[], tuple[str, bool]]
 RowSourceFactory = Callable[[IngestionPlan], CarryRowSource]
@@ -394,8 +401,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument(
             "--load-start",
             type=_parse_day,
-            required=True,
-            help="warm-up start, 2021-01-01..2022-01-01 (replay starts 2022-01-01)",
+            default=DEFAULT_LOAD_START,
+            help="warm-up start (default 2021-10-01; replay starts 2022-01-01)",
         )
         sub.add_argument("--source", choices=("vision", "store"), default="vision")
         sub.add_argument("--archive-dir", type=Path, default=None)
@@ -517,6 +524,7 @@ def _receipt(
         "schema_version": "core7_mtf_tierd_receipt_v1",
         "protocol_id": protocol.PROTOCOL_ID,
         "protocol_digest": protocol.protocol_digest(),
+        "expected_protocol_digest": protocol.protocol_digest(),
         "tierd_contract": tierd.TIERD_CONTRACT,
         "dataset_id": dataset.dataset_id,
         "load_start": args.load_start.isoformat(),
@@ -615,9 +623,10 @@ def main(
         args.output_dir.mkdir(parents=True, exist_ok=False)
         (args.output_dir / RECEIPT_NAME).write_bytes(canonical_json_bytes(receipt))
         decision = run_study(
-            tierd.without_identity_payload(dataset),
+            dataset,
             output_dir=args.output_dir,
             authorization_url=args.authorization_url,
+            expected_protocol_digest=protocol.protocol_digest(),
             allow_synthetic_unauthenticated=False,
             require_full_roster=True,
             start_index=start_index,

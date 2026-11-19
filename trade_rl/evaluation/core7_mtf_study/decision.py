@@ -103,9 +103,22 @@ def _cell_structurally_sound(cell: CellSummary) -> bool:
     )
 
 
+def drawdown_breached(cell: CellSummary) -> bool:
+    """True iff the cell reached the frozen hard drawdown stop (``drawdown_stop``).
+
+    The engine flattens at ``risk_scale == 0``, i.e. at ``max_drawdown >= drawdown_stop``,
+    so reaching it is a stop regardless of whether a termination reason was emitted.
+    """
+    return cell.max_drawdown >= protocol.risk_config().drawdown_stop
+
+
+def _cell_stopped(cell: CellSummary) -> bool:
+    return cell.stop_reason is not None or drawdown_breached(cell)
+
+
 def cell_valid(cell: CellSummary) -> bool:
     """Return True iff the cell completed without errors or risk/economic stops."""
-    return _cell_structurally_sound(cell) and cell.stop_reason is None
+    return _cell_structurally_sound(cell) and not _cell_stopped(cell)
 
 
 def arm_passes_parity(
@@ -183,10 +196,13 @@ def decide(
     stopped_cells = sorted(
         f"{arm}__{sc}"
         for (arm, sc), cell in cells.items()
-        if _cell_structurally_sound(cell) and cell.stop_reason is not None
+        if _cell_structurally_sound(cell) and _cell_stopped(cell)
     )
 
-    if missing_cells or unexpected_cells or invalid_cells:
+    # PASS_PARITY_ONLY is only defined over the complete frozen scenario set.
+    scenarios_complete = scenario_tuple == protocol.SCENARIOS
+
+    if missing_cells or unexpected_cells or invalid_cells or not scenarios_complete:
         outcome = INVALID
     elif stopped_cells:
         outcome = STOP_FAIL_NO_RESCUE
@@ -199,6 +215,7 @@ def decide(
         "production_eligible": False,
         "live_trading_authorized": False,
         "scenarios": list(scenario_tuple),
+        "scenarios_complete": scenarios_complete,
         "arm_parity_pass": {
             arm: arm_passes_parity(cells, arm, scenarios=scenario_tuple)
             for arm in protocol.ARMS
@@ -221,4 +238,5 @@ __all__ = [
     "arm_passes_parity",
     "cell_valid",
     "decide",
+    "drawdown_breached",
 ]

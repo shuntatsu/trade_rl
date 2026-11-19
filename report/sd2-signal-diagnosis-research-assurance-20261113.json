@@ -38,8 +38,8 @@
     "terminal_state": false
   },
   "identity": {
-    "implementation_head": "504badc54c9273fc19eeae2380263c820e6a41bd",
-    "protocol_head": "504badc54c9273fc19eeae2380263c820e6a41bd"
+    "implementation_head": "6fc523c61b39f0019aadca0718568d8b2f52c210",
+    "protocol_head": "6fc523c61b39f0019aadca0718568d8b2f52c210"
   },
   "mechanism": {
     "authorities": {

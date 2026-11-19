@@ -24,6 +24,8 @@ ACCEPT / KEEP / INCONCLUSIVEを決定
 
 途中でoperational failureが起きた場合は`FAILED`、一因子契約を破った場合は`INVALID`としてfail closedにします。
 
+公式`StudyStore`のJSON読取は、同じStudyの公開処理とロックを共有し、公開未完了の証拠を完成済みとして読みません。直接ファイルを開く外部の読み手まで安全とする保証ではありません。
+
 すでに消費済みとprovenanceで確認できるdevelopment入力はTier Dとして扱います。Tierは自動判定ではなく、Dataset全体とscopeの消費をprovenanceから確認します。確認できれば、同じ科学的parametersでのdeterministic reconstruction/evaluation、通常のtest/debug、harness error後のtechnical retryを行えます。wrapperやharnessの不備だけで消費済みデータを永久retireしません。各attemptにDataset manifestとNPZのSHA-256、scope、exact code HEAD、run recipe/parametersを記録し、成功outputにはfinal output SHA-256を加えます。失敗attemptもparametersとlogsを含めてappend-onlyで残します。これは技術作業の再試行であり、scientific `FAILED` / `INVALID`を消したり、結果を見て候補や採用ruleを変えたりするものではありません。
 
 unused/final/sealed、既消費と未使用が混ざるscope、または消費済みだと立証できない入力はTier Uです。従来のauthorization・candidate freeze・one-shot controlsを維持し、Tier Dへ自動変更しません。

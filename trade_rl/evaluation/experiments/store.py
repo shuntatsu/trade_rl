@@ -343,6 +343,7 @@ class StudyStore:
         _mkdir_study_root_nofollow(self.root)
         self._thread_lock = threading.RLock()
         self._lock_depth = 0
+        self._pending_directories: set[Path] = set()
 
     def _relative_path(self, relative: str | Path) -> Path:
         value = Path(relative)
@@ -564,9 +565,50 @@ class StudyStore:
                 ) from error
         return target
 
-    def read_json(self, relative: str | Path) -> dict[str, object]:
-        """Read one immutable JSON object through the safe Study path boundary."""
+    @contextmanager
+    def _publication_read_lock(self) -> Iterator[None]:
+        """Coordinate Study JSON readers with directory commit verification.
 
+        A nonblocking shared lock rejects same-thread reads through a second
+        Store instance rather than deadlocking against the publisher.
+        """
+
+        with self._thread_lock:
+            if self._lock_depth > 0:
+                yield
+                return
+            with _open_mutation_lock(self.root) as handle:
+                if os.name == "posix":
+                    import fcntl
+
+                    try:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    except BlockingIOError as error:
+                        raise ArtifactIntegrityError(
+                            "Study directory publication is in progress"
+                        ) from error
+                else:
+                    _lock_file(handle)
+                try:
+                    yield
+                finally:
+                    _unlock_file(handle)
+
+    def read_json(self, relative: str | Path) -> dict[str, object]:
+        """Read only committed JSON through the Study publication gate."""
+
+        with self._publication_read_lock():
+            checked = self._relative_path(relative)
+            if any(
+                pending == checked or pending in checked.parents
+                for pending in self._pending_directories
+            ):
+                raise ArtifactIntegrityError(
+                    "Study directory publication is not committed"
+                )
+            return self._read_json_locked(checked)
+
+    def _read_json_locked(self, relative: Path) -> dict[str, object]:
         target = self._checked_target(relative)
         if target.is_symlink() or not target.is_file():
             raise ArtifactIntegrityError("Study artifact must be a regular file")
@@ -594,7 +636,29 @@ class StudyStore:
         relative: str | Path,
         builder: Callable[[Path], None],
     ) -> Path:
-        """Build private staging, then publish once without parent redirection."""
+        """Build and publish under the Study-wide mutation lock."""
+
+        checked = self._relative_path(relative)
+        with self.mutation_lock():
+            if any(
+                checked == pending
+                or checked in pending.parents
+                or pending in checked.parents
+                for pending in self._pending_directories
+            ):
+                raise InvalidExperimentStateError(
+                    "Study directory publication already in progress"
+                )
+            self._pending_directories.add(checked)
+            try:
+                return self._publish_directory_once_locked(checked, builder)
+            finally:
+                self._pending_directories.discard(checked)
+
+    def _publish_directory_once_locked(
+        self, relative: Path, builder: Callable[[Path], None]
+    ) -> Path:
+        """The exclusive writer lock spans builder, rename and inode check."""
 
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)

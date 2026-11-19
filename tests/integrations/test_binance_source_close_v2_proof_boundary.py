@@ -227,6 +227,72 @@ def test_v2_microsecond_components_cannot_be_laundered_in_4h_aggregation(
         assert len(bars) == 1 and missing == 0
 
 
+def test_v2_rejects_opaque_4h_aggregator_on_nominal_4h_base_clock() -> None:
+    """Nominal Dataset interval cannot authenticate wrapped derived source rows."""
+    unchecked = BaseIntervalAggregatingTransport(
+        SyntheticTransport(damage_at=3, delta=-HOUR)
+    )
+
+    class OpaqueDelegator:
+        def load_klines(self, **kwargs: object) -> object:
+            return unchecked.load_klines(**kwargs)
+
+        def load_funding_rates(self, **kwargs: object) -> object:
+            return unchecked.load_funding_rates(**kwargs)
+
+    source = BinanceMarketDataSource(
+        market="usds-m",
+        interval="4h",
+        start_time=START,
+        end_time=START + timedelta(hours=24),
+        transport=OpaqueDelegator(),
+        source_close_policy=_V2,
+    )
+    with pytest.raises(ValueError, match="verified higher-timeframe transport"):
+        source.load("BTCUSDT")
+    assert unchecked.dropped_windows == {}
+
+
+def test_v2_rejects_decorated_aggregator_that_claims_source_validation() -> None:
+    """An inherited marker is not proof that overridden logic checked 1h rows."""
+
+    from trade_rl.integrations.binance.derived_klines import aggregate_klines
+
+    class UnvalidatedSubclass(BaseIntervalAggregatingTransport):
+        def load_klines(self, **kwargs: object) -> object:
+            rows, source = self._klines.load_klines(
+                market=kwargs["market"],
+                symbol=kwargs["symbol"],
+                interval="1h",
+                start_ms=kwargs["start_ms"],
+                end_ms=kwargs["end_ms"],
+                mode=kwargs["mode"],
+            )
+            bars, _ = aggregate_klines(
+                rows,
+                base_interval="1h",
+                interval=str(kwargs["interval"]),
+                start_ms=int(kwargs["start_ms"]),
+                end_ms=int(kwargs["end_ms"]),
+            )
+            return bars, source
+
+    unverified = UnvalidatedSubclass(
+        SyntheticTransport(damage_at=3, delta=-HOUR),
+        source_close_policy=_V2,
+    )
+    source = BinanceMarketDataSource(
+        market="usds-m",
+        interval="1h",
+        start_time=START,
+        end_time=START + timedelta(hours=24),
+        transport=unverified,
+        source_close_policy=_V2,
+    )
+    with pytest.raises(ValueError, match="verified higher-timeframe transport"):
+        source.load_timeframe("BTCUSDT", "4h")
+
+
 def test_v2_allows_maintained_native_higher_timeframe_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

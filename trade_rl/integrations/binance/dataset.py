@@ -342,7 +342,9 @@ class BinanceMarketDataSource(MarketDataSource):
             # the raw components were checked before any aggregation.
             # The aggregator's own base interval (not this source's nominal
             # interval) determines whether the returned rows are derived.
-            if isinstance(self.transport, BaseIntervalAggregatingTransport):
+            # Only the exact maintained class is trusted: a subclass can
+            # override load_klines without validating the original 1h rows.
+            if type(self.transport) is BaseIntervalAggregatingTransport:
                 if (
                     timeframe != self.transport.base_interval
                     and self.transport.source_close_policy
@@ -351,9 +353,14 @@ class BinanceMarketDataSource(MarketDataSource):
                     raise ValueError(
                         "aggregate transport must validate base source close_time"
                     )
-            elif timeframe != self.interval and not isinstance(
-                self.transport, BinancePublicTransport
+            elif (
+                interval_ms != _interval_ms("1h")
+                and type(self.transport) is not BinancePublicTransport
             ):
+                # Synthetic/direct 1h input remains useful for admission
+                # tests. Outside that fixed raw baseline an arbitrary
+                # transport may have synthesized a plausible source clock;
+                # the nominal source.interval does not establish provenance.
                 raise ValueError(
                     "strict source close v2 requires verified higher-timeframe transport"
                 )

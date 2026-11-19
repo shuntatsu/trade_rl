@@ -6,7 +6,7 @@
 
 | 領域 | 所有する責務 | 所有しないもの |
 | --- | --- | --- |
-| integrations | provider固有レスポンスを内部source evidenceへ変換。Binance source close-timeの新規検証は明示的な `strict_source_close_v2` のみを対象とし、従来の `reconstructed_v1` と公開済みDataset IDは変更しない | 売買判断 |
+| integrations | provider固有レスポンスを内部source evidenceへ変換。Binance source close-timeの新規検証は明示的な `strict_source_close_v2` のみを対象とし、元のミリ秒／マイクロ秒単位の終了時刻を切り捨てずに検査します。データソースと集計側のポリシーはキャッシュ利用中に切り替えず、基準足以外の高次足を要求するときには未検証ラッパーを拒否します。従来の `reconstructed_v1` と公開済みDataset IDは変更せず、外部アダプタが元の足を改変していないことやデータ公開時刻まで証明するものではありません | 売買判断 |
 | data | causalな`MarketDataset`、availability、staleness、dataset identity、検証済みartifactのidentity/data読込 | strategy固有の意思決定 |
 | strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsと、正の元unit multiplierを使う正確な整数ns validationを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |

@@ -271,7 +271,7 @@ class BinanceMarketDataSource(MarketDataSource):
         | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
     ) -> None:
         self.market = _market(market)
-        self.source_close_policy = BinanceSourceClosePolicy(source_close_policy)
+        self._source_close_policy = BinanceSourceClosePolicy(source_close_policy)
         self.gap_policy = BinanceGapPolicy(gap_policy)
         self.gap_report: dict[str, dict[str, int]] = {}
         self.interval = interval
@@ -289,6 +289,12 @@ class BinanceMarketDataSource(MarketDataSource):
         self._sources_used: set[str] = set()
         self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
         self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
+
+    @property
+    def source_close_policy(self) -> BinanceSourceClosePolicy:
+        # Admission policy also scopes the series cache and Dataset identity.
+        # Changing it after a load must not reuse cached legacy evidence as v2.
+        return self._source_close_policy
 
     @property
     def sources_used(self) -> tuple[str, ...]:
@@ -331,18 +337,30 @@ class BinanceMarketDataSource(MarketDataSource):
             raise ValueError(
                 f"Binance range boundaries must align to native timeframe {timeframe}"
             )
+        if self.source_close_policy is BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2:
+            # Returned higher-timeframe close fields alone cannot prove that
+            # the raw components were checked before any aggregation.
+            # The aggregator's own base interval (not this source's nominal
+            # interval) determines whether the returned rows are derived.
+            if isinstance(self.transport, BaseIntervalAggregatingTransport):
+                if (
+                    timeframe != self.transport.base_interval
+                    and self.transport.source_close_policy
+                    is not BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
+                ):
+                    raise ValueError(
+                        "aggregate transport must validate base source close_time"
+                    )
+            elif timeframe != self.interval and not isinstance(
+                self.transport, BinancePublicTransport
+            ):
+                raise ValueError(
+                    "strict source close v2 requires verified higher-timeframe transport"
+                )
         key = (symbol, timeframe)
         cached = self._series_cache.get(key)
         if cached is not None:
             return cached
-        if (
-            self.source_close_policy is BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
-            and isinstance(self.transport, BaseIntervalAggregatingTransport)
-            and timeframe != self.transport.base_interval
-            and self.transport.source_close_policy
-            is not BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
-        ):
-            raise ValueError("aggregate transport must validate base source close_time")
         rows, kline_source = self.transport.load_klines(
             market=self.market,
             symbol=symbol,

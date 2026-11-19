@@ -157,11 +157,15 @@ def test_fill_validation_and_nonfinite_cost_fail_closed(
             slippage_std=1.0,
         ),
     )
-    monkeypatch.setattr(
-        costly,
-        "_slippage_rates",
-        lambda size: np.full(size, np.inf),
-    )
+
+    def nonfinite_slippage(size: int, *, chargeable_mask: np.ndarray) -> np.ndarray:
+        # Keep the original non-finite oracle and verify that the executor
+        # identifies a genuine charged fill to the slippage sampler.
+        assert chargeable_mask.shape == (size,)
+        assert np.any(chargeable_mask)
+        return np.full(size, np.inf)
+
+    monkeypatch.setattr(costly, "_slippage_rates", nonfinite_slippage)
     with pytest.raises(ValueError, match="non-finite"):
         costly._fill_toward_quantities(
             BookState.zero(1, 1_000.0, dataset.close[0]),

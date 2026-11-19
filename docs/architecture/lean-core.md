@@ -530,6 +530,8 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+Legacy target/強制清算、stateful order fill、recorded-depth paper fillの約定コストは、BookStateを書き換える前に料金計算の浮動小数点表現を検査する。実際に正の金額で約定し費用率が非ゼロなら、unit rateや費用額がunderflowでfloat0になることを無償約定として扱わず、明示的に拒否する。途中または最終値の非有限も費用として計上しない。一方、約定なし・真のゼロ料率・明示的ゼロmultiplierはゼロ費用として扱い、非対象symbolの不正な中間値が他の有効な約定を壊さない。スリッページは従来の乱数列を維持しつつ、非ゼロdrawがfloat0へ潰れたまま課金対象のfillに使われることを拒否する。tail倍率適用で表現可能になる場合だけ計算順を変えて回収する。通常の表現可能な費用・真のゼロ・過去の証拠は再分類しない。このfail-closed境界は真の取引所費用の精度保証や利益証明ではない。
+
 `simulation.native_transition.execute_native_target_transition` owns the shared
 one-bar numeric-target → pre-trade-risk → canonical-executor step. It returns
 the existing `RiskConstrainedTarget` and `ExecutionResult`; it does not add a

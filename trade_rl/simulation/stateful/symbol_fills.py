@@ -128,21 +128,46 @@ def _execution_cost(
         + dataset.resolved_array("taker_fee_rate")[processing_index, symbol]
     )
     spread_multiplier = 0.5 if maker else 1.0
-    impact = executor.cost.impact_rate * math.sqrt(participation_rate)
-    slippage = float(executor._slippage_rates(1)[0])
-    unit_cost = executor.cost.multiplier * (
-        executor.cost.fee_rate
-        + dataset.resolved_array("fee_rate")[processing_index, symbol]
-        + venue_fee
-        + spread_multiplier
-        * (
+    impact_scale = math.sqrt(participation_rate)
+    impact = executor.cost.impact_rate * impact_scale
+    chargeable = filled_notional != 0.0 and executor.cost.multiplier != 0.0
+    slippage = float(
+        executor._slippage_rates(
+            1, chargeable_mask=np.array([chargeable], dtype=np.bool_)
+        )[0]
+    )
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        spread_base = (
             executor.cost.spread_rate
             + dataset.resolved_array("spread_rate")[processing_index, symbol]
         )
-        + impact
-        + slippage
-    )
-    return filled_notional * unit_cost
+        spread_component = spread_multiplier * spread_base
+        base_rate = (
+            executor.cost.fee_rate
+            + dataset.resolved_array("fee_rate")[processing_index, symbol]
+            + venue_fee
+            + spread_component
+            + impact
+            + slippage
+        )
+        unit_cost = executor.cost.multiplier * base_rate
+        cost_amount = filled_notional * unit_cost
+    if filled_notional == 0.0 or executor.cost.multiplier == 0.0:
+        return 0.0
+    if not all(
+        math.isfinite(float(v))
+        for v in (spread_component, impact, base_rate, unit_cost, cost_amount)
+    ):
+        raise ValueError("execution cost became non-finite")
+    if spread_base != 0.0 and spread_component == 0.0:
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if executor.cost.impact_rate != 0.0 and impact_scale != 0.0 and impact == 0.0:
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if base_rate != 0.0 and unit_cost == 0.0:
+        raise ValueError("nonzero execution cost rate cannot be represented")
+    if unit_cost != 0.0 and cost_amount == 0.0:
+        raise ValueError("nonzero execution cost cannot be represented")
+    return float(cost_amount)
 
 
 class StatefulSymbolFillProcessor:

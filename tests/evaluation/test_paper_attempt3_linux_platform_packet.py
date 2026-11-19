@@ -50,7 +50,7 @@ RELATIVE_PACKET = (
     "report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json"
 )
 PACKET = ROOT / RELATIVE_PACKET
-PINNED_DIGEST = "ef9db6a90d6ff8472094600f34fbfab6a9f77648aaa2e02d3d1d81b462c4c5d5"
+PINNED_DIGEST = "702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3"
 SEAL_CANDIDATE_HEAD = "d0a76538f77a5a99825fc0c698a27153d8181933"
 SPEC = "docs/specs/funding-carry-paper.md"
 ARCHITECTURE = "docs/architecture/research-assurance.md"

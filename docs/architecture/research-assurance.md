@@ -1876,8 +1876,8 @@ layout, systemd user units, read-only chrony/timesyncd clock report). Both are i
 packet-bound closure, and the closure on `main` already differs from the seal-candidate
 head by merged changes elsewhere, so a successor packet
 `report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json` (digest
-`ef9db6a90d6ff8472094600f34fbfab6a9f77648aaa2e02d3d1d81b462c4c5d5`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
-`implementation_head` are both `537f985b9148`, the last commit that changes `trade_rl/` in
+`702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
+`implementation_head` are both `451d4e09d8bd`, the last commit that changes `trade_rl/` in
 that pull request, is the one a launch commit must match. (G0) The cheapest falsifiers
 are that a Linux stop, hangup or reboot could end the screen without a marker and that the
 attempt-2 root copy differs from the original; (G1/G3) the only changed boundary is

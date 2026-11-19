@@ -367,7 +367,7 @@ def test_seal_start_authorization_and_launch_fields_stay_pending() -> None:
     assert "nothing is sealed, launched, probed or collected" in spec.replace("\n", " ")
     assert "Nothing is sealed, launched, probed or collected" in _spec_section()
     seal_candidate = "3380e24801e5f5d3124e1e0bdee09f00a4bfcc03dee5fedd86af3b0c181b9781"
-    linux_platform = "ef9db6a90d6ff8472094600f34fbfab6a9f77648aaa2e02d3d1d81b462c4c5d5"
+    linux_platform = "702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3"
     allowed = {PINNED_DIGEST, PREREG_DIGEST, seal_candidate, linux_platform}
     attempt2 = "617988282ad6dfbf0ee7188f002676a1675dfac38c9ac969071bee3091b2e770"
     attempt1 = "843467870d85d0b085e65cf904e9d458287c14fc1e31615b9aaf77029f0669b7"

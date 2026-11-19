@@ -1201,14 +1201,14 @@ documentation change. The sealed protocol binds the implementation digest of eve
 `implementation_head`. This change edits `paper/watchdog.py` (SIGHUP) and adds
 `paper/linux_service.py`, both in that closure, so the seal-candidate packet (head
 `d0a76538f77a`) cannot cover a launch that contains them. Independently of this change,
-the closure on `main` already differs from that head in 21 files merged since (M1
+the closure on `main` already differs from that head in 23 files merged since (M1
 accounting and order admission, the Binance cache and transport, the verified-file reader
 and run configuration), so a launch from current `main` needed a successor packet anyway;
 the new packet lists the exact delta and leaves it to the reviewer, who also decides
 whether the paper path executes any of it. The new packet is
 [`report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json`](../../report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json)
-(digest `ef9db6a90d6ff8472094600f34fbfab6a9f77648aaa2e02d3d1d81b462c4c5d5`, status **UNREVIEWED**, `economic_execution_authorized=false`;
-`protocol_head` and `implementation_head` both `537f985b91481c6f7b29c99a09957fc28db2a251`, the last commit that changes
+(digest `702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`protocol_head` and `implementation_head` both `451d4e09d8bde292769902b1774de8871ff70860`, the last commit that changes
 `trade_rl/` in the pull request that adds it). The pre-registration, implementation and
 seal-candidate packets stay frozen and are not re-pinned. The new packet is not reviewed
 and authorizes no seal, launch, probe or economic run; the extended same-account receipt

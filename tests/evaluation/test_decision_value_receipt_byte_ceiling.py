@@ -341,6 +341,47 @@ def test_invalid_root_and_pair_object_types_refuse_before_json_decode(
         study._decode_incomplete_receipt(raw)
 
 
+@pytest.mark.parametrize(
+    ("field", "wrong_container", "message"),
+    (
+        ("baseline", "array", "pair object field"),
+        ("candidate", "array", "pair object field"),
+        ("reference_vintage", "array", "pair object field"),
+        ("unvalidated_source_record", "array", "pair object field"),
+        ("candidate_action", "object", "pair array field"),
+        ("reason_codes", "object", "pair array field"),
+    ),
+)
+def test_wrong_pair_container_kind_is_refused_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str, wrong_container: str, message: str
+) -> None:
+    """An impossible direct-pair container must not be expanded by json.loads."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(baseline={}, candidate={}, candidate_action=[0], reason_codes=["x"])
+    pair[field] = {} if wrong_container == "array" else []
+    original = study.canonical_json_bytes(pair)
+    key = b'"' + field.encode("ascii") + b'":'
+    original_container = b"{}" if wrong_container == "array" else b"[]"
+    assert original.count(key + original_container) == 1
+    if wrong_container == "array":
+        hostile = b"[" + b"0," * 100_000 + b"0]"
+    else:
+        hostile = (
+            b"{"
+            + b",".join(b'"k' + str(i).encode("ascii") + b'":0' for i in range(20_000))
+            + b"}"
+        )
+    pair_raw = original.replace(key + original_container, key + hostile, 1)
+    raw = b'{"pairs":[' + pair_raw + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("impossible pair container reached JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt " + message):
+        study._decode_incomplete_receipt(raw)
+
+
 def test_shallow_non_object_receipt_is_refused_before_json_decode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

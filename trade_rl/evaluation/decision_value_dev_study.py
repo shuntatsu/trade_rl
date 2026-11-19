@@ -2267,6 +2267,9 @@ def _preflight_receipt_pair_objects(
         for name in _PAIR_KEYS
         - {"baseline", "candidate", "candidate_action", "reason_codes"}
     )
+    array_pair_keys = frozenset({b"candidate_action", b"reason_codes"})
+    # Every remaining non-scalar pair field is a JSON object in v2 and v3.
+    # The strict validator still owns primitive and nested schema validation.
     if expected_max_ineligible_pairs is not None and (
         type(expected_max_ineligible_pairs) is not int
         or expected_max_ineligible_pairs <= 0
@@ -2293,7 +2296,8 @@ def _preflight_receipt_pair_objects(
     want_pair = False
     want_pair_key = False
     direct_pair_fields: set[bytes] = set()
-    pair_scalar_value_state: str | None = None
+    pair_value_state: str | None = None
+    pair_value_kind: str | None = None
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2346,23 +2350,36 @@ def _preflight_receipt_pair_objects(
                     if direct_key in direct_pair_fields:
                         raise ValueError("failure receipt pair key is duplicated")
                     direct_pair_fields.add(direct_key)
-                    pair_scalar_value_state = (
-                        "colon" if direct_key in scalar_pair_keys else None
+                    pair_value_kind = (
+                        "scalar"
+                        if direct_key in scalar_pair_keys
+                        else "array"
+                        if direct_key in array_pair_keys
+                        else "object"
                     )
+                    pair_value_state = "colon"
                     pair_key_start = None
                     want_pair_key = False
             continue
         if char in b" \t\r\n":
             continue
         if pairs_depth is not None and len(stack) == pairs_depth + 1:
-            if pair_scalar_value_state == "colon" and char == 0x3A:
-                pair_scalar_value_state = "value"
-            elif pair_scalar_value_state == "value":
-                if char in (0x7B, 0x5B):
+            if pair_value_state == "colon" and char == 0x3A:
+                pair_value_state = "value"
+            elif pair_value_state == "value":
+                if pair_value_kind == "scalar" and char in (0x7B, 0x5B):
                     raise ValueError(
                         "failure receipt pair scalar field must not be a JSON container"
                     )
-                pair_scalar_value_state = None
+                if pair_value_kind == "object" and char == 0x5B:
+                    raise ValueError(
+                        "failure receipt pair object field must not be a JSON array"
+                    )
+                if pair_value_kind == "array" and char == 0x7B:
+                    raise ValueError(
+                        "failure receipt pair array field must not be a JSON object"
+                    )
+                pair_value_state = None
         # Remember the root count token without copying potentially huge bytes.
         if len(stack) == 1 and count_start is not None and char in (0x2C, 0x7D):
             count_span = (count_start, offset)

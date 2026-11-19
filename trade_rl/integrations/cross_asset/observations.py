@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -82,10 +83,19 @@ def load_obs_series(
             spec = series_by_key(key)
         except KeyError:
             continue
-        if not store.verify_raw(record):
+        # Digest the exact immutable bytes handed to the parser. A separate
+        # verify_raw()/read_raw() pair permits a file to change between those
+        # reads while the parsed values still inherit the original digest.
+        try:
+            payload = store.read_raw(record)
+        except (OSError, ValueError) as error:
+            raise ValueError(
+                f"raw file for {key} is missing or fails its digest"
+            ) from error
+        if hashlib.sha256(payload).hexdigest() != record.get("sha256"):
             raise ValueError(f"raw file for {key} is missing or fails its digest")
         _name, parser = PARSERS[spec.source]
-        parsed = parser(store.read_raw(record), spec.symbol)
+        parsed = parser(payload, spec.symbol)
         result[key] = build_obs_series(
             spec,
             parsed,

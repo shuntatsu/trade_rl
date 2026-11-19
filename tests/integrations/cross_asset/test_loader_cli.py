@@ -6,6 +6,7 @@ import ast
 import io
 import json
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -126,6 +127,100 @@ def test_loader_refuses_a_tampered_raw_file(tmp_path: Path) -> None:
     (tmp_path / str(record["path"])).write_bytes(b"observation_date,X\n")
     with pytest.raises(ValueError, match="digest"):
         load_cross_asset_features(store.root, _grid("1d"))
+
+
+def test_loader_parses_exactly_the_raw_bytes_it_digest_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raw file changed after digest verification must not leak new values."""
+    from trade_rl.integrations.cross_asset.observations import load_obs_series
+
+    store = seed_store(tmp_path)
+    record = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    expected = load_obs_series(store, {"SP500": record})["SP500"]
+    original = store.read_raw(record)
+    rows = original.splitlines(keepends=True)
+    assert len(rows) > 2 and b"," in rows[1]
+    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\n"
+    tampered = b"".join(rows)
+    assert tampered != original
+    target = tmp_path / str(record["path"])
+    real_read = store.read_raw
+    calls = 0
+
+    def read_then_modify_file(item: Mapping[str, object]) -> bytes:
+        nonlocal calls
+        payload = real_read(item)
+        calls += 1
+        if calls == 1:
+            target.write_bytes(tampered)
+        return payload
+
+    monkeypatch.setattr(store, "read_raw", read_then_modify_file)
+    actual = load_obs_series(store, {"SP500": record})["SP500"]
+    assert calls == 1
+    assert actual.sha256 == expected.sha256 == record["sha256"]
+    np.testing.assert_array_equal(actual.dates, expected.dates)
+    np.testing.assert_array_equal(actual.values, expected.values)
+    assert target.read_bytes() == tampered
+    # A subsequent call may never admit the now-altered on-disk source.
+    with pytest.raises(ValueError, match="digest"):
+        load_obs_series(store, {"SP500": record})
+
+
+@pytest.mark.parametrize("failure", ("missing", "tampered"))
+def test_loader_refuses_invalid_raw_before_calling_source_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """Retain the existing missing/digest halt without parsing untrusted bytes."""
+    from trade_rl.integrations.cross_asset.observations import load_obs_series
+    from trade_rl.integrations.cross_asset.parsers import PARSERS
+
+    store = seed_store(tmp_path)
+    record = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    target = tmp_path / str(record["path"])
+    if failure == "missing":
+        target.unlink()
+    else:
+        target.write_bytes(b"invalid cached source payload")
+    parser_name, _ = PARSERS["fred"]
+
+    def unexpected_parse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unverified source must never reach the parser")
+
+    monkeypatch.setitem(PARSERS, "fred", (parser_name, unexpected_parse))
+    with pytest.raises(
+        ValueError, match="raw file for SP500 is missing or fails its digest"
+    ):
+        load_obs_series(store, {"SP500": record})
+
+
+def test_refetch_never_calculates_revision_against_unverified_previous_bytes(
+    tmp_path: Path,
+) -> None:
+    """A tampered older vintage must be marked unreadable, not compared."""
+    store = seed_store(tmp_path)
+    previous = next(r for r in store.read_manifest() if r["key"] == "SP500")
+    previous_path = tmp_path / str(previous["path"])
+    rows = previous_path.read_bytes().splitlines(keepends=True)
+    assert len(rows) > 2
+    rows[1] = rows[1].split(b",", 1)[0] + b",999999.0\n"
+    previous_path.write_bytes(b"".join(rows))
+
+    days = weekdays(420)
+    revised = random_walk(420, seed=0)
+    revised[300] *= 1.2
+    (latest,) = fetch_all(
+        store,
+        (series_by_key("SP500"),),
+        FakeTransport({"id=SP500": fred_payload("SP500", days, revised)}),
+        now=clock(FETCHED_AT + timedelta(days=2)),
+        sleep=lambda _s: None,
+    )
+    assert latest["status"] == "ok"
+    assert latest["revision"] == {"unreadable_previous": True}
+    assert not store.verify_raw(previous)
+    assert store.verify_raw(latest)
 
 
 def test_normalizer_statistics_come_only_from_the_fit_window(tmp_path: Path) -> None:

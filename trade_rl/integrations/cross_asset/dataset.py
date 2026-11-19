@@ -74,6 +74,8 @@ def with_cross_asset_global_features(
     acknowledgement permits exploratory use, not strict historical point-in-time
     or economic research eligibility. Identity records the risk, selected sources
     and the unverified first-release status.
+    A dataset accepts only one cross-asset overlay; select all desired
+    features in one call so source provenance is never overwritten.
 
     ``frame`` must have been built on exactly ``dataset.timestamps``. Unavailable
     entries are stored as 0.0 with ``global_feature_available=False`` so the
@@ -92,6 +94,17 @@ def with_cross_asset_global_features(
     expected = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     if not np.array_equal(frame.decision_ns, expected):
         raise ValueError("frame decision times must equal the dataset timestamps")
+    # A second overlay would erase previous provenance but retain its columns.
+    identity = (
+        parse_identity_json(dataset.identity_payload_json)
+        if dataset.identity_payload_json is not None
+        else {}
+    )
+    if "cross_asset_overlay" in identity:
+        raise ValueError(
+            "dataset already has a cross-asset overlay; select all features "
+            "in one call to preserve source provenance"
+        )
     source = frame if normalizer is None else normalizer.transform(frame)
     chosen = source.select(names)
     hindsight = _hindsight_series(chosen, frame.opt_in_series)
@@ -117,11 +130,6 @@ def with_cross_asset_global_features(
     staleness = np.where(usable, chosen.staleness_hours, 0.0).astype(np.float32)
     reasons = np.where(usable, 0, MISSING_REASON_CROSS_ASSET).astype(np.int16)
 
-    identity = (
-        parse_identity_json(dataset.identity_payload_json)
-        if dataset.identity_payload_json is not None
-        else {}
-    )
     identity["cross_asset_overlay"] = {
         "schema": OVERLAY_SCHEMA,
         "feature_set": frame.feature_set,

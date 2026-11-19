@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -151,6 +152,14 @@ def test_overlay_is_reproducible_and_binds_its_inputs(frame: FeatureFrame) -> No
     assert frame.definitions_digest in first.identity_payload_json
 
 
+def test_stacked_overlays_cannot_erase_prior_feature_provenance(
+    frame: FeatureFrame,
+) -> None:
+    first = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    with pytest.raises(ValueError, match="already has a cross-asset overlay"):
+        _overlay(first, frame, feature_names=("dollar_strength",))
+
+
 def test_unavailable_entries_are_zero_with_an_explicit_mask(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     early = _dataset(start=datetime(2022, 1, 3, tzinfo=UTC))  # before any release
@@ -180,8 +189,15 @@ def test_overlay_requires_the_exact_decision_grid_and_an_explicit_selection(
     with pytest.raises(KeyError):
         _overlay(_dataset(), frame, feature_names=("nope",))
     once = _overlay(_dataset(), frame, feature_names=("curve_slope",))
-    with pytest.raises(ValueError, match="already present"):
+    with pytest.raises(ValueError, match="already has a cross-asset overlay"):
         _overlay(once, frame, feature_names=("curve_slope",))
+    # Collision checking remains independently required for a dataset whose
+    # existing column was not itself added by this cross-asset overlay.
+    colliding = replace(
+        _dataset(), global_feature_names=("xa_curve_slope",)
+    ).with_content_identity()
+    with pytest.raises(ValueError, match="already present"):
+        _overlay(colliding, frame, feature_names=("curve_slope",))
 
 
 def test_fit_window_normalizer_is_applied_before_the_overlay(tmp_path: Path) -> None:

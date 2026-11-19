@@ -79,7 +79,12 @@ may widen the refit interval or skip the reported-only layers. Tests use it.
    target; a covered month holds at least 15 valid daily increments of that series.
 6. The symbol slice is the forecast's mean daily rank IC within one symbol (the drift is
    constant within a symbol-day, so an increment is undefined).
-7. D2 standardisation statistics come from the vintage in force at the decision time.
+7. D2 standardisation statistics are those of the vintage in force at the decision time and
+   follow D3's rule exactly: per (symbol, feature), from the usable rows whose label closed
+   before the cutoff counted from the first dataset row (the rows before the first fit are
+   in the window), population standard deviation, scale 1 below 1e-12, and a symbol without a
+   training row is scored unshifted and unscaled. A future-perturbation test pins that no
+   later row changes an earlier score.
 8. D4 uses the raw forward log return as the realised label and 14 bp x multiplier as the
    round-trip cost from the protocol.
 

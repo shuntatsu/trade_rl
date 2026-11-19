@@ -487,3 +487,130 @@ def test_cli_refuses_without_a_url_a_clean_tree_and_a_fresh_output_dir(
     with pytest.raises(SystemExit):
         cli.main(base)  # the URL is a required argument
     assert dt.UTC is not None
+
+
+# ----------------------------------------------------- D2 standardisation (causal)
+
+
+def _d2_inputs(seed: int = 9) -> tuple[SignalPanel, Any, Any, int]:
+    from tests.evaluation.signal_diagnosis_run_support import synthetic_panel
+
+    spec = protocol()
+    panel = synthetic_panel(seed=seed)
+    labels = build_labels(panel, spec.horizons.primary_bars)
+    vintages = build_vintages(panel, spec, TEST_PLAN)
+    column = panel.feature_names.index("1h__log_return_1bar")
+    return panel, labels, vintages, column
+
+
+def _z(panel: SignalPanel, labels: Any, vintages: Any, column: int) -> np.ndarray:
+    from trade_rl.evaluation.signal_diagnosis_run.measure import (
+        _standardised_feature,
+    )
+
+    x = panel.features[:, :, column].astype(np.float64)
+    ok = np.isfinite(x) & panel.feature_available[:, :, column]
+    return _standardised_feature(x, ok, labels, vintages, 3.0)
+
+
+def test_d2_scores_before_a_cutoff_never_depend_on_rows_after_it() -> None:
+    """Future-perturbation regression: a level shift of every later row changes nothing
+    earlier, including the first vintage whose training window is the pre-fit rows."""
+
+    panel, labels, vintages, column = _d2_inputs()
+    cut = vintages[0].stop_row + 1000  # inside the second vintage
+    baseline = _z(panel, labels, vintages, column)
+    features = panel.features.copy()
+    features[cut:, :, column] += 1000.0
+    shifted = SignalPanel(
+        identity=panel.identity,
+        symbols=panel.symbols,
+        feature_names=panel.feature_names,
+        timestamps_ns=panel.timestamps_ns,
+        close=panel.close,
+        features=features,
+        feature_available=panel.feature_available,
+        available_at_ns=panel.available_at_ns,
+    )
+    perturbed = _z(shifted, labels, vintages, column)
+    np.testing.assert_array_equal(baseline[:cut], perturbed[:cut])
+    assert np.isfinite(baseline[vintages[0].first_row : cut]).any()
+    assert not np.array_equal(baseline[cut:], perturbed[cut:], equal_nan=True)
+
+
+def test_d2_first_vintage_uses_the_pre_first_fit_training_window() -> None:
+    panel, labels, vintages, column = _d2_inputs()
+    first = vintages[0]
+    z = _z(panel, labels, vintages, column)
+    limit = first.cut_idx - labels.horizon  # rows t < limit have a label closed before
+    assert limit > 1000  # the window before the first fit is non-empty
+    for symbol in range(len(panel.symbols)):
+        rows = np.flatnonzero(labels.valid[:limit, symbol])
+        sample = panel.features[rows, symbol, column].astype(np.float64)
+        mean, std = sample.mean(), sample.std()
+        row = first.first_row + 5
+        expected = np.clip(
+            (float(panel.features[row, symbol, column]) - mean) / std, -3, 3
+        )
+        assert z[row, symbol] == pytest.approx(expected, abs=1e-9)
+    assert np.isnan(z[: first.first_row]).all()  # only decision rows are scored
+
+
+def test_grouped_ic_of_an_empty_subset_is_empty() -> None:
+    empty_i, empty_f = np.zeros(0, dtype=np.int64), np.zeros(0)
+    for method in ("rank", "linear"):
+        days, values = grouped_ic(empty_i, empty_f, empty_f, method=method)
+        assert days.size == 0 and values.size == 0
+    days, values, skipped = grouped_rank_ic_increment(
+        np.arange(6, dtype=np.int64), np.arange(6.0), np.arange(6.0), np.full(6, np.nan)
+    )
+    assert days.size == 0 and values.size == 0 and skipped == 0
+
+
+def test_the_symbol_and_regime_slices_survive_a_symbol_with_no_rows() -> None:
+    from trade_rl.evaluation.signal_diagnosis_run.measure import (
+        RowSet,
+        _regime_slice,
+        _symbol_slice,
+    )
+
+    rng = np.random.default_rng(0)
+    n = 200
+    rows = RowSet(
+        day=np.repeat(np.arange(10), 20).astype(np.int64),
+        time_idx=np.arange(n),
+        symbol=np.zeros(n, dtype=np.int64),  # every other symbol has no row
+        forecast=rng.standard_normal(n),
+        drift=np.repeat(rng.standard_normal(10), 20),
+        raw=rng.standard_normal(n),
+        demeaned=np.full(n, np.nan),  # a single active symbol demeans to nothing
+    )
+    symbols = ("A", "B", "C")
+    out = _symbol_slice(rows, symbols)["symbols"]
+    assert out["B"] == {"mean_forecast_rank_ic": None, "n_days": 0}
+    regime = np.full((n, 3), np.nan)  # the first 720 bars have no regime
+    slice_ = _regime_slice(rows, regime)
+    assert slice_["raw"]["n_groups_negative"] == 0
+    assert slice_["demeaned"]["non_negative_regime"] is None
+
+
+def test_d2_hands_the_pre_first_fit_rows_to_the_training_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.signal_diagnosis_run import measure
+
+    panel, labels, vintages, _ = _d2_inputs()
+    seen: list[np.ndarray] = []
+    real = measure._standardised_feature
+
+    def spy(x: Any, ok: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(np.asarray(ok).copy())
+        return real(x, ok, *args, **kwargs)
+
+    monkeypatch.setattr(measure, "_standardised_feature", spy)
+    rows = measure.d2_features(
+        panel, protocol(), {24: labels}, vintages, names=("1h__log_return_1bar",)
+    )["rows"]
+    assert seen and seen[0][: vintages[0].first_row].any()  # window starts at row 0
+    raw = next(r for r in rows if r["transform"] == "raw")
+    assert raw["n_rows"] > 0  # decisions still start at the first fit

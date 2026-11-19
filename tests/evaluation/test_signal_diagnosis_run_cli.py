@@ -437,3 +437,49 @@ def test_a_decode_error_of_verified_bytes_exits_2_with_a_message(
     err = capsys.readouterr().err
     assert "could not be decoded" in err and "RuntimeError" in err
     assert spies.run_calls == 0
+
+
+def test_an_output_path_that_is_a_file_or_a_link_exits_2_with_a_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, capsys: Any
+) -> None:
+    _pin(monkeypatch, _build(tmp_path / "artifact", bars=_window_bars()))
+    target = tmp_path / "out"
+    target.write_text("a regular file", encoding="utf-8")
+    assert cli.main(_argv(tmp_path)) == 2
+    assert "refusing" in capsys.readouterr().err
+    target.unlink()
+    try:
+        target.symlink_to(tmp_path / "missing", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available here")
+    assert cli.main(_argv(tmp_path)) == 2
+    assert "refusing" in capsys.readouterr().err
+    assert spies.loader_calls == 0
+
+
+def test_an_unreadable_output_directory_check_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, capsys: Any
+) -> None:
+    _pin(monkeypatch, _build(tmp_path / "artifact", bars=_window_bars()))
+
+    def boom(self: Path) -> bool:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "is_symlink", boom)
+    assert cli.main(_argv(tmp_path)) == 2
+    assert "unreadable output directory" in capsys.readouterr().err
+    assert spies.loader_calls == 0
+
+
+def test_a_write_failure_after_the_run_exits_2_with_a_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, capsys: Any
+) -> None:
+    _pin(monkeypatch, _build(tmp_path / "artifact", bars=_window_bars()))
+
+    def full_disk(output_dir: Path, run: Any) -> list[Path]:
+        raise OSError(28, "no space left on device")
+
+    monkeypatch.setattr(cli, "write_outputs", full_disk)
+    assert cli.main(_argv(tmp_path)) == 2
+    err = capsys.readouterr().err
+    assert "could not be written" in err and "NO_SIGNAL" in err

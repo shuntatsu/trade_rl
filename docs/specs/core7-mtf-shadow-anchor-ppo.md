@@ -70,8 +70,20 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v4.json`（`-v1.json`〜`-v3.json` は旧プロトコルの履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `58d76a19a7265e24231ec69be7c7ec1f20394e1d`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v5.json`（`-v1.json`〜`-v4.json` は旧コード／旧プロトコルの履歴であり不変・再ピンしない）
+- Pinned Implementation Head: `26b07c34df997a529b1d4249772f22dc6100f2ed`
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5`
+- Pinned Packet Digest: `34d2061dcbdfb509a68160da568c1f67e4c50827227d8fdac509e181a6b7fcf7`
+
+### 5.1 合成研究結果の書込境界（v5）
+
+Phase 0 ランナーの `study-manifest.json` / `decision.json` は既存の
+`StudyStore` の排他 mutation lock と検証済みファイル記述子に基づく
+write-once JSON 公開経路だけで保存する。既存ファイル・dangling symlink・
+出力rootや先祖のsymlinkによる外部書込みを拒否する。書込確定後の
+staging後処理失敗は再試行禁止として扱う。これは同一UIDの非協調的な
+競合や停電下の完全な原子的ディレクトリ公開を証明するものではない。
+ランナーは未承認のG4、経済データ、FS1／unused／final、実運用発注を
+実行してはならない。v5のパケットは未審査であり、独立レビューと
+新しい承認なしにG2合格を経済適格性に昇格しない。

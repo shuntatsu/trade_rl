@@ -40,7 +40,9 @@ PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v1.js
 SPEC_PATH = ROOT / "docs" / "specs" / "core7-mtf-shadow-anchor-ppo.md"
 
 PINNED_PROTOCOL_DIGEST = protocol.protocol_digest()
-PINNED_PACKET_DIGEST = "PENDING_STEP5_PACKET_DIGEST"
+PINNED_PACKET_DIGEST = (
+    "ce369ac6d66687ba0c822c56bcfe5930c144dd287edda19894fb1e0d7cd70ea6"
+)
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
     "trade_rl/strategies/rl/shadow_anchor_mtf.py",

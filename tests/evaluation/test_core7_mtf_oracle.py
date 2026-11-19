@@ -21,6 +21,7 @@ from trade_rl.evaluation.core7_mtf_study import (
     INVALID,
     PASS_PARITY_ONLY,
     STOP_FAIL_NO_RESCUE,
+    SYNTHETIC_ONLY_NOT_EVIDENCE,
     CellSummary,
     decide,
     protocol,
@@ -373,7 +374,7 @@ def test_runner_fail_closed_refusals_causality_leak_trap_and_synthetic_e2e(
         fit_stop_index=8,
         rebalance_every_bars=6,
     )
-    assert res["outcome"] == PASS_PARITY_ONLY
+    assert res["outcome"] == SYNTHETIC_ONLY_NOT_EVIDENCE
     assert res["edge_claim"] is False
     assert res["production_eligible"] is False
     assert res["live_trading_authorized"] is False

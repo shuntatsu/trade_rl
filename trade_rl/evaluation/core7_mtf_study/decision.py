@@ -12,6 +12,7 @@ from trade_rl.evaluation.core7_mtf_study import protocol
 PASS_PARITY_ONLY = "PASS_PARITY_ONLY"
 STOP_FAIL_NO_RESCUE = "STOP_FAIL_NO_RESCUE"
 INVALID = "INVALID"
+SYNTHETIC_ONLY_NOT_EVIDENCE = "SYNTHETIC_ONLY_NOT_EVIDENCE"
 
 _CONTROL_BENCHMARKS: tuple[str, ...] = ("ANC_BIDIR_75_25", "ANC_REGIME_GATE_NONRL")
 
@@ -177,8 +178,14 @@ def decide(
     cells: Mapping[tuple[str, str], CellSummary],
     *,
     scenarios: Sequence[str] = protocol.SCENARIOS,
+    evidence_eligible: bool = True,
 ) -> dict[str, object]:
-    """Evaluate all ``(arm, scenario)`` cells into a strict fail-closed study outcome."""
+    """Evaluate all ``(arm, scenario)`` cells into a strict fail-closed study outcome.
+
+    ``evidence_eligible=False`` (a URL-less synthetic run) can never report a parity
+    pass or a stop as evidence: those outcomes become ``SYNTHETIC_ONLY_NOT_EVIDENCE``
+    and the computed label is kept as ``underlying_outcome``. ``INVALID`` is kept.
+    """
     scenario_tuple = tuple(scenarios)
     expected_pairs = {(arm, sc) for arm in protocol.ARMS for sc in scenario_tuple}
 
@@ -209,8 +216,14 @@ def decide(
     else:
         outcome = PASS_PARITY_ONLY
 
+    underlying_outcome = outcome
+    if not evidence_eligible and outcome != INVALID:
+        outcome = SYNTHETIC_ONLY_NOT_EVIDENCE
+
     return {
         "outcome": outcome,
+        "underlying_outcome": underlying_outcome,
+        "evidence_eligible": evidence_eligible,
         "edge_claim": False,
         "production_eligible": False,
         "live_trading_authorized": False,
@@ -234,6 +247,7 @@ __all__ = [
     "INVALID",
     "PASS_PARITY_ONLY",
     "STOP_FAIL_NO_RESCUE",
+    "SYNTHETIC_ONLY_NOT_EVIDENCE",
     "CellSummary",
     "arm_passes_parity",
     "cell_valid",

@@ -117,3 +117,38 @@ def test_post_link_file_close_failure_is_nonretryable(
         store.publish_json_once("evidence/synthetic.json", {"validated": True})
 
     assert store.read_json("evidence/synthetic.json") == {"validated": True}
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not Path("/proc/self/fd").is_dir(),
+    reason="requires Linux source-FD-backed publication",
+)
+def test_post_link_parent_fd_close_failure_is_nonretryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A closing failure after linkat succeeds must not report a retryable write."""
+    store = StudyStore(tmp_path / "study")
+    actual_link = os.link
+    actual_close = os.close
+    linked = False
+    injected = False
+
+    def observe_link(*args: object, **kwargs: object) -> None:
+        nonlocal linked
+        actual_link(*args, **kwargs)
+        linked = True
+
+    def fail_close_after_link(fd: int) -> None:
+        nonlocal injected
+        actual_close(fd)
+        if linked and not injected:
+            injected = True
+            raise OSError("injected post-link parent FD close failure")
+
+    monkeypatch.setattr(store_module.os, "link", observe_link)
+    monkeypatch.setattr(store_module.os, "close", fail_close_after_link)
+    with pytest.raises(PublishedArtifactCleanupError, match="do not retry"):
+        store.publish_json_once("evidence/synthetic.json", {"validated": True})
+
+    assert linked and injected
+    assert store.read_json("evidence/synthetic.json") == {"validated": True}

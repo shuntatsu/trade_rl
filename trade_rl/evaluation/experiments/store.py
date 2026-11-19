@@ -287,17 +287,20 @@ class StudyStore:
                                 src_dir_fd=parent_fd,
                                 follow_symlinks=True,
                             )
+                            # Once linkat succeeds the artifact is committed,
+                            # even if the parent FD subsequently fails to close.
+                            published = True
                         finally:
                             os.close(parent_fd)
                     else:
                         # Other platforms retain hard-link exclusivity but
                         # cannot prove source-inode binding under name swaps.
                         os.link(staging, target)
+                        published = True
                 except FileExistsError as error:
                     raise InvalidExperimentStateError(
                         f"Study artifact already exists: {relative}"
                     ) from error
-                published = True
         except BaseException as error:
             try:
                 _unlink_owned_staging_file(staging, stage_identity)

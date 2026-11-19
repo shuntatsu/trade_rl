@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from tests.integrations.market_store.support import kline_csv_rows
+from tools import core7_g4_comment as g4
 from tools import core7_mtf_tierd as driver
 from trade_rl.data.features.mtf6_signals import (
     build_mtf6_signal_pack,
@@ -519,11 +520,88 @@ def _cli_files(tmp_path: Path) -> list[str]:
     ]
 
 
+_RUN_ONLY = {"--output-dir", "--authorization-url", "--fit-stop-index"}
+
+
+def _dataset_id_for(argv: list[str], source: FakeRows | None) -> str:
+    """The id a run over ``argv`` will load, from a dry check of the same data."""
+    kept: list[str] = []
+    skip = False
+    for item in argv[1:]:
+        if skip:
+            skip = False
+        elif item in _RUN_ONLY:
+            skip = True
+        else:
+            kept.append(item)
+    _, out, _ = _main(["dry-check", *kept], source=source, gh=None)
+    return str(json.loads(out)["summary"]["dataset_id"])
+
+
+class FakeGh:
+    """A fake ``gh`` runner serving one G4 comment; ``variants`` edit later fetches."""
+
+    def __init__(
+        self,
+        *,
+        url: str = AUTH,
+        dataset_id: str | None = None,
+        body: str | None = None,
+        login: str = g4.OWNER_LOGIN,
+        user_id: int = g4.OWNER_ID,
+        user_type: str = "User",
+        html_url: str | None = None,
+        comment_id: int | None = None,
+        issue_number: int | None = None,
+        fail: bool = False,
+        junk: bool = False,
+        variants: dict[int, dict[str, Any]] | None = None,
+    ) -> None:
+        kind, number, cid = g4.parse_g4_url(url)
+        self.base: dict[str, Any] = {
+            "id": cid if comment_id is None else comment_id,
+            "html_url": url if html_url is None else html_url,
+            "issue_url": "https://api.github.com/repos/shuntatsu/trade_rl/issues/"
+            f"{number if issue_number is None else issue_number}",
+            "user": {"login": login, "id": user_id, "type": user_type},
+            "body": body
+            if body is not None
+            else g4.g4_comment_template(dataset_id or "f" * 64),
+            "updated_at": "2026-11-20T00:00:00Z",
+        }
+        self.fail = fail
+        self.junk = junk
+        self.variants = variants or {}
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: Any) -> str:
+        self.calls.append(list(args))
+        if self.fail:
+            raise g4.G4AuthError("gh failed (exit 1)")
+        if self.junk:
+            return "not json"
+        payload = {**self.base, **self.variants.get(len(self.calls), {})}
+        return json.dumps(payload)
+
+
 def _main(
-    argv: list[str], *, clean: bool = True, source: FakeRows | None = None
+    argv: list[str],
+    *,
+    clean: bool = True,
+    source: FakeRows | None = None,
+    gh: Any = "auto",
 ) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     rows = FakeRows() if source is None else source
+    if gh == "auto":
+        gh = None
+        if argv[0] == "run":
+            url = argv[argv.index("--authorization-url") + 1]
+            try:
+                gh = FakeGh(url=url, dataset_id=_dataset_id_for(argv, source))
+            except Exception:  # a malformed URL never reaches gh
+                gh = FakeGh()
+    kwargs: dict[str, Any] = {} if gh is None else {"gh": gh}
     code = driver.main(
         argv,
         stdout=out,
@@ -531,6 +609,7 @@ def _main(
         state=lambda: ("a" * 40, clean),
         rows_factory=lambda plan: rows,
         load_end=END,
+        **kwargs,
     )
     return code, out.getvalue(), err.getvalue()
 
@@ -902,7 +981,7 @@ def test_fallback_provenance_reaches_the_receipt_and_the_cli_flag_needs_an_archi
     assert code == driver.EXIT_REFUSED and "--archive-dir" in err_s.getvalue()
 
 
-def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v3() -> None:
+def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v4() -> None:
     assert driver.DEFAULT_LOAD_START == datetime(2021, 10, 1, tzinfo=UTC)
     args = driver.build_parser().parse_args(
         [
@@ -928,9 +1007,9 @@ def test_default_load_start_is_2021_10_01_and_the_protocol_pin_is_v3() -> None:
         ]
     )
     assert run_args.load_start == datetime(2021, 10, 1, tzinfo=UTC)
-    assert protocol.PROTOCOL_ID == "core7_mtf_shadow_anchor_ppo_v3"
+    assert protocol.PROTOCOL_ID == "core7_mtf_shadow_anchor_ppo_v4"
     assert protocol.protocol_digest() == (
-        "239b37a73ab002ef45c1a3ae07f7b1e1b636f59e519a416dce33202a546d630a"
+        "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
     )
 
 
@@ -959,3 +1038,219 @@ def test_run_does_not_report_success_for_a_result_that_is_not_evidence_eligible(
             (out_dir / driver.RUN_RECEIPT_NAME).read_text(encoding="utf-8")
         )
         assert receipt["evidence_eligible"] is False
+
+
+# --- G4 comment authentication (fake gh; nothing touches GitHub) ---------------------------
+
+PR_AUTH = "https://github.com/shuntatsu/trade_rl/pull/1281#issuecomment-4242"
+
+
+def _run_argv(tmp_path: Path, url: str = AUTH, name: str = "out") -> list[str]:
+    return [
+        "run",
+        *_cli_files(tmp_path),
+        "--output-dir",
+        str(tmp_path / name),
+        "--authorization-url",
+        url,
+    ]
+
+
+class _Spy:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, *args: object, **kwargs: object) -> dict[str, object]:
+        self.calls += 1
+        return {"outcome": "PASS_PARITY_ONLY", "evidence_eligible": True}
+
+
+def _authenticated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    url: str = AUTH,
+    **fake: Any,
+) -> tuple[int, str, str, _Spy, FakeGh]:
+    spy = _Spy()
+    monkeypatch.setattr(driver, "run_study", spy)
+    argv = _run_argv(tmp_path, url)
+    fake.setdefault("dataset_id", _dataset_id_for(argv, None))
+    gh = FakeGh(url=url, **fake)
+    code, out, err = _main(argv, gh=gh)
+    return code, out, err, spy, gh
+
+
+def test_the_pinned_owner_id_and_the_minimal_comment_template() -> None:
+    assert g4.OWNER_LOGIN == "shuntatsu" and g4.OWNER_ID == 148511409
+    body = g4.g4_comment_template("a" * 64)
+    assert protocol.protocol_digest() in body and "a" * 64 in body
+
+
+def test_an_owner_comment_quoting_digest_and_dataset_id_authenticates_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def spy(dataset: Any, **kwargs: Any) -> dict[str, object]:
+        seen.append(kwargs)
+        return {"outcome": "PASS_PARITY_ONLY", "evidence_eligible": True}
+
+    monkeypatch.setattr(driver, "run_study", spy)
+    argv = _run_argv(tmp_path)
+    gh = FakeGh(dataset_id=_dataset_id_for(argv, None))
+    code, _, err = _main(argv, gh=gh)
+
+    assert code == driver.EXIT_OK, err
+    assert [c[0] for c in gh.calls] == ["api", "api"]  # fetched twice, read-only
+    assert gh.calls[0] == ["api", "repos/shuntatsu/trade_rl/issues/comments/1"]
+    receipt = seen[0]["authorization_receipt"]
+    assert receipt.author_login == "shuntatsu" and receipt.author_id == g4.OWNER_ID
+    assert receipt.comment_id == 1 and receipt.authorization_url == AUTH
+    assert receipt.quoted_protocol_digest == protocol.protocol_digest()
+    assert len(receipt.body_sha256) == 64 and receipt.fetched_at
+    run_receipt = json.loads(
+        (tmp_path / "out" / driver.RUN_RECEIPT_NAME).read_text(encoding="utf-8")
+    )
+    assert run_receipt["authorization_receipt"] == receipt.to_dict()
+    assert run_receipt["g4_comment_updated_at"] == "2026-11-20T00:00:00Z"
+
+
+def test_a_comment_on_a_pull_request_url_by_the_owner_authenticates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, _, err, spy, gh = _authenticated(tmp_path, monkeypatch, url=PR_AUTH)
+    assert code == driver.EXIT_OK, err
+    assert spy.calls == 1
+    assert gh.calls[0][1].endswith("/issues/comments/4242")
+
+
+@pytest.mark.parametrize(
+    ("fake", "needle", "reads_data"),
+    [
+        ({"login": "mallory"}, "not the repository owner", False),
+        ({"user_type": "Bot"}, "not the repository owner", False),
+        ({"user_id": 1}, "pinned owner id", False),
+        ({"body": "go ahead " + "a" * 64}, "protocol digest", False),
+        ({"body": g4.g4_comment_template("e" * 64)}, "dataset id", True),
+        ({"comment_id": 2}, "comment id does not match", False),
+        (
+            {
+                "html_url": "https://github.com/shuntatsu/trade_rl/issues/9#issuecomment-1"
+            },
+            "html_url",
+            False,
+        ),
+        ({"issue_number": 9}, "issue number", False),
+        ({"junk": True}, "not JSON", False),
+        ({"fail": True}, "gh failed", False),
+    ],
+)
+def test_run_refuses_unauthenticated_comments_before_the_study(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake: dict[str, Any],
+    needle: str,
+    reads_data: bool,
+) -> None:
+    rows = FakeRows()
+    seen_plans: list[object] = []
+
+    def factory(plan: object) -> FakeRows:
+        seen_plans.append(plan)
+        return rows
+
+    spy = _Spy()
+    monkeypatch.setattr(driver, "run_study", spy)
+    argv = _run_argv(tmp_path)
+    fake = dict(fake)
+    fake.setdefault("dataset_id", _dataset_id_for(argv, None))
+    out, err = io.StringIO(), io.StringIO()
+    code = driver.main(
+        argv,
+        stdout=out,
+        stderr=err,
+        state=lambda: ("a" * 40, True),
+        rows_factory=factory,
+        load_end=END,
+        gh=FakeGh(**fake),
+    )
+    assert code == driver.EXIT_UNAUTHENTICATED
+    assert driver.EXIT_UNAUTHENTICATED not in (driver.EXIT_OK, driver.EXIT_REFUSED)
+    assert needle in err.getvalue() and not out.getvalue()
+    assert spy.calls == 0
+    assert not (tmp_path / "out").exists()
+    # owner/digest/URL failures happen before any data IO; the dataset id check after it
+    assert bool(seen_plans) is reads_data
+
+
+def test_a_non_owner_comment_on_a_pull_request_url_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code, _, err, spy, _ = _authenticated(
+        tmp_path, monkeypatch, url=PR_AUTH, login="reviewer-bot", user_id=7
+    )
+    assert code == driver.EXIT_UNAUTHENTICATED
+    assert "not the repository owner" in err and spy.calls == 0
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"updated_at": "2026-11-20T00:05:00Z"},
+        {"body": g4.g4_comment_template("e" * 64)},
+    ],
+)
+def test_an_edit_between_the_two_fetches_authorizes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit: dict[str, Any]
+) -> None:
+    argv = _run_argv(tmp_path)
+    gh = FakeGh(dataset_id=_dataset_id_for(argv, None), variants={2: edit})
+    spy = _Spy()
+    monkeypatch.setattr(driver, "run_study", spy)
+    code, _, err = _main(argv, gh=gh)
+    assert code == driver.EXIT_UNAUTHENTICATED
+    assert "edited" in err and len(gh.calls) == 2
+    assert spy.calls == 0 and not (tmp_path / "out").exists()
+
+
+def test_the_fetcher_never_takes_a_token_and_hides_gh_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+
+    captured: dict[str, Any] = {}
+
+    class Done:
+        returncode = 1
+        stdout = "ghp_SECRETSECRETSECRET"
+        stderr = "token ghp_SECRETSECRETSECRET"
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Done:
+        captured["cmd"], captured["kwargs"] = cmd, kwargs
+        return Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(g4.G4AuthError) as caught:
+        g4.default_gh(["api", "repos/shuntatsu/trade_rl/issues/comments/1"])
+    assert "SECRET" not in str(caught.value)
+    assert captured["cmd"][0] == "gh" and captured["kwargs"]["timeout"] > 0
+    assert not any("token" in part.lower() for part in captured["cmd"])
+
+    def boom(cmd: list[str], **kwargs: Any) -> Done:
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    with pytest.raises(g4.G4AuthError, match="could not be run"):
+        g4.default_gh(["api", "x"])
+
+
+def test_a_digest_embedded_in_a_longer_hex_run_does_not_count() -> None:
+    longer = "0" + protocol.protocol_digest()
+    snap = g4.CommentSnapshot(
+        1, AUTH, "shuntatsu", g4.OWNER_ID, longer, "0" * 64, "t", "t"
+    )
+    with pytest.raises(g4.G4AuthError, match="protocol digest"):
+        g4.require_protocol_digest(snap)
+    with pytest.raises(g4.G4AuthError, match="lowercase sha256"):
+        g4.require_dataset_id(snap, "NOT-A-DIGEST")

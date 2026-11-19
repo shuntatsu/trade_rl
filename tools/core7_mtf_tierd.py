@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
+from tools import core7_g4_comment as g4
 from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
@@ -72,6 +73,7 @@ EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_HALTED = 3
 EXIT_NOT_EVIDENCE = 4
+EXIT_UNAUTHENTICATED = 5
 RUN_RECEIPT_NAME = "tierd-run-receipt.json"
 RECEIPT_NAME = "tierd-data-receipt.json"
 #: Earlier starts hit unregistered 2021 spot maintenance gaps (2021-08-13, 2021-09-29).
@@ -558,6 +560,7 @@ def main(
     state: GitState = git_state,
     rows_factory: RowSourceFactory | None = None,
     load_end: datetime = tierd.LOAD_END,
+    gh: g4.GhRunner = g4.default_gh,
 ) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
@@ -570,6 +573,9 @@ def main(
                 raise FileExistsError(
                     f"{args.output_dir} exists; outputs are write-once"
                 )
+            # authenticate the owner comment before any file, row or data is read
+            first_fetch = g4.fetch_comment(args.authorization_url, gh)
+            g4.require_protocol_digest(first_fetch)
         tierd.validate_load_window(args.load_start, load_end)
         commit, clean = state()
         if args.command == "run" and not clean:
@@ -624,12 +630,16 @@ def main(
             out.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
             return EXIT_OK
         start_index, _ = tierd.replay_indices(dataset)
+        g4.require_dataset_id(first_fetch, dataset.dataset_id)
+        # re-fetch immediately before the study: an edited comment authorizes nothing
+        auth_receipt = g4.confirm_unedited(args.authorization_url, first_fetch, gh)
         args.output_dir.mkdir(parents=True, exist_ok=False)
         (args.output_dir / RECEIPT_NAME).write_bytes(canonical_json_bytes(receipt))
         decision = run_study(
             dataset,
             output_dir=args.output_dir,
             authorization_url=args.authorization_url,
+            authorization_receipt=auth_receipt,
             expected_protocol_digest=protocol.protocol_digest(),
             allow_synthetic_unauthenticated=False,
             require_full_roster=True,
@@ -639,6 +649,9 @@ def main(
             ),
             enforce_pre_fs1=True,
         )
+    except g4.G4AuthError as error:
+        err.write(f"authorization failed: {error}\n")
+        return EXIT_UNAUTHENTICATED
     except CarryScreenHalt as error:
         state_word = "resumable" if error.resumable else "not resumable"
         err.write(f"halted ({error.kind}, {state_word}): {error}\n")
@@ -657,6 +670,8 @@ def main(
         "schema_version": "core7_mtf_tierd_run_receipt_v1",
         "dataset_id": dataset.dataset_id,
         "expected_protocol_digest": protocol.protocol_digest(),
+        "authorization_receipt": auth_receipt.to_dict(),
+        "g4_comment_updated_at": first_fetch.updated_at,
         "evidence_eligible": eligible,
         "synthetic_only": decision.get("synthetic_only"),
         "outcome": decision.get("outcome"),

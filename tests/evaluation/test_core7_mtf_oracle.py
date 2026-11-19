@@ -464,7 +464,7 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
 
     verified = evaluate_assurance(record)
     assert verified.status == "UNREVIEWED"
-    assert verified.errors == []
+    assert verified.errors == ()
     assert verified.economic_execution_authorized is False
     assert record["claims"]["next_action_class"] == "synthetic_verification_only"
     assert record["claims"]["claim_level"] == "software_validity"

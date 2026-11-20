@@ -316,10 +316,11 @@ def test_sparse_oversize_manifest_refuses_without_materialization(
     or os.open not in os.supports_dir_fd,
     reason="resource budget needs the supported POSIX descriptor path",
 )
+@pytest.mark.parametrize("declared_size", (1024**3 + 1, 2 * 1024**3))
 def test_huge_array_file_refuses_before_any_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declared_size: int
 ) -> None:
-    """A fake enormous regular-file size must fail before the first byte read."""
+    """One byte beyond the 1 GiB ceiling must fail before any payload read."""
 
     fake_fd = 50_000_001
     original_fstat = os.fstat
@@ -340,7 +341,7 @@ def test_huge_array_file_refuses_before_any_read(
 
     def fake_fstat(fd: int) -> Any:
         if fd == fake_fd:
-            return SimpleNamespace(st_size=2 * 1024 * 1024 * 1024)
+            return SimpleNamespace(st_size=declared_size)
         return original_fstat(fd)
 
     monkeypatch.setattr(os, "fstat", fake_fstat)
@@ -350,6 +351,41 @@ def test_huge_array_file_refuses_before_any_read(
     with pytest.raises(SignalDiagnosisProtocolError, match="size|budget|large"):
         cli._read_artifact_file(root, "arrays.npz")
     assert observed == []
+
+
+def test_array_size_budget_accepts_exact_declared_ceiling_without_allocating_1_gib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fstat boundary itself accepts 1 GiB; this is not a full 1 GiB read."""
+
+    fake_fd = 50_000_003
+    actual_fstat = os.fstat
+    requested: list[int] = []
+
+    class ShortSimulatedFile:
+        def fileno(self) -> int:
+            return fake_fd
+
+        def read(self, size: int) -> bytes:
+            requested.append(size)
+            return b"x" if len(requested) == 1 else b""
+
+    @contextmanager
+    def guard(_path: Path, *, field: str) -> Any:
+        assert field.startswith("arrays.npz")
+        yield ShortSimulatedFile()
+
+    def fstat(fd: int) -> Any:
+        if fd == fake_fd:
+            return SimpleNamespace(st_size=1024**3)
+        return actual_fstat(fd)
+
+    monkeypatch.setattr(os, "fstat", fstat)
+    monkeypatch.setattr(cli, "open_regular_binary", guard)
+    root = tmp_path / "artifact"
+    root.mkdir()
+    assert cli._read_artifact_file(root, "arrays.npz") == b"x"
+    assert requested == [1024 * 1024, 1024 * 1024]
 
 
 @pytest.mark.skipif(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -360,6 +361,127 @@ def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> 
     return True
 
 
+def _snapshot_pinned_staging_contents(
+    descriptor: int,
+) -> tuple[tuple[str, str, int, str], ...]:
+    """Inventory a held directory, rejecting links and unstable file reads.
+
+    Comparing builder-complete and post-rename snapshots catches additions and
+    in-place mutations during commit. It does *not* make a same-UID untrusted
+    writer unable to modify the directory after the writer lock is released.
+    """
+
+    entries: list[tuple[str, str, int, str]] = []
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+
+    def walk(directory_fd: int, prefix: str, depth: int) -> None:
+        if depth > 256:
+            raise ArtifactIntegrityError("Study staging nesting exceeds safe limit")
+        with os.scandir(directory_fd) as scanner:
+            for entry in scanner:
+                if len(entries) >= 100_000:
+                    raise ArtifactIntegrityError(
+                        "Study staging inventory exceeds safe entry limit"
+                    )
+                visit(directory_fd, prefix, depth, entry.name)
+
+    def visit(directory_fd: int, prefix: str, depth: int, name: str) -> None:
+        if name in (".", ".."):
+            raise ArtifactIntegrityError("Study staging has an invalid entry")
+        relative = f"{prefix}/{name}" if prefix else name
+        before = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISDIR(before.st_mode):
+            child = os.open(name, directory_flags, dir_fd=directory_fd)
+            try:
+                opened = os.fstat(child)
+                if (opened.st_dev, opened.st_ino) != (
+                    before.st_dev,
+                    before.st_ino,
+                ):
+                    raise ArtifactIntegrityError(
+                        "Study staging directory changed during inventory"
+                    )
+                entries.append((relative, "directory", 0, ""))
+                walk(child, relative, depth + 1)
+                after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if (after.st_dev, after.st_ino) != (
+                    opened.st_dev,
+                    opened.st_ino,
+                ):
+                    raise ArtifactIntegrityError(
+                        "Study staging directory changed during inventory"
+                    )
+            finally:
+                os.close(child)
+        elif stat.S_ISREG(before.st_mode):
+            child = os.open(name, file_flags, dir_fd=directory_fd)
+            try:
+                opened = os.fstat(child)
+                if not stat.S_ISREG(opened.st_mode) or (
+                    opened.st_dev,
+                    opened.st_ino,
+                ) != (before.st_dev, before.st_ino):
+                    raise ArtifactIntegrityError(
+                        "Study staging file changed during inventory"
+                    )
+                # An external hardlink can mutate the published bytes without
+                # ever touching the Study pathname; require an unaliased inode.
+                if opened.st_nlink != 1:
+                    raise ArtifactIntegrityError(
+                        "Study staging file has an unsafe hardlink count"
+                    )
+                digest = hashlib.sha256()
+                with os.fdopen(os.dup(child), "rb") as handle:
+                    for block in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(block)
+                finished = os.fstat(child)
+                current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if (
+                    opened.st_dev,
+                    opened.st_ino,
+                    opened.st_size,
+                    opened.st_mtime_ns,
+                    opened.st_ctime_ns,
+                    opened.st_nlink,
+                ) != (
+                    finished.st_dev,
+                    finished.st_ino,
+                    finished.st_size,
+                    finished.st_mtime_ns,
+                    finished.st_ctime_ns,
+                    finished.st_nlink,
+                ) or (finished.st_dev, finished.st_ino, finished.st_nlink) != (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_nlink,
+                ):
+                    raise ArtifactIntegrityError(
+                        "Study staging file changed during inventory"
+                    )
+                entries.append((relative, "file", finished.st_size, digest.hexdigest()))
+            finally:
+                os.close(child)
+        else:
+            raise ArtifactIntegrityError(
+                "Study staging must contain only regular files and directories"
+            )
+
+    try:
+        directory_fd = os.open(".", directory_flags, dir_fd=descriptor)
+        try:
+            walk(directory_fd, "", 0)
+        finally:
+            os.close(directory_fd)
+    except ArtifactIntegrityError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ArtifactIntegrityError(
+            "Study staging contents changed or cannot be verified"
+        ) from error
+    return tuple(sorted(entries))
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
@@ -525,7 +647,6 @@ class StudyStore:
             stage_identity: tuple[int, int] | None = None
             published = False
             try:
-                check_parent()
                 with staging.open("xb") as handle:
                     opened = os.fstat(handle.fileno())
                     stage_identity = (opened.st_dev, opened.st_ino)
@@ -537,35 +658,33 @@ class StudyStore:
                         raise InvalidExperimentStateError(
                             f"Study artifact already exists: {relative}"
                         )
-                    # Keep the verified source inode open through publication.
-                    # On Linux, a directory-fd argument forces os.link to use
-                    # linkat(AT_SYMLINK_FOLLOW), resolving this process's file
-                    # descriptor rather than the replaceable staging basename.
+                    # The source basename can be replaced after fsync. On Linux,
+                    # link from the still-open file descriptor, not that name.
+                    # A src_dir_fd requests linkat(AT_SYMLINK_FOLLOW), so the
+                    # process FD alias resolves to the validated source inode.
                     try:
                         if os.name == "posix" and sys.platform == "linux":
-                            stage_alias = Path(f"/proc/self/fd/{handle.fileno()}")
-                            if not stage_alias.is_file():
+                            source_alias = Path(f"/proc/self/fd/{handle.fileno()}")
+                            if not source_alias.is_file():
                                 raise ArtifactIntegrityError(
                                     "Study staging file descriptor unavailable"
                                 )
-                            parent_descriptor = _open_directory_descriptor_nofollow(
-                                parent
-                            )
+                            parent_fd = _open_directory_descriptor_nofollow(parent)
                             try:
                                 os.link(
-                                    stage_alias,
+                                    source_alias,
                                     pinned_target,
-                                    src_dir_fd=parent_descriptor,
+                                    src_dir_fd=parent_fd,
                                     follow_symlinks=True,
                                 )
-                                # The target is committed even if closing the FD fails.
+                                # Once linkat succeeds the artifact is committed,
+                                # even if the parent FD subsequently fails to close.
                                 published = True
                             finally:
-                                os.close(parent_descriptor)
+                                os.close(parent_fd)
                         else:
-                            # Non-Linux hard links preserve exclusivity only;
-                            # they do not guarantee source-inode immutability
-                            # under a non-cooperating staging-name replacement.
+                            # Other platforms retain hard-link exclusivity but
+                            # cannot prove source-inode binding under name swaps.
                             os.link(staging, pinned_target)
                             published = True
                     except FileExistsError as error:
@@ -578,7 +697,7 @@ class StudyStore:
                     # basename (or a failed exclusive open) is not ours.
                     _unlink_owned_staging_file(staging, stage_identity)
                 except OSError:
-                    # Preserve the primary publication failure.
+                    # Preserve the primary publication failure; staging may remain.
                     pass
                 if published:
                     raise PublishedArtifactCleanupError(
@@ -587,8 +706,8 @@ class StudyStore:
                     ) from error
                 raise
 
-            # Publication is committed. A substituted stage name belongs to
-            # another writer and must not be unlinked or reported retryable.
+            # The canonical target is already committed. A replaced staging
+            # basename belongs to another writer and must not be unlinked.
             try:
                 if not _unlink_owned_staging_file(staging, stage_identity):
                     raise PublishedArtifactCleanupError(
@@ -597,15 +716,14 @@ class StudyStore:
                     )
             except OSError as error:
                 raise PublishedArtifactCleanupError(
-                    f"Study artifact was published, but staging cleanup failed: "
-                    f"{relative}; do not retry publication"
+                    f"Study artifact was published, but staging cleanup failed: {relative}; "
+                    "do not retry publication"
                 ) from error
             try:
                 check_parent()
             except ArtifactIntegrityError as error:
                 raise PublishedArtifactCleanupError(
-                    f"Study artifact may have been published into a detached "
-                    f"parent: {relative}; do not retry publication"
+                    f"Study artifact may have been published into a detached parent: {relative}; do not retry"
                 ) from error
         return target
 
@@ -773,6 +891,9 @@ class StudyStore:
                         _assert_pinned_publication_parent(
                             pinned_staging, staging_descriptor
                         )
+                        completed_inventory = _snapshot_pinned_staging_contents(
+                            staging_descriptor
+                        )
                     else:
                         # Portable static checks cannot prevent leaf swaps.
                         builder(pinned_staging)
@@ -792,6 +913,13 @@ class StudyStore:
                             _assert_pinned_publication_parent(
                                 pinned_target, staging_descriptor
                             )
+                            if (
+                                _snapshot_pinned_staging_contents(staging_descriptor)
+                                != completed_inventory
+                            ):
+                                raise ArtifactIntegrityError(
+                                    "Study staging contents changed during publication"
+                                )
                         except ArtifactIntegrityError as error:
                             rejected = parent / (
                                 f".{target.name}.rejected-{_temporary_name_suffix()}"
@@ -804,7 +932,7 @@ class StudyStore:
                                     "manual recovery required, do not retry"
                                 ) from rollback_error
                             raise ArtifactIntegrityError(
-                                "Study staging inode changed during publication; "
+                                "Study staging inode or contents changed during publication; "
                                 "unverified directory retained outside the final path"
                             ) from error
                 except BaseException:

@@ -239,6 +239,8 @@ POSIXで`O_NOFOLLOW`/`O_DIRECTORY`とdirectory-descriptor相対のopenが利用�
 
 ステージングdirectory作成の`mkdir`は作成inodeを開いたFDとして返さないため、作成直後にstage leafが別directoryへ差し替えられる余地もある。POSIXではbuilderを呼ぶ前に固定したFDからstage contentsを列挙し、**事前に一つでもentryが存在すれば拒否**して、未確認の代替directoryにあるentryをcleanupしない。これはforeign pre-populated stageを正式公開する既知の#1131反例への必要条件であり、**空の代替stageの差替えや確認後の追記まで防ぐ完全な作成inodeの証明ではない**。非協調的な同一権限writerを含む強い攻撃者モデルでは追加のOS境界/認証済みevidence契約が未実装で、#1131の最終解消判定は保留する。
 
+POSIXのdirectory公開では、builder終了時に保持中staging FDから正規file/子directoryの一覧とfile SHA-256を取り、rename後かつmutation lock解除前に同じFDから再検査する。予期しないfile追加・内容差替え・非通常file・不安定な読み込み・外部から書換可能な共有hardlinkはintegrity failureとし、公開先をrejected名へ退避する。共有hardlinkはbuilder完了時点でも拒否し、外部aliasによる公開後の変更を狭く抑止する。これは従来見逃していたbuilder終了後からrename直後までの**特定の混入**を検出する補強であり、追加のフルtree読込負荷を持つ。入力個数とnestingを制限して異常なstageの無制限走査を避ける。**rename後の検査完了前の非協調的直接readerと、ロック解除後に同一UIDで書き換えられるfilesystemの完全性までは保証しない。** 上記#1131 blocker、最終source inodeのatomic束縛/隔離の必要性、研究実行・final/liveの不認可は変わらない。
+
 `research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
 
 unused/final/sealed、mixed、または消費済みを立証できない入力はTier Uとして、既存のstrict authorization・candidate freeze・one-shot・consumed-ledger controlsに従う。technical retryはsealed dataをunsealせず、Tier UをTier Dへ自動変更しない。

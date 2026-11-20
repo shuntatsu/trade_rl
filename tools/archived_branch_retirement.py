@@ -45,8 +45,10 @@ PRESERVE = (
     "artifact/",
     "fix/m1-",
 )
+# A stored archive is a recoverability mechanism, not proof that active/unmerged
+# work is disposable. Retire only old *main-ancestor* work refs under this
+# one-shot exception; separately review every branch with unique history.
 MERGED_DISPOSABLE = ("codex/", "review/", "docs/", "dependabot/", "feat/", "fix/")
-UNMERGED_DISPOSABLE = ("codex/", "review/", "docs/", "dependabot/")
 MAX_DELETES = 60
 BATCH_SIZE = 8
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -138,9 +140,9 @@ def plan(
             or _SHA.fullmatch(b.sha) is None
         ):
             continue
-        merged = b.sha in main_reachable
-        prefixes = MERGED_DISPOSABLE if merged else UNMERGED_DISPOSABLE
-        if b.name.startswith(prefixes):
+        if b.sha not in main_reachable:
+            continue
+        if b.name.startswith(MERGED_DISPOSABLE):
             selected.append(b)
     if len(selected) > MAX_DELETES:
         raise RuntimeError("retirement count exceeded the one-shot safety cap")

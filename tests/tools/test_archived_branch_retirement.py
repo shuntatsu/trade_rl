@@ -19,7 +19,7 @@ def _ref(name: str, sha: str, *, protected: bool = False) -> BranchInfo:
     return BranchInfo(name, sha, protected)
 
 
-def test_archived_merged_and_old_work_candidates_are_bounded() -> None:
+def test_only_main_ancestor_work_branches_are_deletion_candidates() -> None:
     main, archive = _ref("main", "1" * 40), _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
     merged_fix = _ref("fix/old-done", "2" * 40)
     unmerged_codex = _ref("codex/old-experiment", "3" * 40)
@@ -59,23 +59,21 @@ def test_archived_merged_and_old_work_candidates_are_bounded() -> None:
         open_refs=opens,
         active_branches=frozenset({active.name}),
     )
-    assert [r.name for r in result] == [
-        "codex/old-experiment",
-        "fix/old-done",
-        "review/closed-shard",
-    ]
+    # A preserved archive is necessary but not sufficient to delete a branch
+    # whose code is absent from main. The owner must separately review that work.
+    assert [r.name for r in result] == ["fix/old-done"]
 
 
 def test_open_pr_head_and_active_runs_protect_even_archived_tips() -> None:
     main = _ref("main", "1" * 40)
     archive = _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
-    a = _ref("codex/open-head", "2" * 40)
-    b = _ref("review/active-run", "3" * 40)
+    a = _ref("fix/open-head", "2" * 40)
+    b = _ref("fix/active-run", "3" * 40)
     opens = (OpenPullRequestRefs(a.name, a.sha, "main", main.sha),)
     assert not plan(
         (main, archive, a, b),
         archived={main.name: main.sha, a.name: a.sha, b.name: b.sha},
-        main_reachable=frozenset({main.sha}),
+        main_reachable=frozenset({main.sha, a.sha, b.sha}),
         open_refs=opens,
         active_branches=frozenset({b.name}),
     )
@@ -132,13 +130,15 @@ def test_apply_requires_fresh_pr_and_workflow_roster_before_delete(
 
     main = _ref("main", "1" * 40)
     archive = _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
-    target = _ref("codex/old-source", "2" * 40)
+    target = _ref("fix/old-source", "2" * 40)
     refs = (main, archive, target)
     snapshot = {r.name: r.sha for r in refs}
     monkeypatch.setattr(mod, "_archive_manifest", lambda: snapshot)
     monkeypatch.setattr(mod, "_git", lambda *args: main.sha)
     monkeypatch.setattr(mod, "_git_ancestor", lambda *args: True)
-    monkeypatch.setattr(mod, "reachable_commits", lambda *args: frozenset({main.sha}))
+    monkeypatch.setattr(
+        mod, "reachable_commits", lambda *args: frozenset({main.sha, target.sha})
+    )
     monkeypatch.setattr(mod, "_require_owner_event", lambda: None)
     monkeypatch.setattr(mod, "require_retirement_origin", lambda: None)
     monkeypatch.setenv("GITHUB_SHA", main.sha)
@@ -176,13 +176,15 @@ def test_apply_checks_post_delete_readback(
 
     main = _ref("main", "1" * 40)
     archive = _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
-    target = _ref("codex/old-source", "2" * 40)
+    target = _ref("fix/old-source", "2" * 40)
     refs = (main, archive, target)
     snapshot = {r.name: r.sha for r in refs}
     monkeypatch.setattr(mod, "_archive_manifest", lambda: snapshot)
     monkeypatch.setattr(mod, "_git", lambda *args: main.sha)
     monkeypatch.setattr(mod, "_git_ancestor", lambda *args: True)
-    monkeypatch.setattr(mod, "reachable_commits", lambda *args: frozenset({main.sha}))
+    monkeypatch.setattr(
+        mod, "reachable_commits", lambda *args: frozenset({main.sha, target.sha})
+    )
     monkeypatch.setattr(mod, "_require_owner_event", lambda: None)
     monkeypatch.setattr(mod, "require_retirement_origin", lambda: None)
     monkeypatch.setenv("GITHUB_SHA", main.sha)

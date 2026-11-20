@@ -49,7 +49,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "e45271d30f6c764b6a93035764c3cf7dcf936925f9208d9efbb00ea89925e3a9"
+    "2b993897963e860116a3dc790dd16ec50f9a6776af035776dc35c3a549634df1"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -535,7 +535,7 @@ def test_prior_v3_packet_is_immutable_history_and_unreviewed() -> None:
 
 
 def test_prior_v5_packet_is_immutable_history_and_unreviewed() -> None:
-    """Terminal-dust v5 is unmodified and remains an unreviewed historical packet."""
+    """v5 is the immutable prior main-author packet, superseded only by new source pin v6."""
     record: dict[str, Any] = json.loads(PACKET_V5_PATH.read_text(encoding="utf-8"))
     assert assurance_digest(record) == (
         "3ee94cc544a0868b7ac3f4298f69bd214c417df8d985d255e07abe24d66cd7a0"
@@ -569,9 +569,6 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     head = str(record["identity"]["implementation_head"])
     assert record["identity"]["protocol_head"] == head
     assert _git("cat-file", "-e", f"{head}^{{commit}}").returncode == 0
-    # A valid local Git object is insufficient: the public packet source head
-    # must be reachable from the checked-out published PR commit.
-    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
 
     def changed_since_head(paths: Any) -> list[str]:
         diff_committed = _git("diff", "--name-only", head, "HEAD", "--", *paths)

@@ -46,7 +46,11 @@ def test_json_publish_does_not_replace_a_late_competing_file(
     def last_check(path: Path) -> bool:
         nonlocal target_checks
         result = real_is_symlink(path)
-        if path == target:
+        # Publication checks the descriptor-anchored target, not its lexical path.
+        if (
+            path.name == target.name
+            and path.parent.resolve() == target.parent.resolve()
+        ):
             target_checks += 1
             if target_checks == 2:
                 assert not target.exists()
@@ -76,7 +80,10 @@ def test_json_publish_rejects_competitor_at_link_syscall(
         source: os.PathLike[str], destination: os.PathLike[str], **kwargs: object
     ) -> None:
         nonlocal injected
-        if Path(destination) == target:
+        if (
+            Path(destination).name == target.name
+            and Path(destination).parent.resolve() == target.parent.resolve()
+        ):
             assert not injected
             assert not target.exists()
             assert Path(source).is_file()

@@ -35,6 +35,7 @@ The screen label was `INVALID` because two control cells held terminal dust (com
     - The documented placeholder bar is recognised for the further symbols in which the coverage run observed it; the predicate still demands every exact condition.
   - **(B) Exchange-wide outages.**
     - After (A), the ranges of hours that every symbol listed at that time is missing are declared in `trend_oos/protocol.py` as a frozen halt list. The SHA-256 of the coverage report they were read from is frozen with the list, so both enter the protocol digest.
+    - The frozen list has 20 ranges totalling 108 hours, from 2018-01-04T04:00Z to 2020-12-25T03:00Z, read from the coverage report with SHA-256 `8680f82140fc6ce0b4c19076acebb4031b956bba52ac3940d9dc911a734c3d49`; the ranges themselves are in `trend_oos/protocol.py`.
     - A declared halt is treated exactly as the registered Tier D `SPOT_HALTS`: the affected 4h rows are not tradable, carry zero volume and take the preceding published close as their mark, and the signals use them as lowturn does for halt rows. This is the only carried-forward close the protocol permits.
     - A range that is not exchange-wide does not qualify. Any hour missing outside the declared halts refuses the run.
 - **Legs:** the same 11 pairs, in the same roster order, as the Tier D dataset.

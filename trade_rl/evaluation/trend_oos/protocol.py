@@ -128,8 +128,31 @@ _SCENARIO_DELAY_BARS: Final[dict[str, int]] = {
 #: that every symbol listed then is missing qualify. They are treated exactly as the
 #: registered ``SPOT_HALTS`` (non-tradable rows with the preceding published close as
 #: their mark, zero volume); it is the only carried-forward close the protocol allows.
-DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
-COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = (
+    ("2018-01-04T04:00:00Z", "2018-01-04T05:00:00Z"),
+    ("2018-02-08T01:00:00Z", "2018-02-09T10:00:00Z"),
+    ("2018-06-26T02:00:00Z", "2018-06-26T12:00:00Z"),
+    ("2018-06-27T13:00:00Z", "2018-06-27T14:00:00Z"),
+    ("2018-07-04T01:00:00Z", "2018-07-04T08:00:00Z"),
+    ("2018-10-19T06:00:00Z", "2018-10-19T09:00:00Z"),
+    ("2018-11-14T02:00:00Z", "2018-11-14T09:00:00Z"),
+    ("2019-03-12T02:00:00Z", "2019-03-12T08:00:00Z"),
+    ("2019-05-15T03:00:00Z", "2019-05-15T13:00:00Z"),
+    ("2019-08-15T02:00:00Z", "2019-08-15T10:00:00Z"),
+    ("2019-11-13T02:00:00Z", "2019-11-13T04:00:00Z"),
+    ("2019-11-25T02:00:00Z", "2019-11-25T04:00:00Z"),
+    ("2020-02-09T02:00:00Z", "2020-02-09T03:00:00Z"),
+    ("2020-02-19T12:00:00Z", "2020-02-19T17:00:00Z"),
+    ("2020-03-04T10:00:00Z", "2020-03-04T11:00:00Z"),
+    ("2020-04-25T02:00:00Z", "2020-04-25T04:00:00Z"),
+    ("2020-06-28T02:00:00Z", "2020-06-28T05:00:00Z"),
+    ("2020-11-30T06:00:00Z", "2020-11-30T07:00:00Z"),
+    ("2020-12-21T14:00:00Z", "2020-12-21T18:00:00Z"),
+    ("2020-12-25T02:00:00Z", "2020-12-25T03:00:00Z"),
+)
+COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
+    "8680f82140fc6ce0b4c19076acebb4031b956bba52ac3940d9dc911a734c3d49"
+)
 
 
 class ProtocolBindingError(RuntimeError):
@@ -166,10 +189,8 @@ def declared_halt_intervals() -> tuple[tuple[datetime, datetime], ...]:
         if out and lo < out[-1][1]:
             raise ProtocolBindingError("declared halts must be ordered and disjoint")
         out.append((lo, hi))
-    if out and (
-        COVERAGE_EVIDENCE_SHA256 is None
-        or re.fullmatch(r"[0-9a-f]{64}", COVERAGE_EVIDENCE_SHA256) is None
-    ):
+    evidence: str | None = COVERAGE_EVIDENCE_SHA256
+    if out and (evidence is None or re.fullmatch(r"[0-9a-f]{64}", evidence) is None):
         raise ProtocolBindingError(
             "declared halts need the coverage.json SHA-256 they were derived from"
         )

@@ -256,7 +256,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "535a25162edd843687a845e920d178b0ea7af184eb8fd6968202e5222bc3a1bb"
+    assert digest == "634f0fd1865c373bbefc2c6b5cc6e184e550ebe816e36e42057ded4361fdfa7a"
 
 
 @pytest.mark.parametrize(
@@ -2671,3 +2671,37 @@ def test_the_known_placeholder_covers_the_symbols_seen_in_the_coverage_run() -> 
     for symbol in ("LTCUSDT", "AVAXUSDT", "DOGEUSDT", "DOTUSDT", "LINKUSDT", "BTCUSDT"):
         assert symbol in parse.KNOWN_PLACEHOLDER_SYMBOLS
     assert "XYZUSDT" not in parse.KNOWN_PLACEHOLDER_SYMBOLS
+
+
+_REAL_HALT_TESTS = {
+    "test_the_digest_is_canonical_stable_and_pinned",
+    "test_the_frozen_declared_halts_are_the_coverage_evidence",
+}
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_halts(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Synthetic windows start in 2018: the frozen real halt list must not apply."""
+    if request.node.name in _REAL_HALT_TESTS:
+        return
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", ())
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", None)
+
+
+def test_the_frozen_declared_halts_are_the_coverage_evidence() -> None:
+    assert protocol.COVERAGE_EVIDENCE_SHA256 == (
+        "8680f82140fc6ce0b4c19076acebb4031b956bba52ac3940d9dc911a734c3d49"
+    )
+    intervals = protocol.declared_halt_intervals()  # validated, ordered, disjoint
+    assert len(intervals) == 20
+    assert sum(int((b - a).total_seconds() // 3600) for a, b in intervals) == 108
+    assert intervals[0][0] == datetime(2018, 1, 4, 4, tzinfo=UTC)
+    assert intervals[-1][1] == datetime(2020, 12, 25, 3, tzinfo=UTC)
+    window = data.frozen_window("BACKCAST")
+    assert all(
+        window.load_start <= a and b <= window.last_row_close for a, b in intervals
+    )
+    merged = protocol.stage_halt_intervals()
+    assert len(merged) == 21 and merged[-1] == tuple(protocol.SPOT_HALTS[0])

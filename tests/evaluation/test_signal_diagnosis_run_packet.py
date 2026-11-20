@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,21 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
+    / "sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "863d96c40b47084c8702f1520cf62724cd5d74ccd0cf3236da37e05e42486350"
+PINNED_DIGEST = "a8fee68557bf2bf5c2fce326fc4955820079bea12cba5b4aedc7aba348ed3e91"
+PREVIOUS_MAIN1288_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
+)
+PREVIOUS_MAIN1288_PACKET_DIGEST = (
+    "863d96c40b47084c8702f1520cf62724cd5d74ccd0cf3236da37e05e42486350"
+)
+
 PREVIOUS_TRACKD_PACKET_PATH = (
     ROOT
     / "report"
@@ -230,6 +239,18 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert b"\r" not in PACKET_PATH.read_bytes()
+
+
+def test_prior_main1288_packet_is_immutable_unreviewed_history() -> None:
+    """M2 source re-pin cannot rewrite prior exact-source author evidence."""
+    previous = json.loads(PREVIOUS_MAIN1288_PACKET_PATH.read_text(encoding="utf-8"))
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED" and checked.errors == ()
+    assert checked.economic_execution_authorized is False
+    assert assurance_digest(previous) == PREVIOUS_MAIN1288_PACKET_DIGEST
+    assert previous["identity"]["implementation_head"] == (
+        "04d7f22701b3dd0067e5d72cebe6db6d11a60c69"
+    )
 
 
 def test_prior_trackd_packet_is_immutable_unreviewed_history() -> None:
@@ -487,6 +508,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
             in text

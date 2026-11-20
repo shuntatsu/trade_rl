@@ -1,0 +1,437 @@
+{
+  "schema": "trade_rl_branch_tip_snapshot_v1",
+  "captured_date": "2026-11-20",
+  "repository": "shuntatsu/trade_rl",
+  "archive_branch": "archive/branch-snapshot-20261120",
+  "main_head": "a6f63572dca99189f7d1dd0a2b2918e9c1dccbf0",
+  "tree_semantics": "Main tree plus this manifest; each archived branch's exact Git commit is an ancestor of the archive head, not code merged into main.",
+  "notes": "Preservation only. Every ref is retained and recoverable by the exact SHA below. This snapshot alone does not authorize deleting active PR, research, or workflow refs.",
+  "restore": "git fetch origin archive/branch-snapshot-20261120; git branch <restored-branch-name> <commit-sha-from-manifest>",
+  "branches": [
+    {
+      "name": "audit/m1-conversion-underflow-red-20261104",
+      "sha": "7fb6a2e1a9b714e7753bd61b4e4f4714085c66bd",
+      "protected": false
+    },
+    {
+      "name": "audit/m1-gemini4-blockers-red-20261105",
+      "sha": "baa70caa3ab6afe652566ceaf4644e6a314d2a15",
+      "protected": false
+    },
+    {
+      "name": "audit/m2-study-write-parent-swap-red-20261117",
+      "sha": "c74b8a7453d6a3fa8169a0b48c1d670e18f54022",
+      "protected": false
+    },
+    {
+      "name": "codex/issue1025-native-paired-action-v1-20261028",
+      "sha": "3de2e27d503b25ae0feb0b496470180a87dd6067",
+      "protected": false
+    },
+    {
+      "name": "codex/issue1025-td2-synthetic-label-maturity-v1-20261028",
+      "sha": "aa6413c79f2335f2197e7c9447235d4d7e9bf6e2",
+      "protected": false
+    },
+    {
+      "name": "codex/issue1025-td3-linear-action-value-20261029",
+      "sha": "eae18f891386c1aa7a983657493c0b3541bc0c2a",
+      "protected": false
+    },
+    {
+      "name": "codex/issue1025-td4-synthetic-native-attempt-20261029",
+      "sha": "5d3180db4f6e25cba9b7e9c400c46924e779cb5b",
+      "protected": false
+    },
+    {
+      "name": "codex/issue1025-td4b-costaware-synthetic-20261029",
+      "sha": "9a4a0f6c0f599b1f22e048845768cc683d6c8b6c",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-artificial-q-preflight",
+      "sha": "b0b11de4759e1b25ad1570ec27a9d22352510831",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-artificial-reference-account-luna",
+      "sha": "d9019f67265fc2adbcde42405a2225127d6922c6",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-artificial-witness-admission",
+      "sha": "81a0379ef9ad17afde9daa590fb4601974998b12",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-cash-control-admission-luna",
+      "sha": "8a24c2ef8d114a77c6ef8cb69c729357dcadaea3",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-consolidation-20261023-gpt6",
+      "sha": "9f40cc93aec8439a3740aec4e2aa2b842ad893a3",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-fa36-declaration-profile",
+      "sha": "a9e99132d8168b685d21e0e9f49f66775149076e",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-forecast-baseline-diagnostics-luna",
+      "sha": "f8a4ad625349e2b32f9ada46de3a4edf2ad12a32",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-longterm-plan",
+      "sha": "dad8932212d9cb3a4e72ac80e848be88f1012c0d",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-native-advance-speed-luna",
+      "sha": "d425544a231612fdcb7849773128377d5cac28c7",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-native-filled-ledger-test",
+      "sha": "be0ccfc4def6fe26feb6dd4b8f7e11aee796a78d",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-native-pair-plan-memo",
+      "sha": "d5689f49b8fadd7d324c1ee6bbd03104b4f2653b",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-objective-owner-guard-20261025",
+      "sha": "f3832ddc7a8cc02d0e825d52eebabf46b6d9f53e",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-optin-retain-debt-20261025",
+      "sha": "fbc92b5b785a7965bb0619a35ed526ead9aff862",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-pair-plan-source-profile",
+      "sha": "9e8ba2e02c0fdccb1e7fe6d615af41cd6575881f",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-r2-zip-byte-auditor-20261025",
+      "sha": "6e679f5f92615a6cc9e8cc72db48657c96dbb860",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-rl-clock-contract-luna",
+      "sha": "dbd37d7eee435dbf19a367a9435f8d446facac18",
+      "protected": false
+    },
+    {
+      "name": "codex/issue810-windows-cim-ci-readiness",
+      "sha": "4a48e1ef4fc280f6c00b0aa566660ae14f544041",
+      "protected": false
+    },
+    {
+      "name": "dependabot/docker_compose/deploy/market-store/postgres-16.16-bookworm",
+      "sha": "9464005c9b6abefef7a8aecd83f1dd4f75d19749",
+      "protected": false
+    },
+    {
+      "name": "docs/fix-issue1253-retired-prune-workflow-20261114",
+      "sha": "52701b0f6a70b8a5b3d1afea223a9cb0a80d65f3",
+      "protected": false
+    },
+    {
+      "name": "feat/attempt3-linux-platform-20261119",
+      "sha": "3679cd58d36609e3d15122fc797858083a2db1da",
+      "protected": false
+    },
+    {
+      "name": "feat/core7-mtf-phase1-tierd-driver",
+      "sha": "65f87b492c28d0742c0b2b7abc9589ebe72c9b67",
+      "protected": false
+    },
+    {
+      "name": "feat/issue1146-sd2-runner-20261113",
+      "sha": "38375e402d265b5e9868edc521cede87cd29c8c1",
+      "protected": false
+    },
+    {
+      "name": "feat/lowturn-family-screen",
+      "sha": "56c148a643809d1c489d7d54f4e67abe47401b27",
+      "protected": false
+    },
+    {
+      "name": "feat/trend-long-spot-oos",
+      "sha": "89173ab9dcabb603a0dcc3f758023b943b32d737",
+      "protected": false
+    },
+    {
+      "name": "fix/artifacts-verified-expected-size-bound-20261112",
+      "sha": "0b077f6e593a5e9134f43920cd0da87d57127212",
+      "protected": false
+    },
+    {
+      "name": "fix/core7-daily-fallback-digest-20261120",
+      "sha": "1850dd4d1bd16f74db37e175d979062a8da6a00d",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1057-prune-record-shape-fence-20261103",
+      "sha": "69d86011aade7fe3128fadf965496e58d5aecc92",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1067-taskpacket-scope-string-types-20261104",
+      "sha": "c6ff631dc7510bb6a1d006ddf8436b5b8057f6d3",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1112-is-closing-subnormal-20261114",
+      "sha": "8fca8ed8280b8ce5e134db9122a2287de204fd65",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1131-json-staging-foreign-cleanup-20261119",
+      "sha": "924c81f51a8d457b9023561579f5a4f0e3c88664",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd-ewc-integer-roots-20261112",
+      "sha": "37be390eb16d0ccc3511c988910acb82380a7ca7",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd1-decimal-log-oracle-20261111",
+      "sha": "930d515deb29218ca94478b8cc9e6b78826ef576",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd1-synthetic-boundary-regressions-20261111",
+      "sha": "dffa2e9aed9b46287a676f84a3e7649184bcbce0",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd2-descriptor-nofollow-20261114",
+      "sha": "858af6915e7f60e572504569727e1160d497f25c",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd2-manifest-first-array-gate-20261113",
+      "sha": "6131b5d0c54f86a5cc9d50f641c163ad0b8d6fa8",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1153-binance-source-close-v2-20261111",
+      "sha": "6a555dbb902312f1133f935356bdfe454f5b5a63",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1199-cross-asset-verified-parse-snapshot-20261111",
+      "sha": "9c1c3ccde7328599686b02cd1b27a9309d168744",
+      "protected": false
+    },
+    {
+      "name": "fix/issue810-carry-cache-cleanup-typed-20261112",
+      "sha": "e54683e0c8a9f7f3aaf638355891edd94e2cef61",
+      "protected": false
+    },
+    {
+      "name": "fix/issue810-core7-output-study-store-20261120",
+      "sha": "72e1a77fc282eee8c9116e23df3841f4ee198ebf",
+      "protected": false
+    },
+    {
+      "name": "fix/issue810-crossasset-ancestor-link-20261111",
+      "sha": "f56971b857db862c4adaa6682ee0dcf2ef36d625",
+      "protected": false
+    },
+    {
+      "name": "fix/issue810-crossasset-symlink-test-portability-20261120",
+      "sha": "59cabaf045162c4df5ff6280e5f612ddfa1e2fb0",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-bookstate-strict-underflow-atomicity-20261106",
+      "sha": "6e199bc1901e07d9d49073a44d8a6ef4203cc3a8",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-carry-cashflow-underflow-20261106",
+      "sha": "9918c2eb22a6989091ca1d34d3844ae3bd6bb318",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-carry-underflow-isolated-20261119",
+      "sha": "674b12d6f085d40fb10a4c0d19d4a72961b8f176",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-execution-cost-underflow-20261106",
+      "sha": "32735281a215c2a7f889e2e6df0209e4d43f6338",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-liquidity-zero-notional-20261106",
+      "sha": "072d69e7b76cf2725a3436b3ddcc27366bca7f2a",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-nonzero-execution-cost-underflow-20261119",
+      "sha": "eee9561283395209ef29d816e930fc2950bfff13",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-order-intent-notional-underflow-20261106",
+      "sha": "168d0039066aa7c9f40a2ff26bba854d7abf906c",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-set-margin-atomic-20261119",
+      "sha": "09e51ffe8c12d52f21cfdabf5884346cb25c84c5",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-source-branch-preservation-20261107",
+      "sha": "91e973935ab9d783393cf3d64fda897541b0e723",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-subnormal-valuation-isolated-20261118",
+      "sha": "38e94a1f59052da198fb995f3d281eb20a3c68e6",
+      "protected": false
+    },
+    {
+      "name": "fix/m2-study-json-exclusive-publication-20261110",
+      "sha": "7deb1159deba6bb9f62e0a909bd51bf19ddf6f4b",
+      "protected": false
+    },
+    {
+      "name": "fix/trackd-manifest-nofollow-20261111",
+      "sha": "dd6e3ad9b4eb4d26c2466dbea1cc0d073cf7418e",
+      "protected": false
+    },
+    {
+      "name": "fix/trackd-overlay-provenance-main-20261120",
+      "sha": "561ccd494133070bb6622a4d7d646950a7442a3e",
+      "protected": false
+    },
+    {
+      "name": "fix/trackd-raw-read-no-follow-20261111",
+      "sha": "2dbea03274f113853f0dc4546e99515c32e435f3",
+      "protected": false
+    },
+    {
+      "name": "fix/trackd-raw-write-once-sha8-race-20261111",
+      "sha": "fa93f2e38fbb88d88ea0f5d1eaff189f34c4230d",
+      "protected": false
+    },
+    {
+      "name": "infra/ppo-gemini-review-authority-v2",
+      "sha": "1b08d1be50de316789a014062be950814f4074d2",
+      "protected": false
+    },
+    {
+      "name": "main",
+      "sha": "a6f63572dca99189f7d1dd0a2b2918e9c1dccbf0",
+      "protected": false
+    },
+    {
+      "name": "provenance/branch-retention",
+      "sha": "a62cb1f9cdd5645c9690c103510d890dcc671164",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-collection-policy-impl-20261108",
+      "sha": "cebfe8ffe56eee8759ec284a8bc3835842351355",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-prereg-20261108",
+      "sha": "b92fa6d1ac3a0b3cf3750cf42396d434e39b70cf",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-seal-ready-20261108",
+      "sha": "2c9c7a525e0f0a6d54d9f43bcc72c5a752dba944",
+      "protected": false
+    },
+    {
+      "name": "research/issue1025-tiny-native-value-smoke-20261028",
+      "sha": "7416c55a8ea2735d754339fcee5682b42b2c3df5",
+      "protected": false
+    },
+    {
+      "name": "research/issue735-ppo-normalization-request",
+      "sha": "ee8dde846286fe0d3a3f13a218b49e9a353e7619",
+      "protected": false
+    },
+    {
+      "name": "research/ppo-4h-indicator-smoke-execution",
+      "sha": "40d3a2a971834a2c7c84309647ad4f547462a93e",
+      "protected": false
+    },
+    {
+      "name": "research/trend-stops-20261110",
+      "sha": "8a29983698e53b61990fef20047723f9d83d63ed",
+      "protected": false
+    },
+    {
+      "name": "research/trend-stops-v2-20261113",
+      "sha": "b541e7e121d3b3d3a528af71ed0d6502c63af5b8",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-bounded-codeonly-base-20261114",
+      "sha": "93d94145c7809c7fc0f1819a500f910b28eb2a0f",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-budget-source-20261114",
+      "sha": "d9e7e0b78d7ed9ebfd09d38758b5378d672f4201",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-final-code-and-tests-20261114",
+      "sha": "57b97799ee009008e4de478a40d82f8580edca01",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-nofollow-source-20261114",
+      "sha": "7756984b9c5513612c8cf3852feea3c8e35a17e6",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-pre-budget-source-20261114",
+      "sha": "3a3c959350fe31d4a05d9540d460c3187be3a772",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-base-20261120",
+      "sha": "670a3f32eeb7709168f382d4f2ee7c3da818d209",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-packets-20261120",
+      "sha": "7dde9e5a3bcc7ea6557f0597ac48666962328b09",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-source-20261120",
+      "sha": "cf94a5d67f1226af4d75ec0bde93e34349a4adf2",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-tests-20261120",
+      "sha": "66c96d244369f7677b766f32302b703561595045",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-whole-cli-final-blobs-20261114",
+      "sha": "808414bc6b1ecf31624db2a6761905fe47b8836e",
+      "protected": false
+    }
+  ]
+}

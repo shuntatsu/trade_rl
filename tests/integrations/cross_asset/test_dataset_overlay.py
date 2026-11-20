@@ -13,6 +13,12 @@ import numpy as np
 import pytest
 
 from tests.integrations.cross_asset.support import OPT_IN_ALL, seed_store
+from trade_rl.data.features.price_channels import with_price_channels
+from trade_rl.data.identity import (
+    canonical_identity_json,
+    compute_market_dataset_id,
+    parse_identity_json,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.cross_asset.dataset import (
     GLOBAL_PREFIX,
@@ -160,6 +166,126 @@ def test_stacked_overlays_cannot_erase_prior_feature_provenance(
         _overlay(first, frame, feature_names=("dollar_strength",))
 
 
+def test_generic_reidentity_cannot_erase_latest_vintage_eligibility(
+    frame: FeatureFrame,
+) -> None:
+    tagged = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        tagged.with_content_identity({"source_dataset_id": tagged.dataset_id})
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        with_price_channels(tagged, entry_bars=4, exit_bars=2)
+
+    # Causal transforms may precede the opt-in retrospective overlay.
+    channelled = with_price_channels(_dataset(), entry_bars=4, exit_bars=2)
+    admitted = _overlay(channelled, frame, feature_names=("curve_slope",))
+    assert admitted.identity_verified
+    assert admitted.global_feature_names[-1] == "xa_curve_slope"
+
+
+def test_stripped_identity_cannot_stack_on_retrospective_columns(
+    frame: FeatureFrame,
+) -> None:
+    tagged = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    stripped = replace(tagged, identity_payload_json=None)
+    with pytest.raises(ValueError, match="already present"):
+        _overlay(stripped, frame, feature_names=("dollar_strength",))
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        stripped.with_content_identity()
+
+
+def test_canonical_rehydration_rejects_cross_asset_columns_without_receipt(
+    frame: FeatureFrame,
+) -> None:
+    tagged = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    assert tagged.identity_payload_json is not None
+    payload = parse_identity_json(tagged.identity_payload_json)
+    del payload["cross_asset_overlay"]
+    misleading_id = compute_market_dataset_id(payload, tagged.identity_arrays())
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        replace(
+            tagged,
+            dataset_id=misleading_id,
+            identity_payload_json=canonical_identity_json(payload),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "minimal_fake",
+        "missing_vintage",
+        "claimed_strict_pit",
+        "missing_source_digest",
+        "mismatched_feature_names",
+        "false_consent",
+        "unknown_schema",
+        "malformed_digest",
+        "malformed_normalizer_digest",
+        "duplicate_series",
+        "missing_series",
+        "extra_receipt_field",
+    ),
+)
+def test_canonical_identity_rejects_forged_cross_asset_receipts(
+    frame: FeatureFrame, mutation: str
+) -> None:
+    tagged = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    payload = parse_identity_json(tagged.identity_payload_json or "{}")
+    receipt = dict(payload["cross_asset_overlay"])
+    if mutation == "minimal_fake":
+        receipt = {"strict_point_in_time_verified": True}
+    elif mutation == "missing_vintage":
+        receipt.pop("vintage_basis")
+    elif mutation == "claimed_strict_pit":
+        receipt["strict_point_in_time_verified"] = True
+    elif mutation == "missing_source_digest":
+        receipt.pop("input_digest")
+    elif mutation == "mismatched_feature_names":
+        receipt["names"] = ["different"]
+    elif mutation == "false_consent":
+        receipt["accept_revision_hindsight"] = "false"
+    elif mutation == "unknown_schema":
+        receipt["schema"] = "cross_asset_global_overlay_v999"
+    elif mutation == "malformed_digest":
+        receipt["input_digest"] = "bad"
+    elif mutation == "malformed_normalizer_digest":
+        receipt["normalizer_digest"] = "not-a-digest"
+    elif mutation == "duplicate_series":
+        receipt["latest_vintage_series"] = ["DGS10", "DGS10"]
+    elif mutation == "missing_series":
+        receipt.pop("latest_vintage_series")
+    elif mutation == "extra_receipt_field":
+        receipt["untrusted_assertion"] = True
+    payload["cross_asset_overlay"] = receipt
+    forged_id = compute_market_dataset_id(payload, tagged.identity_arrays())
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        replace(
+            tagged,
+            dataset_id=forged_id,
+            identity_payload_json=canonical_identity_json(payload),
+        )
+
+
+def test_existing_cross_asset_cannot_use_generic_identity_rebinding(
+    frame: FeatureFrame,
+) -> None:
+    tagged = _overlay(_dataset(), frame, feature_names=("curve_slope",))
+    original = parse_identity_json(tagged.identity_payload_json or "{}")
+    assert replace(tagged).identity_verified
+    # Copying the original receipt does not authorize generic reidentification.
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        tagged.with_content_identity(original)
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        tagged.with_content_identity(
+            {"cross_asset_overlay": {"strict_point_in_time_verified": True}}
+        )
+    stripped = replace(tagged, identity_payload_json=None)
+    with pytest.raises(ValueError, match="cross-asset.*provenance"):
+        stripped.with_content_identity(original)
+    native = _dataset()
+    assert native.with_content_identity({"native_receipt": "test"}).identity_verified
+
+
 def test_unavailable_entries_are_zero_with_an_explicit_mask(tmp_path: Path) -> None:
     store = seed_store(tmp_path)
     early = _dataset(start=datetime(2022, 1, 3, tzinfo=UTC))  # before any release
@@ -191,11 +317,12 @@ def test_overlay_requires_the_exact_decision_grid_and_an_explicit_selection(
     once = _overlay(_dataset(), frame, feature_names=("curve_slope",))
     with pytest.raises(ValueError, match="already has a cross-asset overlay"):
         _overlay(once, frame, feature_names=("curve_slope",))
-    # Collision checking remains independently required for a dataset whose
-    # existing column was not itself added by this cross-asset overlay.
+    # A pre-existing reserved column must be rejected even without a receipt.
     colliding = replace(
-        _dataset(), global_feature_names=("xa_curve_slope",)
-    ).with_content_identity()
+        _dataset(),
+        identity_payload_json=None,
+        global_feature_names=("xa_curve_slope",),
+    )
     with pytest.raises(ValueError, match="already present"):
         _overlay(colliding, frame, feature_names=("curve_slope",))
 

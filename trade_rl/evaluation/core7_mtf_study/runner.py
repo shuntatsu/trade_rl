@@ -672,7 +672,9 @@ def _summarize_replay_cell(
     ``below_minimum_notional`` is terminal dust (``dev_realdata_study.runner.terminal_dust``):
     ``terminal_flat`` stays false, the cell stays valid when every residual is dust, and
     the dust is valued at mark minus its modelled exit cost, which is subtracted from the
-    total return. Any other residual, or dust that cannot be valued (no
+    final point of the equity path used for every metric (total return, the last bar
+    return in the Sharpe, max drawdown and the stop check). Any other residual, or dust
+    that cannot be valued (no
     ``execution_cost``), keeps the cell invalid.
     """
     reasons: list[str] = []
@@ -704,15 +706,23 @@ def _summarize_replay_cell(
             reasons.append("terminal_position_not_flat")
     dust_exit_cost = sum(float(cast(float, item["exit_cost_usdt"])) for item in dust)
 
+    ret_arr = np.asarray(result.returns.values, dtype=np.float64)
+    max_drawdown = float(result.book.max_drawdown)
+    final_equity = float(result.book.portfolio_value)
+    if dust_exit_cost > 0.0 and ret_arr.size > 0 and final_equity > 0.0:
+        # lean-core: the equity path used for metrics is reduced by the dust exit
+        # cost, so the last return, the drawdown and the stop check see the exit
+        # that could not happen as a loss
+        ret_arr = ret_arr.copy()
+        ret_arr[-1] -= dust_exit_cost * (1.0 + ret_arr[-1]) / final_equity
+        path = float(initial_capital) * np.cumprod(1.0 + ret_arr)
+        peak = max(float(initial_capital), float(np.max(path)))
+        max_drawdown = max(max_drawdown, 1.0 - float(path[-1]) / peak)
     term_reasons = result.diagnostics.termination_reasons
     stop_reason = term_reasons[0] if term_reasons else None
-    max_drawdown = float(result.book.max_drawdown)
     if stop_reason is None and max_drawdown >= protocol.risk_config().drawdown_stop:
         stop_reason = "max_drawdown_hard_stop"
-    ret_arr = np.asarray(result.returns.values, dtype=np.float64)
-    total_return = float(
-        (result.book.portfolio_value - dust_exit_cost) / initial_capital - 1.0
-    )
+    total_return = float((final_equity - dust_exit_cost) / initial_capital - 1.0)
     # a risk/economic stop is a STOP, not an integrity failure: the replay still ran
     complete = bool(ret_arr.size > 0)
     execution_valid = bool(not result.book.insolvent and reconciled)

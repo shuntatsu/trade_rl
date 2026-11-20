@@ -1,7 +1,7 @@
 """Pure, data-free decision rule and reported statistics of ``agy_anchor_realistic_v1``.
 
 ``SUPPORTED(S)`` of a stage holds iff all nine cells (3 arms x 3 scenarios) are valid, no
-candidate cell reached a 20% drawdown, the candidate's BASE return is above 0 and its BASE
+candidate cell reached a 25% drawdown, the candidate's BASE return is above 0 and its BASE
 annual Sharpe is at least 0.50, and its HIGH_COST and DELAY_1BAR returns are above 0. A
 stage verdict is ``STAGE_SUPPORTED``, ``STAGE_NOT_SUPPORTED`` (all cells valid, a condition
 fails) or ``INVALID`` (any cell invalid). The label is combined over BACKCAST_2020 and

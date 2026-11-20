@@ -35,6 +35,7 @@ from trade_rl.evaluation.agy_anchor_oos.data import (
     validate_stage_dataset,
 )
 from trade_rl.evaluation.agy_anchor_oos.decision import CellKey, OosCell
+from trade_rl.evaluation.lowturn_screen import protocol as lowturn_protocol
 from trade_rl.evaluation.lowturn_screen.policies import LowturnPolicy
 from trade_rl.evaluation.lowturn_screen.signals import LowturnSignals
 from trade_rl.evaluation.replay import (
@@ -42,7 +43,6 @@ from trade_rl.evaluation.replay import (
     run_shared_portfolio_replay,
 )
 from trade_rl.evaluation.trend_oos import runner as trend_runner
-from trade_rl.evaluation.trend_oos.cash_policy import CashAccountPolicy
 from trade_rl.evaluation.trend_oos.data import StageDataError
 from trade_rl.evaluation.trend_oos.signals import build_oos_signals
 from trade_rl.risk.pretrade import PreTradeRisk
@@ -73,6 +73,8 @@ MODE_DECISION = "decision"
 MODE_INTERIM = "interim"
 #: An interim replay needs at least two anchor rebalance periods.
 MIN_REPLAY_BARS = 2 * protocol.REBALANCE_EVERY_BARS
+#: The controls keep lowturn's weekly rebalance (only the statistics use it here).
+CONTROL_REBALANCE_EVERY_BARS = lowturn_protocol.REBALANCE_EVERY_BARS
 
 ANCHOR_ROW_FIELDS: tuple[str, ...] = (
     "w_aw_bidir_75_25",
@@ -177,11 +179,13 @@ def make_policy(
             ),
             start_index=start_index,
         )
-    return CashAccountPolicy(
+    # the controls are spot-only lowturn policies (weekly rebalance), on the same cash account
+    return AnchorCashAccountPolicy(
         LowturnPolicy(
             family=arm, signals=control, start_index=start_index, signal_lag_bars=lag
         ),
         start_index=start_index,
+        rebalance_every_bars=CONTROL_REBALANCE_EVERY_BARS,
     )
 
 
@@ -476,6 +480,7 @@ def run_stage(
         "replay_start_index": start,
         "replay_stop_index": stop,
         "dataset_id": dataset.dataset_id,
+        "harness_source_digest": protocol.harness_source_digest(),
         "taker_buy_quote_volume_sha256": hashlib.sha256(
             np.ascontiguousarray(stage.taker_buy_quote_volume).tobytes()
         ).hexdigest(),

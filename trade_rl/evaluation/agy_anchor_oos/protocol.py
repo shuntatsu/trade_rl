@@ -130,7 +130,13 @@ STAGE_WINDOWS: Final[dict[str, dict[str, str]]] = {
     },
 }
 FINAL_NOT_BEFORE: Final = "2027-05-02T00:00:00Z"
-DATA_AUTHORIZATION_URL: Final = trend.DATA_AUTHORIZATION_URL
+#: Owner scope relay (Issue #810) covering fetching and reading data for any pre-registered
+#: out-of-sample / forward protocol. Bound for BACKCAST_2020 and FORWARD reads (owner-authored,
+#: unedited between fetches); DEV reads known-used data and needs no relay of its own.
+DATA_AUTHORIZATION_URL: Final = (
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247"
+)
+AUTHORIZED_STAGES: Final[tuple[str, ...]] = (STAGE_BACKCAST, STAGE_FORWARD)
 
 # --- decision rule -------------------------------------------------------------------
 #: Amendment 2: the owner's 25% research drawdown budget (quote in the spec). The ramp is
@@ -173,6 +179,17 @@ DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
 COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
 
 
+#: The harness files whose bytes enter the digest (a change to any of them is a new digest).
+HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
+    "protocol.py",
+    "cash.py",
+    "decision.py",
+    "data.py",
+    "runner.py",
+)
+HARNESS_TOOL_RELATIVE_PATH: Final = "tools/agy_anchor_oos.py"
+
+
 class ProtocolBindingError(RuntimeError):
     """A pinned binding (port, fixture, reused protocol, margin rate) no longer holds."""
 
@@ -187,6 +204,34 @@ def port_source_digest() -> str:
     digest = hashlib.sha256()
     for path in sorted(root.glob("*.py")):
         digest.update(path.name.encode("utf-8") + b"\0")
+        digest.update(_normalised(path.read_bytes()))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def harness_source_digest(
+    *, package_dir: Path | None = None, tool_path: Path | None = None
+) -> str:
+    """SHA-256 over the harness source (name and LF-normalised bytes), like the port digest.
+
+    It covers ``protocol, cash, decision, data, runner`` of this package and
+    ``tools/agy_anchor_oos.py``. It is *computed*, not pinned: protocol.py is one of the
+    hashed files, so a pinned value would be self-referential. Any edit to the harness
+    therefore changes the protocol digest. A missing file fails closed.
+    """
+    root = Path(__file__).resolve().parent if package_dir is None else package_dir
+    tool = (
+        Path(__file__).resolve().parents[3] / HARNESS_TOOL_RELATIVE_PATH
+        if tool_path is None
+        else tool_path
+    )
+    digest = hashlib.sha256()
+    entries = [(name, root / name) for name in HARNESS_PACKAGE_FILES]
+    entries.append((HARNESS_TOOL_RELATIVE_PATH, tool))
+    for name, path in entries:
+        if not path.is_file():
+            raise ProtocolBindingError(f"harness source file {path} is missing")
+        digest.update(name.encode("utf-8") + b"\0")
         digest.update(_normalised(path.read_bytes()))
         digest.update(b"\0")
     return digest.hexdigest()
@@ -334,9 +379,23 @@ def protocol_payload() -> dict[str, object]:
             "lowturn_protocol_id": LOWTURN_PROTOCOL_ID,
             "lowturn_protocol_digest": LOWTURN_PROTOCOL_DIGEST,
             "control": "EW_HOLD_SPOT and CASH are lowturn LowturnPolicy families, "
-            "wrapped in trend_oos.cash_policy.CashAccountPolicy",
+            "wrapped in the same AnchorCashAccountPolicy as the anchor",
         },
         "data_authorization_url": DATA_AUTHORIZATION_URL,
+        "data_authorization": {
+            "url": DATA_AUTHORIZATION_URL,
+            "stages": list(AUTHORIZED_STAGES),
+            "scope": "owner scope relay: fetching and reading data for any pre-registered "
+            "out-of-sample / forward protocol",
+            "binding": "owner-authored and unedited between two fetches, for every "
+            "BACKCAST_2020 and FORWARD read; recorded in the receipt",
+            "dev": "known-used data; no relay needed",
+        },
+        "harness": {
+            "files": [*HARNESS_PACKAGE_FILES, HARNESS_TOOL_RELATIVE_PATH],
+            "harness_source_digest": harness_source_digest(),
+            "binding": "computed, not pinned (protocol.py is hashed)",
+        },
         "roster": list(ROSTER),
         "leg_layout": "alternating_spot_perp_even_index_spot_odd_index_perp",
         "arms": {"candidate": CANDIDATE, "controls": list(CONTROLS)},
@@ -430,7 +489,8 @@ def protocol_payload() -> dict[str, object]:
             "unchanged",
             "scale_factor": "the whole target is scaled proportionally by the tighter "
             "of the two factors; the negative-cash check is unchanged",
-            "application": "every arm, after the signal's own caps, on the effective "
+            "application": "all three arms (the controls are spot-only, so both bounds "
+            "reduce to their spot gross), after the signal's own caps, on the effective "
             "weights (held legs at their current weight, others times risk_scale); "
             "proportional scaling; when binding all holds are dropped",
             "invalid_on_borrowing": {
@@ -505,6 +565,7 @@ def protocol_payload() -> dict[str, object]:
 def protocol_digest() -> str:
     """SHA-256 hex digest of the canonical frozen protocol (bindings verified first)."""
     verify_port_binding()
+    verify_fixture_binding()
     verify_lowturn_binding()
     verify_margin_binding()
     declared_halt_intervals()
@@ -528,11 +589,13 @@ __all__ = [
     "CONTROLS",
     "CONTROL_CASH",
     "CONTROL_EW_SPOT",
+    "AUTHORIZED_STAGES",
     "DATA_AUTHORIZATION_URL",
     "DEADBAND",
     "DELAY_SCENARIO",
     "FINAL_NOT_BEFORE",
     "FIXTURE_SHA256",
+    "HARNESS_PACKAGE_FILES",
     "HIGH_COST_SCENARIO",
     "INITIAL_CAPITAL",
     "INITIAL_MARGIN_RATE",
@@ -568,6 +631,7 @@ __all__ = [
     "arm_signal_lag_bars",
     "declared_halt_intervals",
     "fixture_path",
+    "harness_source_digest",
     "port_source_digest",
     "protocol_digest",
     "protocol_payload",

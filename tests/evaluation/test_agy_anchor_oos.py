@@ -179,8 +179,16 @@ def assemble(
     limit: datetime | None = None,
     spot: dict[str, Any] | None = None,
     perp: dict[str, Any] | None = None,
-    authorization_url: str | None = None,
+    authorization_url: str | None = "owner relay",
 ) -> data.StageData:
+    if (
+        authorization_url == "owner relay"
+    ):  # the relay BACKCAST_2020 and FORWARD reads need
+        authorization_url = (
+            protocol.DATA_AUTHORIZATION_URL
+            if window.stage in protocol.AUTHORIZED_STAGES
+            else None
+        )
     end = limit or window.last_row_close
     if spot is None or perp is None:
         spot, perp = leg_maps(window, limit=end)
@@ -313,7 +321,7 @@ def test_costs_risk_and_roster_are_the_core7_values_and_the_spec_text() -> None:
     assert protocol.BOOTSTRAP_SEED == 20261121
     assert (protocol.BOOTSTRAP_BLOCK_BARS, protocol.BOOTSTRAP_RESAMPLES) == (42, 10_000)
     assert protocol.FINAL_NOT_BEFORE == "2027-05-02T00:00:00Z"
-    assert protocol.DATA_AUTHORIZATION_URL.endswith("issuecomment-7028416072")
+    assert protocol.DATA_AUTHORIZATION_URL.endswith("issuecomment-7040247247")
     assert protocol.PROTOCOL_ID == "agy_anchor_realistic_v1"
     protocol.verify_lowturn_binding()
     assert protocol.LOWTURN_PROTOCOL_DIGEST.startswith("9de83d14")
@@ -596,6 +604,7 @@ def test_taker_volume_of_a_halted_spot_hour_is_dropped_with_the_bar(
         rules=RULES,
         limit_close=window.last_row_close,
         halt_intervals=[(lo, lo + BAR)],
+        data_authorization_url=protocol.DATA_AUTHORIZATION_URL,
     )
     assert not np.asarray(stage.dataset.tradable)[10, 0]
     assert stage.taker_buy_quote_volume[10, 0] == 0.0
@@ -908,8 +917,8 @@ def test_rows_past_the_default_embargo_need_the_forward_stage_and_the_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     forward = small_window(monkeypatch, protocol.STAGE_FORWARD)
-    with pytest.raises(data.StageEmbargoError, match="need the FORWARD stage"):
-        assemble(forward)
+    with pytest.raises(data.StageEmbargoError, match="FORWARD reads need the owner"):
+        assemble(forward, authorization_url=None)
     stage = assemble(forward, authorization_url=protocol.DATA_AUTHORIZATION_URL)
     assert protocol.DATA_AUTHORIZATION_URL in (
         stage.dataset.identity_payload_json or ""
@@ -920,7 +929,7 @@ def test_rows_past_the_default_embargo_need_the_forward_stage_and_the_url(
         dataset_id=hashlib.sha256(b"x").hexdigest(),
         identity_payload_json=None,
     )
-    with pytest.raises(data.StageEmbargoError, match="no FORWARD authorization"):
+    with pytest.raises(data.StageEmbargoError, match="carries no owner authorization"):
         data.validate_stage_dataset(replace(stage, dataset=bare), forward)
 
 

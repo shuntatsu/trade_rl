@@ -828,8 +828,6 @@ def _run(
     authorization: Any = None,
 ) -> tuple[dict[str, Any], Path, data.StageWindow]:
     window = small_window(monkeypatch, stage_name)
-    forward = stage_name == protocol.STAGE_FORWARD
-    url = protocol.DATA_AUTHORIZATION_URL if forward else None
     end = window.last_row_close - limit_bars_early * BAR
     spot, perp = leg_maps(window)
     stage = assemble(
@@ -837,7 +835,6 @@ def _run(
         limit=end,
         spot={k: truncate_leg(v, end) for k, v in spot.items()},
         perp={k: truncate_leg(v, end) for k, v in perp.items()},
-        authorization_url=url,
     )
     out = tmp_path / name
     result = runner.run_stage(

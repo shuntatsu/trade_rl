@@ -135,7 +135,9 @@ def test_the_anchor_and_the_controls_are_the_ports_and_lowturns_and_not_redefine
     runner_imports = _imported_roots(RUNNER_PATH)
     assert "trade_rl.strategies.agy_anchor.policy" in runner_imports
     assert "trade_rl.evaluation.lowturn_screen.policies" in runner_imports
-    assert "trade_rl.evaluation.trend_oos.cash_policy" in runner_imports
+    assert (
+        "trade_rl.evaluation.agy_anchor_oos.cash" in runner_imports
+    )  # one cash account
     assert "trade_rl.evaluation.trend_oos" in runner_imports  # shared runner helpers
     assert "runner" in _referenced_names(RUNNER_PATH)
 

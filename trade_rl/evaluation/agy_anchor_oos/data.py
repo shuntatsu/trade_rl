@@ -159,8 +159,10 @@ def read_limit(
 ) -> datetime:
     """The last row close that may be read: the exclusive limit of the hourly opens.
 
-    DEV and BACKCAST_2020 need no authorization but are refused while their window is not
-    over. FORWARD reads exist only on the path bound to ``protocol.DATA_AUTHORIZATION_URL``.
+    DEV needs no authorization; BACKCAST_2020 and FORWARD need the owner relay. DEV and
+    BACKCAST_2020 are refused while their window is not
+    over. BACKCAST_2020 and FORWARD reads exist only on the path bound to
+    ``protocol.DATA_AUTHORIZATION_URL``; DEV reads known-used data.
     The limit never exceeds the stage's last row or the latest fully closed bar; ``through``
     (a smaller 4h-grid instant) may only lower it.
     """
@@ -169,13 +171,13 @@ def read_limit(
         raise StageEmbargoError(
             f"no closed bar beyond the first decision {window.first_decision.isoformat()}"
         )
-    if window.stage == protocol.STAGE_FORWARD:
+    if window.stage in protocol.AUTHORIZED_STAGES:
         if authorization_url != protocol.DATA_AUTHORIZATION_URL:
             raise StageEmbargoError(
-                "FORWARD reads need the owner authorization "
+                f"{window.stage} reads need the owner authorization "
                 f"{protocol.DATA_AUTHORIZATION_URL}"
             )
-    elif limit != window.last_row_close:
+    if window.stage != protocol.STAGE_FORWARD and limit != window.last_row_close:
         raise StageEmbargoError(f"the {window.stage} stage window is not over yet")
     if through is not None:
         stamp = _utc(through, field="through")
@@ -429,14 +431,18 @@ def assemble_stage_dataset(
         raise StageDataError("rules must cover exactly the roster symbols")
     clock = stage_clock(window, limit_close)
     limit = _utc(limit_close, field="limit_close")
-    needs_authorization = limit > DEFAULT_EMBARGO
-    if needs_authorization and (
-        window.stage != protocol.STAGE_FORWARD
-        or data_authorization_url != protocol.DATA_AUTHORIZATION_URL
+    needs_authorization = window.stage in protocol.AUTHORIZED_STAGES
+    if (
+        needs_authorization
+        and data_authorization_url != protocol.DATA_AUTHORIZATION_URL
     ):
         raise StageEmbargoError(
-            "rows at or after the default embargo need the FORWARD stage and the "
-            f"owner authorization {protocol.DATA_AUTHORIZATION_URL}"
+            f"{window.stage} reads need the owner authorization "
+            f"{protocol.DATA_AUTHORIZATION_URL}"
+        )
+    if limit > DEFAULT_EMBARGO and window.stage != protocol.STAGE_FORWARD:
+        raise StageEmbargoError(
+            "rows at or after the default embargo need the FORWARD stage"
         )
     n_rows, n_legs = len(clock), 2 * len(roster)
     shape = (n_rows, n_legs)
@@ -642,15 +648,16 @@ def validate_stage_dataset(stage: StageData, window: StageWindow) -> int:
         raise StageDataError("an inactive leg is tradable or carries volume")
     if len(stage.activation_rows) != len(protocol.ROSTER):
         raise StageDataError("activation rows must cover the roster")
-    if last > DEFAULT_EMBARGO:
-        payload = dataset.identity_payload_json or ""
-        if (
-            window.stage != protocol.STAGE_FORWARD
-            or protocol.DATA_AUTHORIZATION_URL not in payload
-        ):
-            raise StageEmbargoError(
-                "rows at or after the default embargo carry no FORWARD authorization"
-            )
+    payload = dataset.identity_payload_json or ""
+    if (
+        window.stage in protocol.AUTHORIZED_STAGES
+        and protocol.DATA_AUTHORIZATION_URL not in payload
+    ):
+        raise StageEmbargoError(
+            f"a {window.stage} dataset carries no owner authorization in its identity"
+        )
+    if last > DEFAULT_EMBARGO and window.stage != protocol.STAGE_FORWARD:
+        raise StageEmbargoError("only the FORWARD stage may reach the default embargo")
     return int(ts.size - 1)
 
 

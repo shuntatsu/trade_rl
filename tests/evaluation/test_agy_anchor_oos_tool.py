@@ -174,7 +174,7 @@ class Gh:
 
     def __call__(self, args: Any) -> str:
         self.calls.append(list(args))
-        target = self.data if str(args[1]).endswith("/7028416072") else self.g4
+        target = self.data if str(args[1]).endswith("/7040247247") else self.g4
         return target(args)
 
 
@@ -240,6 +240,7 @@ def dev_result(tmp_path: Path, **over: Any) -> Path:
             "stage": "DEV",
             "mode": "decision",
             "status": "DEV_DIAGNOSTIC_NOT_A_DECISION",
+            "invalid_cells": [],
             **over,
         },
     )
@@ -471,7 +472,7 @@ def test_a_forward_interim_needs_no_prior_stage_and_reads_only_closed_days(
 ) -> None:
     window = small_window(monkeypatch, protocol.STAGE_FORWARD)
     rows = Rows(listings(window))
-    now = datetime(2026, 8, 20, 6, 30, tzinfo=UTC)
+    now = datetime(2026, 9, 20, 6, 30, tzinfo=UTC)
     code, _, err = tool(
         tmp_path,
         run_argv(tmp_path, "FORWARD", "--interim"),
@@ -482,9 +483,10 @@ def test_a_forward_interim_needs_no_prior_stage_and_reads_only_closed_days(
     assert code == driver.EXIT_OK, err
     call = no_run.calls[-1]
     assert call["mode"] == runner.MODE_INTERIM and call["backcast_verdict"] is None
-    # the last row read is before the start of the current UTC day (a closed day archive)
+    # funding is published only through the last complete month (2026-09-01 at this now);
+    # the interim read stops there, which is also before the current closed day
     assert max(end for *_, end in rows.requests) <= int(
-        datetime(2026, 8, 20, tzinfo=UTC).timestamp() * 1_000
+        datetime(2026, 9, 1, tzinfo=UTC).timestamp() * 1_000
     )
     assert call["run_date"] == now.date()
 
@@ -581,7 +583,7 @@ def test_the_data_authorization_comment_must_not_change_between_fetches(
         tmp_path,
         run_argv(tmp_path, "FORWARD", "--interim"),
         gh=gh,
-        now=datetime(2026, 8, 20, 6, 30, tzinfo=UTC),
+        now=datetime(2026, 9, 20, 6, 30, tzinfo=UTC),
         rows=rows,
     )
     assert code == driver.EXIT_UNAUTHENTICATED
@@ -619,6 +621,7 @@ def _load(
         window=window,
         limit_close=window.last_row_close,
         rules=_rules(),
+        data_authorization_url=driver._auth_url(window.stage),
         **kwargs,
     )
 
@@ -868,14 +871,17 @@ def test_forward_coverage_authenticates_the_data_authorization_and_records_it(
 ) -> None:
     window = small_window(monkeypatch, protocol.STAGE_FORWARD)
     rows = Rows(listings(window))
-    now = datetime(2026, 8, 20, 6, 30, tzinfo=UTC)
+    now = datetime(2026, 9, 20, 6, 30, tzinfo=UTC)
     code, _, err = cov_tool(tmp_path, cov_argv(tmp_path, "FORWARD"), rows=rows, now=now)
     assert code == driver.EXIT_OK, err
     document = json.loads((tmp_path / "cov" / driver.COVERAGE_NAME).read_text("utf-8"))
-    auth = document["forward_data_authorization"]
-    assert auth["url"] == DATA_AUTH and auth["embargo_policy"] == "ForwardEmbargoPolicy"
+    auth = document["data_authorization"]
+    assert (
+        auth["url"] == DATA_AUTH
+        and auth["embargo_policy"] == "AnchorForwardEmbargoPolicy"
+    )
     assert max(end for *_, end in rows.requests) <= _ms(
-        datetime(2026, 8, 20, tzinfo=UTC)
+        datetime(2026, 9, 1, tzinfo=UTC)  # the funding boundary
     )
     bad = Gh()
     bad.data.fail = True
@@ -1049,7 +1055,7 @@ def test_dev_then_backcast_then_forward_final_run_end_to_end_through_the_tool(
         (tmp_path / "fwd" / driver.DATA_RECEIPT_NAME).read_text("utf-8")
     )
     assert receipt["backcast_decision"]["stage_verdict"] == back_out["stage_verdict"]
-    assert receipt["forward_data_authorization"]["url"] == DATA_AUTH
+    assert receipt["data_authorization"]["url"] == DATA_AUTH
     assert receipt["taker_buy"].startswith("sum of the four hourly")
     assert receipt["cash_account"]["initial_margin_rate"] == 0.4
     assert receipt["activation_rows"][5] is not None

@@ -113,7 +113,11 @@ def _open_directory_descriptor_nofollow(source: Path) -> int:
         if source_fd > 2_147_483_647:
             raise OSError(errno.ELOOP, "untrusted process directory FD alias")
         descriptor = os.dup(source_fd)
-        status = os.fstat(descriptor)
+        try:
+            status = os.fstat(descriptor)
+        except BaseException:
+            os.close(descriptor)
+            raise
         identity = (source_fd, status.st_dev, status.st_ino)
         if not stat.S_ISDIR(status.st_mode):
             os.close(descriptor)

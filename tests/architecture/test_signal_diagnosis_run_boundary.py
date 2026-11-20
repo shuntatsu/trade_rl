@@ -52,9 +52,45 @@ def _imports(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            if not node.level:
+                if node.module:
+                    names.add(node.module)
+                continue
+            # The filename is inside trade_rl/, including temporary synthetic
+            # test files. Python level=1 names the containing package.
+            parts = path.parts
+            root = max(i for i, part in enumerate(parts) if part == "trade_rl")
+            package = parts[root:-1]
+            if node.level > len(package):
+                raise ValueError(f"invalid relative import in {path}")
+            prefix = package[: len(package) - node.level + 1]
+            module = (
+                ".".join([*prefix, *(node.module or "").split(".")])
+                if node.module
+                else ".".join(prefix)
+            )
+            names.add(module)
+            names.update(f"{module}.{alias.name}" for alias in node.names)
     return names
+
+
+def test_relative_import_parser_resolves_the_actual_runner_package(
+    tmp_path: Path,
+) -> None:
+    """A relative import can reach forbidden integrations without spelling them."""
+    fake = tmp_path / "trade_rl/evaluation/signal_diagnosis_run/cli.py"
+    fake.parent.mkdir(parents=True)
+    fake.write_text(
+        "from ...integrations.binance import dataset\n"
+        "from ... import integrations\n"
+        "from . import fitting\n",
+        encoding="utf-8",
+    )
+    assert "trade_rl.integrations.binance" in _imports(fake)
+    assert "trade_rl.integrations.binance.dataset" in _imports(fake)
+    assert "trade_rl.integrations" in _imports(fake)
+    assert "trade_rl.evaluation.signal_diagnosis_run.fitting" in _imports(fake)
 
 
 def test_package_layout_is_the_eight_modules_only() -> None:

@@ -125,3 +125,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_closed_pr_retirement --apply
+
+  superseded-sd2-ref-retirement:
+    name: Retire three immutable old SD2 source refs (owner-created request)
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.actor == 'shuntatsu' &&
+      github.event.issue.number == 1057 &&
+      github.event.comment.body == '/retire-three-superseded-sd2-refs-20261120 2be720a5ef837462e4132ebecf982d8929112b6c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted main and complete repository histories
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch complete current main, live PR refs and frozen archive
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Read-only immutable predecessor and successor proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_superseded_sd2_retirement
+
+      - name: Delete only three SHA-leased superseded names with GitHub readback
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_superseded_sd2_retirement --apply

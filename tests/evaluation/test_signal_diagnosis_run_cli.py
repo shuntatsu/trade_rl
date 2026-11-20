@@ -353,6 +353,12 @@ def test_huge_array_file_refuses_before_any_read(
     assert observed == []
 
 
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="1 GiB preflight requires supported POSIX descriptor opening",
+)
 def test_array_size_budget_accepts_exact_declared_ceiling_without_allocating_1_gib(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -540,11 +546,14 @@ def test_coverage_beyond_the_window_is_refused_without_reading_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spies: Spies, extra_bars: int
 ) -> None:
     # One hour, the warm-up span and the sealed window of extra bars.
+    root = tmp_path / "artifact"
     _pin(
         monkeypatch,
-        _build(tmp_path / "artifact", bars=_window_bars() + extra_bars),
+        _build(root, bars=_window_bars() + extra_bars),
     )
+    opened_arrays = _arrays_opens(monkeypatch, root)
     assert cli.main(_argv(tmp_path)) == 2
+    assert opened_arrays == []
     assert (spies.loader_calls, spies.run_calls) == (0, 0)
     assert not (tmp_path / "out").exists()
 
@@ -595,29 +604,35 @@ def test_any_digest_mismatch_never_reaches_the_reader(
 
 
 @pytest.mark.parametrize(
-    "override",
+    ("override", "error_message"),
     [
-        {
-            "dataset": {
-                "feature_config_digest": "4" * 64,
-                "symbols": ["A"],
-                "calendar_kind": "continuous_24_7",
-                "periods_per_year": 8760,
-            }
-        },
-        {
-            "dataset": {
-                "feature_config_digest": "4" * 64,
-                "symbols": None,
-                "calendar_kind": "session_calendar",
-                "periods_per_year": 8760,
-            }
-        },
-        {"arrays": {"other": {"shape": [3]}}},
+        (
+            {
+                "dataset": {
+                    "feature_config_digest": "4" * 64,
+                    "symbols": ["A"],
+                    "calendar_kind": "continuous_24_7",
+                    "periods_per_year": 8760,
+                }
+            },
+            "roster",
+        ),
+        (
+            {
+                "dataset": {
+                    "feature_config_digest": "4" * 64,
+                    "symbols": list(protocol().data.symbols),
+                    "calendar_kind": "session_calendar",
+                    "periods_per_year": 8760,
+                }
+            },
+            "continuous hourly grid",
+        ),
+        ({"arrays": {"other": {"shape": [3]}}}, "timestamps shape"),
     ],
 )
 def test_wrong_roster_clock_or_missing_timestamps_metadata_is_refused(
-    tmp_path: Path, override: dict[str, Any]
+    tmp_path: Path, override: dict[str, Any], error_message: str
 ) -> None:
     pinned = _build(tmp_path / "artifact", bars=10)
     body = json.loads((tmp_path / "artifact" / "manifest.json").read_text("utf-8"))
@@ -625,7 +640,7 @@ def test_wrong_roster_clock_or_missing_timestamps_metadata_is_refused(
     body.update(override)
     manifest = {**body, "artifact_digest": content_digest(body)}
     pinned.data.artifact_digest = manifest["artifact_digest"]
-    with pytest.raises(SignalDiagnosisProtocolError):
+    with pytest.raises(SignalDiagnosisProtocolError, match=error_message):
         admit_artifact_manifest(manifest, pinned)  # type: ignore[arg-type]
 
 

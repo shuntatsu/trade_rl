@@ -245,11 +245,15 @@ def test_inner_cv_validation_never_sees_a_label_that_closes_inside_its_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     n, horizon, folds = 600, 24, 5
-    t_idx = np.arange(n)
-    # The first feature is the exact source time index. Recording the rows
-    # passed to the real Ridge sufficient-statistic fitter makes the purge
-    # contract observable, even if predictions would look plausible without it.
-    X = np.column_stack((t_idx.astype(float), np.sin(t_idx / 13.0)))
+    # Two samples per timestamp simulate multiple symbols; the 3-hour spacing
+    # and shuffled input ensure that array position is not the event timestamp.
+    # A positional-vs-temporal purge regression must fail, even with duplicated
+    # times and sparse feature availability.
+    clock = np.repeat(np.arange(0, 900, 3, dtype=np.int64), 2)
+    permutation = np.random.default_rng(91).permutation(n)
+    t_idx = clock[permutation]
+    row_id = np.arange(n, dtype=np.int64)
+    X = np.column_stack((row_id.astype(float), np.sin(row_id / 13.0)))
     y = 0.02 * t_idx + 0.1 * np.cos(t_idx / 7.0)
     training_indices: list[np.ndarray] = []
     real_stats = fitting_module._stats
@@ -265,14 +269,15 @@ def test_inner_cv_validation_never_sees_a_label_that_closes_inside_its_block(
         X, y, np.ones(n), t_idx, horizon=horizon, grid=(0.1, 1.0), folds=folds
     )
     assert len(training_indices) == folds
+    sorted_ids = np.argsort(t_idx, kind="stable")
+    sorted_times = t_idx[sorted_ids]
     for fold, seen in enumerate(training_indices):
-        validation_start = int(t_idx[((fold + 1) * n) // (folds + 1)])
-        # A row is admissible only when its label closes strictly BEFORE the
-        # first validation timestamp. Disabling the purge must fail this test.
-        np.testing.assert_array_equal(
-            seen, np.arange(validation_start - horizon, dtype=np.int64)
-        )
-        assert int(seen[-1]) + horizon < validation_start
+        validation_start = int(sorted_times[((fold + 1) * n) // (folds + 1)])
+        expected_ids = sorted_ids[sorted_times < validation_start - horizon]
+        # Strict label maturity, not the number/position of training rows,
+        # is the contract. Both missing purging and positional masking fail.
+        np.testing.assert_array_equal(seen, expected_ids)
+        assert np.all(t_idx[seen] + horizon < validation_start)
     assert np.isfinite(scores).all()
 
 

@@ -7,6 +7,8 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+  issue_comment:
+    types: [created]
 
 permissions:
   actions: read
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   cleanup:
     name: Retire main-integrated merged PR sources (exact SHA leases)
-    if: github.repository == 'shuntatsu/trade_rl'
+    if: github.repository == 'shuntatsu/trade_rl' && github.event_name != 'issue_comment'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -55,3 +57,37 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --retire-merged --apply --max-deletes 100 \
             --summary "$GITHUB_STEP_SUMMARY"
+
+  archived-one-shot:
+    name: Retire archived inactive branch tips (owner command only)
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.event_name == 'issue_comment' &&
+      github.actor == 'shuntatsu' &&
+      github.event.issue.number == 1057 &&
+      github.event.comment.body == '/retire-archived-branches-20261120 2be720a5ef837462e4132ebecf982d8929112b6c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout protected main and complete branch history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all branch tips and frozen recovery archive
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Independently preview archived inactive branch candidates
+        shell: bash
+        env:
+          GH_TOKEN: }
+        run: python3 -m tools.archived_branch_retirement
+
+      - name: Retire exact archived inactive branch refs with SHA leases
+        shell: bash
+        env:
+          GH_TOKEN: }
+        run: python3 -m tools.archived_branch_retirement --apply

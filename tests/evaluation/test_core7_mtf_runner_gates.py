@@ -5,6 +5,7 @@ Synthetic inputs only. No market data is read.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ import numpy as np
 import pytest
 
 from tests.data.test_mtf6_signals import _make_alternating_dataset
+from tests.evaluation.trend_stop_support import synthetic_dataset
 from trade_rl.data.features.mtf6_signals import (
     Mtf6SignalPack,
     build_mtf6_signal_pack,
@@ -29,6 +31,7 @@ from trade_rl.evaluation.core7_mtf_study import (
     AuthorizationReceipt,
     CellSummary,
     decide,
+    decision,
     protocol,
     run_causality_probe,
     run_study,
@@ -36,6 +39,7 @@ from trade_rl.evaluation.core7_mtf_study import (
 from trade_rl.evaluation.core7_mtf_study import runner as study_runner
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
 from trade_rl.risk.pretrade import PreTradeRisk
+from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolicy
 from trade_rl.strategies.rl.shadow_anchor_mtf import (
     ShadowAnchorMlpWeights,
     ShadowAnchorMtfConfig,
@@ -925,3 +929,152 @@ def test_runner_emits_max_drawdown_hard_stop_reason() -> None:
     # an engine termination reason takes precedence over the derived one
     engine = summarize(_fake_replay(0.35, ("insolvent",)))
     assert engine.stop_reason == "insolvent"
+
+
+# ------------------------------------------------------- terminal dust (lean-core)
+
+_DUST_SYMBOLS = ("AAAUSDT", "BBBUSDT")
+_DUST_CAPITAL = 1_000.0
+
+
+def _ramp_dataset(*, end_price: float, thin_last_volume: bool = False) -> MarketDataset:
+    """A flat 100 start, then a steady slide to ``end_price`` (past the 10% ramp start)."""
+    base = synthetic_dataset(
+        "4h",
+        _DUST_SYMBOLS,
+        first_close="2021-01-01T00:00:00",
+        last_close="2021-03-01T00:00:00",
+    )
+    shape = (base.n_bars, len(_DUST_SYMBOLS))
+    price = np.full(shape, 100.0)
+    price[5:, :] = np.linspace(100.0, end_price, base.n_bars - 5)[:, None]
+    volume = np.full(shape, 1.0e12)
+    if thin_last_volume:
+        volume[-2:] = 1.0e-9
+    fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
+    fields.update(
+        open=price.copy(),
+        high=price.copy(),
+        low=price.copy(),
+        close=price.copy(),
+        mark_price=price.copy(),
+        volume=volume,
+        lot_size=np.full(shape, 0.01),
+        minimum_notional=np.full(shape, 5.0),
+    )
+    return MarketDataset(**fields)
+
+
+def _ramp_cost() -> Any:
+    return dataclasses.replace(
+        protocol.scenario_cost("BASE"), max_participation_rate=0.5
+    )
+
+
+def _ramp_replay(dataset: MarketDataset) -> Any:
+    return run_shared_portfolio_replay(
+        dataset,
+        BuyAndHoldPortfolioPolicy(symbols=_DUST_SYMBOLS, gross_budget=1.0),
+        start_index=1,
+        stop_index=dataset.n_bars - 1,
+        initial_capital=_DUST_CAPITAL,
+        execution_cost=_ramp_cost(),
+        risk=PreTradeRisk(protocol.risk_config()),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+
+
+def _summarize_ramp(
+    dataset: MarketDataset, result: Any, *, with_cost: bool = True
+) -> CellSummary:
+    return study_runner._summarize_replay_cell(
+        arm="CORE7_SPARSE_PPO",
+        scenario="BASE",
+        result=result,
+        dataset=dataset,
+        initial_capital=_DUST_CAPITAL,
+        causality_passed=True,
+        execution_cost=_ramp_cost() if with_cost else None,
+    )
+
+
+def test_gradual_drawdown_ramp_leaves_valid_terminal_dust() -> None:
+    """Legs deleveraged below the venue minimum by the ramp are dust, not a stuck book."""
+    dataset = _ramp_dataset(end_price=30.0)
+    result = _ramp_replay(dataset)
+    risk = protocol.risk_config()
+    assert risk.drawdown_start < float(result.book.max_drawdown) < risk.drawdown_stop
+
+    cell = _summarize_ramp(dataset, result)
+
+    assert cell.terminal_flat is False
+    assert cell.terminal_dust_only is True
+    assert "terminal_position_not_flat" not in cell.invalid_reasons
+    assert cell.stop_reason is None
+    assert decision.cell_valid(cell) is True
+    assert [item["symbol"] for item in cell.terminal_dust] == list(_DUST_SYMBOLS)
+    minimum = _ramp_cost().minimum_notional
+    for item in cell.terminal_dust:
+        assert item["reason"] == "below_minimum_notional"
+        assert float(item["notional_usdt"]) < minimum
+    exit_cost = sum(float(item["exit_cost_usdt"]) for item in cell.terminal_dust)
+    assert exit_cost > 0.0
+    raw_return = float(result.book.portfolio_value / _DUST_CAPITAL - 1.0)
+    assert cell.total_return == pytest.approx(raw_return - exit_cost / _DUST_CAPITAL)
+    assert cell.total_return < raw_return
+    # the metric path is the dust-adjusted one: the last bar return and therefore the
+    # Sharpe and the drawdown see the unavailable exit as a loss
+    raw = np.asarray(result.returns.values, dtype=np.float64)
+    adjusted = raw.copy()
+    final_equity = float(result.book.portfolio_value)
+    adjusted[-1] -= exit_cost * (1.0 + adjusted[-1]) / final_equity
+    path = _DUST_CAPITAL * np.cumprod(1.0 + adjusted)
+    assert path[-1] == pytest.approx(final_equity - exit_cost)
+    assert cell.annual_sharpe == pytest.approx(
+        study_runner._compute_annual_sharpe(adjusted)
+    )
+    assert cell.annual_sharpe < study_runner._compute_annual_sharpe(raw)
+    peak = max(_DUST_CAPITAL, float(np.max(path)))
+    assert cell.max_drawdown == pytest.approx(
+        max(float(result.book.max_drawdown), 1.0 - float(path[-1]) / peak)
+    )
+    assert cell.max_drawdown >= float(result.book.max_drawdown)
+    # the new fields round-trip, and the rest of the serialisation keeps its keys
+    assert CellSummary.from_dict(cell.to_dict()).terminal_dust_only is True
+    assert cell.to_dict()["cell_valid"] is True
+
+
+def test_dust_without_a_cost_model_stays_invalid() -> None:
+    dataset = _ramp_dataset(end_price=30.0)
+    cell = _summarize_ramp(dataset, _ramp_replay(dataset), with_cost=False)
+    assert cell.terminal_dust_only is False
+    assert cell.terminal_dust == ()
+    assert "terminal_position_not_flat" in cell.invalid_reasons
+    assert decision.cell_valid(cell) is False
+
+
+def test_residual_stuck_for_liquidity_stays_invalid() -> None:
+    """A residual whose terminal close is rejected for any reason other than
+    ``below_minimum_notional`` (here ``below_lot_size`` on a thin final bar) is a
+    stuck position, not dust."""
+    dataset = _ramp_dataset(end_price=70.0, thin_last_volume=True)
+    result = _ramp_replay(dataset)
+    cell = _summarize_ramp(dataset, result)
+    assert cell.terminal_flat is False
+    assert cell.terminal_dust_only is False
+    assert cell.terminal_dust == ()
+    assert "terminal_position_not_flat" in cell.invalid_reasons
+    assert decision.cell_valid(cell) is False
+    # no exit cost is netted from a position that is not classified as dust
+    assert cell.total_return == pytest.approx(
+        float(result.book.portfolio_value / _DUST_CAPITAL - 1.0)
+    )
+
+
+def test_flat_cell_keeps_the_dust_fields_empty() -> None:
+    dataset = _ramp_dataset(end_price=85.0)
+    cell = _summarize_ramp(dataset, _ramp_replay(dataset))
+    assert cell.terminal_flat is True
+    assert cell.terminal_dust_only is False
+    assert cell.terminal_dust == ()

@@ -44,7 +44,11 @@ from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
 from trade_rl.evaluation.core7_mtf_study import protocol, tierd
 from trade_rl.evaluation.core7_mtf_study.runner import run_study
 from trade_rl.integrations.binance import BinanceMarket
-from trade_rl.integrations.binance.carry import CarryCoverageError, CarryScreenHalt
+from trade_rl.integrations.binance.carry import (
+    CarryCoverageError,
+    CarryIntegrityHalt,
+    CarryScreenHalt,
+)
 from trade_rl.integrations.binance.vision import vision_kline_url
 from trade_rl.integrations.market_store.carry_source import (
     ArchiveDirFetcher,
@@ -125,6 +129,24 @@ def load_rules(
     return result
 
 
+def _day_record(
+    market: StoreMarket,
+    symbol: str,
+    day_start_ms: int,
+    url: str,
+    reason: str,
+    detail: str | None = None,
+) -> dict[str, object]:
+    return {
+        "market": market.value,
+        "symbol": symbol,
+        "day": datetime.fromtimestamp(day_start_ms / 1_000, UTC).date().isoformat(),
+        "archive_url": url,
+        "reason": reason,
+        "detail": detail,
+    }
+
+
 class DailyFallbackSource:
     """Fill hourly klines missing from the primary source from Vision *daily* archives.
 
@@ -143,14 +165,19 @@ class DailyFallbackSource:
         daily_factory: RowSourceFactory,
         *,
         halts: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+        embargo: EmbargoPolicy | None = None,
     ) -> None:
         self._primary = primary
         self._factory = daily_factory
+        # default: the enforced FS1 embargo; only a caller with its own explicit,
+        # authorized policy (``tools.trend_oos`` FORWARD) passes another one
+        self._embargo = EmbargoPolicy.enforced() if embargo is None else embargo
         self._halts = [
             (int(lo.timestamp() * 1_000), int(hi.timestamp() * 1_000))
             for lo, hi in halts
         ]
         self._fills: dict[tuple[str, str, int], dict[str, object]] = {}
+        self._unusable_days: list[dict[str, object]] = []
         self._daily_sources: list[Any] = []
 
     def _explained(self, market: StoreMarket, start_ms: int, open_ms: int) -> bool:
@@ -182,6 +209,26 @@ class DailyFallbackSource:
         ]
         if not missing:
             return rows
+        filled = self._fill_hours(market, symbol, interval, missing)
+        return sorted([*rows, *filled], key=lambda row: int(row.open_time_ms))
+
+    def _fill_hours(
+        self,
+        market: StoreMarket,
+        symbol: str,
+        interval: str,
+        missing: list[int],
+        *,
+        source: str = "vision_daily",
+        tolerate_malformed: bool = False,
+        record: bool = True,
+    ) -> list[Any]:
+        """Hours of ``missing`` that checksum-verified daily archives publish.
+
+        A day that is not published stays missing. With ``tolerate_malformed`` a day
+        whose archive fails the strict parse (a checksum fault never qualifies) also
+        stays missing and is recorded in :meth:`unusable_days`.
+        """
         day_ms = 24 * tierd.HOUR_MS
         days = sorted({stamp - stamp % day_ms for stamp in missing})
         specs: list[ArchiveSpec] = []
@@ -207,7 +254,7 @@ class DailyFallbackSource:
             universe=Universe(symbols=(symbol,), interval=interval, markets=(market,)),
             start=specs[0].period_start,
             end=specs[-1].period_end,
-            embargo=EmbargoPolicy.enforced(),
+            embargo=self._embargo,
             specs=tuple(specs),
             skipped=(),
         )
@@ -224,7 +271,32 @@ class DailyFallbackSource:
                     market, symbol, interval, day_start, max(hours) + tierd.HOUR_MS
                 )
             except CarryCoverageError:
+                if tolerate_malformed and record:
+                    self._unusable_days.append(
+                        _day_record(
+                            market, symbol, day_start, spec.url, "archive_not_published"
+                        )
+                    )
                 continue  # not published: the hours stay missing and the load refuses
+            except CarryIntegrityHalt as error:
+                if (
+                    not tolerate_malformed
+                    or error.evidence.get("kind") != "malformed_archive"
+                ):
+                    raise
+                if not record:
+                    continue
+                self._unusable_days.append(
+                    _day_record(
+                        market,
+                        symbol,
+                        day_start,
+                        spec.url,
+                        "malformed_archive",
+                        str(error),
+                    )
+                )
+                continue
             digest = next(
                 (
                     item["archive_sha256"]
@@ -237,22 +309,28 @@ class DailyFallbackSource:
                 opened = int(row.open_time_ms)
                 if opened in wanted:
                     filled.append(row)
+                    if not record:
+                        continue
                     self._fills[(market.value, symbol, opened)] = {
                         "market": market.value,
                         "symbol": symbol,
                         "open_time": datetime.fromtimestamp(
                             opened / 1_000, UTC
                         ).isoformat(),
-                        "source": "vision_daily",
+                        "source": source,
                         "archive_url": spec.url,
                         "archive_sha256": digest,
                     }
-        return sorted([*rows, *filled], key=lambda row: int(row.open_time_ms))
+        return filled
 
     def read_funding(
         self, market: StoreMarket, symbol: str, start_ms: int, end_ms: int
     ) -> list[Any]:
         return list(self._primary.read_funding(market, symbol, start_ms, end_ms))
+
+    def unusable_days(self) -> list[dict[str, object]]:
+        """Days a tolerant fill could not use (unpublished or malformed daily archive)."""
+        return list(self._unusable_days)
 
     def fills(self) -> list[dict[str, object]]:
         """Provenance of every filled hour, ascending by (market, symbol, hour)."""

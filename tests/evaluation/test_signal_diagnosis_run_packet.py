@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261114-after-bounded-posix-main-sync.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,20 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261114-after-bounded-posix-main-sync.json"
+    / "sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "c5404d14da6bd7493f05c218dd52cb2f6ae8577224da176d1d26d132b5a3d736"
+PINNED_DIGEST = "b9565ffebdbff644702aa6cf166cd2a5fc9d69fa1eea57d0a3a8c6b2387eac8d"
+PREVIOUS_BOUNDED_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261114-after-bounded-posix-main-sync.json"
+)
+PREVIOUS_BOUNDED_PACKET_DIGEST = (
+    "c5404d14da6bd7493f05c218dd52cb2f6ae8577224da176d1d26d132b5a3d736"
+)
 PREVIOUS_NOFOLLOW_MAIN_PACKET_PATH = (
     ROOT
     / "report"
@@ -188,6 +196,18 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_previous_bounded_packet_is_immutable_and_unreviewed() -> None:
+    """The combined code never rewrites an earlier strict POSIX author packet."""
+    prior = json.loads(PREVIOUS_BOUNDED_PACKET_PATH.read_text(encoding="utf-8"))
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED" and result.errors == ()
+    assert not result.economic_execution_authorized
+    assert assurance_digest(prior) == PREVIOUS_BOUNDED_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "93d94145c7809c7fc0f1819a500f910b28eb2a0f"
+    )
+
+
 def test_pre_bounded_no_follow_packet_is_immutable_and_unreviewed() -> None:
     """Technical resource admission changes never rewrite earlier source evidence."""
 
@@ -326,6 +346,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261114-after-bounded-posix-main-sync.json"
             in text

@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -22,12 +22,14 @@ from trade_rl.data.features.mtf6_signals import (
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.core7_mtf_study import decision, protocol
 from trade_rl.evaluation.core7_mtf_study.decision import CellSummary
+from trade_rl.evaluation.dev_realdata_study.runner import terminal_dust
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence,
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
 from trade_rl.risk.pretrade import PreTradeRisk
+from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.portfolio import (
     PortfolioAccountSnapshot,
     PortfolioDecisionSnapshot,
@@ -662,7 +664,17 @@ def _summarize_replay_cell(
     dataset: MarketDataset,
     initial_capital: float,
     causality_passed: bool,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> CellSummary:
+    """Summarise one replay cell, following lean-core's terminal-dust rule.
+
+    A residual left only because the engine rejected its terminal close for
+    ``below_minimum_notional`` is terminal dust (``dev_realdata_study.runner.terminal_dust``):
+    ``terminal_flat`` stays false, the cell stays valid when every residual is dust, and
+    the dust is valued at mark minus its modelled exit cost, which is subtracted from the
+    total return. Any other residual, or dust that cannot be valued (no
+    ``execution_cost``), keeps the cell invalid.
+    """
     reasons: list[str] = []
     ledger = result.ledger_evidence
     reconciled = _check_ledger_reconciled(ledger, dataset, initial_capital)
@@ -676,8 +688,21 @@ def _summarize_replay_cell(
         terminal_flat = terminal_flat and all(
             abs(float(q)) <= 1e-12 for q in ledger.intervals.terminal_exact_quantities
         )
+    dust: list[dict[str, object]] = []
+    terminal_dust_only = False
     if not terminal_flat:
-        reasons.append("terminal_position_not_flat")
+        if ledger is not None and ledger.intervals.intervals:
+            dust, non_dust, _ = terminal_dust(
+                ledger.intervals,
+                dataset,
+                execution_cost,
+                ledger.intervals.intervals[-1],
+            )
+            terminal_dust_only = bool(dust and not non_dust)
+        if not terminal_dust_only:
+            dust = []
+            reasons.append("terminal_position_not_flat")
+    dust_exit_cost = sum(float(cast(float, item["exit_cost_usdt"])) for item in dust)
 
     term_reasons = result.diagnostics.termination_reasons
     stop_reason = term_reasons[0] if term_reasons else None
@@ -685,7 +710,9 @@ def _summarize_replay_cell(
     if stop_reason is None and max_drawdown >= protocol.risk_config().drawdown_stop:
         stop_reason = "max_drawdown_hard_stop"
     ret_arr = np.asarray(result.returns.values, dtype=np.float64)
-    total_return = float(result.book.portfolio_value / initial_capital - 1.0)
+    total_return = float(
+        (result.book.portfolio_value - dust_exit_cost) / initial_capital - 1.0
+    )
     # a risk/economic stop is a STOP, not an integrity failure: the replay still ran
     complete = bool(ret_arr.size > 0)
     execution_valid = bool(not result.book.insolvent and reconciled)
@@ -701,6 +728,8 @@ def _summarize_replay_cell(
         turnover_total=float(result.diagnostics.turnover_total),
         complete=complete,
         terminal_flat=terminal_flat,
+        terminal_dust_only=terminal_dust_only,
+        terminal_dust=tuple(dust),
         execution_valid=execution_valid,
         causality_passed=causality_passed,
         ledger_reconciled=reconciled,
@@ -1001,6 +1030,7 @@ def run_study(
                 dataset=dataset,
                 initial_capital=initial_capital,
                 causality_passed=probe.passed,
+                execution_cost=cost_cfg,
             )
 
     decision_payload = decision.decide(

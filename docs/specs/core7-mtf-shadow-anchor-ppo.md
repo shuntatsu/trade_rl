@@ -47,6 +47,7 @@ Status: Active
 
 - `DELAY_1BAR` 設計注記: 本リポジトリの共有約定エンジンでは `order_latency_bars` の `0` と `1` がいずれも次バー始値約定となり、`1` は単に `agent_stop_index` を 1 バー短縮するだけである。そのため `DELAY_1BAR` は `order_latency_bars=0` を維持しつつポリシー層 `ShadowAnchorMtfConfig(signal_lag_bars=1)` によって真正な 1 バー信号遅延を与える。
 - 20% ハードドローダウン: `max_drawdown >= drawdown_stop(0.20)` のセルは `decision.py` で停止扱い（`STOP_FAIL_NO_RESCUE`）となり、`PASS_PARITY_ONLY` は発行されない。`PASS_PARITY_ONLY` は `scenarios == SCENARIOS` の完全集合でのみ定義され、部分集合は `INVALID`。
+- 終端ダスト: セル要約は lean-core の terminal-dust 規則に従う（`dev_realdata_study.runner.terminal_dust` を再利用し、各セルの `ExecutionCostConfig` を渡す）。エンジン自身が終端クローズを `below_minimum_notional` で拒否したことだけが原因の残余はダストとして記録され、`terminal_flat` は false のまま `terminal_dust_only` が true となり、残余がすべてダストなら `terminal_position_not_flat` を付けず、ダストを mark から想定退出コストを引いた値で評価し、その退出コストを `total_return` から差し引く。他の理由の残余・評価不能なダストは従来どおり INVALID。これは今後の実行にのみ適用し、消費済みの v4 Phase 1 INVALID（Issue #810 comment 7023026438）や lowturn v1 INVALID（comment 7028195515）を再分類せず、いかなる経済実験も認可しない。
 - 認可（fail-closed、`trade_rl` はネットワーク不使用）: `run_study` は凍結プロトコル digest と一致する `expected_protocol_digest` を必須とし、Pre-FS1 禁輸（`timestamp`・`available_at`・行整列した `features`/`global_features`/`funding_rate`/`funding_price_rate`、および外部 micro 配列の `micro_available_at`）を常に強制する（`enforce_pre_fs1=False` は拒否。引数は呼出互換のため残す。`run_causality_probe` に禁輸解除引数は無い）。G4 URL（`authorization_url`）は `trade_rl` 内では**形式検査のみ**（`authorization_check = url_format_only`）であり、コメントの実在・投稿者・本文は検証できない。証拠適格（`evidence_eligible`）には、tools 層（#1282 のアダプタ）が GitHub から取得して構築する `AuthorizationReceipt`（`authorization_url`・`comment_id`・`author_login`・`author_id`・`body_sha256`・`fetched_at`（tz 付き ISO-8601）・`quoted_protocol_digest`）を `authorization_receipt` として渡す必要がある。ランナーは receipt の形状、URL との一致、URL 内コメント ID との一致、引用 digest とプロトコル digest の一致のみを検査し（`authorization_check = receipt_shape_and_binding`、`authorization_authenticated = true`）、真正性自体は証明できない（呼出側証明）。receipt 無しの URL 実行は `scenarios == SCENARIOS` と完全 11 銘柄を要するが結果は `UNAUTHENTICATED_NOT_EVIDENCE`、URL 無し実行は `allow_synthetic_unauthenticated=True` と `protocol.mark_synthetic_dataset` の合成マーカー付き（identity payload なし）データセットに限られ結果は `SYNTHETIC_ONLY_NOT_EVIDENCE`。いずれも `INVALID` は `INVALID` のままで、算出ラベルは `underlying_outcome` に残り、パリティ／停止の証拠にならない。`decide()` の `evidence_eligible` は必須キーワード（既定なし）。合成マーカーは全 identity 配列（`mark_price`・`available_at`・`features`・`funding_price_rate` 等）に束縛されるが、誰でも付与できるため認可ではなく誤用防止の便宜に過ぎない。
 - `processing_bar_volume_capacity=False`: 全シナリオで 1% 参加率上限を**先行完了バー `t - 1` の出来高**だけで判定し、約定バー自身の出来高ルックアヘッドを遮断する。
 - ハードリスク整合: `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20, emergency_turnover_override=True)` と `ExecutionCostConfig(max_leverage=2.5, maintenance_margin_rate=0.05, max_participation_rate=0.01, minimum_notional=10.0)` の整合を保つ。
@@ -70,8 +71,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v4.json`（`-v1.json`〜`-v3.json` は旧プロトコルの履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `58d76a19a7265e24231ec69be7c7ec1f20394e1d`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v5.json`（`-v1.json`〜`-v4.json` は旧プロトコルの履歴であり不変・再ピンしない）
+- Pinned Implementation Head: `d09e68855cd1879354b47f9ed4301d6aa8b9c0a6`
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5`
+- Pinned Packet Digest: `c9fbf31a45338a4f7a3a15cbe59094cb034d96f07690659d0d89649f220ed5da`

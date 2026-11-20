@@ -83,11 +83,11 @@ jobs:
       - name: Independently preview archived inactive branch candidates
         shell: bash
         env:
-          GH_TOKEN: }
+          GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_branch_retirement
 
       - name: Retire exact archived inactive branch refs with SHA leases
         shell: bash
         env:
-          GH_TOKEN: }
+          GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_branch_retirement --apply

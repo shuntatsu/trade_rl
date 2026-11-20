@@ -204,3 +204,16 @@ def test_apply_checks_post_delete_readback(
 
     with pytest.raises(RuntimeError, match="post-deletion"):
         mod.retire(Api(), apply=True)
+
+
+def test_one_shot_workflow_auth_token_expression_is_valid() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[2]
+        / ".github/workflows/retire-merged-pr-branches.yml"
+    ).read_text(encoding="utf-8")
+    token_expr = "$" + "{{ github.token }}"
+    assert workflow.count("GH_TOKEN: " + token_expr) == 4
+    assert "GH_TOKEN: }" not in workflow
+    assert (
+        "github.event.comment.body == '/retire-archived-branches-20261120" in workflow
+    )

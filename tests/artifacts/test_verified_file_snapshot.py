@@ -359,3 +359,56 @@ def test_trusted_fd_cannot_be_spelled_as_noncanonical_process_alias(
                 os.close(opened)
     finally:
         os.close(descriptor)
+
+
+@pytest.mark.skipif(
+    os.name != "posix"
+    or not Path("/proc/self/fd").is_dir()
+    or not getattr(os, "O_NOFOLLOW", 0)
+    or os.open not in os.supports_dir_fd,
+    reason="requires POSIX registered process-FD directory capability",
+)
+def test_trusted_fd_alias_closes_dup_if_fstat_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fault after os.dup must never leak the duplicate descriptor."""
+    import errno
+
+    held_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    duplicates: list[int] = []
+    real_dup = os.dup
+    real_fstat = os.fstat
+
+    def track_dup(descriptor: int) -> int:
+        duplicate = real_dup(descriptor)
+        if descriptor == held_fd:
+            duplicates.append(duplicate)
+        return duplicate
+
+    def fail_duplicate_stat(descriptor: int) -> os.stat_result:
+        if descriptor in duplicates:
+            raise OSError(errno.EIO, "synthetic fstat failure on duplicated FD")
+        return real_fstat(descriptor)
+
+    try:
+        with verified_file._trusted_process_directory_fd(held_fd):
+            with monkeypatch.context() as patch:
+                patch.setattr(os, "dup", track_dup)
+                patch.setattr(os, "fstat", fail_duplicate_stat)
+                with pytest.raises(OSError, match="synthetic fstat failure"):
+                    verified_file._open_directory_descriptor_nofollow(
+                        Path("/proc/self/fd") / str(held_fd)
+                    )
+
+        assert len(duplicates) == 1
+        with pytest.raises(OSError) as error:
+            real_fstat(duplicates[0])
+        assert error.value.errno == errno.EBADF
+    finally:
+        for duplicate in duplicates:
+            try:
+                os.close(duplicate)
+            except OSError as error:
+                if error.errno != errno.EBADF:
+                    raise
+        os.close(held_fd)

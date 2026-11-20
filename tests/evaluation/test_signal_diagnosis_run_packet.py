@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,30 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "6fadf622741fcc3df68bd2354b8dd9e5e9c0e689dfc7d77e2311bfdd5d0e0f1e"
+PINNED_DIGEST = "8175d4a11a2f910cb903056486ea1d40809fc187e7f9051021ade65ca1bea233"
+PREVIOUS_CONSISTENT_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json"
+)
+PREVIOUS_CONSISTENT_PACKET_DIGEST = (
+    "0e7457fc150abd8d99871abe70febd264c960c01361b0bef46ff26981cac6458"
+)
+
+PREVIOUS_POST_M2_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json"
+)
+PREVIOUS_POST_M2_PACKET_DIGEST = (
+    "6fadf622741fcc3df68bd2354b8dd9e5e9c0e689dfc7d77e2311bfdd5d0e0f1e"
+)
+
 PREVIOUS_UNIFIED_PACKET_PATH = (
     ROOT
     / "report"
@@ -205,6 +223,30 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_prior_consistent_oracles_packet_is_immutable_unreviewed_history() -> None:
+    prior = json.loads(PREVIOUS_CONSISTENT_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == PREVIOUS_CONSISTENT_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "698ebb10095bad5cf1773fc524bf2adae836fa0f"
+    )
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
+
+
+def test_previous_post_m2_packet_is_immutable_and_unreviewed() -> None:
+    """New author records cannot rewrite the earlier post-M2 snapshot."""
+    previous = json.loads(PREVIOUS_POST_M2_PACKET_PATH.read_text(encoding="utf-8"))
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED" and checked.errors == ()
+    assert not checked.economic_execution_authorized
+    assert assurance_digest(previous) == PREVIOUS_POST_M2_PACKET_DIGEST
+    assert previous["identity"]["implementation_head"] == (
+        "698ebb10095bad5cf1773fc524bf2adae836fa0f"
+    )
+
+
 def test_previous_unified_packet_is_immutable_and_unreviewed() -> None:
     """An M2 source re-pin cannot overwrite the preceding SD2 author packet."""
     previous = json.loads(PREVIOUS_UNIFIED_PACKET_PATH.read_text(encoding="utf-8"))
@@ -308,6 +350,28 @@ def test_historical_sd2_packet_remains_immutable_and_unreviewed() -> None:
     assert result.economic_execution_authorized is False
 
 
+def test_current_packet_reconciles_post_m2_code_lineage_and_oracles() -> None:
+    """Release-facing author evidence cannot contradict its frozen source SHA."""
+    record = packet()
+    text = record["evidence"]["independent_reconstruction"]
+    assert "Existing shared verified_file code remains unchanged" not in text
+    assert "revises shared verified_file.py" in text
+    cheapest = record["thesis"]["cheapest_falsifier"]
+    assert "POST-M2 PREVIEW" not in cheapest
+    assert "eventual exact post-M2 main" not in cheapest
+    assert (
+        "Additional preview"
+        not in record["mechanism"]["independent_oracles"]["time"]["oracle"]
+    )
+    authority = record["mechanism"]["authorities"]["state"]
+    assert "no account or book state" in authority.lower()
+    assert "Per-vintage" in authority
+    assert (
+        record["identity"]["implementation_head"]
+        == (record["identity"]["protocol_head"])
+    )
+
+
 def test_packet_names_the_frozen_protocol_and_claims_nothing_beyond_software() -> None:
     assert (
         protocol_digest(default_signal_diagnosis_protocol()) == PINNED_PROTOCOL_DIGEST
@@ -375,6 +439,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json"
             in text

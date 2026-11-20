@@ -1023,6 +1023,23 @@ def test_gradual_drawdown_ramp_leaves_valid_terminal_dust() -> None:
     raw_return = float(result.book.portfolio_value / _DUST_CAPITAL - 1.0)
     assert cell.total_return == pytest.approx(raw_return - exit_cost / _DUST_CAPITAL)
     assert cell.total_return < raw_return
+    # the metric path is the dust-adjusted one: the last bar return and therefore the
+    # Sharpe and the drawdown see the unavailable exit as a loss
+    raw = np.asarray(result.returns.values, dtype=np.float64)
+    adjusted = raw.copy()
+    final_equity = float(result.book.portfolio_value)
+    adjusted[-1] -= exit_cost * (1.0 + adjusted[-1]) / final_equity
+    path = _DUST_CAPITAL * np.cumprod(1.0 + adjusted)
+    assert path[-1] == pytest.approx(final_equity - exit_cost)
+    assert cell.annual_sharpe == pytest.approx(
+        study_runner._compute_annual_sharpe(adjusted)
+    )
+    assert cell.annual_sharpe < study_runner._compute_annual_sharpe(raw)
+    peak = max(_DUST_CAPITAL, float(np.max(path)))
+    assert cell.max_drawdown == pytest.approx(
+        max(float(result.book.max_drawdown), 1.0 - float(path[-1]) / peak)
+    )
+    assert cell.max_drawdown >= float(result.book.max_drawdown)
     # the new fields round-trip, and the rest of the serialisation keeps its keys
     assert CellSummary.from_dict(cell.to_dict()).terminal_dust_only is True
     assert cell.to_dict()["cell_valid"] is True
@@ -1038,7 +1055,9 @@ def test_dust_without_a_cost_model_stays_invalid() -> None:
 
 
 def test_residual_stuck_for_liquidity_stays_invalid() -> None:
-    """Legs above the minimum blocked by a dry final bar are a stuck position."""
+    """A residual whose terminal close is rejected for any reason other than
+    ``below_minimum_notional`` (here ``below_lot_size`` on a thin final bar) is a
+    stuck position, not dust."""
     dataset = _ramp_dataset(end_price=70.0, thin_last_volume=True)
     result = _ramp_replay(dataset)
     cell = _summarize_ramp(dataset, result)

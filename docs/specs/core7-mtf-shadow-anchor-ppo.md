@@ -73,7 +73,7 @@ Status: Active
 
 - Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v8.json`（`-v1.json`〜`-v7.json` はbyte-exactで保持するUNREVIEWED履歴。v8はTrack D xa_ 出所情報保護とM2 verified_file の fstat 例外時FD closeを含む新しい統合source pinのみ。凍結protocol v4・研究結果・経済実験認可は変更しない）
 - Pinned Implementation Head: `996f72e1c03ddac982fa67265d6358a10dd1b69d`
-- Pin lineage: v8 は二親のsource統合commit `996f72e1c03ddac982fa67265d6358a10dd1b69d` に固定。両親は #1287 exact head と #1296 exact head。既存v7はTrack D source pin `815d71cc8f5c43947195c8586f0417309b66552e`、digest `bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df` のまま保持する。v8 は **UNREVIEWED / economic_execution_authorized=false**。
+- Pin lineage: v8 は二親のsource統合commit `996f72e1c03ddac982fa67265d6358a10dd1b69d` に固定。両親は #1296旧HEAD `7e57e1c09c10211c9bd324eb0ea244361e882006` と、#1287を通常マージしたmain `5908356dae6b6ca8886e031ffc2664f3b1ef3fd8`。既存v7はTrack D source pin `815d71cc8f5c43947195c8586f0417309b66552e`、digest `bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df` のまま保持する。v8 は **UNREVIEWED / economic_execution_authorized=false**。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
 - Pinned Packet Digest: `999a652e3b639cbef18f86819ec02d6b586fdd5b8b83e731767dbf4b2f2d3171`

@@ -26,6 +26,7 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
     SignalDiagnosisProtocolError,
     protocol_digest,
 )
+from trade_rl.evaluation.signal_diagnosis_run import fitting as fitting_module
 from trade_rl.evaluation.signal_diagnosis_run.fitting import (
     FamilyData,
     RunPlan,
@@ -240,17 +241,39 @@ def test_inner_cv_picks_the_signal_penalty_and_ties_go_to_the_larger_penalty() -
     assert flat == 1000.0  # identical (zero) scores: the larger penalty wins
 
 
-def test_inner_cv_validation_never_sees_a_label_that_closes_inside_its_block() -> None:
-    n, horizon = 600, 24
+def test_inner_cv_validation_never_sees_a_label_that_closes_inside_its_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    n, horizon, folds = 600, 24, 5
     t_idx = np.arange(n)
-    # A label that equals the future of the feature: leakage across the fold edge would
-    # make every penalty look perfect; the purge keeps the score honest.
-    X = np.random.default_rng(2).standard_normal((n, 1))
-    y = np.roll(X[:, 0], -horizon)
+    # The first feature is the exact source time index. Recording the rows
+    # passed to the real Ridge sufficient-statistic fitter makes the purge
+    # contract observable, even if predictions would look plausible without it.
+    X = np.column_stack((t_idx.astype(float), np.sin(t_idx / 13.0)))
+    y = 0.02 * t_idx + 0.1 * np.cos(t_idx / 7.0)
+    training_indices: list[np.ndarray] = []
+    real_stats = fitting_module._stats
+
+    def record_training_rows(
+        values: np.ndarray, targets: np.ndarray, weights: np.ndarray
+    ) -> Any:
+        training_indices.append(values[:, 0].astype(np.int64))
+        return real_stats(values, targets, weights)
+
+    monkeypatch.setattr(fitting_module, "_stats", record_training_rows)
     _, scores = select_ridge_penalty(
-        X, y, np.ones(n), t_idx, horizon=horizon, grid=(0.1, 1.0), folds=5
+        X, y, np.ones(n), t_idx, horizon=horizon, grid=(0.1, 1.0), folds=folds
     )
-    assert min(scores) > 0.5  # the feature cannot predict a shifted white noise
+    assert len(training_indices) == folds
+    for fold, seen in enumerate(training_indices):
+        validation_start = int(t_idx[((fold + 1) * n) // (folds + 1)])
+        # A row is admissible only when its label closes strictly BEFORE the
+        # first validation timestamp. Disabling the purge must fail this test.
+        np.testing.assert_array_equal(
+            seen, np.arange(validation_start - horizon, dtype=np.int64)
+        )
+        assert int(seen[-1]) + horizon < validation_start
+    assert np.isfinite(scores).all()
 
 
 def test_drift_baseline_uses_labels_matured_at_or_before_the_refit_instant() -> None:
@@ -309,7 +332,8 @@ def test_vintages_follow_the_shared_prequential_schedule() -> None:
 def test_a_bar_after_the_window_end_is_refused_as_forbidden_data() -> None:
     spec = protocol()
     end = parse_instant_ns(spec.data.evaluation_end)
-    inside = _tiny_panel(end - HOUR * np.arange(5, 0, -1, dtype=np.int64))
+    inside = _tiny_panel(end - HOUR * np.arange(4, -1, -1, dtype=np.int64))
+    assert inside.timestamps_ns[-1] == end
     admit_panel(inside, spec)  # the bar closing exactly at the end is inside
     for extra in (1, 24 * 40, 24 * 100):  # warm-up span, deep warm-up, sealed window
         stamps = (

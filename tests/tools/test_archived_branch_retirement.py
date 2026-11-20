@@ -219,3 +219,292 @@ def test_one_shot_workflow_auth_token_expression_is_valid() -> None:
     assert (
         "github.event.comment.body == '/retire-archived-branches-20261120" in workflow
     )
+
+
+def test_main_ancestor_windows_m1_source_is_preserved() -> None:
+    """The exceptional Windows marker branch is part of the M1 preservation rule."""
+    main = _ref("main", "1" * 40)
+    archive = _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
+    windows_m1 = _ref("fix/windows-job-child-pid-marker-20261105", "2" * 40)
+    normal = _ref("fix/safely-merged-old", "3" * 40)
+    result = plan(
+        (main, archive, windows_m1, normal),
+        archived={r.name: r.sha for r in (main, archive, windows_m1, normal)},
+        main_reachable=frozenset({main.sha, windows_m1.sha, normal.sha}),
+        open_refs=(),
+        active_branches=frozenset(),
+    )
+    assert result == (normal,)
+
+
+def _fake_snapshot_manifest() -> dict[str, object]:
+    rows = [{"name": "main", "sha": "1" * 40}]
+    rows.extend(
+        {"name": f"fix/legacy-{i:02d}", "sha": f"{i + 2:040x}"} for i in range(84)
+    )
+    return {
+        "schema": "trade_rl_branch_tip_snapshot_v1",
+        "repository": "shuntatsu/trade_rl",
+        "archive_branch": ARCHIVE_BRANCH,
+        "main_head": "1" * 40,
+        "branches": rows,
+    }
+
+
+def test_exact_archive_manifest_refuses_missing_main_and_noncanonical_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tools.archived_branch_retirement as mod
+
+    current = _fake_snapshot_manifest()
+
+    def fake_git(*args: str) -> str:
+        if args[0] == "rev-parse":
+            return ARCHIVE_HEAD
+        if args[0] == "show":
+            return json.dumps(current)
+        raise AssertionError(f"unexpected Git command: {args!r}")
+
+    monkeypatch.setattr(mod, "_git", fake_git)
+    parsed = mod._archive_manifest()
+    assert len(parsed) == 85 and parsed["main"] == "1" * 40
+
+    current = _fake_snapshot_manifest()
+    del current["main_head"]
+    current["branches"] = [
+        row for row in current["branches"] if row["name"] != "main"
+    ] + [{"name": "fix/replacement-main", "sha": "f" * 40}]
+    with pytest.raises(RuntimeError, match="main identity"):
+        mod._archive_manifest()  # Neither absent main nor absent main_head may pass.
+
+    current = _fake_snapshot_manifest()
+    current["main_head"] = None
+    with pytest.raises(RuntimeError, match="main identity"):
+        mod._archive_manifest()
+
+    current = _fake_snapshot_manifest()
+    current["branches"][4]["name"] = current["branches"][3]["name"]
+    with pytest.raises(RuntimeError, match="duplicate"):
+        mod._archive_manifest()
+
+    current = _fake_snapshot_manifest()
+    current["branches"][4]["sha"] = "g" * 40
+    with pytest.raises(RuntimeError, match="invalid"):
+        mod._archive_manifest()
+
+    current = _fake_snapshot_manifest()
+    current["branches"].pop()
+    with pytest.raises(RuntimeError, match="85 recorded"):
+        mod._archive_manifest()
+
+    monkeypatch.setattr(mod, "_git", lambda *args: "2" * 40)
+    with pytest.raises(RuntimeError, match="archive ref moved"):
+        mod._archive_manifest()
+
+
+def _owner_event_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, main_sha: str
+) -> None:
+    event = {
+        "issue": {"number": 1057},
+        "comment": {
+            "body": TRIGGER,
+            "user": {"login": "shuntatsu", "id": 148511409},
+        },
+    }
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event), encoding="utf-8")
+    for key, value in (
+        ("GITHUB_ACTIONS", "true"),
+        ("GITHUB_REPOSITORY", "shuntatsu/trade_rl"),
+        ("GITHUB_ACTOR", "shuntatsu"),
+        ("GITHUB_EVENT_NAME", "issue_comment"),
+        ("GITHUB_EVENT_PATH", str(event_path)),
+        ("GITHUB_SHA", main_sha),
+    ):
+        monkeypatch.setenv(key, value)
+
+
+def test_actual_origin_gate_accepts_issue_comment_in_synthetic_repository(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+
+    from tools.branch_hygiene import require_retirement_origin
+
+    _owner_event_env(monkeypatch, tmp_path, "1" * 40)
+    _require_owner_event()
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/shuntatsu/trade_rl.git",
+        ],
+        check=True,
+    )
+    monkeypatch.chdir(repo)
+    require_retirement_origin()  # Actual imported source, not monkeypatched away.
+
+    subprocess.run(
+        ["git", "remote", "set-url", "origin", "https://github.com/other/repo.git"],
+        check=True,
+    )
+    with pytest.raises(RuntimeError, match="exact trade_rl"):
+        require_retirement_origin()
+
+
+def test_more_than_max_deletes_refuses_without_truncating() -> None:
+    import tools.archived_branch_retirement as mod
+
+    main, archive = _ref("main", "1" * 40), _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
+    candidates = tuple(
+        _ref(f"fix/retire-{i:02d}", f"{i + 2:040x}") for i in range(mod.MAX_DELETES + 1)
+    )
+    all_refs = (main, archive, *candidates)
+    with pytest.raises(RuntimeError, match="safety cap"):
+        plan(
+            all_refs,
+            archived={entry.name: entry.sha for entry in all_refs},
+            main_reachable=frozenset({main.sha, *(c.sha for c in candidates)}),
+            open_refs=(),
+            active_branches=frozenset(),
+        )
+
+
+def test_preview_then_owner_authorized_apply_deletes_multiple_batches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+
+    import tools.archived_branch_retirement as mod
+
+    main, archive = _ref("main", "1" * 40), _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
+    candidates = tuple(
+        _ref(f"fix/closed-{i:02d}", f"{i + 2:040x}") for i in range(mod.BATCH_SIZE + 1)
+    )
+    starting = (main, archive, *candidates)
+    retained = {entry.name: entry.sha for entry in starting}
+    monkeypatch.setattr(mod, "_archive_manifest", lambda: retained)
+    monkeypatch.setattr(mod, "_git", lambda *args: main.sha)
+    monkeypatch.setattr(mod, "_git_ancestor", lambda *args: True)
+    monkeypatch.setattr(
+        mod,
+        "reachable_commits",
+        lambda *args: frozenset({main.sha, *(x.sha for x in candidates)}),
+    )
+
+    class FakeApi:
+        _repository = "shuntatsu/trade_rl"
+
+        def __init__(self) -> None:
+            self.refs = list(starting)
+            self.batches: list[tuple[BranchInfo, ...]] = []
+
+        def branches(self) -> tuple[BranchInfo, ...]:
+            return tuple(self.refs)
+
+        def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
+            return ()
+
+        def active_workflow_branch_names(self) -> frozenset[str]:
+            return frozenset()
+
+        def delete_branches_with_leases(self, items: tuple[BranchInfo, ...]) -> None:
+            assert all(x in self.refs for x in items)
+            self.batches.append(tuple(items))
+            self.refs = [x for x in self.refs if x not in items]
+
+    fake = FakeApi()
+    count, selected, deleted = mod.retire(fake, apply=False)
+    assert count == len(starting)
+    assert selected == tuple(x.name for x in candidates)
+    assert deleted == ()
+    assert fake.refs == list(starting) and fake.batches == []
+
+    _owner_event_env(monkeypatch, tmp_path, main.sha)
+    _require_owner_event()  # Actual author/id/comment verification.
+
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/shuntatsu/trade_rl.git",
+        ],
+        check=True,
+    )
+    monkeypatch.chdir(repo)
+
+    # Production require_retirement_origin is *not* stubbed; only HTTP API is fake.
+    count, selected, deleted = mod.retire(fake, apply=True)
+    assert count == len(starting)
+    assert selected == deleted == tuple(x.name for x in candidates)
+    assert list(map(len, fake.batches)) == [mod.BATCH_SIZE, 1]
+    assert fake.batches[0] == candidates[: mod.BATCH_SIZE]
+    assert fake.batches[1] == candidates[mod.BATCH_SIZE :]
+    assert fake.refs == [main, archive]
+
+
+def test_snapshot_rejects_current_main_drift_before_any_remote_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tools.archived_branch_retirement as mod
+
+    main, archive = _ref("main", "1" * 40), _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
+
+    class FakeApi:
+        def branches(self) -> tuple[BranchInfo, ...]:
+            return (main, archive)
+
+    monkeypatch.setattr(mod, "_git", lambda *args: "2" * 40)
+    with pytest.raises(RuntimeError, match="differs from checked-out history"):
+        mod._snapshot(FakeApi(), {"main": main.sha})  # type: ignore[arg-type]
+
+
+def test_cli_preview_and_one_shot_path_emit_summary_without_leaking_token(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    import tools.archived_branch_retirement as mod
+
+    monkeypatch.setenv("GH_TOKEN", "synthetic-not-a-real-token")
+    summary = tmp_path / "summary.txt"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    class FakeApi:
+        def __init__(self, *, repository: str, token: str, api_url: str) -> None:
+            assert repository == "shuntatsu/trade_rl"
+            assert token == "synthetic-not-a-real-token"
+            assert api_url == "https://api.github.com"
+
+    seen: list[bool] = []
+    monkeypatch.setattr(mod, "GitHubApi", FakeApi)
+
+    def fake_retire(
+        api: object, *, apply: bool
+    ) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
+        seen.append(apply)
+        return 5, ("fix/archive-ancestor",), ("fix/archive-ancestor",) if apply else ()
+
+    monkeypatch.setattr(mod, "retire", fake_retire)
+
+    assert mod.main([]) == 0
+    assert mod.main(["--apply"]) == 0
+    assert seen == [False, True]
+    output = capsys.readouterr().out
+    assert "mode: preview" in output and "mode: apply" in output
+    assert "deleted and verified: 1" in output
+    assert "synthetic-not-a-real-token" not in output
+    assert summary.read_text(encoding="utf-8").count("## Archived one-shot") == 2

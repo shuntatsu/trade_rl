@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from tools.branch_hygiene import (
+    M1_ADDITIONAL_SOURCE_REFS,
+    M1_SOURCE_REF_PREFIX,
     BranchInfo,
     GitHubApi,
     OpenPullRequestRefs,
@@ -43,7 +45,6 @@ PRESERVE = (
     "study/",
     "release/",
     "artifact/",
-    "fix/m1-",
 )
 # A stored archive is a recoverability mechanism, not proof that active/unmerged
 # work is disposable. Retire only old *main-ancestor* work refs under this
@@ -92,7 +93,12 @@ def _archive_manifest() -> dict[str, str]:
         ):
             raise RuntimeError("invalid or duplicate archived ref")
         out[name] = sha
-    if out.get("main") != payload.get("main_head"):
+    recorded_main = payload.get("main_head")
+    if (
+        not isinstance(recorded_main, str)
+        or _SHA.fullmatch(recorded_main) is None
+        or out.get("main") != recorded_main
+    ):
         raise RuntimeError("archive main identity is inconsistent")
     return out
 
@@ -136,6 +142,8 @@ def plan(
             or b.name in open_names
             or b.name in active_branches
             or b.name.startswith(PRESERVE)
+            or b.name.startswith(M1_SOURCE_REF_PREFIX)
+            or b.name in M1_ADDITIONAL_SOURCE_REFS
             or archived.get(b.name) != b.sha
             or _SHA.fullmatch(b.sha) is None
         ):
@@ -210,7 +218,7 @@ def retire(
     api: GitHubApi, *, apply: bool
 ) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
     archived = _archive_manifest()
-    before, selected, _ = _snapshot(api, archived)
+    before, selected, main_reachable = _snapshot(api, archived)
     selected_names = tuple(b.name for b in selected)
     if not apply or not selected:
         return len(before), selected_names, ()
@@ -235,7 +243,7 @@ def retire(
             plan(
                 current,
                 archived=archived,
-                main_reachable=reachable_commits((start_main,)),
+                main_reachable=main_reachable,
                 open_refs=open_refs,
                 active_branches=active,
             )

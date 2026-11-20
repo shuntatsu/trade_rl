@@ -12,7 +12,11 @@ from tools.archived_branch_retirement import (
     _require_owner_event,
     plan,
 )
-from tools.branch_hygiene import BranchInfo, OpenPullRequestRefs
+from tools.branch_hygiene import (
+    BranchInfo,
+    MergedPullRequestSource,
+    OpenPullRequestRefs,
+)
 
 
 def _ref(name: str, sha: str, *, protected: bool = False) -> BranchInfo:
@@ -58,6 +62,7 @@ def test_only_main_ancestor_work_branches_are_deletion_candidates() -> None:
         ),
         open_refs=opens,
         active_branches=frozenset({active.name}),
+        merged_pr_sources=(MergedPullRequestSource(merged_fix.name, merged_fix.sha),),
     )
     # A preserved archive is necessary but not sufficient to delete a branch
     # whose code is absent from main. The owner must separately review that work.
@@ -160,11 +165,17 @@ def test_apply_requires_fresh_pr_and_workflow_roster_before_delete(
         def active_workflow_branch_names(self) -> frozenset[str]:
             return frozenset()
 
+        def merged_pr_source_refs(
+            self, *, include_nested: bool = False
+        ) -> tuple[MergedPullRequestSource, ...]:
+            assert include_nested
+            return (MergedPullRequestSource(target.name, target.sha),)
+
         def delete_branches_with_leases(self, items: tuple[BranchInfo, ...]) -> None:
             self.removed.extend(b.name for b in items)
 
     api = Api()
-    with pytest.raises(RuntimeError, match="changed before deletion"):
+    with pytest.raises(RuntimeError, match="PR/workflow/protection changed"):
         mod.retire(api, apply=True)
     assert api.removed == []
 
@@ -201,10 +212,16 @@ def test_apply_checks_post_delete_readback(
         def active_workflow_branch_names(self) -> frozenset[str]:
             return frozenset()
 
+        def merged_pr_source_refs(
+            self, *, include_nested: bool = False
+        ) -> tuple[MergedPullRequestSource, ...]:
+            assert include_nested
+            return (MergedPullRequestSource(target.name, target.sha),)
+
         def delete_branches_with_leases(self, items: tuple[BranchInfo, ...]) -> None:
             assert items == (target,)
 
-    with pytest.raises(RuntimeError, match="post-deletion"):
+    with pytest.raises(RuntimeError, match="post-delete readback"):
         mod.retire(Api(), apply=True)
 
 
@@ -233,6 +250,10 @@ def test_main_ancestor_windows_m1_source_is_preserved() -> None:
         main_reachable=frozenset({main.sha, windows_m1.sha, normal.sha}),
         open_refs=(),
         active_branches=frozenset(),
+        merged_pr_sources=(
+            MergedPullRequestSource(windows_m1.name, windows_m1.sha),
+            MergedPullRequestSource(normal.name, normal.sha),
+        ),
     )
     assert result == (normal,)
 
@@ -374,6 +395,9 @@ def test_more_than_max_deletes_refuses_without_truncating() -> None:
             main_reachable=frozenset({main.sha, *(c.sha for c in candidates)}),
             open_refs=(),
             active_branches=frozenset(),
+            merged_pr_sources=tuple(
+                MergedPullRequestSource(b.name, b.sha) for b in candidates
+            ),
         )
 
 
@@ -414,6 +438,12 @@ def test_preview_then_owner_authorized_apply_deletes_multiple_batches(
 
         def active_workflow_branch_names(self) -> frozenset[str]:
             return frozenset()
+
+        def merged_pr_source_refs(
+            self, *, include_nested: bool = False
+        ) -> tuple[MergedPullRequestSource, ...]:
+            assert include_nested
+            return tuple(MergedPullRequestSource(x.name, x.sha) for x in candidates)
 
         def delete_branches_with_leases(self, items: tuple[BranchInfo, ...]) -> None:
             assert all(x in self.refs for x in items)
@@ -508,3 +538,24 @@ def test_cli_preview_and_one_shot_path_emit_summary_without_leaking_token(
     assert "deleted and verified: 1" in output
     assert "synthetic-not-a-real-token" not in output
     assert summary.read_text(encoding="utf-8").count("## Archived one-shot") == 2
+
+
+def test_archive_main_ancestor_without_exact_merged_pr_is_never_retired() -> None:
+    main = _ref("main", "1" * 40)
+    archive = _ref(ARCHIVE_BRANCH, ARCHIVE_HEAD)
+    real = _ref("fix/exact-merged", "2" * 40)
+    orphan = _ref("fix/old-ancestor-orphan", "3" * 40)
+    stale = _ref("fix/stale-merged-sha", "4" * 40)
+    entries = (main, archive, real, orphan, stale)
+    selected = plan(
+        entries,
+        archived={r.name: r.sha for r in entries},
+        main_reachable=frozenset(r.sha for r in entries),
+        open_refs=(),
+        active_branches=frozenset(),
+        merged_pr_sources=(
+            MergedPullRequestSource(real.name, real.sha),
+            MergedPullRequestSource(stale.name, "5" * 40),
+        ),
+    )
+    assert selected == (real,)

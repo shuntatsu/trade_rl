@@ -19,10 +19,14 @@ from typing import Any
 from tools.branch_hygiene import (
     M1_ADDITIONAL_SOURCE_REFS,
     M1_SOURCE_REF_PREFIX,
+    BranchDecision,
     BranchInfo,
     GitHubApi,
+    MergedPullRequestSource,
     OpenPullRequestRefs,
+    apply_merged_retirement,
     open_pull_request_branch_names,
+    plan_merged_retirement,
     reachable_commits,
     require_retirement_origin,
 )
@@ -121,8 +125,9 @@ def plan(
     main_reachable: frozenset[str],
     open_refs: Sequence[OpenPullRequestRefs],
     active_branches: frozenset[str],
+    merged_pr_sources: Sequence[MergedPullRequestSource] = (),
 ) -> tuple[BranchInfo, ...]:
-    """Pick only frozen archived tips, excluding all currently used/protected refs."""
+    """Select only frozen archived tips that pass canonical merged-PR source proof."""
     if not main_reachable or len({b.name for b in branches}) != len(branches):
         raise RuntimeError("incomplete or duplicate branch roster")
     refs = {b.name: b for b in branches}
@@ -133,6 +138,17 @@ def plan(
         or refs[ARCHIVE_BRANCH].sha != ARCHIVE_HEAD
     ):
         raise RuntimeError("main or the frozen archive is missing")
+    canonical = plan_merged_retirement(
+        branches,
+        default_branch="main",
+        open_pull_request_refs=open_refs,
+        active_workflow_branches=active_branches,
+        reachable_from_main=main_reachable,
+        merged_pr_sources=merged_pr_sources,
+    )
+    eligible = {
+        decision.branch for decision in canonical if decision.action == "delete"
+    }
     open_names = open_pull_request_branch_names(open_refs)
     selected: list[BranchInfo] = []
     for b in sorted(branches, key=lambda item: item.name):
@@ -144,6 +160,7 @@ def plan(
             or b.name.startswith(PRESERVE)
             or b.name.startswith(M1_SOURCE_REF_PREFIX)
             or b.name in M1_ADDITIONAL_SOURCE_REFS
+            or b not in eligible
             or archived.get(b.name) != b.sha
             or _SHA.fullmatch(b.sha) is None
         ):
@@ -205,6 +222,7 @@ def _snapshot(
         main_reachable=main_reachable,
         open_refs=api.open_pull_request_refs(),
         active_branches=api.active_workflow_branch_names(),
+        merged_pr_sources=api.merged_pr_source_refs(include_nested=True),
     )
     for b in selected:
         if not _git_ancestor(b.sha, ARCHIVE_HEAD):
@@ -228,40 +246,34 @@ def retire(
     start_main = next(b.sha for b in before if b.name == "main")
     if os.environ.get("GITHUB_SHA") != start_main:
         raise RuntimeError("workflow SHA is not the current main")
-    deleted: list[str] = []
-    for start in range(0, len(selected), BATCH_SIZE):
-        batch = selected[start : start + BATCH_SIZE]
-        current = api.branches()
-        refs = {b.name: b for b in current}
-        if refs.get("main") is None or refs["main"].sha != start_main:
-            raise RuntimeError("main moved before a retirement batch")
-        if refs.get(ARCHIVE_BRANCH) is None or refs[ARCHIVE_BRANCH].sha != ARCHIVE_HEAD:
-            raise RuntimeError("archive moved before a retirement batch")
-        active = api.active_workflow_branch_names()
-        open_refs = api.open_pull_request_refs()
-        current_plan = set(
-            plan(
-                current,
-                archived=archived,
-                main_reachable=main_reachable,
-                open_refs=open_refs,
-                active_branches=active,
-            )
+    # Delegate actual GitHub mutation and fresh per-batch PR/workflow/ref
+    # validation to the *existing canonical* merged-PR executor. All candidates
+    # have separately passed archive-SHA and archive-ancestry checks; only
+    # final exact source heads of genuinely merged PRs are admitted. In this
+    # pinned one-shot, an intermediate-base PR is acceptable only when its
+    # exact source SHA is already reachable from current main.
+    selected_set = set(selected)
+    decisions = tuple(
+        BranchDecision(
+            branch=b,
+            action="delete" if b in selected_set else "keep",
+            reason="archived-exact-merged-pr"
+            if b in selected_set
+            else "not-in-one-shot-scope",
         )
-        if any(refs.get(b.name) != b or b not in current_plan for b in batch):
-            raise RuntimeError("branch state or ownership changed before deletion")
-        if any(not _git_ancestor(b.sha, ARCHIVE_HEAD) for b in batch):
-            raise RuntimeError("archive reachability changed before deletion")
-        api.delete_branches_with_leases(batch)
-        after = {b.name: b for b in api.branches()}
-        if (
-            any(b.name in after for b in batch)
-            or after.get("main") != refs["main"]
-            or after.get(ARCHIVE_BRANCH) != refs[ARCHIVE_BRANCH]
-        ):
-            raise RuntimeError("post-deletion GitHub readback is inconsistent")
-        deleted.extend(b.name for b in batch)
-    return len(before), selected_names, tuple(deleted)
+        for b in before
+    )
+    deleted = apply_merged_retirement(
+        api,
+        decisions,
+        default_branch="main",
+        expected_main_sha=start_main,
+        reachable_from_main=main_reachable,
+        max_deletes=MAX_DELETES,
+        batch_size=BATCH_SIZE,
+        include_nested_merged_prs=True,
+    )
+    return len(before), selected_names, deleted
 
 
 def main(argv: Sequence[str] | None = None) -> int:

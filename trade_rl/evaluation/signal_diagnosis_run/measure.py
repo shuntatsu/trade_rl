@@ -14,7 +14,10 @@ from typing import Any
 
 import numpy as np
 
-from trade_rl.evaluation.signal_diagnosis.protocol import SignalDiagnosisProtocol
+from trade_rl.evaluation.signal_diagnosis.protocol import (
+    SignalDiagnosisProtocol,
+    SignalDiagnosisProtocolError,
+)
 from trade_rl.evaluation.signal_diagnosis.verdict import (
     DecisionCellEvidence,
     PValueProvenance,
@@ -79,7 +82,18 @@ def grouped_pearson(
     var_left = np.add.reduceat(centred_left**2, starts)
     var_right = np.add.reduceat(centred_right**2, starts)
     denominator = np.sqrt(var_left * var_right)
-    keep = (counts >= 2) & (denominator > 0.0) & np.isfinite(denominator)
+    # Subtracting a floating mean can leave nonzero residual variance even
+    # when every source value is bit-identical (e.g. three 0.1 values).
+    # An exactly constant group has no defined Pearson correlation.
+    span_left = np.maximum.reduceat(left, starts) - np.minimum.reduceat(left, starts)
+    span_right = np.maximum.reduceat(right, starts) - np.minimum.reduceat(right, starts)
+    keep = (
+        (counts >= 2)
+        & (span_left > 0.0)
+        & (span_right > 0.0)
+        & (denominator > 0.0)
+        & np.isfinite(denominator)
+    )
     value = np.clip(cross[keep] / denominator[keep], -1.0, 1.0)
     return day[starts][keep], value
 
@@ -601,6 +615,8 @@ def d2_features(
     so evaluates every protocol feature.
     """
 
+    if not vintages:
+        raise SignalDiagnosisProtocolError("D2 requires a prequential refit vintage")
     clip = next(t.clip_abs for t in protocol.transforms if t.standardise)
     costs = protocol.costs
     unit = costs.round_trip_cost_bps / 10_000.0

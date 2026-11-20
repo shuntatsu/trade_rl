@@ -133,6 +133,8 @@ def build_vintages(
         int(c.astype(np.int64))
         for c in schedule.cutoffs(np.datetime64(int(stamps[-1]), "ns"))
     ]
+    if not cutoffs:
+        return ()
     starts = [int(np.searchsorted(stamps, c, side="left")) for c in cutoffs]
     stops = [*starts[1:], int(stamps.size)]
     return tuple(

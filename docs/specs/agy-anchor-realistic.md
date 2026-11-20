@@ -132,3 +132,13 @@ The owner raised the research drawdown budget to 25%. Quote, 2026-11-20: ã€Œ25ï¼
 - Everything else is unchanged: signal, stride, caps, costs, `max_leverage`, participation cap, universe, windows, the cash account of Amendment 1 and the other four conditions.
 - `trend_long_spot_oos_v1` and the earlier protocols stay at 0.20: they are already frozen and run, and this amendment changes no value outside this protocol.
 - The probe's synthetic decision snapshots come from the shared Core7 helper and carry its 0.10 / 0.20 limits. They only exercise the causality probe; the replay itself runs with the config above.
+
+## Amendment 3 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Reason: the engine's booking of perpetual legs through cash was discovered during implementation, before any result of this protocol existed (no stage has been run and no replay of the ported anchor has produced a number).
+
+- The engine books every leg, perpetuals included, through cash like spot: a fill sets `cash_after = cash - (signed_notional + cost)` over all legs (`trade_rl/simulation/accounting.py:820`) and the book is valued as `cash + sum of signed position values` (`accounting.py:387`). So cash is about `capital * (1 - sum of signed weights)` minus costs. The Amendment 1 cap (a) alone does not keep cash non-negative: a net-long book can sit inside (a) and still borrow.
+- The cash-account scale therefore enforces both: (a) spot long gross + 0.4 x perp gross <= 1.0, and (b) the net signed exposure, the sum of all signed weights, <= 1.0, so that cash stays >= 0 before costs. The whole target is scaled proportionally by the tighter of the two factors. A carry-like book (spot long, perp short) has a net near zero and is not affected by (b).
+- The negative-cash INVALID check is unchanged (cash net of cumulative execution costs below -1e-6 x capital).
+- It is reported, never gating, how often each bound was the binding one (margin, net exposure or both).
+- Everything else is unchanged. A proposal that does not trade is never capped. The risk layer can only shrink a book and the anchor's per-name cap (0.55) is applied before this scale, so risk clipping does not undo (b); a residual breach would still be caught by the unchanged check and make the cell INVALID.

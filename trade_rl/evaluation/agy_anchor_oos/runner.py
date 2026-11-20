@@ -87,9 +87,10 @@ ANCHOR_ROW_FIELDS: tuple[str, ...] = (
 )
 
 DISCLOSURES: tuple[str, ...] = (
-    "every arm trades a cash account: spot long gross plus 0.4 (the engine's "
-    "1 / max_leverage) times perp gross is capped at 1.0 after the signal's own caps; a "
-    "cell whose cash net of costs falls below -1e-6 x capital is INVALID "
+    "every arm trades a cash account: after the signal's own caps the target is scaled by "
+    "the tighter of (a) spot long gross plus 0.4 (the engine's 1 / max_leverage) times perp "
+    "gross <= 1.0 and (b) net signed exposure <= 1.0 (the engine books perps through cash "
+    "like spot); a cell whose cash net of costs falls below -1e-6 x capital is INVALID "
     "(negative_cash_borrowing)",
     "the causality probe is per (arm, signal lag) and perturbs market rows and taker-buy "
     "volume; it is shared by the cost scenarios",

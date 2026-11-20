@@ -84,6 +84,9 @@ PARTICIPATION_CAP: Final = 0.01
 #: ``1 / max_leverage``. A different rate is a new protocol.
 INITIAL_MARGIN_RATE: Final = 0.4
 CASH_LIMIT: Final = 1.0
+#: Amendment 3: the engine books perp notional through cash like spot notional
+#: (``simulation/accounting.py:820``), so the net signed exposure is capped as well.
+NET_EXPOSURE_LIMIT: Final = 1.0
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
@@ -412,6 +415,15 @@ def protocol_payload() -> dict[str, object]:
             "conservative": True,
             "different_rate": "a new protocol",
             "cash_limit": CASH_LIMIT,
+            "net_exposure_limit": NET_EXPOSURE_LIMIT,
+            "amendment_3": "the scale enforces both (a) spot long gross + "
+            "initial_margin_rate * perp gross <= cash_limit and (b) the sum of signed "
+            "weights <= net_exposure_limit, because the engine books every leg, perps "
+            "included, through cash (accounting.py:820 cash_after = cash - (signed_"
+            "notional + cost); accounting.py:387 portfolio_value = cash + position "
+            "values), so cash is about capital * (1 - net exposure) minus costs",
+            "scale_factor": "the whole target is scaled proportionally by the tighter "
+            "of the two factors; the negative-cash check is unchanged",
             "application": "every arm, after the signal's own caps, on the effective "
             "weights (held legs at their current weight, others times risk_scale); "
             "proportional scaling; when binding all holds are dropped",
@@ -423,7 +435,9 @@ def protocol_payload() -> dict[str, object]:
             },
             "reported_not_gating": [
                 "cap_bound_fraction_of_rebalance_decisions",
+                "bound_by_margin_net_exposure_or_both_counts",
                 "mean_pre_cap_measure",
+                "mean_pre_cap_net",
                 "min_cash",
                 "max_borrowing",
             ],
@@ -524,6 +538,7 @@ __all__ = [
     "LABEL_SUPPORTED",
     "LEG_ROSTER",
     "MAX_DRAWDOWN_LIMIT",
+    "NET_EXPOSURE_LIMIT",
     "MIN_BASE_SHARPE",
     "PAIR_WARMUP_BARS",
     "PERIODS_PER_YEAR",

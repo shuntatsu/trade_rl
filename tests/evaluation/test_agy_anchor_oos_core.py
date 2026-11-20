@@ -119,15 +119,81 @@ def test_the_cap_scales_a_book_with_perps_to_exactly_the_limit_proportionally() 
     assert cash.cash_measure(executed) <= 1.0 + 1e-12
 
 
-def test_perp_shorts_count_towards_the_cap_like_perp_longs() -> None:
+def test_perp_shorts_count_towards_the_margin_cap_like_perp_longs() -> None:
     long_book = _w(s0=0.5, p1=0.55, p2=0.55, p3=0.55)
     short_book = _w(s0=0.5, p1=-0.55, p2=-0.55, p3=-0.55)
     assert cash.cash_measure(long_book) == cash.cash_measure(short_book)
-    for book in (long_book, short_book):
-        capped = _wrapped(_Fixed(book)).decide_portfolio(_snapshot(0)).target_weights
-        assert cash.cash_measure(np.asarray(capped)) == pytest.approx(1.0, abs=1e-12)
-    # 0.5 + 0.4 * 1.65 = 1.16 > 1: both bind
+    # 0.5 + 0.4 * 1.65 = 1.16 > 1: the margin bound binds both books
     assert cash.cash_measure(long_book) == pytest.approx(0.5 + RATE * 1.65)
+    # the short book has a negative net: only the margin bound acts and fills the limit
+    capped = _wrapped(_Fixed(short_book)).decide_portfolio(_snapshot(0)).target_weights
+    assert cash.cash_measure(np.asarray(capped)) == pytest.approx(1.0, abs=1e-12)
+    # the long book is net long 2.15: the net bound is the tighter one (Amendment 3)
+    capped_long = np.asarray(
+        _wrapped(_Fixed(long_book)).decide_portfolio(_snapshot(0)).target_weights
+    )
+    assert cash.net_exposure(capped_long) == pytest.approx(1.0, abs=1e-12)
+    assert cash.cash_measure(capped_long) < 1.0
+
+
+def test_the_net_exposure_bound_alone_scales_a_net_long_book_to_net_one() -> None:
+    book = _w(s0=0.55, p0=0.55, p1=0.55)  # margin use 0.99 <= 1, net 1.65 > 1
+    assert cash.cash_measure(book) <= 1.0 and cash.net_exposure(book) == pytest.approx(
+        1.65
+    )
+    policy = _wrapped(_Fixed(book))
+    capped = np.asarray(policy.decide_portfolio(_snapshot(0)).target_weights)
+    assert cash.net_exposure(capped) == pytest.approx(1.0, abs=1e-12)
+    np.testing.assert_allclose(capped, book / 1.65, atol=1e-15)
+    stats = policy.stats
+    assert (
+        stats.bound_by_net_exposure,
+        stats.bound_by_margin,
+        stats.bound_by_both,
+    ) == (
+        1,
+        0,
+        0,
+    )
+    assert stats.to_dict()["max_pre_cap_net"] == pytest.approx(1.65)
+    assert stats.to_dict()["net_exposure_limit"] == 1.0
+
+
+def test_a_carry_like_book_is_not_touched_by_the_net_bound() -> None:
+    carry = _w(s0=0.4, p0=-0.4, s1=0.3, p1=-0.3)  # margin use 0.7 + 0.4 * 0.7 = 0.98
+    assert cash.cash_measure(carry) < 1.0
+    assert cash.net_exposure(carry) == pytest.approx(0.0)
+    policy = _wrapped(_Fixed(carry))
+    assert tuple(policy.decide_portfolio(_snapshot(0)).target_weights) == tuple(carry)
+    assert policy.stats.bound_decisions == 0
+    # three carry pairs are scaled by the margin bound only; the net stays zero
+    three = _w(s0=0.55, p0=-0.55, s1=0.55, p1=-0.55, s2=0.55, p2=-0.55)
+    policy = _wrapped(_Fixed(three))
+    capped = np.asarray(policy.decide_portfolio(_snapshot(0)).target_weights)
+    assert cash.net_exposure(capped) == pytest.approx(0.0, abs=1e-15)
+    assert (policy.stats.bound_by_margin, policy.stats.bound_by_net_exposure) == (1, 0)
+
+
+def test_the_binding_counts_distinguish_margin_net_and_both() -> None:
+    both = _w(s0=0.5, s1=0.5)  # net 1.0 -> not net-bound, margin 1.0 -> not bound
+    policy = _wrapped(_Fixed(both))
+    policy.decide_portfolio(_snapshot(0))
+    assert policy.stats.bound_decisions == 0
+    # spot-only book: margin use equals net exposure, so both bounds tie
+    tie = _w(s0=0.55, s1=0.55, s2=0.55)
+    policy = _wrapped(_Fixed(tie))
+    policy.decide_portfolio(_snapshot(0))
+    assert (
+        policy.stats.bound_by_both,
+        policy.stats.bound_by_margin,
+        policy.stats.bound_by_net_exposure,
+    ) == (1, 0, 0)
+    # many short perps and some spot: margin binds, the net is negative
+    margin = _w(s0=0.55, s1=0.55, p2=-0.55, p3=-0.55, p4=-0.55, p5=-0.55)
+    policy = _wrapped(_Fixed(margin))
+    policy.decide_portfolio(_snapshot(0))
+    assert policy.stats.bound_by_margin == 1
+    assert policy.stats.to_dict()["cap_bound_decisions"] == 1
 
 
 def test_a_hedged_carry_book_is_charged_the_margin_not_the_notional() -> None:
@@ -208,6 +274,8 @@ def test_the_wrapper_validates_its_parameters() -> None:
         {"limit": 1.5},
         {"rate": 0.0},
         {"rate": 1.2},
+        {"net_limit": 0.0},
+        {"net_limit": 1.5},
         {"start_index": -1},
         {"rebalance_every_bars": 0},
     ):
@@ -267,19 +335,78 @@ def _stage() -> Any:
         mp.undo()
 
 
-def test_net_long_exposure_above_one_borrows_cash_and_is_invalid_even_within_the_cap(
+def test_the_engine_books_perps_through_cash_so_an_unscaled_net_long_book_borrows(
     _stage: Any,
 ) -> None:
+    """The mechanism behind Amendment 3: without the net bound this book sits inside the
+    margin cap (0.99) yet its cash is about -0.65 x capital."""
     window, stage = _stage
     start = window.first_decision_index
-    book = _w(s0=0.55, p0=0.55, p1=0.55)  # cap use 0.55 + 0.4 * 1.1 = 0.99 <= 1
+    book = _w(s0=0.55, p0=0.55, p1=0.55)
     assert cash.cash_measure(book) <= 1.0
-    cell = _replay_cell(stage.dataset, book, start=start)
+    cell = _replay_cell(stage.dataset, book, start=start, capped=False)
     assert protocol.REASON_NEGATIVE_CASH in cell.invalid_reasons
     assert not cell.valid
     assert cell.max_borrowing is not None and cell.max_borrowing > 10_000.0
-    assert cell.min_cash is not None and cell.min_cash < 0.0
-    assert cell.cap_statistics["cap_bound_decisions"] == 0
+    assert cell.min_cash is not None and cell.min_cash < -50_000.0
+
+
+def _borrowing_of(
+    stage: Any, window: Any, *, net_limit: float
+) -> tuple[float, OosCell]:
+    start = window.first_decision_index
+    policy = cash.AnchorCashAccountPolicy(
+        _Fixed(_w(s0=0.55, p0=0.55, p1=0.55)), start_index=start, net_limit=net_limit
+    )
+    result = run_shared_portfolio_replay(
+        stage.dataset,
+        policy,
+        start_index=start,
+        stop_index=start + 40,
+        initial_capital=protocol.INITIAL_CAPITAL,
+        execution_cost=protocol.scenario_cost("BASE"),
+        risk=PreTradeRisk(protocol.risk_config()),
+        settle_terminal_position=True,
+        capture_ledger_evidence=True,
+    )
+    cell = runner._build_cell(
+        arm=protocol.CANDIDATE,
+        scenario="BASE",
+        result=result,
+        dataset=stage.dataset,
+        causality_passed=True,
+        probe_key="x",
+        cap_statistics=runner._stats_of(policy),
+    )
+    assert cell.max_borrowing is not None
+    return cell.max_borrowing, cell
+
+
+def test_the_net_bound_removes_the_borrowing_of_the_net_long_counterexample(
+    _stage: Any,
+) -> None:
+    """Without the bound the book borrows about 65% of capital. With the bound at exactly
+    1.0 the only residual is the entry fill: the order is sized at the decision close and
+    filled at the next bar's price, so a book at net exactly 1.0 can overshoot by the price
+    gap (here under 0.01% of capital, from the first interval only). A bound just below 1.0
+    absorbs a gap of that size and the cell is valid."""
+    window, stage = _stage
+    unbound = _replay_cell(
+        stage.dataset,
+        _w(s0=0.55, p0=0.55, p1=0.55),
+        start=window.first_decision_index,
+        capped=False,
+    )
+    assert unbound.max_borrowing is not None and unbound.max_borrowing > 50_000.0
+    exact, exact_cell = _borrowing_of(stage, window, net_limit=1.0)
+    assert 0.0 < exact < 1e-3 * protocol.INITIAL_CAPITAL
+    assert exact_cell.cap_statistics["bound_by_net_exposure"] >= 1
+    assert exact_cell.cap_statistics["bound_by_margin"] == 0
+    # cash never goes meaningfully negative: minus costs plus the entry-gap overshoot only
+    assert exact_cell.min_cash is not None and exact_cell.min_cash > -1_000.0
+    buffered, cell = _borrowing_of(stage, window, net_limit=0.99)
+    assert buffered == 0.0
+    assert cell.invalid_reasons == () and cell.valid
 
 
 def test_the_replay_runs_with_the_amended_drawdown_ramp(_stage: Any) -> None:

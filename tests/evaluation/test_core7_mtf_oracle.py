@@ -48,7 +48,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "c9fbf31a45338a4f7a3a15cbe59094cb034d96f07690659d0d89649f220ed5da"
+    "3ee94cc544a0868b7ac3f4298f69bd214c417df8d985d255e07abe24d66cd7a0"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",

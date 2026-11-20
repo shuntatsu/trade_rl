@@ -48,7 +48,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "003a2767febabc9dbe2729b1a6e3efb0217a578471d2b9413766bfd496cf8a39"
+    "3ee94cc544a0868b7ac3f4298f69bd214c417df8d985d255e07abe24d66cd7a0"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -503,6 +503,21 @@ def test_prior_v2_packet_is_immutable_history_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
+def test_prior_v4_packet_is_immutable_history_and_unreviewed() -> None:
+    """The v4 packet is superseded by v5 (terminal-dust summaries) and never edited."""
+    record: dict[str, Any] = json.loads(PACKET_V4_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5"
+    )
+    assert record["identity"]["implementation_head"] == (
+        "58d76a19a7265e24231ec69be7c7ec1f20394e1d"
+    )
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert verified.economic_execution_authorized is False
+
+
 def test_prior_v3_packet_is_immutable_history_and_unreviewed() -> None:
     """The v3 packet (protocol v3) is superseded by v4 and never re-pinned or edited."""
     record: dict[str, Any] = json.loads(PACKET_V3_PATH.read_text(encoding="utf-8"))
@@ -511,21 +526,6 @@ def test_prior_v3_packet_is_immutable_history_and_unreviewed() -> None:
     )
     assert record["identity"]["implementation_head"] == (
         "9f95a8faf388e637305a0cc915fb0dadede7ae41"
-    )
-    verified = evaluate_assurance(record)
-    assert verified.status == "UNREVIEWED"
-    assert verified.errors == ()
-    assert verified.economic_execution_authorized is False
-
-
-def test_prior_v4_packet_is_immutable_history_and_unreviewed() -> None:
-    """The frozen v4 packet must never be silently rewritten to pass new source."""
-    record: dict[str, Any] = json.loads(PACKET_V4_PATH.read_text(encoding="utf-8"))
-    assert assurance_digest(record) == (
-        "c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5"
-    )
-    assert record["identity"]["implementation_head"] == (
-        "58d76a19a7265e24231ec69be7c7ec1f20394e1d"
     )
     verified = evaluate_assurance(record)
     assert verified.status == "UNREVIEWED"

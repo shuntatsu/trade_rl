@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,21 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "b9565ffebdbff644702aa6cf166cd2a5fc9d69fa1eea57d0a3a8c6b2387eac8d"
+PINNED_DIGEST = "6fadf622741fcc3df68bd2354b8dd9e5e9c0e689dfc7d77e2311bfdd5d0e0f1e"
+PREVIOUS_UNIFIED_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json"
+)
+PREVIOUS_UNIFIED_PACKET_DIGEST = (
+    "b9565ffebdbff644702aa6cf166cd2a5fc9d69fa1eea57d0a3a8c6b2387eac8d"
+)
+
 PREVIOUS_BOUNDED_PACKET_PATH = (
     ROOT
     / "report"
@@ -196,6 +205,18 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert b"\r" not in PACKET_PATH.read_bytes()
 
 
+def test_previous_unified_packet_is_immutable_and_unreviewed() -> None:
+    """An M2 source re-pin cannot overwrite the preceding SD2 author packet."""
+    previous = json.loads(PREVIOUS_UNIFIED_PACKET_PATH.read_text(encoding="utf-8"))
+    verified = evaluate_assurance(previous)
+    assert verified.status == "UNREVIEWED" and verified.errors == ()
+    assert not verified.economic_execution_authorized
+    assert assurance_digest(previous) == PREVIOUS_UNIFIED_PACKET_DIGEST
+    assert previous["identity"]["implementation_head"] == (
+        "2f725160b4f585deb74eb431d846814676de996d"
+    )
+
+
 def test_previous_bounded_packet_is_immutable_and_unreviewed() -> None:
     """The combined code never rewrites an earlier strict POSIX author packet."""
     prior = json.loads(PREVIOUS_BOUNDED_PACKET_PATH.read_text(encoding="utf-8"))
@@ -324,10 +345,18 @@ def test_packet_states_the_g0_to_g2_content_of_the_runner() -> None:
     assert "planted signal" in thesis["cheapest_falsifier"]
     assert set(record["mechanism"]["independent_oracles"]) >= {
         "time",
+        "state",
         "sign",
         "execution",
         "evidence",
     }
+    reconstruction = record["evidence"]["independent_reconstruction"]
+    assert "duplicated two-symbol-style timestamps" in reconstruction
+    assert "1 GiB+1" in reconstruction
+    assert "test_grouped_ic_omits_exactly_constant_float_groups" in reconstruction
+    assert "calendar" in reconstruction
+    assert "before the first scheduled refit" in reconstruction
+    assert "state" in record["mechanism"]["changed_boundaries"]
     interpretations = thesis["limitations"]
     for needle in (
         "matures exactly at the refit instant",
@@ -346,6 +375,10 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-merged-main.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json"
             in text

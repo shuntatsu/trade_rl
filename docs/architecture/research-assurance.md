@@ -753,6 +753,36 @@ rewriting it, and establish continuity across prepare, arm, and finalize
 before allowing economic execution. Ordinary software CI alone does not
 prove existing checkpoint resumes remain available.
 
+**Manual checkpoint runner transport version boundary (#1178).** The pre-existing
+workflow artifacts are **not migrated** by switching Python acquisition from
+managed builds to runner toolcache. The manual checkpoint runner now requires
+CPython **3.12.16** already present in the GitHub-hosted Ubuntu 24.04
+toolcache (before `actions/setup-python` can fall back to a download), exact
+`uv 0.10.0`, and `UV_PYTHON_PREFERENCE=only-system` /
+`UV_PYTHON_DOWNLOADS=never`. The checkout must carry this exact new workflow
+policy; an old `inputs.code_sha` is refused before dependency installation.
+Both runner setup and the locked project's virtual environment must report
+Python 3.12.16, and any other patch fails closed rather than silently
+switching runtimes. The new PR-triggered
+`ppo-checkpoint-runtime-preflight.yml` tests only cached interpreter setup,
+pinned uv and a `uv sync --locked --dry-run --extra train-sb3` plan;
+it has **no** manual economic stage, training, checkpoint import or artifact
+upload. This hosted preflight is setup evidence, not a manual
+`workflow_dispatch` execution or evidence of a real PPO run.
+
+**New checkpoint lineage only.** After separate economic G0-G2/source review
+and owner authorization, its *first* checkpoint stage must be a fresh
+`prepare` with `checkpoint_artifacts_json=[]`, using a new immutable
+`code_sha` that contains this workflow. Subsequent `arm` and `finalize`
+may import **only receipts produced under the same exact** full
+`sys.version`, `uv_version`, code/workflow/GitHub SHA identities and SHA-256
+bytes of the workflow, lock, and pyproject. A workflow edit or runner image
+build change during a lineage can therefore block a later stage. This is
+intentional fail-closed evidence isolation; old checkpoint artifacts are
+preserved but cannot be resumed by rewriting their receipt or by
+major/minor-only Python matching. Checkpoint runtime preflight does not grant
+G0-G5 authorization or change the frozen economic protocol.
+
 
 ## Research-specific contract: forward study FS1
 

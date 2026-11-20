@@ -50,7 +50,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "1cd90d5d3074afb88c71bc09889d204290e2dba7ac1becb73235c7fc20ac996c"
+    "bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -550,7 +550,8 @@ def test_prior_v5_packet_is_immutable_history_and_unreviewed() -> None:
     assert verified.economic_execution_authorized is False
 
 
-def test_core7_mtf_v6_packet_remains_immutable_unreviewed_history() -> None:
+def test_prior_v6_packet_is_immutable_history_and_unreviewed() -> None:
+    """The M2 shared-file-source v6 packet remains immutable history after Track D."""
     record: dict[str, Any] = json.loads(PACKET_V6_PATH.read_text(encoding="utf-8"))
     assert assurance_digest(record) == (
         "2b993897963e860116a3dc790dd16ec50f9a6776af035776dc35c3a549634df1"
@@ -584,6 +585,8 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     head = str(record["identity"]["implementation_head"])
     assert record["identity"]["protocol_head"] == head
     assert _git("cat-file", "-e", f"{head}^{{commit}}").returncode == 0
+    # Reject a local-only commit SHA: the pinned source must be in published PR lineage.
+    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
 
     def changed_since_head(paths: Any) -> list[str]:
         diff_committed = _git("diff", "--name-only", head, "HEAD", "--", *paths)

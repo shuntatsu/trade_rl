@@ -91,3 +91,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_branch_retirement --apply
+
+  frozen-closed-pr-retirement:
+    name: One-shot exact archived closed-PR retirement (owner request only)
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.event_name == 'issue_comment' &&
+      github.actor == 'shuntatsu' &&
+      github.event.issue.number == 1057 &&
+      github.event.comment.body == '/retire-archived-closed-prs-20261120 2be720a5ef837462e4132ebecf982d8929112b6c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current main, never untrusted PR code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch complete main, active refs and frozen archive histories
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Read-only exact closure and archive preview
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_closed_pr_retirement
+
+      - name: Retire only exact archived closed PR source refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_closed_pr_retirement --apply

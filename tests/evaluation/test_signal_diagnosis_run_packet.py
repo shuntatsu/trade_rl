@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,21 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "8175d4a11a2f910cb903056486ea1d40809fc187e7f9051021ade65ca1bea233"
+PINNED_DIGEST = "863d96c40b47084c8702f1520cf62724cd5d74ccd0cf3236da37e05e42486350"
+PREVIOUS_TRACKD_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json"
+)
+PREVIOUS_TRACKD_PACKET_DIGEST = (
+    "8175d4a11a2f910cb903056486ea1d40809fc187e7f9051021ade65ca1bea233"
+)
+
 PREVIOUS_CONSISTENT_PACKET_PATH = (
     ROOT
     / "report"
@@ -221,6 +230,19 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert b"\r" not in PACKET_PATH.read_bytes()
+
+
+def test_prior_trackd_packet_is_immutable_unreviewed_history() -> None:
+    """The prior published Track D author packet cannot be rewritten."""
+    previous = json.loads(PREVIOUS_TRACKD_PACKET_PATH.read_text(encoding="utf-8"))
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED" and checked.errors == ()
+    assert checked.economic_execution_authorized is False
+    assert assurance_digest(previous) == PREVIOUS_TRACKD_PACKET_DIGEST
+    assert (
+        previous["identity"]["implementation_head"]
+        == "3e206e9620a4eeb0970eecbcceb550faa8275c15"
+    )
 
 
 def test_prior_consistent_oracles_packet_is_immutable_unreviewed_history() -> None:
@@ -433,12 +455,46 @@ def test_packet_states_the_g0_to_g2_content_of_the_runner() -> None:
     assert "No economic result, real price or return was read" in json.dumps(record)
 
 
+def test_current_packet_falsifier_and_reconstruction_bind_exact_source() -> None:
+    """An old code head may be historical, never the source binding in an active falsifier."""
+    record = packet()
+    source = record["identity"]["implementation_head"]
+    assert source == record["identity"]["protocol_head"]
+    falsifier = record["thesis"]["cheapest_falsifier"]
+    assert f"implementation_head {source}" in falsifier
+    assert (
+        "implementation_head 698ebb10095bad5cf1773fc524bf2adae836fa0f" not in falsifier
+    )
+    reconstruction = record["evidence"]["independent_reconstruction"]
+    assert "#1287" in reconstruction and "xa_" in reconstruction
+
+
+def test_architecture_has_only_one_current_sd2_author_packet_pointer() -> None:
+    """Prevent duplicate Current pointers from misdirecting an owner G4 request."""
+    contents = ARCHITECTURE.read_text(encoding="utf-8")
+    current_lines = [
+        line
+        for line in contents.splitlines()
+        if line.startswith("- **Current SD2 UNREVIEWED author packet")
+    ]
+    assert len(current_lines) == 1, current_lines
+    assert PACKET_PATH.name in current_lines[0]
+
+
 def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     spec, status, architecture = _flat(SPEC), _flat(STATUS), _flat(ARCHITECTURE)
     assert "Status: Active" in SPEC.read_text(encoding="utf-8")
     assert PINNED_PROTOCOL_DIGEST in spec
     for text in (status, architecture):
         assert PINNED_DIGEST in text
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
+            in text
+        )
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json"
+            in text
+        )
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json"
             in text

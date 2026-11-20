@@ -709,6 +709,18 @@ wheels = [
 ]
 
 [[package]]
+name = "sb3-contrib"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "stable-baselines3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/28/b9/3f5dd9edea1407a53edb9abf66467a400f68dd709bbdb580dee4eb4ace13/sb3_contrib-2.3.0.tar.gz", hash = "sha256:9755ef9efa08e43afb9c4e79564ed594eb8bc497256920403a7e269a72216221", size = 78790, upload-time = "2024-03-31T18:40:21.583Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/60/58163d23588509c8c5415f5ad15164dee08e390f2e96802b8d8828f3904e/sb3_contrib-2.3.0-py3-none-any.whl", hash = "sha256:79dadda884f2242bbab11fdb06ccf00eeead2937f7ed09ba577f803f2e52c8e1", size = 80307, upload-time = "2024-03-31T18:40:18.635Z" },
+]
+
+[[package]]
 name = "scikit-learn"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -868,6 +880,12 @@ dev = [
 forecast-gbm = [
     { name = "lightgbm", extra = ["scikit-learn"] },
 ]
+learning-lab = [
+    { name = "lightgbm", extra = ["scikit-learn"] },
+    { name = "sb3-contrib" },
+    { name = "stable-baselines3" },
+    { name = "torch" },
+]
 oracle = [
     { name = "scipy" },
 ]
@@ -884,6 +902,7 @@ requires-dist = [
     { name = "gymnasium", specifier = "==0.29.1" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.120.0" },
     { name = "lightgbm", extras = ["scikit-learn"], marker = "extra == 'forecast-gbm'", specifier = "==4.7.0" },
+    { name = "lightgbm", extras = ["scikit-learn"], marker = "extra == 'learning-lab'", specifier = "==4.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
     { name = "numpy", specifier = ">=1.26.0,<2.0.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'dev'", specifier = "==3.3.6" },
@@ -891,12 +910,15 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.0" },
+    { name = "sb3-contrib", marker = "extra == 'learning-lab'", specifier = "==2.3.0" },
     { name = "scipy", marker = "extra == 'dev'", specifier = ">=1.14,<1.18" },
     { name = "scipy", marker = "extra == 'oracle'", specifier = ">=1.14,<1.18" },
+    { name = "stable-baselines3", marker = "extra == 'learning-lab'", specifier = "==2.3.2" },
     { name = "stable-baselines3", marker = "extra == 'train-sb3'", specifier = "==2.3.2" },
+    { name = "torch", marker = "extra == 'learning-lab'", specifier = "==2.4.1" },
     { name = "torch", marker = "extra == 'train-sb3'", specifier = "==2.4.1" },
 ]
-provides-extras = ["forecast-gbm", "train-sb3", "oracle", "store", "dev"]
+provides-extras = ["forecast-gbm", "train-sb3", "learning-lab", "oracle", "store", "dev"]
 
 [[package]]
 name = "triton"

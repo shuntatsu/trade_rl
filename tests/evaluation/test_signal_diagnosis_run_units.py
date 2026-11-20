@@ -315,11 +315,24 @@ def test_vintages_follow_the_shared_prequential_schedule() -> None:
     spec = protocol()
     start = parse_instant_ns(spec.prequential.first_fit_time)
     panel = _tiny_panel(start + HOUR * np.arange(24 * 95, dtype=np.int64))
-    vintages = build_vintages(panel, spec, TEST_PLAN)
+    # The general synthetic plan uses 800 days and witnesses no refit on a
+    # 95-day panel. Test the real schedule's 30-day boundaries explicitly.
+    plan = RunPlan(refit_interval_days=30)
+    vintages = build_vintages(panel, spec, plan)
     schedule = PrequentialSchedule(
-        first_fit_time=np.datetime64(start, "ns"), refit_interval_days=365
+        first_fit_time=np.datetime64(start, "ns"),
+        refit_interval_days=30,
+        activation_delay_hours=spec.prequential.activation_delay_hours,
     )
-    for t in (0, 1, 24 * 60, 24 * 94):
+    assert [(v.first_row, v.stop_row) for v in vintages] == [
+        (0, 24 * 30),
+        (24 * 30, 24 * 60),
+        (24 * 60, 24 * 90),
+        (24 * 90, 24 * 95),
+    ]
+    for t in (0, 1, 24 * 30 - 1, 24 * 30, 24 * 30 + 1,
+              24 * 60 - 1, 24 * 60, 24 * 90 - 1, 24 * 90,
+              24 * 94):
         decision = np.datetime64(int(panel.timestamps_ns[t]), "ns")
         cutoff = int(schedule.cutoff_for(decision).astype(np.int64))
         owner = next(v for v in vintages if v.first_row <= t < v.stop_row)

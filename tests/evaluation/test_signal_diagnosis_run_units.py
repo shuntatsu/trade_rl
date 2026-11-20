@@ -39,6 +39,7 @@ from trade_rl.evaluation.signal_diagnosis_run.fitting import (
     select_ridge_penalty,
 )
 from trade_rl.evaluation.signal_diagnosis_run.measure import (
+    d2_features,
     grouped_ic,
     grouped_rank_ic_increment,
 )
@@ -353,6 +354,29 @@ def test_vintages_follow_the_shared_prequential_schedule() -> None:
         assert owner.cutoff_ns == cutoff
 
 
+def test_short_synthetic_panel_before_first_fit_fails_closed() -> None:
+    """A panel with no scheduled vintage must not raise a generic IndexError."""
+    spec = protocol()
+    plan = RunPlan(refit_interval_days=365)
+    panel = _tiny_panel(_stamps(spec.data.evaluation_start, 5))
+    assert int(panel.timestamps_ns[-1]) < parse_instant_ns(
+        spec.prequential.first_fit_time
+    )
+    assert build_vintages(panel, spec, plan) == ()
+    with pytest.raises(SignalDiagnosisProtocolError, match="prequential"):
+        run_signal_diagnosis(
+            panel,
+            spec,
+            scope="synthetic_only",
+            code_provenance=CLEAN,
+            plan=plan,
+            builder_probe=lambda _: {"leaks": False},
+        )
+    labels = {4: build_labels(panel, 4)}
+    with pytest.raises(SignalDiagnosisProtocolError, match="prequential"):
+        d2_features(panel, spec, labels, (), names=(panel.feature_names[0],))
+
+
 # ------------------------------------------------------------- panel admission
 
 
@@ -605,6 +629,19 @@ def test_d2_first_vintage_uses_the_pre_first_fit_training_window() -> None:
         )
         assert z[row, symbol] == pytest.approx(expected, abs=1e-9)
     assert np.isnan(z[: first.first_row]).all()  # only decision rows are scored
+
+
+@pytest.mark.parametrize("method", ["rank", "linear"])
+def test_grouped_ic_omits_exactly_constant_float_groups(
+    method: str,
+) -> None:
+    """Decimal float roundoff must not make an undefined daily IC valid."""
+    day = np.repeat(np.arange(3, dtype=np.int64), 3)
+    x = np.array([0.1, 0.1, 0.1, 0.1, 0.2, 0.3, 0.1, 0.1, 0.1])
+    y = np.array([0.1, 0.1, 0.1, 3.0, 2.0, 1.0, 0.0, 1.0, 2.0])
+    eligible_days, correlations = grouped_ic(day, x, y, method=method)
+    np.testing.assert_array_equal(eligible_days, np.array([1]))
+    np.testing.assert_allclose(correlations, [-1.0], rtol=1e-12, atol=1e-12)
 
 
 def test_grouped_ic_of_an_empty_subset_is_empty() -> None:

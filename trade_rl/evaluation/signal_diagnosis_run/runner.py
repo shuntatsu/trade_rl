@@ -394,6 +394,10 @@ def run_signal_diagnosis(
     labels_by_h = {h: build_labels(panel, h) for h in horizons}
     labels = labels_by_h[primary]
     vintages = build_vintages(panel, protocol, plan)
+    if not vintages:
+        raise SignalDiagnosisProtocolError(
+            "the admitted panel has no prequential refit vintage"
+        )
     stamps = panel.timestamps_ns
     drift = drift_forecast(panel, labels, vintages)
     regime = regime_signal(panel.close, protocol.stability.regime_lookback_days)

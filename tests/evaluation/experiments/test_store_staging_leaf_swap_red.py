@@ -205,16 +205,13 @@ def test_json_publish_never_links_replaced_staging_file(
 
     monkeypatch.setattr(store_module.os, "fsync", swap_after_staging_fsync)
     target = store.root / "evidence" / "synthetic.json"
-    try:
+    # Source-name replacement after fsync must preserve foreign files and
+    # never classify a committed link as a safe-to-retry failed write.
+    with pytest.raises(PublishedArtifactCleanupError, match="do not retry"):
         store.publish_json_once("evidence/synthetic.json", {"validated": True})
-    except (ArtifactIntegrityError, InvalidExperimentStateError, OSError):
-        assert swapped, "the source-file replacement must be exercised"
-        assert not target.exists(), "failure must not leave an unvalidated artifact"
-    else:
-        assert swapped, "the source-file replacement must be exercised"
-        assert store.read_json("evidence/synthetic.json") == {"validated": True}, (
-            "publication linked the forged staging name, not the checked inode"
-        )
-        assert target.stat().st_ino == detached.stat().st_ino, (
-            "published inode differs from the original fsynced JSON file"
-        )
+    assert swapped, "the staging source-name swap was not exercised"
+    assert store.read_json("evidence/synthetic.json") == {"validated": True}
+    assert target.stat().st_ino == detached.stat().st_ino
+    replacements = list((store.root / "evidence").glob(".synthetic.json.staging-*"))
+    assert len(replacements) == 1
+    assert replacements[0].read_bytes() == b'{"forged":true}'

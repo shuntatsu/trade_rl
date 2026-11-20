@@ -334,6 +334,32 @@ def _cleanup_owned_staging_directory(path: Path, descriptor: int) -> None:
             path.unlink(missing_ok=True)
 
 
+def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> bool:
+    """Delete a staging filename only if it is still the regular inode we opened.
+
+    POSIX unlink remains name-based: this check protects observed substitutions,
+    but a noncooperating writer may still race between lstat and unlink.
+    """
+
+    if identity is None:
+        return False
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return True
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or (
+            current.st_dev,
+            current.st_ino,
+        )
+        != identity
+    ):
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
 class StudyStore:
     """Own append-only publication, safe paths, and the Study mutation lock."""
 
@@ -496,9 +522,13 @@ class StudyStore:
                 )
 
             staging = parent / f".{target.name}.staging-{_temporary_name_suffix()}"
+            stage_identity: tuple[int, int] | None = None
+            published = False
             try:
                 check_parent()
                 with staging.open("xb") as handle:
+                    opened = os.fstat(handle.fileno())
+                    stage_identity = (opened.st_dev, opened.st_ino)
                     handle.write(canonical_json_bytes(value))
                     handle.flush()
                     os.fsync(handle.fileno())
@@ -528,6 +558,8 @@ class StudyStore:
                                     src_dir_fd=parent_descriptor,
                                     follow_symlinks=True,
                                 )
+                                # The target is committed even if closing the FD fails.
+                                published = True
                             finally:
                                 os.close(parent_descriptor)
                         else:
@@ -535,22 +567,34 @@ class StudyStore:
                             # they do not guarantee source-inode immutability
                             # under a non-cooperating staging-name replacement.
                             os.link(staging, pinned_target)
+                            published = True
                     except FileExistsError as error:
                         raise InvalidExperimentStateError(
                             f"Study artifact already exists: {relative}"
                         ) from error
-            except BaseException:
+            except BaseException as error:
                 try:
-                    staging.unlink(missing_ok=True)
+                    # Only remove the exact stage inode we opened; a substituted
+                    # basename (or a failed exclusive open) is not ours.
+                    _unlink_owned_staging_file(staging, stage_identity)
                 except OSError:
                     # Preserve the primary publication failure.
                     pass
+                if published:
+                    raise PublishedArtifactCleanupError(
+                        "Study artifact was published, but finalizing the staging "
+                        f"file failed: {relative}; do not retry publication"
+                    ) from error
                 raise
 
-            # Publication is committed; never report a cleanup error as a
-            # safe-to-retry ordinary failed write.
+            # Publication is committed. A substituted stage name belongs to
+            # another writer and must not be unlinked or reported retryable.
             try:
-                staging.unlink(missing_ok=True)
+                if not _unlink_owned_staging_file(staging, stage_identity):
+                    raise PublishedArtifactCleanupError(
+                        "Study artifact was published, but staging cleanup failed "
+                        f"(source name replaced): {relative}; do not retry publication"
+                    )
             except OSError as error:
                 raise PublishedArtifactCleanupError(
                     f"Study artifact was published, but staging cleanup failed: "

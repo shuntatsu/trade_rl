@@ -57,7 +57,8 @@ This is why the label ceiling is exploratory.
 
 - **DELAY_1BAR** lags every signal input by one bar, following the core7 protocol.
 - **Between rebalances** every symbol is an exact-quantity HOLD. The exception is when `risk_scale` decreases: the policy then re-targets the last rebalance weights times the new scale, using the same rule as `ShadowAnchorMtfPolicy`.
-- **Deadband:** at a rebalance, a symbol whose `|target − current weight|` is below 0.02 is held.
+- **Between rebalances while `0 < risk_scale < 1` and the scale is unchanged:** the policy cannot use an exact-quantity HOLD, because risk would scale the held weights again. It proposes the pre-image `current / risk_scale` instead, which risk maps back onto the current weights. If that pre-image breaches the engine's `max_abs_weight` (0.55) or `max_gross` (2.5), the policy re-targets the intended book, meaning the last rebalance targets. This is an off-schedule trade allowed only in this case. The same fallback applies to held legs at a rebalance.
+- **Deadband:** at a rebalance, a symbol is held when `|risk_scale × target − current weight|` is below 0.02. `risk_scale × target` is the weight risk would actually execute, so with `risk_scale = 1` this is `|target − current weight|`.
 - **Signal timing:** a decision at index `t` may use closes of bars `≤ t` only if that matches the snapshot convention used by `mtf6_signals`. The implementation must follow that convention exactly, and a future-perturbation causality probe must pass for every cell.
 - **Spot legs are long-only.** A negative spot target is a bug, not a short.
 

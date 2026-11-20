@@ -219,6 +219,9 @@ def protocol_payload() -> dict[str, object]:
             "deadband_rule": "per symbol on |risk_scale * target - current weight|",
             "risk_scale_decrease": "re-target the last rebalance targets; risk applies the "
             "scale once, an unchanged scale below 1 re-proposes current / scale",
+            "pre_image_breach": "when 0 < risk_scale < 1 and current / risk_scale breaches "
+            "the engine max_abs_weight or max_gross, re-target the intended book "
+            "(the last rebalance targets) instead of holding",
             "spot_legs": "long only, a negative spot target is an error",
         },
         "thresholds": {

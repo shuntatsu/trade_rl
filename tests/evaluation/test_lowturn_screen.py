@@ -656,6 +656,25 @@ def test_unscalable_pre_image_falls_back_to_the_intended_book() -> None:
     np.testing.assert_allclose(proposal.target_weights, intended, atol=1e-15)
 
 
+def test_unscalable_pre_image_at_an_unchanged_scale_re_targets_the_intended_book() -> (
+    None
+):
+    policy = LowturnPolicy(
+        family="TS_TREND_LS", signals=_trend_signals(), start_index=0
+    )
+    policy.decide_portfolio(_snapshot(0))
+    intended = _expected({_perp(0): TARGET_PERP0, _perp(1): TARGET_PERP1})
+    # the scale decrease is consumed first, so the next bar has an unchanged 0.5 scale
+    policy.decide_portfolio(_snapshot(1, weights=intended * 0.5, max_dd=0.15))
+    within = intended * 0.5
+    held = policy.decide_portfolio(_snapshot(2, weights=within, max_dd=0.15))
+    np.testing.assert_allclose(held.target_weights, within / 0.5, atol=1e-15)
+    drifted = _expected({_perp(0): 0.5})  # pre-image 0.5 / 0.5 = 1.0 > max_abs_weight
+    proposal = policy.decide_portfolio(_snapshot(3, weights=drifted, max_dd=0.15))
+    assert proposal.hold_current_quantity_symbols == ()
+    np.testing.assert_allclose(proposal.target_weights, intended, atol=1e-15)
+
+
 def test_policy_refuses_a_negative_spot_target_and_invalid_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1060,7 +1079,7 @@ def test_the_protocol_digest_is_canonical_stable_and_pinned() -> None:
     assert digest == PINNED_DIGEST
 
 
-PINNED_DIGEST = "5fe06b288d1411e02a7f65056bf8648b65e273de6714a263821ef81de43ce5df"
+PINNED_DIGEST = "9de83d14ec756924cd9d5bc36da8a95fe7d3e3daf258c59a01584fd23eb2c433"
 
 
 @pytest.mark.parametrize(

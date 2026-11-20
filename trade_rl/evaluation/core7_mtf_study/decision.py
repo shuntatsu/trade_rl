@@ -38,6 +38,8 @@ class CellSummary:
     ledger_reconciled: bool
     stop_reason: str | None
     invalid_reasons: tuple[str, ...]
+    terminal_dust_only: bool = False
+    terminal_dust: tuple[Mapping[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -57,6 +59,8 @@ class CellSummary:
             "stop_reason": self.stop_reason,
             "invalid_reasons": list(self.invalid_reasons),
             "cell_valid": cell_valid(self),
+            "terminal_dust_only": self.terminal_dust_only,
+            "terminal_dust": [dict(item) for item in self.terminal_dust],
         }
 
     @classmethod
@@ -80,6 +84,8 @@ class CellSummary:
             invalid_reasons=tuple(
                 str(item) for item in value.get("invalid_reasons", ())
             ),
+            terminal_dust_only=bool(value.get("terminal_dust_only", False)),
+            terminal_dust=tuple(dict(item) for item in value.get("terminal_dust", ())),
         )
 
 
@@ -98,7 +104,7 @@ def _cell_structurally_sound(cell: CellSummary) -> bool:
         and cell.total_cost >= 0.0
         and cell.turnover_total >= 0.0
         and cell.complete
-        and cell.terminal_flat
+        and (cell.terminal_flat or cell.terminal_dust_only)
         and cell.execution_valid
         and cell.causality_passed
         and cell.ledger_reconciled

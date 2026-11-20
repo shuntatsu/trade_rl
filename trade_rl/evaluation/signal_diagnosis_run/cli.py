@@ -157,8 +157,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(error, file=sys.stderr)
         return 2
     output_dir: Path = args.output_dir
-    if output_dir.exists() and any(output_dir.iterdir()):
-        print("refusing to overwrite an existing output", file=sys.stderr)
+    try:
+        unusable = output_dir.is_symlink() or (
+            output_dir.exists()
+            and (not output_dir.is_dir() or any(output_dir.iterdir()))
+        )
+    except OSError as error:
+        print(f"refusing an unreadable output directory: {error}", file=sys.stderr)
+        return 2
+    if unusable:
+        print(
+            "refusing to overwrite an existing output (or use a link or a file as "
+            "the output directory)",
+            file=sys.stderr,
+        )
         return 2
     try:
         provenance = capture_code_provenance()
@@ -201,7 +213,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SignalDiagnosisProtocolError as error:
         print(f"refused, no result written: {error}", file=sys.stderr)
         return 2
-    write_outputs(output_dir, run)
+    try:
+        write_outputs(output_dir, run)
+    except OSError as error:
+        print(
+            f"the run finished (verdict={run.label}) but its files could not be "
+            f"written: {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
+        return 2
     print(f"verdict={run.label}")
     return 0 if run.label not in (None, "INVALID") else 3
 

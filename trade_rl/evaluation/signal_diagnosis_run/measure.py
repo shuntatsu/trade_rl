@@ -89,6 +89,8 @@ def grouped_ic(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Daily IC over rows already restricted to finite pairs, sorted by day."""
 
+    if day.size == 0:
+        return np.zeros(0, dtype=np.int64), np.zeros(0)
     if method == "rank":
         scores = _grouped_average_ranks(day, scores)
         target = _grouped_average_ranks(day, target)
@@ -544,29 +546,43 @@ def _standardised_feature(
     vintages: tuple[Vintage, ...],
     clip: float,
 ) -> np.ndarray:
-    """Train-window standardise and clip, vintage by vintage, from cumulative sums."""
+    """Train-window standardise and clip, vintage by vintage, from cumulative sums.
 
+    The statistics of the vintage cut off at ``c`` come from the usable rows whose
+    label closed strictly before ``c``, counted from the first dataset row (the rows
+    before the first fit are part of the expanding window), per symbol, exactly the
+    rows and rule of D3's ``build_training`` and ``fit_standardiser``: population
+    standard deviation, scale 1 below 1e-12, and a symbol with no training row is
+    scored unshifted and unscaled. Only rows of the vintages are scored; every other
+    row is NaN. The numerical shift of the cumulative sums is the symbol's first usable
+    value, so no row after a cutoff can enter its statistics.
+    """
+
+    z = np.full(x.shape, np.nan)
     if not ok.any():
-        return np.full(x.shape, np.nan)
-    shifted = x - float(x[ok].mean())
+        return z
+    first = ok.argmax(axis=0)
+    shift = np.where(ok.any(axis=0), x[first, np.arange(x.shape[1])], 0.0)
+    shifted = x - shift
     used = ok & labels.valid
     v = np.where(used, shifted, 0.0)
     total, squares = np.cumsum(v, axis=0), np.cumsum(v * v, axis=0)
     count = np.cumsum(used, axis=0)
-    z = np.full(x.shape, np.nan)
     for vintage in vintages:
         limit = vintage.cut_idx - labels.horizon - 1
+        seg = slice(vintage.first_row, vintage.stop_row)
         if limit < 0:
+            # no training row exists yet for any symbol: the fit_standardiser rule
+            z[seg] = np.where(ok[seg], np.clip(x[seg], -clip, clip), np.nan)
             continue
         n = count[limit]
         with np.errstate(divide="ignore", invalid="ignore"):
             mean = total[limit] / n
             std = np.sqrt(np.maximum(squares[limit] / n - mean**2, 0.0))
-        scale = np.where(std > 1e-12, std, 1.0)
-        mean = np.where(n > 0, mean, 0.0)
-        seg = slice(vintage.first_row, vintage.stop_row)
+        scale = np.where((n > 0) & (std > 1e-12), std, 1.0)
+        centre = np.where(n > 0, mean + shift, 0.0)
         z[seg] = np.where(
-            ok[seg], np.clip((shifted[seg] - mean) / scale, -clip, clip), np.nan
+            ok[seg], np.clip((x[seg] - centre) / scale, -clip, clip), np.nan
         )
     return z
 
@@ -599,11 +615,17 @@ def d2_features(
         f = panel.feature_names.index(name)
         x = panel.features[:, :, f].astype(np.float64)
         ok = panel.feature_available[:, :, f] & np.isfinite(x) & available_now
-        ok[:first_row] = False
+        decision_ok = ok.copy()
+        decision_ok[:first_row] = False  # decisions start at the first fit
         for horizon, labels in labels_by_horizon.items():
+            # the training window keeps the rows before the first fit
             standardised = _standardised_feature(x, ok, labels, vintages, clip)
             for transform in protocol.transforms:
-                z = standardised if transform.standardise else np.where(ok, x, np.nan)
+                z = (
+                    standardised
+                    if transform.standardise
+                    else np.where(decision_ok, x, np.nan)
+                )
                 t_idx, s_idx = np.nonzero(np.isfinite(z) & labels.valid)
                 if t_idx.size == 0:
                     records.append(_d2_empty(name, horizon, transform.transform_id))

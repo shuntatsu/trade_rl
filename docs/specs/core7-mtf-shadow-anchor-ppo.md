@@ -70,13 +70,13 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v5.json`（`-v1.json`〜`-v4.json` は旧コード／旧プロトコルの履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `26b07c34df997a529b1d4249772f22dc6100f2ed`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v6.json`（`-v1.json`〜`-v5.json` は旧コード／旧プロトコルの履歴であり不変・再ピンしない）
+- Pinned Implementation Head: `77ea22880923e5b7ba7a810d0e9087290de1b382`
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `34d2061dcbdfb509a68160da568c1f67e4c50827227d8fdac509e181a6b7fcf7`
+- Pinned Packet Digest: `f3f61b1085623945aa3cbd0d679525ed0908cd27b075386cbd949c11e2fbf51a`
 
-### 5.1 合成研究結果の書込境界（v5）
+### 5.1 合成研究結果の書込境界（v6、v5 の保護を継承）
 
 Phase 0 ランナーの `study-manifest.json` / `decision.json` は既存の
 `StudyStore` の排他 mutation lock と検証済みファイル記述子に基づく
@@ -85,5 +85,12 @@ write-once JSON 公開経路だけで保存する。既存ファイル・danglin
 staging後処理失敗は再試行禁止として扱う。これは同一UIDの非協調的な
 競合や停電下の完全な原子的ディレクトリ公開を証明するものではない。
 ランナーは未承認のG4、経済データ、FS1／unused／final、実運用発注を
-実行してはならない。v5のパケットは未審査であり、独立レビューと
+実行してはならない。v6のパケットは未審査であり、独立レビューと
 新しい承認なしにG2合格を経済適格性に昇格しない。
+
+### 5.2 v6 のピン留め境界（ソフトウェア統合のみ）
+
+- v5 は当時の正確な実装 HEAD `26b07c34df997a529b1d4249772f22dc6100f2ed` を記録する変更不能な履歴であり、上書きしない。
+- v6 は Binance source-clock v2 の既存 `main` 変更、Phase 0 出力の排他保存、Phase 1 Tier D ローダーと日次アーカイブ SHA-256／日付帰属の fail-closed 検査、G4 オーナーコメント照合アダプタを含む統合ソースへ新たにピン留めする。
+- Tier D の実データ収集・`run_study` 実行は禁止を継続し、独立 G0–G2 レビューと認証済みオーナー G4 コメントおよび追加の研究手続を別途要する。日次ソースの digest 形式検査は `.CHECKSUM` と ZIP 本体の真正性確認の代用ではない。
+- これはソフトウェア境界の検証であり、研究適格性・利益・新しい実績値・生産適格性を宣言しない。

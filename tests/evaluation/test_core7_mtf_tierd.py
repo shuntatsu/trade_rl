@@ -1257,6 +1257,7 @@ def test_a_digest_embedded_in_a_longer_hex_run_does_not_count() -> None:
     with pytest.raises(g4.G4AuthError, match="lowercase sha256"):
         g4.require_dataset_id(snap, "NOT-A-DIGEST")
 
+
 @pytest.mark.parametrize("digest", (None, "a" * 63, "g" * 64))
 def test_daily_fallback_refuses_unverified_source_digest_before_filling(
     digest: str | None,

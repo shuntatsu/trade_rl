@@ -9,6 +9,7 @@ rows after the decision are perturbed.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -271,7 +272,8 @@ def _build_cell(
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(canonical_json_bytes(dict(payload)))
+    with path.open("xb") as handle:
+        handle.write(canonical_json_bytes(dict(payload)))
 
 
 def run_screen(
@@ -301,7 +303,10 @@ def run_screen(
             "dataset id does not match the expected dataset id: "
             f"{dataset.dataset_id!r} != {expected_dataset_id!r}"
         )
-    if (output_dir / DECISION_NAME).exists() or (output_dir / MANIFEST_NAME).exists():
+    if any(
+        os.path.lexists(output_dir / name)
+        for name in (CELL_DIR, DECISION_NAME, MANIFEST_NAME)
+    ):
         raise FileExistsError(f"refusing to overwrite an existing run in {output_dir}")
     pair_names = validate_alternating_spot_perp_dataset(dataset)
     if pair_names != protocol.ROSTER:

@@ -70,8 +70,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v4.json`（`-v1.json`〜`-v3.json` は旧プロトコルの履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `58d76a19a7265e24231ec69be7c7ec1f20394e1d`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v5.json`（`-v1.json`〜`-v4.json` は過去のUNREVIEWED履歴として不変。v5は共有 verified_file 変更によるソース再ピンだけで、凍結protocol v4・経済結果・研究認可を更新しない）
+- Pinned Implementation Head: `103c7a253fabbbe2663f8bec3cf1b7f52a27e621`
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5`
+- Pinned Packet Digest: `778cfd63dd0521abe03f74fc69cd2a1e1e7534fd0f48e44fad796a6b8de5f4ff`

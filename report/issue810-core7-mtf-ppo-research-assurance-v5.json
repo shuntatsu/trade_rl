@@ -1,0 +1,147 @@
+{
+  "schema_version": "research_assurance_v1",
+  "identity": {
+    "protocol_head": "103c7a253fabbbe2663f8bec3cf1b7f52a27e621",
+    "implementation_head": "103c7a253fabbbe2663f8bec3cf1b7f52a27e621"
+  },
+  "thesis": {
+    "final_decision": "whether to approve the pinned clean-worktree Phase 0 software implementation and synthetic G2 oracle verification suite (prior to any separate Phase 1 canonical-engine parity request on known-used Tier D data [2022-01-01, 2026-08-01)) for the 11-symbol (22 alternating spot/perp legs: BTC, ETH, BNB, SOL, XRP, DOGE, ADA, AVAX, LINK, LTC, DOT) CORE7/ORTH6 (four effective timeframes 4h/1d/3d/1w plus 15m/1h inputs that are 4h-OHLC proxies unless causal external micro arrays are supplied) Shadow-Anchor PPO and fixed Non-RL Regime-Gate control system; neither this packet nor any scratch outcome authorizes real-market economic runs or unused-data reads",
+    "hypothesis": "Under the frozen Phase 1 comparison design (not executed in Phase 0), CORE7_SPARSE_PPO (primary: CORE4 + M0, M1, M3) and ORTH6_CUSH_PPO (secondary: orthogonal M0-dropped 6-factor + cushion modulation) implemented in pure NumPy via ShadowAnchorMtfPolicy and evaluated strictly through run_shared_portfolio_replay across 22 alternating spot/perp legs (PreTradeRiskConfig max_gross=2.5, max_abs_weight=0.55, drawdown_start=0.10, drawdown_stop=0.20; ExecutionCostConfig max_leverage=2.5, processing_bar_volume_capacity=False, 1% trailing bar capacity, minimum_notional=10.0, sqrt impact, LOW/BASE/HIGH cost and DELAY_1BAR signal-lag stress) remain software-consistent and falsifiable against CASH, static ANC_BIDIR_75_25, and the fixed causal Non-RL regime-gate control ANC_REGIME_GATE_NONRL without breaching 20% hard drawdown; a cell whose max drawdown reaches drawdown_stop 0.20 is a STOP_FAIL_NO_RESCUE, never a PASS.",
+    "economic_mechanism": "Causal 4h/1d/3d/1w alignment (15m/1h inputs are 4h-OHLC proxies unless external micro arrays with causal availability are supplied), flow, carry, and crowding signals identify when the fixed daily-rebalanced ANC_BIDIR_75_25 baseline (directional leg = normalized(0.75*w_aw_regime + 0.25*w_perp_bidir_carry) scaled by 1.5*vol_cushion_tail; carry leg = 0.5*c_weekly_iv) faces elevated short-term flow toxicity or crowded funding; a sparse soft-thresholded (|a|>0.05) residual policy shifts weights across orthogonalized factors to mitigate adverse selection and net turnover, while ANC_REGIME_GATE_NONRL scales alpha/carry directly from causal 6D regime opportunity state without RL.",
+    "counter_hypothesis": "Apparent scratch outperformance across Pre-FS1 Rounds 1-11 (cumulative N=450-900 exploratory trials; DSR_null=0.788/0.721 < 0.95) and RL regime adaptation (Round 12 H13-A NOT SUPPORTED, H13-B NOT SUPPORTED) is spurious or matched by Non-RL controls due to: (1) Tier D multiple-testing selection bias on [2021-01-01, 2026-08-01), (2) scratch simplifications absent from trade_rl (continuous unquantized weights, quadratic rather than native sqrt impact, missing 1% trailing participation cap, no minimum_notional=10.0 rejection, simplified margin), (3) asymmetric spot/perp partial fills breaking neutrality, and (4) fixed causal ANC_REGIME_GATE_NONRL matching or dominating RL drawdown/Sharpe throttling cleanly without neural policy variance.",
+    "information_gain": "Isolates pure software, causality, capacity, sqrt-impact, and accounting mechanics on synthetic G2 oracles first under an immutable commit-pinned packet, and ensures any later separately authorized Phase 1 Tier D parity check explicitly tests RL arms against both static ANC_BIDIR_75_25 and fixed causal ANC_REGIME_GATE_NONRL.",
+    "cheapest_falsifier": "Three pre-economic synthetic G2 oracles plus architecture boundary checks (zero market data accessed): (1) future-bar perturbation + SPOT_HALTS gap test proving 0.0 pre-cut feature/gate/proposal leakage and fail-closed Pre-FS1 embargo refusal >= 2026-08-01T00:00:00, (2) zero-residual algebraic equivalence (< 1e-12 vs ANC_BIDIR_75_25), deadband/non-rebalance HOLD invariance with drawdown HOLD release, processing_bar_volume_capacity=False future-volume shock invariance, and fit_stop_index > start_index refusal, and (3) independent 50-digit pure-Python Decimal 2-pair/4-leg ledger oracle reconciling run_shared_portfolio_replay within 2e-9 abs / 2e-12 rel.",
+    "stop_rule": "Halt on any Phase 0 G2 oracle, architecture boundary, mypy, ruff, or distribution closure failure. Under this UNREVIEWED packet, run_study requires expected_protocol_digest equal to the frozen protocol digest and always enforces the Pre-FS1 embargo (timestamp, available_at, row alignment of feature and funding arrays, micro_available_at; enforce_pre_fs1=False is refused). trade_rl is network-free, so the G4 owner URL is only FORMAT-checked there (authorization_check=url_format_only): it cannot verify that the comment exists, who wrote it or what it says. Evidence eligibility requires a caller-built AuthorizationReceipt (comment id, author login and id, body sha256, fetched_at, quoted protocol digest) that run_study checks only for shape and for binding to the URL and the protocol digest; authentication itself is performed by the tools-layer adapter that fetches the comment, so a receipt is caller-attested. A URL without a receipt yields UNAUTHENTICATED_NOT_EVIDENCE and a URL-less synthetic run SYNTHETIC_ONLY_NOT_EVIDENCE (INVALID stays INVALID), never a parity or stop label as evidence; otherwise it fails closed. In any future separately authorized Phase 1 Tier D replay, any stopped cell or integrity failure yields STOP_FAIL_NO_RESCUE or INVALID with zero Tier D rescue; ANC_REGIME_GATE_NONRL domination diagnostics are reported directly rather than hidden; Phase 1 can never establish alpha.",
+    "stage": "development",
+    "metric_proxy_rationale": "At software_validity stage, mechanism fidelity is measured by exact causality invariance, zero-residual anchor parity, deadband HOLD invariance, Non-RL regime-gate sigmoid parity, trailing 1% capacity lock, and exact Decimal ledger agreement; Phase 0 study runner outputs PASS_PARITY_ONLY / STOP_FAIL_NO_RESCUE / INVALID strictly from structural validity and stop compliance.",
+    "limitations": "PRIOR EXPOSURE & NULL RESULTS: All [2021-01-01, 2026-08-01) 11-symbol Binance spot/perp bars were extensively explored in Pre-FS1 Rounds 1-12 (N=450-900 cumulative trials; Round 11 DSR_null=0.788/0.721 < 0.95; Round 12 returned H13-A NOT SUPPORTED and H13-B NOT SUPPORTED with fixed causal ANC_REGIME_GATE_NONRL throttling drawdown without RL edge). Consequently Tier D data is known-used exploratory history and can only falsify software/execution parity under Phase 1, never prove alpha. ARCHITECTURAL BOUNDARIES: In Phase 0, mtf6_signals computes causal features for four effective timeframes (4h/1d/3d/1w) atop the 4h MarketDataset; the 15m and 1h inputs are 4h-OHLC causal proxies unless micro_15m/micro_1h are supplied together with a micro_available_at not later than the 4h row timestamp. Fit scope is caller-declared (no fit code in Phase 0) and run_study defaults RL arms to zero-residual weights, recorded as weights_are_zero_residual in the manifest and decision, so a Phase 0 PASS_PARITY_ONLY has RL arms identical to the anchor; ShadowAnchorMtfPolicy performs pure-NumPy inference of offline weights and expands neither strategies/__init__.py nor strategies/rl/__init__.py. 2026-11-20 SOURCE-LINEAGE REISSUE ONLY: the previous immutable v4 author packet is historical UNREVIEWED evidence. M2 StudyStore publication hardening changed the transitive shared trade_rl/artifacts/verified_file.py implementation; this v5 author packet is pinned to the new main-inclusive source head, not to an economic evaluation. No protocol version, thesis, decision threshold, market data, G4/G0-G5 status, or result was changed. This technical rebind does not claim a separate independent model review."
+  },
+  "mechanism": {
+    "chain": [
+      "source",
+      "availability",
+      "feature_state",
+      "model_strategy",
+      "intent",
+      "order",
+      "fill",
+      "accounting",
+      "evidence",
+      "decision"
+    ],
+    "authorities": {
+      "unit": "Portfolio targets across 2P alternating (sym:spot, sym:perp) legs normalized via normalize_balanced_neutral_row and synthesize_alternating_leg_weights (spot clipped to [0, 0.55], perp clipped to [-0.55, 0.55], gross <= 2.5); converted to discrete fills by shared native execution with minimum_notional=10.0 and 1% trailing participation.",
+      "time": "trade_rl.data.features.mtf6_signals.build_mtf6_signal_pack reads strictly completed rows (available_at <= timestamp), masks SPOT_HALTS without forward-filling, rejects timestamp or available_at >= 2026-08-01T00:00:00Z via enforce_pre_fs1_boundary, and ShadowAnchorMtfConfig/ShadowAnchorMtfPolicy enforce fit_stop_index <= start_index.",
+      "state": "BookState owns realized cash, exact quantities, and drawdown metrics across alternating spot/perp legs; ShadowAnchorMtfPolicy maintains internal causal EMA action smoothing (ema_decay=0.70) and emits hold_current_quantity_symbols outside rebalance bars or within deadband=0.04 unless drawdown >= drawdown_start; on non-rebalance bars at or beyond drawdown_start it re-proposes the cached pre-risk target of the last rebalance so PreTradeRisk applies risk_scale exactly once (no compounding), and the rebalance-bar deadband is released during drawdown. While risk_scale < 1 an exact-quantity HOLD is impossible (risk would rescale the held weights), so when risk_scale is unchanged or higher and the risk-scaled target is inside the deadband (L1 < 0.04) the policy proposes the pre-image current/risk_scale that risk maps back onto the current weights, suppressing drift churn; ANY decrease of risk_scale since the previous decision re-targets the intended book. The residual turnover is close-to-open gap drift that still re-trades on part of the non-rebalance breach bars in every mode including the Non-RL anchors (cost-charged, not an accounting defect), bounded by a replay test on a synthetic fixture and disclosed in the spec.",
+      "sign": "Spot legs (even indices) remain >= 0 (never net short); perpetual legs (odd indices) are bidirectional within [-0.55, 0.55] and accrue signed funding on held quantities; all transaction fees, spread, and sqrt-impact charges strictly debit cash.",
+      "risk": "trade_rl.risk.pretrade.PreTradeRisk configured with PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20, emergency_turnover_override=True), verified compatible with ExecutionCostConfig(max_leverage=2.5) via validate_risk_execution_compatibility.",
+      "execution": "Exclusively trade_rl.evaluation.replay.run_shared_portfolio_replay(..., settle_terminal_position=True, capture_ledger_evidence=True) under scenario ExecutionCostConfig(allow_short=True, max_leverage=2.5, maintenance_margin_rate=0.05, max_participation_rate=0.01, minimum_notional=10.0, order_latency_bars=0, processing_bar_volume_capacity=False). Because order_latency_bars 0 and 1 both settle at next open while latency=1 trims agent_stop_index, DELAY_1BAR applies a true 1-bar signal delay via ShadowAnchorMtfConfig(signal_lag_bars=1).",
+      "accounting": "Single shared-cash cross-margin BookState ledger inside run_shared_portfolio_replay and the runner rebuilds every interval's cash, quantities, equity and turnover from the raw order-event fills (never from the book's own totals), chains the intervals from the initial capital, and checks the terminal aggregates before ledger_reconciled can be true; terminal closeout is forced flat.",
+      "evidence": "Frozen protocol core7_mtf_shadow_anchor_ppo_v4 with canonical protocol_digest af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013, expected_protocol_digest binding, URL format check plus AuthorizationReceipt shape/binding check (UNAUTHENTICATED_NOT_EVIDENCE without a receipt), a URL-less synthetic run labelled SYNTHETIC_ONLY_NOT_EVIDENCE with synthetic_only recorded in manifest and decision, write-once study-manifest.json and decision.json via canonical_json_bytes, Non-RL control comparison diagnostics in decision.py, and commit-pinned open packet verification."
+    },
+    "changed_boundaries": [
+      "unit",
+      "time",
+      "state",
+      "sign",
+      "risk",
+      "execution",
+      "accounting",
+      "evidence"
+    ],
+    "independent_oracles": {
+      "unit": {
+        "statement": "Spot leg targets remain strictly non-negative, per-leg weights never exceed 0.55, total gross never exceeds 2.5, and native minimum_notional=10.0 / 1% capacity limits apply uniformly.",
+        "counterexample": "Supply oversized positive carry + negative perp alpha exceeding gross_cap=2.5 or spot weights < 0 to synthesize_alternating_leg_weights, or execute small deltas below minimum_notional=10.0.",
+        "oracle": "tests/strategies/rl/test_shadow_anchor_mtf.py::test_leg_weight_projection_caps_spot_nonnegative_and_gross (direct synthesize_alternating_leg_weights oracle; removing the gross rescale or the perp clip fails it) plus test_replay_participation_cap_and_minimum_notional_bind and native replay verification confirming spot >= 0, |w| <= 0.55, sum|w| <= 2.5, and validate_risk_execution_compatibility refusal when max_leverage=1.0.",
+        "known_limitations": "Synthetic checks use uniform lot/min_notional rules rather than historical time-varying exchange filter snapshots."
+      },
+      "time": {
+        "statement": "All 6-TF CORE7/ORTH6 signals, anchors, vol_cushion_tail, opp_feats_6, Non-RL regime gates, and policy proposals at index <= k_cut are invariant to arbitrary perturbations at > k_cut, SPOT_HALTS gaps do not forward-fill, >= 2026-08-01 fails closed, and fit_stop_index > start_index fails closed.",
+        "counterexample": "Perturb OHLCV and funding_rate at indices > k_cut, inject a multi-bar spot tradable=False halt, pass a bar at 2026-08-01T00:00:00, or pass weights with fit_stop_index > start_index.",
+        "oracle": "tests/data/test_mtf6_signals.py and run_causality_probe (every decision in [start, cut], hold tuples compared, non-trivial account path, each scenario signal lag, injected row index+1 leak caught: tests/evaluation/test_core7_mtf_runner_gates.py) asserting max(|diff[:k_cut]|) == 0.0, SPOT_HALTS masking without NaN/forward-fill, deliberate leakage detection, and ValueError on embargo/lookahead violations.",
+        "known_limitations": "Tests deterministic algorithmic causality on completed OHLCV/funding arrays and optional causal micro proxies, not live exchange timestamp clock skew."
+      },
+      "state": {
+        "statement": "ShadowAnchorMtfPolicy in core7_sparse_ppo and orth6_cush_ppo reduces identically to anc_bidir_75_25 under ShadowAnchorMlpWeights.zero_residual(), emits hold_current_quantity_symbols on non-rebalance bars and deadband no-ops, and releases HOLD once drawdown >= drawdown_start.",
+        "counterexample": "Use zero_residual() and check deviation from anc_bidir_75_25, query non-rebalance / sub-deadband bar with healthy equity, or query bar with 12% drawdown >= 10% drawdown_start.",
+        "oracle": "tests/strategies/rl/test_shadow_anchor_mtf.py FM1 parity assertion (< 1e-12 portfolio value and target weight diff), HOLD tuple assertion, HOLD release assertion at 12% drawdown, a replay test that gross exposure tracks risk_scale x intended gross across consecutive breached bars without compounding or snapping, the rebalance-bar deadband-with-drawdown test, the breach-bar turnover/cost bound (test_breach_bars_do_not_churn_within_the_deadband), and test_any_risk_scale_decrease_retargets_even_inside_the_deadband (drawdown 0.120 to 0.123: gross must fall).",
+        "known_limitations": "Exact algebraic equivalence tests policy wiring and state transitions, not economic alpha."
+      },
+      "sign": {
+        "statement": "Alternating even spot legs remain strictly >= 0 (never net short), odd perp legs allow signed long/short exposures with short perp collecting positive funding and long perp paying positive funding, and all fee/spread/impact charges debit cash.",
+        "counterexample": "Pass negative weights on spot legs via synthesize_alternating_leg_weights or evaluate perp funding on alternating pairs under positive perp funding_rate.",
+        "oracle": "Spot clipping verification (>= 0) plus tests/evaluation/test_core7_mtf_oracle.py Decimal ledger oracle checking exact funding sign (-qty * mark * funding_rate) and cash debit direction across fills.",
+        "known_limitations": "Assumes spot and perpetual margin share unified BookState cash rather than discrete segregated wallet transfers."
+      },
+      "risk": {
+        "statement": "PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, drawdown_start=0.10, drawdown_stop=0.20) passes compatibility only when max_leverage >= 2.5 and overrides HOLD cleanly when drawdown engages.",
+        "counterexample": "Pair PreTradeRiskConfig(max_gross=2.5) with ExecutionCostConfig(max_leverage=1.0), expecting ValueError.",
+        "oracle": "tests/strategies/rl/test_shadow_anchor_mtf.py compatibility refusal test + PreTradeRisk integration during replay.",
+        "known_limitations": "Hard risk scales aggregate leg vectors proportionally without repairing cross-sectional pair neutrality if individual legs clip differently."
+      },
+      "execution": {
+        "statement": "Scenario execution enforces processing_bar_volume_capacity=False (preceding completed bar t-1 volume only), separates DELAY_1BAR via signal_lag_bars=1 while keeping order_latency_bars=0, and applies native sqrt impact.",
+        "counterexample": "Shock bar t execution volume by +500000 while holding volume[t-1] fixed and assert identical fills/quantities at bar t execution.",
+        "oracle": "tests/strategies/rl/test_shadow_anchor_mtf.py FM3 test (shock the volume of the bar a capacity-clipped rebalance fill executes in; fills must be unchanged with processing_bar_volume_capacity=False and must change in the True positive control) plus 4-scenario protocol checks.",
+        "known_limitations": "4h bars with policy-layer 1-bar signal lag approximate discrete rebalance delay without L2 order book queue simulation."
+      },
+      "accounting": {
+        "statement": "Independent 50-digit pure-Python Decimal 2-pair/4-leg ledger oracle matches run_shared_portfolio_replay across cash, equity, fee+spread+sqrt-impact cost, signed perp funding, turnover, and flat terminal closeout.",
+        "counterexample": "Replay 2 pairs x 48 bars with constrained 1% participation volume, non-zero perp funding, zero spot funding, and settle_terminal_position=True.",
+        "oracle": "tests/evaluation/test_core7_mtf_oracle.py::test_independent_decimal_2pair_4leg_ledger_oracle reconciling every bar within max(2e-9, 2e-12*|expected|) and verifying terminal quantities == 0; the runner's fill-based reconciliation rejects corrupted cash, equity, turnover, cost, funding, quantity and aggregate fields (test_ledger_reconcile_accepts_the_true_ledger_and_rejects_each_corruption; test_ledger_reconcile_turnover_rebuild_is_load_bearing isolates the per-interval turnover rebuild).",
+        "known_limitations": "Synthetic 2-pair 4-leg verification proves ledger formula fidelity on smaller dimensions generalized by construction to 22 alternating legs."
+      },
+      "evidence": {
+        "statement": "Protocol digest af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013, write-once runner artifacts, G4 URL enforcement, and static import closure pin stay coherent with zero network imports and zero second backtester.",
+        "counterexample": "Modify any bound Python file after IMPL_SHA, invoke run_study with allow_synthetic_unauthenticated on an unmarked dataset, with enforce_pre_fs1=False, with a marked post-embargo payload-free dataset and no URL, with a subset of scenarios or a wrong expected_protocol_digest, or overwrite an existing study output directory.",
+        "oracle": "tests/architecture/test_core7_mtf_boundary.py and tests/evaluation/test_core7_mtf_oracle.py verifying evaluate_assurance(UNREVIEWED, errors=[]), evaluate_pin([]), decision truth table, runner refusals (unmarked dataset with synthetic flags, any embargo waiver including a marked post-embargo URL-less dataset, partial scenarios, wrong protocol digest), the SYNTHETIC_ONLY_NOT_EVIDENCE label for URL-less runs, a fabricated well-formed URL without a receipt (UNAUTHENTICATED_NOT_EVIDENCE), receipts with a mismatching URL, comment id or quoted digest or a malformed shape, and decide() requiring evidence_eligible and the 20% drawdown stop truth table.",
+        "known_limitations": "Software integrity digests bind committed code and protocol constants, not historical Tier D selection exposure. trade_rl cannot authenticate the GitHub comment (no network): the URL is format-checked and the receipt is validated for shape and binding only; real authentication belongs to the tools-layer adapter. The reduce-only minimum-notional branch (execution.order_minimum_notional with a market-order profile) is unreachable in the Phase 0 scenarios and untested."
+      }
+    }
+  },
+  "evidence": {
+    "point_in_time": false,
+    "common_accounting": true,
+    "realistic_costs": false,
+    "hard_risk": true,
+    "terminal_state": true,
+    "fit_development_unused_separated": false,
+    "multi_symbol": true,
+    "multi_period": true,
+    "controls": [
+      "cash_zero_interest",
+      "anc_bidir_75_25",
+      "anc_regime_gate_nonrl",
+      "zero_residual_parity_control"
+    ],
+    "robustness": [
+      "low_cost_stress",
+      "high_cost_2x",
+      "delay_1bar_signal_lag",
+      "participation_one_percent_trailing"
+    ],
+    "independent_reconstruction": "Committed Phase 0 software implementation and synthetic G2 oracle suite verified against a standalone 50-digit Decimal 2-pair/4-leg reference ledger (< 2e-9 abs / 2e-12 rel), future-perturbation causality probes (= 0.0 pre-cut diff), SPOT_HALTS masking, fill-based ledger reconciliation, zero-residual anchor parity (< 1e-12), deadband/drawdown HOLD transitions, Non-RL regime-gate sigmoid parity, and full AST/architecture boundary contracts with zero real market data accessed. Source-lineage-only verification at the v5 HEAD: tests/evaluation/test_core7_mtf_oracle.py::test_core7_mtf_packet_stays_unreviewed_and_pinned computes the static Python import closure and rejects any later bound-code drift; synthetic tests/artifacts/test_verified_file_snapshot.py and tests/evaluation/experiments/test_store_* verify Study publication no-follow/FD and stage inventory/hardlink behavior independently of market data. These are software oracles, not profit or G4 evidence.",
+    "no_development_rescue": true,
+    "evidence_level": "software_validity"
+  },
+  "claims": {
+    "claim_level": "software_validity",
+    "permitted": [
+      "Certifies Phase 0 clean-worktree software validity: data features, pure-NumPy ShadowAnchorMtfPolicy, Non-RL regime-gate control, frozen core7_mtf_study protocol, decision truth table, thin replay runner, and synthetic G2 oracles pass unit, architecture, mypy, ruff, and distribution contracts.",
+      "Explicitly incorporates ANC_REGIME_GATE_NONRL as a first-class control and discloses Pre-FS1 Round 1-11 DSR_null < 0.95 and Round 12 null results (H13-A/H13-B NOT SUPPORTED)."
+    ],
+    "forbidden": [
+      "Running any real market-data fit, backtest, or replay inside trade_rl under this UNREVIEWED Phase 0 packet.",
+      "Claiming profitability, edge, DSR pass, or Phase 1/2 readiness from scratch exploration or synthetic G2 passes.",
+      "Touching, ingesting, or evaluating >= 2026-08-01T00:00:00Z data.",
+      "Modifying public facade __all__ exports or adding a second backtester/network call inside core7_mtf_study.",
+      "Rescuing a stopped/failed arm or suppressing ANC_REGIME_GATE_NONRL comparison diagnostics."
+    ],
+    "next_authorized_action": "Obtain independent G0-G2 adversarial PR review on this pinned software_validity implementation commit (103c7a253fabbbe2663f8bec3cf1b7f52a27e621), and only after approval submit a separate owner G4 authorization request if Phase 1 Tier D known-used parity verification is desired.",
+    "production_eligible": false,
+    "live_trading_authorized": false,
+    "decision_rule": "Under Phase 0, validation means software/architecture compliance and synthetic G2 oracle agreement with zero real market-data reads (PASS_PARITY_ONLY / STOP_FAIL_NO_RESCUE / INVALID, edge_claim=false). Any economic evaluation requires separate G0-G2 review and G4 authorization.",
+    "next_action_class": "synthetic_verification_only"
+  }
+}

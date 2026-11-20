@@ -71,9 +71,9 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v7.json`（`-v1.json`〜`-v6.json` は不変のUNREVIEWED履歴。mainに統合済みのM2 v6パケットは一字も変更せず、v7はM2共有verified_fileとTrack D xa_ 出所情報保護を統合したソースへ再ピンするのみ。凍結protocol v4・経済実験結果・研究認可は変更しない）
-- Pinned Implementation Head: `815d71cc8f5c43947195c8586f0417309b66552e`
-- Pin lineage: このv7の implementation/protocol head は GitHub に作成した2親のソース統合コミット `815d71cc8f5c43947195c8586f0417309b66552e`。変更したのは遡及的 `xa_*` 列の出所情報保護と open author packet のソースピンであり、先行v6のM2修正・terminal-dust・既往研究分類・FS1禁輸・G0–G5/G4審査・手数料/STOP条件は維持する。v7は **UNREVIEWED / economic_execution_authorized=false**。
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v8.json`（v1〜v7は不変のUNREVIEWED履歴。v7はTrack Dのxa_出所保護を固定した既統合記録。v8はCore7のStudyStore書込保護・SHA証拠付き日次フォールバック・M2 FD解放を最新mainに統合したソースにのみ再ピンし、経済ルールや研究結果は変更しない）
+- Pinned Implementation Head: `b5729860453f034a421a3ede915d6547042d1661`
+- Pin lineage: v8は実在する2親GitHubソースコミット `b5729860453f034a421a3ede915d6547042d1661` を実装・プロトコルの両HEADとして固定する。従来v7 digest `bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df` は改変しない。Phase 0の合成ソフトウェア証拠のみで、 **UNREVIEWED / economic_execution_authorized=false**、因果性・終端ダスト・手数料・STOP・G0〜G5/G4・Pre-FS1/FS1禁輸を維持する。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df`
+- Pinned Packet Digest: `49e3743875ddb61bec595e84b36df2a132d93a35572a323645872cc9806a22ca`

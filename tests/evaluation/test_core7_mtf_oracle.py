@@ -49,7 +49,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "039e4ac815ffea07566d789f61bda41404528165e4fb93c515c4fcf859f4b3cd"
+    "e45271d30f6c764b6a93035764c3cf7dcf936925f9208d9efbb00ea89925e3a9"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -569,6 +569,9 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     head = str(record["identity"]["implementation_head"])
     assert record["identity"]["protocol_head"] == head
     assert _git("cat-file", "-e", f"{head}^{{commit}}").returncode == 0
+    # A valid local Git object is insufficient: the public packet source head
+    # must be reachable from the checked-out published PR commit.
+    assert _git("merge-base", "--is-ancestor", head, "HEAD").returncode == 0
 
     def changed_since_head(paths: Any) -> list[str]:
         diff_committed = _git("diff", "--name-only", head, "HEAD", "--", *paths)

@@ -72,8 +72,8 @@ Status: Active
 ## 5. Packet Pin
 
 - Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v6.json`（`-v1.json`〜`-v5.json` は不変の履歴であり再ピンせず、旧判定も再分類しない）
-- Pinned Implementation Head: `df809093ef6d122bed67f120a1accddd89c0f9f9`
+- Pinned Implementation Head: `ed31fdd3c419db4cc49f74d035403bfcc89c0378`
 - Re-pin reason: #1289 統合の v5 terminal-dust packet を不変の履歴として保持し、#1287 の `trade_rl/data/market.py` クロスアセット最新改訂値の由来情報保護を適用したソースを v6 に固定する。既存のプロトコルdigest・terminal-dust規則・費用・STOP・判定・実験認可は変更しない。v6 は **UNREVIEWED** であり、独立G0–G2と別途オーナーG4の認可なしに実市場 Phase 1、FS1、unused/final の読込、注文を許可しない。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `039e4ac815ffea07566d789f61bda41404528165e4fb93c515c4fcf859f4b3cd`
+- Pinned Packet Digest: `e45271d30f6c764b6a93035764c3cf7dcf936925f9208d9efbb00ea89925e3a9`

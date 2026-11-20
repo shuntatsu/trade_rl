@@ -126,6 +126,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_closed_pr_retirement --apply
 
+  frozen-orphan-ancestor-retirement:
+    name: Retire six frozen ordinary main ancestors (owner-only)
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.actor == 'shuntatsu' &&
+      github.event.issue.number == 1057 &&
+      github.event.comment.body == '/retire-six-archived-main-ancestors-20261120 2be720a5ef837462e4132ebecf982d8929112b6c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch complete remote and frozen archive
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Read-only exact six ref preview
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_orphan_ancestor_retirement
+
+      - name: Delete exactly selected SHA-leased refs with readback
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_orphan_ancestor_retirement --apply
+
   superseded-sd2-ref-retirement:
     name: Retire three immutable old SD2 source refs (owner-created request)
     if: >-

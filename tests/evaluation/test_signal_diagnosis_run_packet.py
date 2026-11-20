@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -28,12 +28,21 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "0e7457fc150abd8d99871abe70febd264c960c01361b0bef46ff26981cac6458"
+PINNED_DIGEST = "8175d4a11a2f910cb903056486ea1d40809fc187e7f9051021ade65ca1bea233"
+PREVIOUS_CONSISTENT_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261120-after-m2-consistent-oracles.json"
+)
+PREVIOUS_CONSISTENT_PACKET_DIGEST = (
+    "0e7457fc150abd8d99871abe70febd264c960c01361b0bef46ff26981cac6458"
+)
+
 PREVIOUS_POST_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -212,6 +221,18 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert b"\r" not in PACKET_PATH.read_bytes()
+
+
+def test_prior_consistent_oracles_packet_is_immutable_unreviewed_history() -> None:
+    prior = json.loads(PREVIOUS_CONSISTENT_PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == PREVIOUS_CONSISTENT_PACKET_DIGEST
+    assert prior["identity"]["implementation_head"] == (
+        "698ebb10095bad5cf1773fc524bf2adae836fa0f"
+    )
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
 
 
 def test_previous_post_m2_packet_is_immutable_and_unreviewed() -> None:

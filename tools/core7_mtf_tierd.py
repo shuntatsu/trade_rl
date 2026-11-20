@@ -143,9 +143,13 @@ class DailyFallbackSource:
         daily_factory: RowSourceFactory,
         *,
         halts: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+        embargo: EmbargoPolicy | None = None,
     ) -> None:
         self._primary = primary
         self._factory = daily_factory
+        # default: the enforced FS1 embargo; only a caller with its own explicit,
+        # authorized policy (``tools.trend_oos`` FORWARD) passes another one
+        self._embargo = EmbargoPolicy.enforced() if embargo is None else embargo
         self._halts = [
             (int(lo.timestamp() * 1_000), int(hi.timestamp() * 1_000))
             for lo, hi in halts
@@ -207,7 +211,7 @@ class DailyFallbackSource:
             universe=Universe(symbols=(symbol,), interval=interval, markets=(market,)),
             start=specs[0].period_start,
             end=specs[-1].period_end,
-            embargo=EmbargoPolicy.enforced(),
+            embargo=self._embargo,
             specs=tuple(specs),
             skipped=(),
         )

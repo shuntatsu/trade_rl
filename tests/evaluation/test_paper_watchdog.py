@@ -456,6 +456,9 @@ def test_a_real_posix_signal_interrupts_a_blocked_process_and_leaves_a_marker(
         [
             "import sys, time",
             "from pathlib import Path",
+            # -I deliberately excludes PYTHONPATH and editable distributions may
+            # point at a *different* worktree; bind the child to this test source.
+            "sys.path.insert(0, sys.argv[2])",
             "from trade_rl.evaluation.paper.failure import write_collection_failure",
             "from trade_rl.evaluation.paper.watchdog import (",
             "    CollectorTerminated, install_termination_handlers)",
@@ -470,7 +473,14 @@ def test_a_real_posix_signal_interrupts_a_blocked_process_and_leaves_a_marker(
         ]
     )
     child = subprocess.Popen(
-        [sys.executable, "-I", "-c", script, str(tmp_path)],
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            script,
+            str(tmp_path),
+            str(Path(__file__).resolve().parents[2]),
+        ],
         stdout=subprocess.PIPE,
         text=True,
     )

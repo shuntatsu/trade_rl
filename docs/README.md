@@ -44,6 +44,7 @@ python -m tools.markdown_links --check
 - Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Out-of-sample test of `TS_TREND_LONG_SPOT` (pre-registered, BACKCAST then FORWARD, not yet run): [specs/trend-long-spot-oos.md](specs/trend-long-spot-oos.md)
+- Realistic out-of-sample test of the ported agy anchor (pre-registered, DEV, BACKCAST_2020 then FORWARD, not yet run): [specs/agy-anchor-realistic.md](specs/agy-anchor-realistic.md)
 
 ## 情報の所有先と更新
 

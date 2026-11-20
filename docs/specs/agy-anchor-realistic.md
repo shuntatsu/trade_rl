@@ -27,7 +27,7 @@ agy's non-RL anchor `ANC_BIDIR_75_25` is a cross-sectional mean-reversion strate
 ## Execution (frozen)
 
 - **Engine:** `run_shared_portfolio_replay` with settlement and ledger capture. Lean-core terminal dust is accepted through the core7 summary with `execution_cost=` passed.
-- **Risk:** `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.10, drawdown_stop=0.20)`.
+- **Risk:** `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.125, drawdown_stop=0.25)` (Amendment 2; it was 0.10 / 0.20).
 - **Costs:** `max_leverage=2.5` and participation cap 0.01. The BASE, HIGH_COST and DELAY_1BAR costs are those of `core7_mtf_study.protocol.scenario_cost`.
 - **Cash account:**
   1. After the signal's own caps, the target is scaled proportionally so that spot long gross plus perp gross times the engine's initial-margin rate is at most 1.0.
@@ -52,7 +52,7 @@ agy's non-RL anchor `ANC_BIDIR_75_25` is a cross-sectional mean-reversion strate
 `SUPPORTED(S)`, for S being BACKCAST_2020 or FORWARD, holds iff:
 
 1. All nine cells are valid.
-2. No candidate cell has a max drawdown of 0.20 or more.
+2. No candidate cell has a max drawdown of 0.25 or more (Amendment 2; it was 0.20).
 3. The candidate's BASE total return is above 0.
 4. The candidate's BASE annual Sharpe is at least 0.50.
 5. The candidate's HIGH_COST and DELAY_1BAR total returns are above 0.
@@ -120,3 +120,15 @@ The negative-cash check is unchanged (cash net of cumulative execution costs bel
 ### Sequencing
 
 FORWARD final needs a BACKCAST_2020 `decision.json` of this exact protocol digest, whatever its label. The labels are decided only by the decision rule above.
+
+## Amendment 2 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Made before any result of this protocol existed (no stage has been run and no replay of the ported anchor has produced a number).
+
+The owner raised the research drawdown budget to 25%. Quote, 2026-11-20: 「25％でもいいよ」 (relayed on Issue #810).
+
+- The risk config is `PreTradeRiskConfig(max_gross=2.5, max_abs_weight=0.55, max_turnover=2.5, drawdown_start=0.125, drawdown_stop=0.25)`. The ramp is proportional to the old 0.10 / 0.20 (start at half of the stop).
+- Condition 2 of `SUPPORTED(S)` is: no candidate cell has a max drawdown of 0.25 or more.
+- Everything else is unchanged: signal, stride, caps, costs, `max_leverage`, participation cap, universe, windows, the cash account of Amendment 1 and the other four conditions.
+- `trend_long_spot_oos_v1` and the earlier protocols stay at 0.20: they are already frozen and run, and this amendment changes no value outside this protocol.
+- The probe's synthetic decision snapshots come from the shared Core7 helper and carry its 0.10 / 0.20 limits. They only exercise the causality probe; the replay itself runs with the config above.

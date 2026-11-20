@@ -330,9 +330,18 @@ def test_vintages_follow_the_shared_prequential_schedule() -> None:
         (24 * 60, 24 * 90),
         (24 * 90, 24 * 95),
     ]
-    for t in (0, 1, 24 * 30 - 1, 24 * 30, 24 * 30 + 1,
-              24 * 60 - 1, 24 * 60, 24 * 90 - 1, 24 * 90,
-              24 * 94):
+    for t in (
+        0,
+        1,
+        24 * 30 - 1,
+        24 * 30,
+        24 * 30 + 1,
+        24 * 60 - 1,
+        24 * 60,
+        24 * 90 - 1,
+        24 * 90,
+        24 * 94,
+    ):
         decision = np.datetime64(int(panel.timestamps_ns[t]), "ns")
         cutoff = int(schedule.cutoff_for(decision).astype(np.int64))
         owner = next(v for v in vintages if v.first_row <= t < v.stop_row)

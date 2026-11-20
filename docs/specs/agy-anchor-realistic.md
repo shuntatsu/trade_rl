@@ -82,3 +82,41 @@ agy's non-RL anchor `ANC_BIDIR_75_25` is a cross-sectional mean-reversion strate
 - No rescue run.
 - Higher leverage is a new protocol.
 - No label authorizes orders or live trading.
+
+## Amendment 1 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Written before any stage was run and before any number of this protocol was seen. It fixes values the frozen text left to the implementation. It changes no signal constant, stride, cap, cost, risk value, universe or window.
+
+### Initial-margin rate of the cash account
+
+- The engine has no explicit perpetual initial-margin field. `ExecutionCostConfig` carries only `max_leverage`, `maintenance_margin_rate` and `collateral_haircut`.
+- The margin model derives its initial margin as `margin_used = gross_notional / max_leverage` (`trade_rl/simulation/execution.py:756`, `_update_margin`). The rate is therefore `1 / max_leverage = 1 / 2.5 = 0.4`, taken from the engine's own formula and not from this protocol.
+- The cash-account cap is: spot long gross + 0.4 × perp gross ≤ 1.0. Perp gross is the sum of the absolute perp weights (shorts count).
+- The rate is conservative: it is far above the engine's maintenance rate in this protocol (0.05) and the engine does not enforce it as an order constraint.
+- The rate is a frozen constant of `protocol.py` and part of the protocol digest. A different rate is a new protocol.
+
+### Warm-up values
+
+- A pair is available to the signal from the first bar at which both its spot and its perp are listed plus 180 bars (the longest per-symbol window in the signal chain, the 30-day volatility and momentum window). A pair listed from the first row of the stage is available from the first row; the stage warm-up covers it.
+- The stage warm-up is 540 bars (the longest windowed statistic of the chain). Every first decision must be at or after row 540. DEV's first decision is therefore the row with index 540.
+- Before a pair is available its signal inputs are neutral: zero volume, `valid = False`, and a constant price. At activation the pair's prices are divided by one common factor (the spot close at the activation row) so that the sentinel-to-price step is not a return. Both factors use only the activation row and past rows. Pairs listed from the first row are not rescaled.
+- The lab's cross-sectional demeans of the hybrid alphas include every symbol column (`all_ones`). A pair that is not yet available is a zero column in those demeans. This is a disclosed approximation of the lab for stages in which pairs list late.
+
+### DEV last row
+
+DEV is bound by the Tier D embargo (2026-08-01). The spec's 2026-07-31T20:00Z is the Tier D last dataset row, so DEV's last dataset row is that close and its last decision is two bars earlier. No hour at or after 2026-08-01 is read for DEV.
+
+### Data
+
+- Spot and perp 1h klines and perp funding are read from the same checksum-verified Binance Vision archives. The taker-buy quote volume of each leg is the sum of the four hourly values of the 4h bar, for hours the leg is tradable, and zero otherwise.
+- Funding events are stamped at the close of the 4h bar that holds them. The count-based funding means start cold at the stage's first row (or the perp's first row); the stage warm-up washes this out before the first decision.
+- Perp series are strict: no halt calendar and no gap is ever filled. A perp gap refuses the run.
+- Declared exchange-wide spot halts are read from a result-blind coverage report as in `trend_long_spot_oos_v1`. The list is empty until such a report is produced and its SHA-256 frozen in `protocol.py`; the digest then changes and the G4 relay quotes the final digest.
+
+### Cash-account validity
+
+The negative-cash check is unchanged (cash net of cumulative execution costs below −1e-6 × capital is INVALID). The engine books perp notional through cash like spot notional, so a book with net exposure above 1.0 can show negative cash although the margin cap holds. That cell is INVALID as written; it is a reported outcome, not a rescue case.
+
+### Sequencing
+
+FORWARD final needs a BACKCAST_2020 `decision.json` of this exact protocol digest, whatever its label. The labels are decided only by the decision rule above.

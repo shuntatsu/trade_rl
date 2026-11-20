@@ -132,19 +132,20 @@ def test_perp_shorts_count_towards_the_margin_cap_like_perp_longs() -> None:
     capped_long = np.asarray(
         _wrapped(_Fixed(long_book)).decide_portfolio(_snapshot(0)).target_weights
     )
-    assert cash.net_exposure(capped_long) == pytest.approx(1.0, abs=1e-12)
+    assert cash.net_exposure(capped_long) == pytest.approx(0.97, abs=1e-12)
     assert cash.cash_measure(capped_long) < 1.0
 
 
-def test_the_net_exposure_bound_alone_scales_a_net_long_book_to_net_one() -> None:
+def test_the_net_exposure_bound_alone_scales_a_net_long_book_to_the_limit() -> None:
     book = _w(s0=0.55, p0=0.55, p1=0.55)  # margin use 0.99 <= 1, net 1.65 > 1
     assert cash.cash_measure(book) <= 1.0 and cash.net_exposure(book) == pytest.approx(
         1.65
     )
     policy = _wrapped(_Fixed(book))
     capped = np.asarray(policy.decide_portfolio(_snapshot(0)).target_weights)
-    assert cash.net_exposure(capped) == pytest.approx(1.0, abs=1e-12)
-    np.testing.assert_allclose(capped, book / 1.65, atol=1e-15)
+    assert protocol.NET_EXPOSURE_LIMIT == 0.97
+    assert cash.net_exposure(capped) == pytest.approx(0.97, abs=1e-12)
+    np.testing.assert_allclose(capped, book * 0.97 / 1.65, atol=1e-15)
     stats = policy.stats
     assert (
         stats.bound_by_net_exposure,
@@ -156,7 +157,7 @@ def test_the_net_exposure_bound_alone_scales_a_net_long_book_to_net_one() -> Non
         0,
     )
     assert stats.to_dict()["max_pre_cap_net"] == pytest.approx(1.65)
-    assert stats.to_dict()["net_exposure_limit"] == 1.0
+    assert stats.to_dict()["net_exposure_limit"] == 0.97
 
 
 def test_a_carry_like_book_is_not_touched_by_the_net_bound() -> None:
@@ -175,12 +176,19 @@ def test_a_carry_like_book_is_not_touched_by_the_net_bound() -> None:
 
 
 def test_the_binding_counts_distinguish_margin_net_and_both() -> None:
-    both = _w(s0=0.5, s1=0.5)  # net 1.0 -> not net-bound, margin 1.0 -> not bound
-    policy = _wrapped(_Fixed(both))
+    inside = _w(s0=0.45, s1=0.45)  # net 0.9 and margin 0.9: neither binds
+    policy = _wrapped(_Fixed(inside))
     policy.decide_portfolio(_snapshot(0))
     assert policy.stats.bound_decisions == 0
-    # spot-only book: margin use equals net exposure, so both bounds tie
-    tie = _w(s0=0.55, s1=0.55, s2=0.55)
+    # a spot-only book at net 1.0 is inside margin (1.0) but above the 0.97 net limit
+    edge = _w(s0=0.5, s1=0.5)
+    policy = _wrapped(_Fixed(edge))
+    policy.decide_portfolio(_snapshot(0))
+    assert (policy.stats.bound_by_net_exposure, policy.stats.bound_by_margin) == (1, 0)
+    # a short perp lifts margin use and lowers net until the two factors are equal:
+    # 1 / (1.5 + 0.4 p) = 0.97 / (1.5 - p)
+    p = 0.045 / 1.388
+    tie = _w(s0=0.55, s1=0.55, s2=0.4, p3=-p)
     policy = _wrapped(_Fixed(tie))
     policy.decide_portfolio(_snapshot(0))
     assert (
@@ -385,11 +393,11 @@ def _borrowing_of(
 def test_the_net_bound_removes_the_borrowing_of_the_net_long_counterexample(
     _stage: Any,
 ) -> None:
-    """Without the bound the book borrows about 65% of capital. With the bound at exactly
-    1.0 the only residual is the entry fill: the order is sized at the decision close and
-    filled at the next bar's price, so a book at net exactly 1.0 can overshoot by the price
-    gap (here under 0.01% of capital, from the first interval only). A bound just below 1.0
-    absorbs a gap of that size and the cell is valid."""
+    """Without the bound the book borrows about 65% of capital. At exactly 1.0 the only
+    residual is the entry fill: the order is sized at the decision close and filled at the
+    next bar's price, so a book at net 1.0 overshoots by the price gap (under 0.01% of
+    capital, first interval only). The frozen limit 0.97 (Amendment 4) absorbs it: the cell
+    is valid with zero borrowing."""
     window, stage = _stage
     unbound = _replay_cell(
         stage.dataset,
@@ -404,9 +412,11 @@ def test_the_net_bound_removes_the_borrowing_of_the_net_long_counterexample(
     assert exact_cell.cap_statistics["bound_by_margin"] == 0
     # cash never goes meaningfully negative: minus costs plus the entry-gap overshoot only
     assert exact_cell.min_cash is not None and exact_cell.min_cash > -1_000.0
-    buffered, cell = _borrowing_of(stage, window, net_limit=0.99)
-    assert buffered == 0.0
+    frozen, cell = _borrowing_of(stage, window, net_limit=protocol.NET_EXPOSURE_LIMIT)
+    assert protocol.NET_EXPOSURE_LIMIT == 0.97
+    assert frozen == 0.0
     assert cell.invalid_reasons == () and cell.valid
+    assert cell.min_cash is not None and cell.min_cash > 0.0 - 1_000.0
 
 
 def test_the_replay_runs_with_the_amended_drawdown_ramp(_stage: Any) -> None:
@@ -446,14 +456,20 @@ def test_a_hedged_carry_book_does_not_borrow_and_is_valid(_stage: Any) -> None:
     assert cell.min_cash is not None and cell.min_cash > 0.0
 
 
-def test_a_fully_invested_spot_book_is_not_borrowing_costs_only(_stage: Any) -> None:
+def test_a_fully_invested_spot_book_is_cut_to_the_net_limit_and_keeps_a_cash_buffer(
+    _stage: Any,
+) -> None:
     window, stage = _stage
     start = window.first_decision_index
-    spot_only = _w(s0=0.2, s1=0.2, s2=0.2, s3=0.2, s4=0.2)  # exactly gross 1.0
+    spot_only = _w(
+        s0=0.2, s1=0.2, s2=0.2, s3=0.2, s4=0.2
+    )  # gross 1.0 > the 0.97 net limit
     cell = _replay_cell(stage.dataset, spot_only, start=start)
-    assert protocol.REASON_NEGATIVE_CASH not in cell.invalid_reasons
-    assert cell.min_cash is not None and cell.min_cash <= 0.0  # cash is minus the costs
-    assert cell.valid
+    assert cell.invalid_reasons == () and cell.valid
+    assert cell.max_borrowing == 0.0
+    assert cell.cap_statistics["bound_by_net_exposure"] >= 1
+    # about 3% of capital stays in cash
+    assert cell.min_cash is not None and cell.min_cash > 0.02 * protocol.INITIAL_CAPITAL
 
 
 # ================================================================= stride and deadband

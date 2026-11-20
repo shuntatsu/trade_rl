@@ -138,7 +138,15 @@ The owner raised the research drawdown budget to 25%. Quote, 2026-11-20: ã€Œ25ï¼
 Status: Active. Reason: the engine's booking of perpetual legs through cash was discovered during implementation, before any result of this protocol existed (no stage has been run and no replay of the ported anchor has produced a number).
 
 - The engine books every leg, perpetuals included, through cash like spot: a fill sets `cash_after = cash - (signed_notional + cost)` over all legs (`trade_rl/simulation/accounting.py:820`) and the book is valued as `cash + sum of signed position values` (`accounting.py:387`). So cash is about `capital * (1 - sum of signed weights)` minus costs. The Amendment 1 cap (a) alone does not keep cash non-negative: a net-long book can sit inside (a) and still borrow.
-- The cash-account scale therefore enforces both: (a) spot long gross + 0.4 x perp gross <= 1.0, and (b) the net signed exposure, the sum of all signed weights, <= 1.0, so that cash stays >= 0 before costs. The whole target is scaled proportionally by the tighter of the two factors. A carry-like book (spot long, perp short) has a net near zero and is not affected by (b).
+- The cash-account scale therefore enforces both: (a) spot long gross + 0.4 x perp gross <= 1.0, and (b) the net signed exposure, the sum of all signed weights, <= 0.97 (Amendment 4; it was 1.0), so that cash stays >= 0 before costs. The whole target is scaled proportionally by the tighter of the two factors. A carry-like book (spot long, perp short) has a net near zero and is not affected by (b).
 - The negative-cash INVALID check is unchanged (cash net of cumulative execution costs below -1e-6 x capital).
 - It is reported, never gating, how often each bound was the binding one (margin, net exposure or both).
 - Everything else is unchanged. A proposal that does not trade is never capped. The risk layer can only shrink a book and the anchor's per-name cap (0.55) is applied before this scale, so risk clipping does not undo (b); a residual breach would still be caught by the unchanged check and make the cell INVALID.
+
+## Amendment 4 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Made before any result of this protocol existed.
+
+- The net-exposure bound (b) of Amendment 3 is 0.97, not 1.0. Orders are sized at the decision close and filled at the next bar, so a book at net exactly 1.0 overshoots cash by the price gap plus costs. In a synthetic check at exactly 1.0 the entry fill overshot by about 0.009% of capital, which exceeds the 1e-6 negative-cash tolerance. A 3% buffer covers normal 4h-boundary gaps on a 24/7 market.
+- The margin bound (a) stays at 1.0. The negative-cash tolerance (1e-6 x capital, net of cumulative execution costs) is unchanged: any cell that still borrows is INVALID, as the spec intends.
+- Everything else is unchanged.

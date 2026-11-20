@@ -86,7 +86,9 @@ INITIAL_MARGIN_RATE: Final = 0.4
 CASH_LIMIT: Final = 1.0
 #: Amendment 3: the engine books perp notional through cash like spot notional
 #: (``simulation/accounting.py:820``), so the net signed exposure is capped as well.
-NET_EXPOSURE_LIMIT: Final = 1.0
+#: Amendment 4: 3% below 1.0, because orders are sized at the decision close and filled at
+#: the next bar, so a book at net 1.0 overshoots cash by the price gap plus costs.
+NET_EXPOSURE_LIMIT: Final = 0.97
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
@@ -422,6 +424,10 @@ def protocol_payload() -> dict[str, object]:
             "included, through cash (accounting.py:820 cash_after = cash - (signed_"
             "notional + cost); accounting.py:387 portfolio_value = cash + position "
             "values), so cash is about capital * (1 - net exposure) minus costs",
+            "amendment_4": "the net exposure limit is 0.97, a 3% buffer for the price "
+            "gap between the decision close and the next-bar fill; the margin bound "
+            "(a) stays at cash_limit 1.0 and the 1e-6 negative-cash tolerance is "
+            "unchanged",
             "scale_factor": "the whole target is scaled proportionally by the tighter "
             "of the two factors; the negative-cash check is unchanged",
             "application": "every arm, after the signal's own caps, on the effective "

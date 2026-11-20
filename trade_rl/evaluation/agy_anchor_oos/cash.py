@@ -6,7 +6,8 @@ factors so that its *effective* weights satisfy both bounds (Amendment 1 and 3):
 (a) margin use: spot long gross + INITIAL_MARGIN_RATE * perp gross <= CASH_LIMIT (perp gross is
     the sum of absolute perp weights; shorts count). ``INITIAL_MARGIN_RATE`` is the engine's own
     ``1 / max_leverage`` (``trade_rl/simulation/execution.py:756``);
-(b) net signed exposure: sum of all signed weights <= NET_EXPOSURE_LIMIT. The engine books a perp
+(b) net signed exposure: sum of all signed weights <= NET_EXPOSURE_LIMIT (0.97, Amendment 4: a
+    buffer for the gap between the decision close and the next-bar fill). The engine books a perp
     fill through cash exactly like a spot fill (``simulation/accounting.py:820``, cash minus the
     signed notional of every leg) and values the book as cash plus every signed position value
     (``accounting.py:387``), so cash is about capital * (1 - sum of signed weights) minus costs;

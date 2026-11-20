@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v5.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v6.json"
+PACKET_V5_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v5.json"
 PACKET_V4_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v4.json"
 PACKET_V3_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v3.json"
 PACKET_V2_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v2.json"
@@ -48,7 +49,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "3ee94cc544a0868b7ac3f4298f69bd214c417df8d985d255e07abe24d66cd7a0"
+    "2b993897963e860116a3dc790dd16ec50f9a6776af035776dc35c3a549634df1"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -526,6 +527,21 @@ def test_prior_v3_packet_is_immutable_history_and_unreviewed() -> None:
     )
     assert record["identity"]["implementation_head"] == (
         "9f95a8faf388e637305a0cc915fb0dadede7ae41"
+    )
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert verified.economic_execution_authorized is False
+
+
+def test_prior_v5_packet_is_immutable_history_and_unreviewed() -> None:
+    """v5 is the immutable prior main-author packet, superseded only by new source pin v6."""
+    record: dict[str, Any] = json.loads(PACKET_V5_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "3ee94cc544a0868b7ac3f4298f69bd214c417df8d985d255e07abe24d66cd7a0"
+    )
+    assert record["identity"]["implementation_head"] == (
+        "5cbd613d65a81c09768ca21653b3b4596e771b10"
     )
     verified = evaluate_assurance(record)
     assert verified.status == "UNREVIEWED"

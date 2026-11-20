@@ -24,6 +24,21 @@ _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
 _ZERO_DIGEST = "0" * 64
 
+_CROSS_ASSET_GLOBAL_PREFIX = "xa_"  # Reserved for external market-context features.
+
+
+def _validate_cross_asset_global_provenance(
+    names: Sequence[str], payload: Mapping[str, object]
+) -> None:
+    # A generic dataset reidentity must not silently launder historical
+    # latest-vintage features into an apparently causal identity.
+    if any(
+        name.startswith(_CROSS_ASSET_GLOBAL_PREFIX) for name in names
+    ) and not isinstance(payload.get("cross_asset_overlay"), dict):
+        raise ValueError(
+            "cross-asset global features require source provenance in dataset identity"
+        )
+
 
 def _readonly_array(
     value: np.ndarray,
@@ -727,6 +742,7 @@ class MarketDataset:
         object.__setattr__(self, "_eligibility_feature_source", feature_available)
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
+            _validate_cross_asset_global_provenance(global_names, payload)
             canonical_payload_json = canonical_identity_json(payload)
             identity_schema = payload.get("schema")
             if (
@@ -843,6 +859,7 @@ class MarketDataset:
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
+        _validate_cross_asset_global_provenance(self.global_feature_names, payload)
         payload["schema"] = (
             MARKET_DATASET_IDENTITY_SCHEMA_V7
             if self.funding_price_rate is not None

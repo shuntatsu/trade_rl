@@ -669,3 +669,71 @@ def test_repository_root_url_has_no_trailing_slash() -> None:
         api._url("branches", {"page": "1"})
         == "https://api.github.test/repos/owner/repo/branches?page=1"
     )
+
+
+def test_nested_merged_pr_exact_tip_opt_in_does_not_weaken_normal_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nested-PR evidence is available only when explicitly requested."""
+    from tools.branch_hygiene import (
+        GitHubApi,
+        MergedPullRequestSource,
+        plan_merged_retirement,
+    )
+
+    repo = "shuntatsu/trade_rl"
+    api = GitHubApi(
+        repository=repo, token="synthetic", api_url="https://api.github.test"
+    )
+
+    def entry(name: str, sha: str, base: str, merged: bool = True) -> dict:
+        return {
+            "state": "closed",
+            "merged_at": "2026-11-10T03:04:05Z" if merged else None,
+            "head": {"ref": name, "sha": sha, "repo": {"full_name": repo}},
+            "base": {"ref": base, "repo": {"full_name": repo}},
+        }
+
+    closed = [
+        entry("fix/direct", "2" * 40, "main"),
+        entry("fix/nested", "3" * 40, "fix/intermediate"),
+        entry("fix/closed-unmerged", "4" * 40, "main", merged=False),
+        entry("fix/remote-base", "5" * 40, "main")
+        | {"base": {"ref": "main", "repo": {"full_name": "other/repo"}}},
+    ]
+
+    def fake_list_pages(suffix: str, *, state: str | None = None) -> list:
+        assert suffix == "pulls" and state == "closed"
+        return closed
+
+    monkeypatch.setattr(api, "_list_pages", fake_list_pages)
+    assert api.merged_pr_source_refs() == (
+        MergedPullRequestSource("fix/direct", "2" * 40),
+    )
+    merged_nested = api.merged_pr_source_refs(include_nested=True)
+    assert merged_nested == (
+        MergedPullRequestSource("fix/direct", "2" * 40),
+        MergedPullRequestSource("fix/nested", "3" * 40),
+    )
+
+    branches = (
+        BranchInfo("main", "1" * 40, False),
+        BranchInfo("fix/direct", "2" * 40, False),
+        BranchInfo("fix/nested", "3" * 40, False),
+        BranchInfo("fix/closed-unmerged", "4" * 40, False),
+    )
+    kws = {
+        "default_branch": "main",
+        "open_pull_request_refs": (),
+        "active_workflow_branches": frozenset(),
+        "reachable_from_main": frozenset(x.sha for x in branches),
+    }
+    before = plan_merged_retirement(
+        branches, merged_pr_sources=api.merged_pr_source_refs(), **kws
+    )
+    assert [d.branch.name for d in before if d.action == "delete"] == ["fix/direct"]
+    after = plan_merged_retirement(branches, merged_pr_sources=merged_nested, **kws)
+    assert [d.branch.name for d in after if d.action == "delete"] == [
+        "fix/direct",
+        "fix/nested",
+    ]

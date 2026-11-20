@@ -197,8 +197,15 @@ class GitHubApi:
             )
         return tuple(result)
 
-    def merged_pr_source_refs(self) -> tuple[MergedPullRequestSource, ...]:
-        """Enumerate closed-and-merged local PR final heads, not merely ancestors.
+    def merged_pr_source_refs(
+        self, *, include_nested: bool = False
+    ) -> tuple[MergedPullRequestSource, ...]:
+        """Enumerate exact merged local PR final heads (including nested only on request).
+
+        Normal retirement continues to require direct-main merged PRs. A scoped,
+        archive-pinned one-shot may include PRs merged first into an intermediate
+        branch, but canonical planning still demands that the exact final source
+        SHA be reachable from current main.
 
         A newly created branch at the main tip is main-reachable but not
         necessarily finished. Only a matching merged PR can retire that ref.
@@ -220,9 +227,8 @@ class GitHubApi:
             base_repo = base.get("repo")
             if not isinstance(base_repo, dict):
                 raise RuntimeError("merged PR base repository is missing")
-            if (
-                base_repo.get("full_name") != self._repository
-                or base.get("ref") != "main"
+            if base_repo.get("full_name") != self._repository or (
+                not include_nested and base.get("ref") != "main"
             ):
                 continue
             head_repo = head.get("repo")
@@ -481,8 +487,9 @@ def apply_merged_retirement(
     reachable_from_main: frozenset[str],
     max_deletes: int = 100,
     batch_size: int = 10,
+    include_nested_merged_prs: bool = False,
 ) -> tuple[str, ...]:
-    """Delete only exact, revalidated main ancestors using atomic SHA leases.
+    """Delete only exact, revalidated merged PR main ancestors using atomic SHA leases.
 
     Before *each* batch a fresh PR, workflow and branch inventory must still
     authorize every candidate. After each batch every removed ref is read back.
@@ -491,6 +498,8 @@ def apply_merged_retirement(
 
     if api._repository != "shuntatsu/trade_rl" or default_branch != "main":
         raise ValueError("merged retirement is restricted to trade_rl/main")
+    if type(include_nested_merged_prs) is not bool:
+        raise ValueError("nested PR evidence switch must be boolean")
     if (
         not re.fullmatch(r"[0-9a-f]{40}", expected_main_sha)
         or type(max_deletes) is not int
@@ -514,7 +523,10 @@ def apply_merged_retirement(
     queue = queue[:max_deletes]
     # Closed/merged PR identities are stable: no need to re-download the entire
     # historical 1k+ PR roster before every bounded branch batch.
-    merged_sources = api.merged_pr_source_refs() if queue else ()
+    if include_nested_merged_prs and queue:
+        merged_sources = api.merged_pr_source_refs(include_nested=True)
+    else:
+        merged_sources = api.merged_pr_source_refs() if queue else ()
     deleted: list[str] = []
     while queue:
         before = {branch.name: branch for branch in api.branches()}

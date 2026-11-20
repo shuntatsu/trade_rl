@@ -1,11 +1,17 @@
 """Driver for the out-of-sample test ``trend_long_spot_oos_v1``.
 
 ``python -m tools.trend_oos plan --stage BACKCAST|FORWARD``
+``python -m tools.trend_oos coverage --stage BACKCAST|FORWARD``
 ``python -m tools.trend_oos run --stage BACKCAST``
 ``python -m tools.trend_oos run --stage FORWARD --interim | --final``
 
 ``plan`` prints the frozen protocol, its digest and the stage windows. It loads no data
 and computes no return.
+
+``coverage`` is the result-blind data step before any run: it acquires the stage's spot
+archives through the same source path and writes ``coverage.json`` (listing start, missing
+hour ranges after the daily fallback, fallback fills, placeholder rows, checksum results,
+exchange-wide gaps). It builds no signal, replay or return and never refuses on a gap.
 
 ``run`` builds the stage dataset (spot only, 22-leg layout, unlisted markets
 unavailable; :mod:`trade_rl.evaluation.trend_oos.data`) from checksum-verified Binance
@@ -68,6 +74,7 @@ from trade_rl.integrations.market_store.carry_source import (
     _vision_rows,
 )
 from trade_rl.integrations.market_store.contracts import (
+    ArchiveKind,
     StoreMarket,
     Universe,
     ms_from_utc,
@@ -77,6 +84,10 @@ from trade_rl.integrations.market_store.embargo import (
     SealedWindowEmbargoError,
 )
 from trade_rl.integrations.market_store.fetch import VisionFetcher
+from trade_rl.integrations.market_store.parse import (
+    ArchiveContentError,
+    parse_kline_archive,
+)
 from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
 from trade_rl.integrations.market_store.rules import ExchangeInfoError
 
@@ -85,6 +96,8 @@ EXIT_REFUSED = 2
 EXIT_HALTED = 3
 EXIT_INVALID = 4
 EXIT_UNAUTHENTICATED = 5
+COVERAGE_NAME = "coverage.json"
+COVERAGE_SCHEMA = "trend_oos_coverage_v1"
 DATA_RECEIPT_NAME = "trend-oos-data-receipt.json"
 RUN_RECEIPT_NAME = "trend-oos-run-receipt.json"
 DATA_RECEIPT_SCHEMA = "trend_oos_data_receipt_v1"
@@ -383,6 +396,21 @@ def build_parser() -> argparse.ArgumentParser:
         "plan", help="print the protocol, its digest and the stage windows"
     )
     plan.add_argument("--stage", choices=protocol.STAGES, required=True)
+    cov = commands.add_parser(
+        "coverage",
+        help="result-blind data-coverage report; builds no signal, replay or return",
+    )
+    cov.add_argument("--stage", choices=protocol.STAGES, required=True)
+    cov.add_argument(
+        "--through",
+        type=_parse_instant,
+        default=None,
+        help="FORWARD only: an earlier 4h-grid row close to stop at",
+    )
+    cov.add_argument("--archive-dir", type=Path, required=True)
+    cov.add_argument("--allow-network", action="store_true")
+    cov.add_argument("--daily-fallback", action="store_true")
+    cov.add_argument("--output-dir", type=Path, required=True)
     run = commands.add_parser(
         "run", help="run one stage (needs the owner authorization comment)"
     )
@@ -526,6 +554,402 @@ def _stage_limit(
     return limit
 
 
+# --------------------------------------------------------------------- coverage
+
+PlaceholderLog = list[tuple[str, int, int, str]]
+
+
+class _CoverageVisionSource(VisionArchiveSource):
+    """``VisionArchiveSource`` that also logs the placeholder rows the parser skips."""
+
+    def __init__(self, fetcher: Any, plan: IngestionPlan, log: PlaceholderLog) -> None:
+        super().__init__(fetcher, plan)
+        self._log = log
+
+    def read_klines(
+        self,
+        market: StoreMarket,
+        symbol: str,
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[Any]:
+        rows: list[Any] = []
+        for spec in self._selected(
+            ArchiveKind.KLINES, market, symbol, start_ms, end_ms
+        ):
+            if spec.interval != interval:
+                raise CarryIntegrityHalt(
+                    f"planned interval differs: {spec.url}",
+                    {"kind": "plan_interval_mismatch", "url": spec.url},
+                )
+            payload = self._payload(spec)
+            try:
+                parsed = parse_kline_archive(payload, spec, embargo=self._embargo)
+            except ArchiveContentError as error:
+                raise self._malformed(spec, error) from error
+            for item in parsed.placeholders:
+                self._log.append(
+                    (spec.symbol, item.open_time_ms, item.close_time_ms, spec.url)
+                )
+            rows.extend(
+                row for row in parsed.rows if start_ms <= row.open_time_ms < end_ms
+            )
+        return rows
+
+
+def _coverage_sources(
+    args: argparse.Namespace, plan: IngestionPlan, policy: EmbargoPolicy
+) -> tuple[CarryRowSource, CarryRowSource, PlaceholderLog]:
+    log: PlaceholderLog = []
+
+    def factory(inner_plan: IngestionPlan) -> CarryRowSource:
+        inner = (
+            _StageVisionFetcher(policy, max_attempts=1) if args.allow_network else None
+        )
+        return _CoverageVisionSource(
+            ArchiveDirFetcher(args.archive_dir, inner), inner_plan, log
+        )
+
+    primary = factory(plan)
+    if not args.daily_fallback:
+        return primary, primary, log
+    fallback = tierd_driver.DailyFallbackSource(
+        primary, factory, halts=SPOT_HALTS, embargo=policy
+    )
+    return primary, fallback, log
+
+
+def _iso(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1_000, UTC).isoformat()
+
+
+def _hour_ranges(hours: Sequence[int]) -> list[dict[str, object]]:
+    return tierd_driver._ranges(sorted(hours))
+
+
+def _halt_error(error: CarryScreenHalt) -> dict[str, object]:
+    return {
+        "kind": error.kind,
+        "detail": error.evidence.get("kind"),
+        "resumable": error.resumable,
+        "message": str(error),
+    }
+
+
+def _symbol_coverage(
+    detect: CarryRowSource,
+    reader: CarryRowSource,
+    symbol: str,
+    *,
+    window: data.StageWindow,
+    limit_close: datetime,
+    halt_intervals: Sequence[tuple[datetime, datetime]],
+) -> tuple[dict[str, Any], int | None, set[int]]:
+    """Coverage facts of one symbol; never raises on a gap, a 404 or a bad archive."""
+    start_ms, end_ms = ms_from_utc(window.load_start), ms_from_utc(limit_close)
+    errors: list[dict[str, object]] = []
+    first_open: int | None = None
+    unpublished_leading = 0
+    for lo, hi in _month_chunks(start_ms, end_ms):
+        try:
+            rows = detect.read_klines(
+                StoreMarket.SPOT, symbol, data.BASE_INTERVAL, lo, hi
+            )
+        except CarryCoverageError as error:
+            if (error.evidence or {}).get("kind") == "archive_not_published":
+                unpublished_leading += 1
+                continue
+            errors.append(
+                {"phase": "listing", "kind": "coverage", "message": str(error)}
+            )
+            break
+        except CarryScreenHalt as error:
+            errors.append({"phase": "listing", **_halt_error(error)})
+            break
+        if rows:
+            first_open = int(rows[0].open_time_ms)
+            break
+        unpublished_leading += 1
+    entry: dict[str, Any] = {
+        "first_listed_open": None if first_open is None else _iso(first_open),
+        "unpublished_leading_months": unpublished_leading,
+        "errors": errors,
+    }
+    if first_open is None:
+        return entry, None, set()
+    present: set[int] = set()
+    zero_volume: list[int] = []
+    unread: list[dict[str, object]] = []
+    for lo, hi in _month_chunks(first_open, end_ms):
+        span = {"from": _iso(lo), "to": _iso(hi)}
+        try:
+            rows = reader.read_klines(
+                StoreMarket.SPOT, symbol, data.BASE_INTERVAL, lo, hi
+            )
+        except CarryCoverageError as error:
+            kind = (error.evidence or {}).get("kind", "coverage")
+            unread.append(
+                {**span, "kind": "coverage", "detail": kind, "message": str(error)}
+            )
+            continue
+        except CarryScreenHalt as error:
+            unread.append({**span, **_halt_error(error)})
+            continue
+        for row in rows:
+            opened = int(row.open_time_ms)
+            present.add(opened)
+            if row.volume == 0:
+                zero_volume.append(opened)
+    halts = [(ms_from_utc(lo), ms_from_utc(hi)) for lo, hi in halt_intervals]
+    missing: list[int] = []
+    explained = 0
+    for index, opened in enumerate(range(first_open, end_ms, data.HOUR_MS)):
+        if opened in present:
+            continue
+        if index > 0 and any(
+            lo <= opened and opened + data.HOUR_MS <= hi for lo, hi in halts
+        ):
+            explained += 1
+        else:
+            missing.append(opened)
+    entry.update(
+        {
+            "expected_hours": (end_ms - first_open) // data.HOUR_MS,
+            "present_hours": len(present),
+            "missing_hours": len(missing),
+            "missing_ranges": _hour_ranges(missing),
+            "missing_explained_by_declared_halt_hours": explained,
+            "zero_volume_regular_rows": _hour_ranges(zero_volume),
+            "unread_chunks": unread,
+        }
+    )
+    return entry, first_open, set(missing)
+
+
+def _exchange_wide(
+    firsts: dict[str, int], missing: dict[str, set[int]]
+) -> dict[str, object]:
+    """Hours missing for every symbol listed at that hour (at least two listed)."""
+    hours: list[int] = []
+    union: set[int] = set().union(*missing.values()) if missing else set()
+    for hour in sorted(union):
+        listed = [name for name, first in firsts.items() if first <= hour]
+        if len(listed) >= 2 and all(hour in missing[name] for name in listed):
+            hours.append(hour)
+    return {
+        "rule": "unexplained missing hours shared by every symbol listed then "
+        "(at least two listed)",
+        "hours": len(hours),
+        "ranges": _hour_ranges(hours),
+    }
+
+
+_INTEGRITY_DETAILS = ("checksum_mismatch", "checksum_missing", "malformed_archive")
+
+
+def coverage_report(
+    detect: CarryRowSource,
+    reader: CarryRowSource,
+    placeholders: PlaceholderLog,
+    *,
+    window: data.StageWindow,
+    limit_close: datetime,
+    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+) -> dict[str, Any]:
+    """Per-symbol listing, gaps, fills, placeholders and checksum results.
+
+    Rows are read through the stage guard only to validate and count them; this builds
+    no dataset, no signal, no replay and no return, and never refuses because of a gap.
+    """
+    guarded_detect = data.StageRowSource(detect, window=window, limit_close=limit_close)
+    guarded_reader = data.StageRowSource(reader, window=window, limit_close=limit_close)
+    symbols: dict[str, Any] = {}
+    firsts: dict[str, int] = {}
+    missing: dict[str, set[int]] = {}
+    for symbol in protocol.ROSTER:
+        entry, first, gone = _symbol_coverage(
+            guarded_detect,
+            guarded_reader,
+            symbol,
+            window=window,
+            limit_close=limit_close,
+            halt_intervals=halt_intervals,
+        )
+        symbols[symbol] = entry
+        if first is not None:
+            firsts[symbol] = first
+            missing[symbol] = gone
+    evidence_fn = getattr(reader, "evidence", None)
+    evidence = list(evidence_fn()) if callable(evidence_fn) else []
+    fills_fn = getattr(reader, "fills", None)
+    fills = list(fills_fn()) if callable(fills_fn) else []
+    for symbol, entry in symbols.items():
+        mine = [e for e in evidence if e.get("symbol") == symbol]
+        failures = [
+            c
+            for c in entry.get("unread_chunks", [])
+            if c.get("detail") in _INTEGRITY_DETAILS
+        ] + [e for e in entry["errors"] if e.get("detail") in _INTEGRITY_DETAILS]
+        entry["checksums"] = {
+            "archives_verified": len(mine),
+            "failures": failures,
+            "archives": [
+                {
+                    "url": e["url"],
+                    "archive_sha256": e.get("archive_sha256"),
+                    "checksum_file_sha256": e.get("checksum_file_sha256"),
+                    "verified": True,
+                }
+                for e in mine
+            ],
+        }
+        filled = [f for f in fills if f.get("symbol") == symbol]
+        filled_ms = [
+            int(datetime.fromisoformat(str(f["open_time"])).timestamp() * 1_000)
+            for f in filled
+        ]
+        entry["filled_by_daily_fallback"] = {
+            "hours": len(filled),
+            "ranges": _hour_ranges(filled_ms),
+            "archives": sorted(
+                {
+                    (str(f.get("archive_url")), str(f.get("archive_sha256")))
+                    for f in filled
+                }
+            ),
+        }
+        entry["placeholder_rows"] = [
+            {
+                "open_time": _iso(open_ms),
+                "close_time": _iso(close_ms),
+                "archive_url": url,
+            }
+            for sym, open_ms, close_ms, url in sorted(set(placeholders))
+            if sym == symbol
+        ]
+    return {
+        "symbols": symbols,
+        "exchange_wide_gaps": _exchange_wide(firsts, missing),
+        "archive_evidence_count": len(evidence),
+        "archive_evidence_digest": tierd_driver._digest(evidence) if evidence else None,
+        "daily_fallback_filled_hours": len(fills),
+        "declared_halts": [
+            [_iso(ms_from_utc(a)), _iso(ms_from_utc(b))] for a, b in SPOT_HALTS
+        ],
+    }
+
+
+def _read_errors(entry: dict[str, Any]) -> bool:
+    """True when something other than a documented absence went wrong for a symbol."""
+    return bool(entry["errors"]) or any(
+        c.get("kind") in ("operational", "integrity")
+        for c in entry.get("unread_chunks", [])
+    )
+
+
+def _coverage_main(
+    args: argparse.Namespace,
+    *,
+    out: TextIO,
+    err: TextIO,
+    state: GitState,
+    rows_factory: RowSourceFactory | None,
+    moment: datetime,
+    gh: g4.GhRunner,
+) -> int:
+    try:
+        if args.stage == protocol.STAGE_BACKCAST and args.through is not None:
+            raise ValueError("--through is for FORWARD only")
+        if args.output_dir.exists():
+            raise FileExistsError(f"{args.output_dir} exists; outputs are write-once")
+        window = data.frozen_window(args.stage)
+        mode = (
+            runner.MODE_DECISION
+            if args.stage == protocol.STAGE_BACKCAST
+            else runner.MODE_INTERIM
+        )
+        limit = _stage_limit(args, window, moment, mode)
+        data_auth: g4.CommentSnapshot | None = None
+        if args.stage == protocol.STAGE_FORWARD:
+            data_auth = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
+        commit, clean = state()
+        policy = embargo_for(limit, stage=args.stage)
+        plan = build_plan(window, limit, moment, policy)
+        if rows_factory is not None:
+            detect = reader = rows_factory(plan)
+            log: PlaceholderLog = list(getattr(detect, "placeholders", []))
+        else:
+            detect, reader, log = _coverage_sources(args, plan, policy)
+        try:
+            report = coverage_report(
+                detect, reader, log, window=window, limit_close=limit
+            )
+        finally:
+            for source in {id(detect): detect, id(reader): reader}.values():
+                close = getattr(source, "close", None)
+                if callable(close):
+                    close()
+        document = {
+            "schema_version": COVERAGE_SCHEMA,
+            "protocol_id": protocol.PROTOCOL_ID,
+            "protocol_digest": protocol.protocol_digest(),
+            "stage": args.stage,
+            "window": window.to_dict(),
+            "read_limit_close": limit.isoformat(),
+            "source": "vision_spot_1h",
+            "daily_fallback_enabled": bool(args.daily_fallback),
+            "allow_network": bool(args.allow_network),
+            "forward_data_authorization": (
+                None
+                if data_auth is None
+                else {
+                    "url": protocol.DATA_AUTHORIZATION_URL,
+                    "author_login": data_auth.login,
+                    "body_sha256": data_auth.body_sha256,
+                    "updated_at": data_auth.updated_at,
+                    "embargo_policy": type(policy).__name__,
+                }
+            ),
+            "code_commit": commit,
+            "working_tree_clean": clean,
+            "run_at": moment.isoformat(),
+            "not_computed": "no signal, replay, return or label; rows were read "
+            "only to validate and count them",
+            "note": "a month whose archive is unpublished after listing is reported "
+            "in unread_chunks and counted missing; the daily fallback fills hours "
+            "inside published archives only",
+            **report,
+        }
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+        (args.output_dir / COVERAGE_NAME).write_bytes(canonical_json_bytes(document))
+    except g4.G4AuthError as error:
+        err.write(f"authorization failed: {error}\n")
+        return EXIT_UNAUTHENTICATED
+    except (ValueError, SealedWindowEmbargoError, FileExistsError, OSError) as error:
+        err.write(f"refused: {error}\n")
+        return EXIT_REFUSED
+    entries = document["symbols"]
+    errored = sorted(n for n, e in entries.items() if _read_errors(e))
+    out.write(
+        json.dumps(
+            {
+                "stage": args.stage,
+                "coverage": str(args.output_dir / COVERAGE_NAME),
+                "symbols_with_missing_hours": sorted(
+                    n for n, e in entries.items() if e.get("missing_hours")
+                ),
+                "exchange_wide_gap_hours": document["exchange_wide_gaps"]["hours"],
+                "symbols_with_read_errors": errored,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    return EXIT_HALTED if errored else EXIT_OK
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -548,6 +972,16 @@ def main(
             return EXIT_REFUSED
         out.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
         return EXIT_OK
+    if args.command == "coverage":
+        return _coverage_main(
+            args,
+            out=out,
+            err=err,
+            state=state,
+            rows_factory=rows_factory,
+            moment=moment,
+            gh=gh,
+        )
     try:
         mode = _check_mode(args, moment)
         # the authorization shape is checked before any file or row is touched

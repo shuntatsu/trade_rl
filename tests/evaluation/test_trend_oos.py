@@ -2060,3 +2060,267 @@ def test_the_package_reuses_the_unchanged_lowturn_policy_module() -> None:
     assert LowturnPolicy is lowturn_policies.LowturnPolicy
     assert runner.LowturnPolicy is lowturn_policies.LowturnPolicy
     assert callable(family_targets)
+
+
+# ============================================================ the coverage step
+
+
+def _ms(*parts: int) -> int:
+    return int(datetime(*parts, tzinfo=UTC).timestamp() * 1_000)
+
+
+class _CovRows(_Rows):
+    """Spot rows with an exchange-wide gap, own gaps, a zero-volume row and fills."""
+
+    def __init__(self, listed: dict[str, datetime | None]) -> None:
+        super().__init__(listed)
+        shared = {_ms(2018, 3, 10, h) for h in (2, 3, 4)}
+        self.skip: dict[str, set[int]] = {symbol: set(shared) for symbol in listed}
+        self.skip["BTCUSDT"].add(_ms(2018, 4, 1, 10))
+        self.skip["BNBUSDT"] |= {_ms(2018, 5, 2, 0), _ms(2018, 5, 2, 1)}
+        self.zero = {("BNBUSDT", _ms(2018, 6, 1, 6))}
+        self.fail: dict[str, Exception] = {}
+        self.placeholders = [
+            ("ETHUSDT", _ms(2018, 3, 3, 14), _ms(2018, 3, 3, 14) + 3_599_999, "u/eth")
+        ]
+
+    def read_klines(
+        self, market: Any, symbol: str, interval: str, s: int, e: int
+    ) -> list[KlineRow]:
+        if symbol in self.fail and s > _ms(2018, 3, 1):
+            raise self.fail[symbol]
+        rows = super().read_klines(market, symbol, interval, s, e)
+        kept = [r for r in rows if r.open_time_ms not in self.skip[symbol]]
+        return [
+            replace(r, volume=Decimal(0))
+            if (symbol, r.open_time_ms) in self.zero
+            else r
+            for r in kept
+        ]
+
+    def evidence(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "symbol": symbol,
+                "url": f"https://x/{symbol}-{i}.zip",
+                "archive_sha256": "a" * 64,
+                "checksum_file_sha256": "b" * 64,
+            }
+            for symbol in ("BTCUSDT", "ETHUSDT")
+            for i in range(2)
+        ]
+
+    def fills(self) -> list[dict[str, object]]:
+        return [
+            {
+                "market": "spot",
+                "symbol": "SOLUSDT",
+                "open_time": datetime(2018, 4, 5, h, tzinfo=UTC).isoformat(),
+                "source": "vision_daily",
+                "archive_url": "https://x/SOLUSDT-2018-04-05.zip",
+                "archive_sha256": "c" * 64,
+            }
+            for h in (7, 8)
+        ]
+
+
+def _cov_argv(tmp_path: Path, stage: str = "BACKCAST", name: str = "cov") -> list[str]:
+    return ["coverage", "--stage", stage, "--output-dir", str(tmp_path / name)]
+
+
+def _cov_tool(
+    tmp_path: Path,
+    argv: Sequence[str],
+    *,
+    rows: Any,
+    gh: Any = None,
+    now: datetime = NOW,
+) -> tuple[int, str, str]:
+    out, err = io.StringIO(), io.StringIO()
+    code = driver.main(
+        [*argv, "--archive-dir", str(tmp_path / "archives")],
+        stdout=out,
+        stderr=err,
+        state=lambda: ("d" * 40, False),
+        rows_factory=lambda plan: rows,
+        now=lambda: now,
+        gh=gh or _Gh(),
+    )
+    return code, out.getvalue(), err.getvalue()
+
+
+def _no_economics(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*a: Any, **k: Any) -> Any:
+        pytest.fail("coverage must not build signals, replay or return anything")
+
+    monkeypatch.setattr(driver.runner, "run_stage", boom)
+    monkeypatch.setattr(runner, "build_oos_signals", boom)
+    monkeypatch.setattr(runner, "run_shared_portfolio_replay", boom)
+    monkeypatch.setattr(runner, "decide", boom)
+
+
+def test_coverage_reports_gaps_ranges_listing_fills_and_placeholders_without_refusing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _small_window(monkeypatch, "BACKCAST")
+    _no_economics(monkeypatch)
+    gh = _Gh()
+    code, out, err = _cov_tool(
+        tmp_path, _cov_argv(tmp_path), rows=_CovRows(_listings()), gh=gh
+    )
+    assert code == driver.EXIT_OK, err  # gaps are reported, never a refusal
+    assert gh.calls == []  # BACKCAST needs no comment
+    doc = json.loads((tmp_path / "cov" / "coverage.json").read_text("utf-8"))
+    assert json.loads(out)["exchange_wide_gap_hours"] == 3
+    assert doc["schema_version"] == "trend_oos_coverage_v1"
+    assert doc["protocol_digest"] == protocol.protocol_digest()
+    assert doc["code_commit"] == "d" * 40 and doc["working_tree_clean"] is False
+    assert "no signal, replay, return" in doc["not_computed"]
+    assert "label" not in doc and "cells" not in doc
+    syms = doc["symbols"]
+    # listing start
+    assert syms["BTCUSDT"]["first_listed_open"].startswith("2018-01-01T00:00")
+    assert syms["SOLUSDT"]["first_listed_open"].startswith("2018-02-03T05:00")
+    assert syms["XRPUSDT"]["first_listed_open"].startswith("2018-07-05T08:00")
+    assert syms["XRPUSDT"]["unpublished_leading_months"] >= 6
+    assert syms["DOGEUSDT"]["first_listed_open"] is None
+    # missing hours as contiguous ranges
+    assert syms["BTCUSDT"]["missing_hours"] == 4
+    assert syms["BTCUSDT"]["missing_ranges"] == [
+        {"first_missing_open": "2018-03-10T02:00:00+00:00", "hours": 3},
+        {"first_missing_open": "2018-04-01T10:00:00+00:00", "hours": 1},
+    ]
+    assert syms["BNBUSDT"]["missing_ranges"][1] == {
+        "first_missing_open": "2018-05-02T00:00:00+00:00",
+        "hours": 2,
+    }
+    assert syms["XRPUSDT"]["missing_hours"] == 0
+    # exchange-wide: only the hours every listed symbol misses
+    assert doc["exchange_wide_gaps"]["ranges"] == [
+        {"first_missing_open": "2018-03-10T02:00:00+00:00", "hours": 3}
+    ]
+    # zero-volume row, placeholder rows, fallback fills and checksum results
+    assert syms["BNBUSDT"]["zero_volume_regular_rows"] == [
+        {"first_missing_open": "2018-06-01T06:00:00+00:00", "hours": 1}
+    ]
+    placeholder = syms["ETHUSDT"]["placeholder_rows"][0]
+    assert placeholder["open_time"].startswith("2018-03-03T14:00")
+    assert syms["BTCUSDT"]["placeholder_rows"] == []
+    fill = syms["SOLUSDT"]["filled_by_daily_fallback"]
+    assert fill["hours"] == 2
+    assert fill["ranges"] == [
+        {"first_missing_open": "2018-04-05T07:00:00+00:00", "hours": 2}
+    ]
+    assert fill["archives"] == [["https://x/SOLUSDT-2018-04-05.zip", "c" * 64]]
+    assert syms["BTCUSDT"]["filled_by_daily_fallback"]["hours"] == 0
+    assert syms["BTCUSDT"]["checksums"]["archives_verified"] == 2
+    assert syms["BTCUSDT"]["checksums"]["failures"] == []
+    assert syms["BNBUSDT"]["checksums"]["archives_verified"] == 0
+    assert doc["declared_halts"][0][0].startswith("2023-03-24")
+
+
+def test_coverage_never_reads_past_the_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = _small_window(monkeypatch, "BACKCAST")
+    rows = _CovRows(_listings())
+    _cov_tool(tmp_path, _cov_argv(tmp_path), rows=rows)
+    assert max(end for _, _, end in rows.requests) <= int(
+        window.last_row_close.timestamp() * 1_000
+    )
+
+
+def test_coverage_records_a_checksum_failure_and_an_unpublished_month_and_exits_3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    _small_window(monkeypatch, "BACKCAST")
+    rows = _CovRows(_listings())
+    rows.fail["ETHUSDT"] = CarryIntegrityHalt(
+        "checksum mismatch", {"kind": "checksum_mismatch", "url": "u"}
+    )
+    rows.fail["BNBUSDT"] = CarryCoverageError(
+        "archive is not published: u", {"kind": "archive_not_published"}
+    )
+    code, out, _ = _cov_tool(tmp_path, _cov_argv(tmp_path), rows=rows)
+    assert code == driver.EXIT_HALTED  # an integrity fault is not a documented gap
+    doc = json.loads((tmp_path / "cov" / "coverage.json").read_text("utf-8"))
+    assert json.loads(out)["symbols_with_read_errors"] == ["ETHUSDT"]
+    eth = doc["symbols"]["ETHUSDT"]
+    assert eth["checksums"]["failures"]
+    assert eth["unread_chunks"][0]["detail"] == "checksum_mismatch"
+    bnb = doc["symbols"]["BNBUSDT"]
+    assert bnb["unread_chunks"][0]["detail"] == "archive_not_published"
+    assert bnb["missing_hours"] > 0  # reported, counted missing, not an error
+    assert doc["symbols"]["BTCUSDT"]["missing_hours"] == 4
+
+
+def test_coverage_refusals_and_forward_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _small_window(monkeypatch, "FORWARD")
+    _no_economics(monkeypatch)
+    old = {s: datetime(2018, 1, 1, tzinfo=UTC) for s in protocol.ROSTER}
+    # FORWARD fetches the owner's data-authorization comment, which must be the owner's
+    bad = _Gh()
+    bad.data = tierd_tests.FakeGh(url=DATA_AUTH, body="x\n", login="mallory", user_id=1)
+    rows = _Rows(old)
+    code, _, err = _cov_tool(
+        tmp_path, _cov_argv(tmp_path, "FORWARD"), rows=rows, gh=bad
+    )
+    assert code == driver.EXIT_UNAUTHENTICATED, err
+    assert not (tmp_path / "cov").exists() and rows.requests == []
+    gh = _Gh()
+    now = datetime(2026, 8, 20, 6, 30, tzinfo=UTC)
+    rows = _Rows(old)
+    argv = _cov_argv(tmp_path, "FORWARD")
+    code, _, err = _cov_tool(tmp_path, argv, rows=rows, gh=gh, now=now)
+    assert code == driver.EXIT_OK, err
+    assert [c[1].rsplit("/", 1)[1] for c in gh.calls] == ["7028416072"]
+    doc = json.loads((tmp_path / "cov" / "coverage.json").read_text("utf-8"))
+    assert doc["read_limit_close"] == "2026-08-20T00:00:00+00:00"
+    bound = doc["forward_data_authorization"]
+    assert (
+        bound["embargo_policy"] == "ForwardEmbargoPolicy" and bound["url"] == DATA_AUTH
+    )
+    assert max(e for _, _, e in rows.requests) <= _ms(2026, 8, 20)
+    # write-once, and BACKCAST takes no --through
+    code, _, err = _cov_tool(tmp_path, argv, rows=rows, gh=gh, now=now)
+    assert code == driver.EXIT_REFUSED and "write-once" in err
+    code, _, err = _cov_tool(
+        tmp_path,
+        [*_cov_argv(tmp_path, name="c2"), "--through", "2018-07-10T00:00"],
+        rows=_Rows(old),
+    )
+    assert code == driver.EXIT_REFUSED and "FORWARD only" in err
+
+
+def test_the_real_coverage_source_logs_the_skipped_placeholder_row() -> None:
+    from tests.integrations.market_store import support
+    from trade_rl.integrations.market_store.contracts import Universe
+    from trade_rl.integrations.market_store.plan import plan_ingestion
+
+    start, end = datetime(2020, 12, 1, tzinfo=UTC), datetime(2021, 1, 1, tzinfo=UTC)
+    plan = plan_ingestion(
+        Universe(symbols=("BTCUSDT",), interval="1h", markets=(StoreMarket.SPOT,)),
+        start=start,
+        end=end,
+        now=datetime(2026, 11, 20, tzinfo=UTC),
+    )
+    (spec,) = plan.specs
+    lo, hi = _ms(2020, 12, 1), _ms(2021, 1, 1)
+    placeholder_ms = support.PLACEHOLDER_OPEN_MS
+    rows = support.kline_csv_rows("BTCUSDT", lo, hi, skip=frozenset({placeholder_ms}))
+    at = next(i for i, r in enumerate(rows) if int(r[0]) > placeholder_ms)
+    rows.insert(at, support.REAL_BTC_PLACEHOLDER)
+    fetcher = support.FakeFetcher()
+    fetcher.add(spec.url, support.zip_csv(rows))
+    log: list[tuple[str, int, int, str]] = []
+    source = driver._CoverageVisionSource(fetcher, plan, log)
+    got = source.read_klines(StoreMarket.SPOT, "BTCUSDT", "1h", lo, hi)
+    assert len(got) == (hi - lo) // HOUR_MS - 1  # the placeholder is not a row
+    assert placeholder_ms not in {r.open_time_ms for r in got}
+    assert log == [("BTCUSDT", placeholder_ms, 1_608_558_440_521, spec.url)]
+    (evidence,) = source.evidence()
+    assert evidence["symbol"] == "BTCUSDT" and len(evidence["archive_sha256"]) == 64

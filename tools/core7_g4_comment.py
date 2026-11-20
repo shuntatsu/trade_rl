@@ -144,9 +144,24 @@ def _quotes(body: str, token: str) -> bool:
     return re.search(_HEX64.format(re.escape(token)), body) is not None
 
 
-def require_protocol_digest(snapshot: CommentSnapshot) -> None:
-    if not _quotes(snapshot.body, protocol.protocol_digest()):
+def require_protocol_digest(
+    snapshot: CommentSnapshot, protocol_digest: str | None = None
+) -> None:
+    """The comment must quote the digest (default: the Core7 MTF protocol's)."""
+    digest = protocol.protocol_digest() if protocol_digest is None else protocol_digest
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise G4AuthError("protocol digest is not a lowercase sha256 digest")
+    if not _quotes(snapshot.body, digest):
         raise G4AuthError("comment does not quote the exact protocol digest")
+
+
+def require_protocol_id(snapshot: CommentSnapshot, protocol_id: str) -> None:
+    """The comment must quote ``protocol_id`` as a whole identifier token."""
+    if re.fullmatch(r"[A-Za-z0-9_]+", protocol_id) is None:
+        raise G4AuthError("protocol id is malformed")
+    pattern = rf"(?<![A-Za-z0-9_]){re.escape(protocol_id)}(?![A-Za-z0-9_])"
+    if re.search(pattern, snapshot.body) is None:
+        raise G4AuthError("comment does not quote the exact protocol id")
 
 
 def require_dataset_id(snapshot: CommentSnapshot, dataset_id: str) -> None:
@@ -157,7 +172,11 @@ def require_dataset_id(snapshot: CommentSnapshot, dataset_id: str) -> None:
 
 
 def confirm_unedited(
-    url: str, first: CommentSnapshot, gh: GhRunner = default_gh
+    url: str,
+    first: CommentSnapshot,
+    gh: GhRunner = default_gh,
+    *,
+    protocol_digest: str | None = None,
 ) -> AuthorizationReceipt:
     """Re-fetch right before ``run_study``; require the identical body and edit time."""
     second = fetch_comment(url, gh)
@@ -174,7 +193,9 @@ def confirm_unedited(
         author_id=second.user_id,
         body_sha256=second.body_sha256,
         fetched_at=second.fetched_at,
-        quoted_protocol_digest=protocol.protocol_digest(),
+        quoted_protocol_digest=(
+            protocol.protocol_digest() if protocol_digest is None else protocol_digest
+        ),
     )
 
 
@@ -202,4 +223,5 @@ __all__ = [
     "parse_g4_url",
     "require_dataset_id",
     "require_protocol_digest",
+    "require_protocol_id",
 ]

@@ -42,6 +42,7 @@ python -m tools.markdown_links --check
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 - Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
 - Signal diagnosis run SD2 (frozen protocol v4, runner implemented, not run on real data): [specs/signal-diagnosis-run.md](specs/signal-diagnosis-run.md)
+- Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 
 ## 情報の所有先と更新
 

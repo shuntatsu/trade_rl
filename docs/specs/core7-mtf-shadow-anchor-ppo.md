@@ -70,8 +70,9 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v4.json`（`-v1.json`〜`-v3.json` は旧プロトコルの履歴であり不変・再ピンしない）
-- Pinned Implementation Head: `58d76a19a7265e24231ec69be7c7ec1f20394e1d`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v5.json`（`-v1.json`〜`-v4.json` は不変の履歴。旧パケットを書き換えたり、過去の研究承認に再分類したりしない）
+- Pinned Implementation Head: `d825cd8de98840c6d948394137daf5acaf08297b`
+- Re-pin reason: #1287 が共通 `trade_rl/data/market.py` のクロスアセット由来情報保護を強化し、Core7のsource closureを更新した。凍結された Core7 プロトコルdigest・費用・停止基準・未認可の研究状態は変更しない。v5 は **UNREVIEWED** であり、独立G0–G2レビューおよび別途オーナーG4承認なしに実市場データの計測・Phase 1 の実行を許さない。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `c7bba24b8a3c3d1cd79cc16cc3c4f8311d9143edd0aa0602ae6f64d9234708e5`
+- Pinned Packet Digest: `003a2767febabc9dbe2729b1a6e3efb0217a578471d2b9413766bfd496cf8a39`

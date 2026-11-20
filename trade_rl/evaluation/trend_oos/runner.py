@@ -31,6 +31,7 @@ from trade_rl.evaluation.replay import (
     run_shared_portfolio_replay,
 )
 from trade_rl.evaluation.trend_oos import protocol
+from trade_rl.evaluation.trend_oos.cash_policy import CashAccountPolicy
 from trade_rl.evaluation.trend_oos.data import (
     StageDataError,
     StageWindow,
@@ -68,6 +69,10 @@ MODE_INTERIM = "interim"
 MIN_REPLAY_BARS = 2 * protocol.REBALANCE_EVERY_BARS
 
 DISCLOSURES: tuple[str, ...] = (
+    "every arm trades a spot cash account: after the lowturn caps the spot gross is "
+    "capped at 1.0 (lowturn v1 allowed 2.0 with zero-cost financing); a cell that "
+    "borrows is INVALID (negative_cash_borrowing)",
+    "the causality probe is per (arm, signal lag) and shared by the cost scenarios",
     "exchange rules (lot size, minimum notional) are one static snapshot applied to "
     "every row, not point-in-time; for BACKCAST this approximates 2018-2020 by the "
     "retrieval-time rules",
@@ -114,12 +119,15 @@ def _probe_stage(
 
             def make(
                 pack: LowturnSignals, arm: str = arm, lag: int = lag
-            ) -> LowturnPolicy:
-                return LowturnPolicy(
-                    family=arm,
-                    signals=pack,
+            ) -> CashAccountPolicy:
+                return CashAccountPolicy(
+                    LowturnPolicy(
+                        family=arm,
+                        signals=pack,
+                        start_index=start_index,
+                        signal_lag_bars=lag,
+                    ),
                     start_index=start_index,
-                    signal_lag_bars=lag,
                 )
 
             base = _run_decisions(make(signals), snapshots)
@@ -143,6 +151,45 @@ def _probe_stage(
     return out
 
 
+def _dust_adjusted(
+    returns: np.ndarray,
+    result: SharedCashPortfolioReplayResult,
+    terminal_dust: Any,
+) -> np.ndarray:
+    """The return series with the terminal dust exit cost deducted from the last bar.
+
+    The cell's total return is ``(portfolio value - dust exit cost) / capital - 1``; the
+    per-bar series used for the per-year returns and the bootstrap must agree with it.
+    """
+    dust_cost = sum(float(item["exit_cost_usdt"]) for item in terminal_dust)
+    value = float(result.book.portfolio_value)
+    if dust_cost <= 0.0 or returns.size == 0 or value <= dust_cost:
+        return returns
+    adjusted = returns.copy()
+    adjusted[-1] = (1.0 + adjusted[-1]) * (value - dust_cost) / value - 1.0
+    return adjusted
+
+
+def _cash_extremes(
+    result: SharedCashPortfolioReplayResult,
+) -> tuple[float | None, float | None]:
+    """``(min cash, max borrowing)`` over the ledger intervals.
+
+    Borrowing is the negative cash that is not explained by execution costs: the engine
+    debits costs from cash, so a book fully invested at gross 1.0 sits at minus its
+    cumulative costs, which is not borrowing.
+    """
+    ledger = result.ledger_evidence
+    if ledger is None or not ledger.intervals.intervals:
+        return None, None
+    intervals = ledger.intervals.intervals
+    cash = [float(iv.cash_after) for iv in intervals]
+    borrowing = [
+        max(0.0, -float(iv.cash_after) - float(iv.total_cost_after)) for iv in intervals
+    ]
+    return min(cash), max(borrowing)
+
+
 def _build_cell(
     *,
     arm: str,
@@ -150,6 +197,8 @@ def _build_cell(
     result: SharedCashPortfolioReplayResult,
     dataset: MarketDataset,
     causality_passed: bool,
+    probe_key: str,
+    cap_statistics: Mapping[str, Any],
 ) -> OosCell:
     summary = _summarize_replay_cell(
         arm=arm,
@@ -160,8 +209,13 @@ def _build_cell(
         causality_passed=causality_passed,
         execution_cost=protocol.scenario_cost(scenario),
     )
-    returns = np.asarray(result.returns.values, dtype=np.float64)
+    raw_returns = np.asarray(result.returns.values, dtype=np.float64)
+    returns = _dust_adjusted(raw_returns, result, summary.terminal_dust)
     reasons = list(summary.invalid_reasons)
+    min_cash, max_borrowing = _cash_extremes(result)
+    tolerance = protocol.CASH_TOLERANCE_FRACTION * protocol.INITIAL_CAPITAL
+    if max_borrowing is not None and max_borrowing > tolerance:
+        reasons.append(protocol.REASON_NEGATIVE_CASH)
     years = _calendar_year_returns(dataset, result, returns)
     if years is None:
         reasons.append("returns_not_aligned_with_ledger_intervals")
@@ -188,6 +242,10 @@ def _build_cell(
         n_returns=int(returns.size),
         calendar_year_returns=years,
         returns=tuple(float(r) for r in returns),
+        min_cash=min_cash,
+        max_borrowing=max_borrowing,
+        cap_statistics=dict(cap_statistics),
+        causality_probe_key=probe_key,
     )
 
 
@@ -251,11 +309,14 @@ def run_stage(
     for arm in protocol.ARMS:
         for scenario in protocol.SCENARIOS:
             lag = protocol.scenario_signal_lag_bars(scenario)
-            policy = LowturnPolicy(
-                family=arm,
-                signals=signals,
+            policy = CashAccountPolicy(
+                LowturnPolicy(
+                    family=arm,
+                    signals=signals,
+                    start_index=start,
+                    signal_lag_bars=lag,
+                ),
                 start_index=start,
-                signal_lag_bars=lag,
             )
             result = run_shared_portfolio_replay(
                 dataset,
@@ -274,6 +335,8 @@ def run_stage(
                 result=result,
                 dataset=dataset,
                 causality_passed=probes[(arm, lag)].passed,
+                probe_key=f"{arm}__lag{lag}",
+                cap_statistics=policy.stats.to_dict(),
             )
             cells[cell.key] = cell
             _write_json(

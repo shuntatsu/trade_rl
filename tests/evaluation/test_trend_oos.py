@@ -89,6 +89,8 @@ def _series(
     limit: datetime | None = None,
     drift: float = 0.0004,
     volume: float = 1.5e8,
+    sigma: float = 0.01,
+    crash: tuple[int, float] | None = None,
 ) -> RawMarketSeries:
     """Complete hourly spot rows (close-stamped) from the 4h bar of ``first_row``."""
     last_row = window.row_index(limit or window.last_row_close)
@@ -98,8 +100,13 @@ def _series(
         np.arange(n_hours) + 1
     ) * np.timedelta64(1, "h")
     rng = np.random.default_rng(seed)
-    close = 100.0 * np.exp(np.cumsum(rng.normal(drift, 0.01, n_hours)))
+    close = 100.0 * np.exp(np.cumsum(rng.normal(drift, sigma, n_hours)))
     open_ = np.concatenate([[close[0]], close[:-1]])
+    if (
+        crash is not None
+    ):  # every price from hour ``crash[0]`` on is scaled by ``crash[1]``
+        close = np.where(np.arange(n_hours) >= crash[0], close * crash[1], close)
+        open_ = np.where(np.arange(n_hours) >= crash[0], open_ * crash[1], open_)
     return RawMarketSeries(
         timestamps=stamps,
         open=open_,
@@ -256,7 +263,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "634f0fd1865c373bbefc2c6b5cc6e184e550ebe816e36e42057ded4361fdfa7a"
+    assert digest == "f965b19c3a76d1487ef5d5a026fa76d7b6180ae94540c12b4eeb00cd4ce1456b"
 
 
 @pytest.mark.parametrize(
@@ -1883,7 +1890,7 @@ def test_final_is_allowed_from_the_scoring_instant_on_and_reads_the_whole_stage(
     assert (run_receipt["combined_claim"] == "OOS_AND_FORWARD_SUPPORTED") is both
     # both comments were fetched: the run comment twice, the data authorization once
     ids = [c[1].rsplit("/", 1)[1] for c in gh.calls]
-    assert sorted(ids) == ["1", "1", "7028416072"]
+    assert sorted(ids) == ["1", "1", "7028416072", "7028416072"]
     last = int(window.last_row_close.timestamp() * 1_000)
     assert max(end for _, _, end in rows.requests) <= last
 

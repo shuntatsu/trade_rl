@@ -247,6 +247,7 @@ def load_spot_series(
     end_ms = ms_from_utc(limit_close)
     first_open: int | None = None
     unpublished_months = 0
+    leading: list[tuple[int, int]] = []
     for lo, hi in _month_chunks(start_ms, end_ms):
         try:
             rows = detect.read_klines(
@@ -258,6 +259,7 @@ def load_spot_series(
                 and (error.evidence or {}).get("kind") == "archive_not_published"
             ):
                 unpublished_months += 1
+                leading.append((lo, hi))
                 continue
             raise
         except CarryIntegrityHalt as error:
@@ -272,6 +274,17 @@ def load_spot_series(
             break
         if first_open is None:
             unpublished_months += 1
+    # a leading month whose monthly archive is unpublished may not hide a listing:
+    # if its last day is published as a daily archive the run refuses instead of
+    # silently moving the listing to a later month
+    for lo, hi in leading:
+        day = hi - 24 * data.HOUR_MS
+        if reader.probe_published_day(symbol, day):  # type: ignore[attr-defined]
+            raise data.StageDataError(
+                f"{symbol}: the monthly archive of the leading month starting "
+                f"{_iso(lo)} is unpublished but a daily archive exists ({_iso(day)}); "
+                "the listing would silently move"
+            )
     coverage: dict[str, object] = {
         "unpublished_leading_months": unpublished_months,
         "first_listed_open": None,
@@ -502,6 +515,19 @@ class _MonthFallbackSource(tierd_driver.DailyFallbackSource):
     missing and is recorded in ``unusable_days()``. Nothing is filled forward.
     """
 
+    def probe_published_day(self, symbol: str, day_start_ms: int) -> bool:
+        """Whether the daily archive of that day publishes its first hour (nothing recorded)."""
+        got = self._fill_hours(
+            StoreMarket.SPOT,
+            symbol,
+            data.BASE_INTERVAL,
+            [day_start_ms],
+            source="probe",
+            tolerate_malformed=True,
+            record=False,
+        )
+        return bool(got)
+
     def read_klines(
         self,
         market: StoreMarket,
@@ -723,6 +749,7 @@ def _symbol_coverage(
     errors: list[dict[str, object]] = []
     first_open: int | None = None
     unpublished_leading = 0
+    leading_with_dailies: list[str] = []
     for lo, hi in _month_chunks(start_ms, end_ms):
         try:
             rows = detect.read_klines(
@@ -731,6 +758,9 @@ def _symbol_coverage(
         except CarryCoverageError as error:
             if (error.evidence or {}).get("kind") == "archive_not_published":
                 unpublished_leading += 1
+                probe = getattr(reader, "probe_published_day", None)
+                if callable(probe) and probe(symbol, hi - 24 * data.HOUR_MS):
+                    leading_with_dailies.append(_iso(lo))
                 continue
             errors.append(
                 {"phase": "listing", "kind": "coverage", "message": str(error)}
@@ -758,6 +788,7 @@ def _symbol_coverage(
     entry: dict[str, Any] = {
         "first_listed_open": None if first_open is None else _iso(first_open),
         "unpublished_leading_months": unpublished_leading,
+        "leading_unpublished_months_with_daily_archives": leading_with_dailies,
         "errors": errors,
     }
     if first_open is None:
@@ -945,6 +976,15 @@ def halts_from_coverage(path: Path) -> dict[str, Any]:
     bad = sorted(n for n, e in document["symbols"].items() if _read_errors(e))
     if bad:
         raise ValueError(f"the coverage report has read errors for {bad}")
+    hidden = sorted(
+        n
+        for n, e in document["symbols"].items()
+        if e.get("leading_unpublished_months_with_daily_archives")
+    )
+    if hidden:
+        raise ValueError(
+            f"leading months with daily archives (listing would move): {hidden}"
+        )
 
     def span(item: dict[str, Any]) -> tuple[datetime, datetime]:
         lo = datetime.fromisoformat(item["first_missing_open"])
@@ -1199,6 +1239,16 @@ def main(
         auth_receipt = g4.confirm_unedited(
             args.authorization_url, first_fetch, gh, protocol_digest=digest
         )
+        if data_auth is not None:
+            # the bound data-authorization comment must not change between the fetches
+            again = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
+            if (
+                again.body_sha256 != data_auth.body_sha256
+                or again.updated_at != data_auth.updated_at
+            ):
+                raise g4.G4AuthError(
+                    "the data-authorization comment was edited after it was first fetched"
+                )
         args.output_dir.mkdir(parents=True, exist_ok=False)
         data_receipt: dict[str, object] = {
             "schema_version": DATA_RECEIPT_SCHEMA,
@@ -1231,6 +1281,12 @@ def main(
             "declared_halts": {
                 "intervals": [list(pair) for pair in protocol.DECLARED_HALTS],
                 "coverage_json_sha256": protocol.COVERAGE_EVIDENCE_SHA256,
+                "coverage_code_commit": protocol.COVERAGE_EVIDENCE_CODE_COMMIT,
+                "coverage_protocol_digest": protocol.COVERAGE_EVIDENCE_PROTOCOL_DIGEST,
+            },
+            "spot_cash_account": {
+                "gross_limit": protocol.SPOT_GROSS_LIMIT,
+                "invalid_on": protocol.REASON_NEGATIVE_CASH,
             },
             "forward_data_authorization": (
                 None

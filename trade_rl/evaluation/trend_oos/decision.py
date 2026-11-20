@@ -57,6 +57,10 @@ class OosCell:
     n_returns: int = 0
     calendar_year_returns: Mapping[str, float] = field(default_factory=dict)
     returns: tuple[float, ...] = ()
+    min_cash: float | None = None
+    max_borrowing: float | None = None
+    cap_statistics: Mapping[str, Any] = field(default_factory=dict)
+    causality_probe_key: str | None = None
 
     @property
     def valid(self) -> bool:
@@ -107,6 +111,18 @@ class OosCell:
             "invalid_reasons": list(self.invalid_reasons),
             "n_returns": self.n_returns,
             "calendar_year_returns": dict(self.calendar_year_returns),
+            "returns_series": "dust_adjusted",
+            "min_cash": None if self.min_cash is None else _safe(self.min_cash),
+            "max_borrowing": (
+                None if self.max_borrowing is None else _safe(self.max_borrowing)
+            ),
+            "cap_statistics": dict(self.cap_statistics),
+            "causality_probe": {
+                "key": self.causality_probe_key,
+                "per": "arm_and_signal_lag",
+                "shared_across_cost_scenarios": True,
+                "cost_independent": True,
+            },
             "cell_valid": self.valid,
         }
         if include_returns:
@@ -247,6 +263,9 @@ def _reported(cells: Mapping[CellKey, OosCell]) -> dict[str, Any]:
             "__".join(key): dict(cell.calendar_year_returns) for key, cell in ordered
         },
         "bootstrap": bootstrap_excess(cells),
+        "cap_statistics": {
+            "__".join(key): dict(cell.cap_statistics) for key, cell in ordered
+        },
         "cells": {"__".join(key): cell.to_dict() for key, cell in ordered},
     }
 

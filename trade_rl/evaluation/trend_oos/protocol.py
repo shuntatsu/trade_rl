@@ -155,6 +155,24 @@ COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
 )
 
 
+#: The coverage report the declared halts were read from was produced at this code
+#: commit with this protocol digest (before the cash-account amendment); only the frozen
+#: halt list and its SHA-256 changed in the protocol since.
+COVERAGE_EVIDENCE_CODE_COMMIT: Final = "e9dc2eeda508cd7f329897ae08573e29bda2eb62"
+COVERAGE_EVIDENCE_PROTOCOL_DIGEST: Final = (
+    "535a25162edd843687a845e920d178b0ea7af184eb8fd6968202e5222bc3a1bb"
+)
+
+# --- the spot cash account (amendment after review 5988926816, result-blind) ----------
+#: Spot gross limit of every arm. lowturn v1 allowed a spot gross of 2.0 while the
+#: engine finances negative cash at 0%, which is free leverage.
+SPOT_GROSS_LIMIT: Final = 1.0
+#: A cell whose borrowing (negative cash net of the execution costs paid so far) exceeds
+#: this fraction of the initial capital at any interval is invalid.
+CASH_TOLERANCE_FRACTION: Final = 1e-6
+REASON_NEGATIVE_CASH: Final = "negative_cash_borrowing"
+
+
 class ProtocolBindingError(RuntimeError):
     """A constant this protocol reuses no longer matches the pinned lowturn protocol."""
 
@@ -270,6 +288,8 @@ def protocol_payload() -> dict[str, object]:
             "declared_halts": {
                 "intervals": [list(pair) for pair in DECLARED_HALTS],
                 "coverage_json_sha256": COVERAGE_EVIDENCE_SHA256,
+                "coverage_code_commit": COVERAGE_EVIDENCE_CODE_COMMIT,
+                "coverage_protocol_digest": COVERAGE_EVIDENCE_PROTOCOL_DIGEST,
                 "qualification": "only hours every symbol listed then is missing, "
                 "after the month-from-daily-archives fallback",
                 "treatment": "identical to SPOT_HALTS: non-tradable rows, zero volume, "
@@ -313,11 +333,46 @@ def protocol_payload() -> dict[str, object]:
             "periods_per_year": PERIODS_PER_YEAR,
             "TS_TREND_LONG_SPOT": "spot legs, s = mean(sign r30, r90, r180) clipped "
             "to [0, 1], weight s * (vol_target / vol60) / 11, caps 0.40 per name and "
-            "gross 2.0",
+            "gross 2.0, then the spot cash account cap below (every arm)",
             "EW_HOLD_SPOT": "usable spot legs at 1/11",
             "CASH": "always flat",
         },
+        "spot_cash_account": {
+            "why": "lowturn v1 allowed spot gross 2.0 with the engine financing negative "
+            "cash at 0%; the candidate is therefore the same rule on a spot cash account, "
+            "not lowturn v1 TS_TREND_LONG_SPOT",
+            "gross_limit": SPOT_GROSS_LIMIT,
+            "application": "every arm, after the frozen lowturn caps, on the target the "
+            "policy proposes (effective weights: held legs at their current weight, other "
+            "legs times risk_scale); proportional scaling to gross exactly the limit",
+            "when_binding": "all exact-quantity holds are dropped and the whole effective "
+            "vector is re-targeted, so the deadband cannot let gross creep; a proposal "
+            "that does not trade (pure hold, pre-image of an unchanged risk scale) is "
+            "never capped",
+            "wrapper": "trend_oos.cash_policy.CashAccountPolicy around the unchanged "
+            "LowturnPolicy",
+            "invalid_on_borrowing": {
+                "reason": REASON_NEGATIVE_CASH,
+                "rule": "max over ledger intervals of (-cash_after - total_cost_after) "
+                "greater than tolerance_fraction * initial_capital",
+                "tolerance_fraction": CASH_TOLERANCE_FRACTION,
+                "net_of_costs": "the engine debits execution costs from cash, so a book "
+                "fully invested at gross 1.0 holds a cash balance of minus the costs it "
+                "paid; that is not borrowing",
+            },
+            "reported_not_gating": [
+                "cap_bound_fraction_of_rebalance_decisions",
+                "mean_pre_cap_gross",
+                "min_cash",
+                "max_borrowing",
+            ],
+        },
         "cell_validity": {
+            "causality_probe": "per (arm, signal lag); shared by the cost scenarios of "
+            "that lag because the probe decisions do not depend on costs",
+            "returns_for_reporting": "per-year returns and the bootstrap use the "
+            "dust-adjusted return series (the last return carries the terminal dust "
+            "exit cost); the Sharpe is the unchanged core7 summary value",
             "ledger_reconciled": True,
             "causality_probe_passed": True,
             "not_insolvent": True,
@@ -379,9 +434,12 @@ __all__ = [
     "BOOTSTRAP_RESAMPLES",
     "BOOTSTRAP_SEED",
     "CANDIDATE",
+    "CASH_TOLERANCE_FRACTION",
     "CLAIM_BACKCAST",
     "CLAIM_BOTH",
     "CONTROLS",
+    "COVERAGE_EVIDENCE_CODE_COMMIT",
+    "COVERAGE_EVIDENCE_PROTOCOL_DIGEST",
     "COVERAGE_EVIDENCE_SHA256",
     "DECLARED_HALTS",
     "CONTROL_CASH",
@@ -409,9 +467,11 @@ __all__ = [
     "PER_NAME_CAP",
     "PROTOCOL_ID",
     "PROTOCOL_SCHEMA",
+    "REASON_NEGATIVE_CASH",
     "REBALANCE_EVERY_BARS",
     "ROSTER",
     "SCENARIOS",
+    "SPOT_GROSS_LIMIT",
     "STAGES",
     "STAGE_BACKCAST",
     "STAGE_FORWARD",

@@ -221,6 +221,7 @@ class DailyFallbackSource:
         *,
         source: str = "vision_daily",
         tolerate_malformed: bool = False,
+        record: bool = True,
     ) -> list[Any]:
         """Hours of ``missing`` that checksum-verified daily archives publish.
 
@@ -270,7 +271,7 @@ class DailyFallbackSource:
                     market, symbol, interval, day_start, max(hours) + tierd.HOUR_MS
                 )
             except CarryCoverageError:
-                if tolerate_malformed:
+                if tolerate_malformed and record:
                     self._unusable_days.append(
                         _day_record(
                             market, symbol, day_start, spec.url, "archive_not_published"
@@ -283,6 +284,8 @@ class DailyFallbackSource:
                     or error.evidence.get("kind") != "malformed_archive"
                 ):
                     raise
+                if not record:
+                    continue
                 self._unusable_days.append(
                     _day_record(
                         market,
@@ -306,6 +309,8 @@ class DailyFallbackSource:
                 opened = int(row.open_time_ms)
                 if opened in wanted:
                     filled.append(row)
+                    if not record:
+                        continue
                     self._fills[(market.value, symbol, opened)] = {
                         "market": market.value,
                         "symbol": symbol,

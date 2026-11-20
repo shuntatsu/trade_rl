@@ -267,6 +267,18 @@ class StageRowSource:
         self.rows_read += len(rows)
         return rows
 
+    def probe_published_day(self, symbol: str, day_start_ms: int) -> bool | None:
+        """Whether a daily archive publishes the first hour of that day (None: cannot say).
+
+        Only a day inside the stage and below the read limit may be probed.
+        """
+        probe = getattr(self._inner, "probe_published_day", None)
+        if probe is None:
+            return None
+        if day_start_ms < self._start_ms or day_start_ms + 24 * HOUR_MS > self._end_ms:
+            raise StageEmbargoError("a probed day lies outside the stage read range")
+        return bool(probe(symbol, day_start_ms))
+
     def read_funding(self, *_: object, **__: object) -> list[Any]:
         raise StageDataError("funding is never read: no perpetual leg is loaded")
 

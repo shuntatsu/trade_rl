@@ -48,7 +48,22 @@ from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 KNOWN_PLACEHOLDER_MARKET: Final = StoreMarket.SPOT
 KNOWN_PLACEHOLDER_INTERVAL: Final = "1h"
 KNOWN_PLACEHOLDER_SYMBOLS: Final[frozenset[str]] = frozenset(
-    {"BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT"}
+    {
+        "BTCUSDT",
+        "ETHUSDT",
+        "BNBUSDT",
+        "XRPUSDT",
+        "ADAUSDT",
+        "SOLUSDT",
+        # the same bar, opening at the same instant, was then observed (result-blind
+        # trend_oos coverage run) as the only rejected row of the 2020-12 archives of
+        # these symbols; the predicate below still demands every exact condition
+        "LTCUSDT",
+        "AVAXUSDT",
+        "DOGEUSDT",
+        "DOTUSDT",
+        "LINKUSDT",
+    }
 )
 KNOWN_PLACEHOLDER_OPEN_MS: Final = ms_from_utc(datetime(2020, 12, 21, 14, tzinfo=UTC))
 

@@ -586,7 +586,7 @@ def test_the_placeholder_is_only_recognised_in_the_spot_market() -> None:
 
 
 def test_the_placeholder_is_only_recognised_for_verified_symbols() -> None:
-    unverified = spec(start=DEC_2020, end=JAN_2021, symbol="DOGEUSDT")
+    unverified = spec(start=DEC_2020, end=JAN_2021, symbol="TRXUSDT")
     with pytest.raises(ArchiveContentError, match="close_time not after open"):
         parse_kline_archive(zip_csv(dec_2020_rows()), unverified, embargo=ENFORCED)
 

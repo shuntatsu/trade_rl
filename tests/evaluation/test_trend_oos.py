@@ -256,7 +256,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "880e5bd021a56bb4b816bc92667c63d6e63f1b91d7a37960aa696e5be58fa33a"
+    assert digest == "535a25162edd843687a845e920d178b0ea7af184eb8fd6968202e5222bc3a1bb"
 
 
 @pytest.mark.parametrize(
@@ -2324,3 +2324,350 @@ def test_the_real_coverage_source_logs_the_skipped_placeholder_row() -> None:
     assert log == [("BTCUSDT", placeholder_ms, 1_608_558_440_521, spec.url)]
     (evidence,) = source.evidence()
     assert evidence["symbol"] == "BTCUSDT" and len(evidence["archive_sha256"]) == 64
+
+
+# ======================================== monthly fallback, declared halts, evidence
+
+
+class _DailySource:
+    """Fake daily-archive source: per day OK, unpublished, malformed or checksum fault."""
+
+    def __init__(self, plan: Any, behaviour: dict[str, str], rows: _Rows) -> None:
+        self.plan = plan
+        self.behaviour = behaviour
+        self.rows = rows
+        self._evidence: list[dict[str, Any]] = []
+
+    def read_klines(
+        self, market: Any, symbol: str, interval: str, s: int, e: int
+    ) -> list[KlineRow]:
+        from trade_rl.integrations.binance import BinanceMarket
+        from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+        from trade_rl.integrations.binance.vision import vision_kline_url
+
+        day = datetime.fromtimestamp(s / 1_000, UTC)
+        url = vision_kline_url(BinanceMarket.SPOT, symbol, interval, day)
+        mode = self.behaviour.get(day.date().isoformat(), "ok")
+        if mode == "404":
+            raise CarryCoverageError("gone", {"kind": "archive_not_published"})
+        if mode == "checksum":
+            raise CarryIntegrityHalt("bad", {"kind": "checksum_mismatch", "url": url})
+        self._evidence.append(
+            {
+                "url": url,
+                "symbol": symbol,
+                "archive_sha256": f"{day.day:064x}",
+                "checksum_file_sha256": "b" * 64,
+            }
+        )
+        if mode == "malformed":
+            raise CarryIntegrityHalt(
+                "bad row", {"kind": "malformed_archive", "url": url}
+            )
+        return self.rows.read_klines(market, symbol, interval, s, e)
+
+    def evidence(self) -> list[dict[str, Any]]:
+        return list(self._evidence)
+
+
+class _BrokenMonth:
+    """Primary source whose Feb 2018 monthly archive is unusable."""
+
+    def __init__(self, error: Exception, rows: _Rows) -> None:
+        self.error = error
+        self.rows = rows
+
+    def read_klines(
+        self, market: Any, symbol: str, interval: str, s: int, e: int
+    ) -> list[KlineRow]:
+        if s >= _ms(2018, 2, 1) and e <= _ms(2018, 3, 1):
+            raise self.error
+        return self.rows.read_klines(market, symbol, interval, s, e)
+
+
+def _month_source(
+    error: Exception, behaviour: dict[str, str]
+) -> tuple[Any, list[_DailySource]]:
+    rows = _Rows({s: datetime(2018, 1, 1, tzinfo=UTC) for s in protocol.ROSTER})
+    made: list[_DailySource] = []
+
+    def factory(plan: Any) -> _DailySource:
+        made.append(_DailySource(plan, behaviour, rows))
+        return made[-1]
+
+    source = driver._MonthFallbackSource(
+        _BrokenMonth(error, rows), factory, halts=(), embargo=None
+    )
+    return source, made
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        CarryCoverageError("404", {"kind": "archive_not_published"}),
+        pytest.param(None, id="malformed"),
+    ],
+)
+def test_an_unusable_monthly_archive_is_rebuilt_from_verified_daily_archives(
+    error: Exception | None,
+) -> None:
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    error = error or CarryIntegrityHalt(
+        "row not aligned", {"kind": "malformed_archive"}
+    )
+    source, _ = _month_source(error, {"2018-02-10": "404", "2018-02-11": "malformed"})
+    rows = source.read_klines(
+        StoreMarket.SPOT, "BTCUSDT", "1h", _ms(2018, 1, 15), _ms(2018, 3, 5)
+    )
+    opens = {r.open_time_ms for r in rows}
+    days = {datetime.fromtimestamp(o / 1_000, UTC).date().isoformat() for o in opens}
+    feb = {d for d in days if d.startswith("2018-02")}
+    # every February day except the unpublished and the malformed one is present
+    assert feb == {f"2018-02-{d:02d}" for d in range(1, 29)} - {
+        "2018-02-10",
+        "2018-02-11",
+    }
+    assert (
+        _ms(2018, 1, 20) in opens and _ms(2018, 3, 2) in opens
+    )  # other months untouched
+    assert [r.open_time_ms for r in rows] == sorted(opens)
+    # provenance per day: the day archive and its SHA-256, labelled as such
+    fills = source.fills()
+    assert len(fills) == 26 * 24
+    sample = next(f for f in fills if str(f["open_time"]).startswith("2018-02-03T05"))
+    assert sample["source"] == "vision_daily_unusable_month"
+    assert sample["archive_url"].endswith("BTCUSDT-1h-2018-02-03.zip")
+    assert sample["archive_sha256"] == f"{3:064x}"
+    # the days that could not be used stay missing and are recorded with the reason
+    unusable = {(u["day"], u["reason"]) for u in source.unusable_days()}
+    assert unusable == {
+        ("2018-02-10", "archive_not_published"),
+        ("2018-02-11", "malformed_archive"),
+    }
+
+
+def test_a_checksum_fault_is_never_rescued_by_the_daily_fallback() -> None:
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    bad = CarryIntegrityHalt("checksum", {"kind": "checksum_mismatch"})
+    source, _ = _month_source(bad, {})
+    with pytest.raises(CarryIntegrityHalt, match="checksum"):
+        source.read_klines(
+            StoreMarket.SPOT, "BTCUSDT", "1h", _ms(2018, 1, 15), _ms(2018, 3, 5)
+        )
+    # and a checksum fault on a day archive of a rebuilt month still halts
+    source, _ = _month_source(
+        CarryCoverageError("404", {"kind": "archive_not_published"}),
+        {"2018-02-04": "checksum"},
+    )
+    with pytest.raises(CarryIntegrityHalt, match="bad"):
+        source.read_klines(
+            StoreMarket.SPOT, "BTCUSDT", "1h", _ms(2018, 2, 1), _ms(2018, 3, 1)
+        )
+
+
+HALT = ("2018-03-10T02:00:00Z", "2018-03-10T05:00:00Z")
+HALT_EVIDENCE = "e" * 64
+
+
+class _OutageRows(_Rows):
+    """Every symbol misses the same hours (an exchange-wide outage)."""
+
+    def __init__(
+        self,
+        listed: dict[str, datetime | None],
+        missing: set[int],
+        only: str | None = None,
+    ) -> None:
+        super().__init__(listed)
+        self.missing = missing
+        self.only = only
+
+    def read_klines(
+        self, market: Any, symbol: str, interval: str, s: int, e: int
+    ) -> list[KlineRow]:
+        rows = super().read_klines(market, symbol, interval, s, e)
+        if self.only is not None and symbol == self.only:
+            return rows
+        return [r for r in rows if r.open_time_ms not in self.missing]
+
+
+def _outage(only: str | None = None) -> _OutageRows:
+    gone = {_ms(2018, 3, 10, h) for h in (2, 3, 4)}
+    return _OutageRows(_listings(), gone, only)
+
+
+def _load(monkeypatch: pytest.MonkeyPatch, rows: Any) -> Any:
+    window = _small_window(monkeypatch, "BACKCAST")
+    limit = window.last_row_close
+    dataset, coverage = driver.load_stage_dataset(
+        rows, rows, window=window, limit_close=limit, rules=RULES
+    )
+    return window, dataset, coverage
+
+
+def test_an_undeclared_gap_refuses_and_a_declared_exchange_wide_halt_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(CarryCoverageError, match="unexplained missing hourly"):
+        _load(monkeypatch, _outage())
+    monkeypatch.undo()
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", (HALT,))
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", HALT_EVIDENCE)
+    _, dataset, _ = _load(monkeypatch, _outage())
+    assert dataset.n_bars > 1000
+
+
+def test_a_declared_halt_is_masked_like_spot_halts_and_signals_stay_finite_after_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", (HALT,))
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", HALT_EVIDENCE)
+    rows = _outage()
+    window, dataset, _ = _load(monkeypatch, rows)
+    # bars [00:00, 04:00) (hours 2 and 3 missing) and [04:00, 08:00) (hour 4 missing)
+    first = window.row_index(datetime(2018, 3, 10, 4, tzinfo=UTC))
+    tradable = np.asarray(dataset.tradable)
+    active = dataset.resolved_array("asset_active")
+    btc = 0
+    assert not tradable[first, btc] and not tradable[first + 1, btc]
+    assert tradable[first - 1, btc] and tradable[first + 2, btc]
+    assert active[first, btc] and active[first + 1, btc]  # priced, only halted
+    # the mark is the preceding published close (hour 01:00's close), nothing invented
+    path = rows._path("BTCUSDT")
+    epoch = rows._epoch
+    hour = lambda h: (_ms(2018, 3, 10, h) - epoch) // HOUR_MS  # noqa: E731
+    assert np.asarray(dataset.close)[first, btc] == pytest.approx(
+        float(path[hour(1)]), rel=1e-7
+    )
+    # the same mask path as SPOT_HALTS: identity records the halts, and the check that
+    # every bar touching a halt is non-tradable is the Tier D one
+    payload = json.loads(dataset.identity_payload_json or "{}")
+    assert [HALT[0], HALT[1]] in [
+        [a.replace("+00:00", "Z"), b.replace("+00:00", "Z")]
+        for a, b in payload["spot_halts"]
+    ]
+    assert payload["halted_bar_marks"] == (
+        "preceding_published_close_non_tradable_zero_volume"
+    )
+    signals = build_oos_signals(dataset)
+    # unusable (weight 0) only on the halted rows ...
+    assert not signals.usable[first, btc] and np.isnan(signals.r30[first, btc])
+    # ... and every window that spans the halt keeps a finite value afterwards
+    after = first + 2
+    assert signals.usable[after, btc]
+    assert np.isfinite(signals.vol60[after, btc]) and np.isfinite(
+        signals.r30[after, btc]
+    )
+    assert np.isfinite(signals.vol60[after + 300, btc])
+    target = family_targets("TS_TREND_LONG_SPOT", signals, after + 40)
+    assert np.all(np.isfinite(target))
+
+
+def test_a_declared_halt_that_is_not_exchange_wide_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", (HALT,))
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", HALT_EVIDENCE)
+    with pytest.raises(data.StageDataError, match="not exchange-wide: ETHUSDT"):
+        _load(monkeypatch, _outage(only="ETHUSDT"))
+
+
+def test_the_declared_halts_and_their_evidence_are_bound_to_the_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = protocol.protocol_digest()
+    assert protocol.stage_halt_intervals() == tuple(protocol.SPOT_HALTS)
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", (HALT,))
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", HALT_EVIDENCE)
+    with_halt = protocol.protocol_digest()
+    assert with_halt != base
+    merged = protocol.stage_halt_intervals()
+    assert merged[0][0] == datetime(2018, 3, 10, 2, tzinfo=UTC) and len(merged) == 2
+    assert protocol.protocol_payload()["data"]["declared_halts"]["intervals"] == [
+        list(HALT)
+    ]  # type: ignore[index]
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", "f" * 64)
+    assert protocol.protocol_digest() not in (base, with_halt)
+    monkeypatch.setattr(
+        protocol,
+        "DECLARED_HALTS",
+        (HALT, ("2018-03-10T04:00:00Z", "2018-03-10T06:00:00Z")),
+    )
+    with pytest.raises(protocol.ProtocolBindingError, match="disjoint"):
+        protocol.protocol_digest()
+    monkeypatch.setattr(protocol, "DECLARED_HALTS", (HALT,))
+    for bad in (None, "xyz"):
+        monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", bad)
+        with pytest.raises(protocol.ProtocolBindingError, match="SHA-256"):
+            protocol.protocol_digest()
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", HALT_EVIDENCE)
+    monkeypatch.setattr(
+        protocol, "DECLARED_HALTS", (("2018-03-10T02:30:00Z", "2018-03-10T05:00:00Z"),)
+    )
+    with pytest.raises(protocol.ProtocolBindingError, match="invalid"):
+        protocol.protocol_digest()
+
+
+def test_halts_from_coverage_emits_only_the_exchange_wide_ranges_with_the_file_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _small_window(monkeypatch, "BACKCAST")
+    code, _, err = _cov_tool(tmp_path, _cov_argv(tmp_path), rows=_CovRows(_listings()))
+    assert code == driver.EXIT_OK, err
+    path = tmp_path / "cov" / "coverage.json"
+    out, err_io = io.StringIO(), io.StringIO()
+    assert (
+        driver.main(
+            ["halts-from-coverage", "--coverage", str(path)], stdout=out, stderr=err_io
+        )
+        == 0
+    )
+    result = json.loads(out.getvalue())
+    assert (
+        result["coverage_json_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    )
+    assert result["declared_halts"] == [
+        ["2018-03-10T02:00:00Z", "2018-03-10T05:00:00Z"]
+    ]
+    assert result["declared_hours"] == 3
+    # what is not exchange-wide stays a gap and would still refuse the run
+    left = result["gaps_that_would_remain_and_refuse_the_run"]
+    assert left["BTCUSDT"] == [
+        {"first_missing_open": "2018-04-01T10:00:00+00:00", "hours": 1}
+    ]
+    assert left["BNBUSDT"][0]["hours"] == 2 and "ETHUSDT" not in left
+    # a report with read errors is refused, and a non-coverage file too
+    bad = tmp_path / "bad.json"
+    document = json.loads(path.read_text("utf-8"))
+    document["symbols"]["ETHUSDT"]["errors"] = [{"kind": "integrity"}]
+    bad.write_text(json.dumps(document), encoding="utf-8")
+    err2 = io.StringIO()
+    assert (
+        driver.main(
+            ["halts-from-coverage", "--coverage", str(bad)],
+            stdout=io.StringIO(),
+            stderr=err2,
+        )
+        == driver.EXIT_REFUSED
+    )
+    assert "read errors" in err2.getvalue()
+    other = tmp_path / "other.json"
+    other.write_text("{}", encoding="utf-8")
+    assert (
+        driver.main(
+            ["halts-from-coverage", "--coverage", str(other)],
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        == driver.EXIT_REFUSED
+    )
+
+
+def test_the_known_placeholder_covers_the_symbols_seen_in_the_coverage_run() -> None:
+    from trade_rl.integrations.market_store import parse
+
+    for symbol in ("LTCUSDT", "AVAXUSDT", "DOGEUSDT", "DOTUSDT", "LINKUSDT", "BTCUSDT"):
+        assert symbol in parse.KNOWN_PLACEHOLDER_SYMBOLS
+    assert "XYZUSDT" not in parse.KNOWN_PLACEHOLDER_SYMBOLS

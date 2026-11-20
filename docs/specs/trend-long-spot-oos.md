@@ -25,6 +25,18 @@ The screen label was `INVALID` because two control cells held terminal dust (com
 
 - **Owner authorization:** [Issue #810 comment 7028416072](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7028416072). It covers out-of-sample and forward reads, and fetching public data not held yet. It does not cover orders, API keys or FS1 scoring.
 - **Data source:** Binance public spot klines (Vision archives, checksum-verified). Missing hours may only be filled from checksum-verified daily archives, with provenance recorded. There is no forward fill.
+- **Data-coverage amendment (BACKCAST, result-blind).**
+  - A coverage run (`python -m tools.trend_oos coverage`) read the BACKCAST archives and computed no signal, replay or return; it read prices only to validate rows. It found two data problems, and both were fixed after it and before any run. No economics changed: rule, windows, costs, thresholds and the decision rule are as above.
+  - **(A) Unusable monthly archives.**
+    - Some monthly archives are unpublished or fail the strict row parse (for example one unaligned row in 2018-02; the 2020-12-21 14:00 outage placeholder in the 2020-12 archives of symbols beyond the six first documented).
+    - A month whose monthly archive is unpublished or malformed (never a checksum fault) is rebuilt from checksum-verified daily archives under the same strict parse.
+    - Provenance is recorded per day (archive URL and SHA-256).
+    - A day that is unpublished or malformed stays missing.
+    - The documented placeholder bar is recognised for the further symbols in which the coverage run observed it; the predicate still demands every exact condition.
+  - **(B) Exchange-wide outages.**
+    - After (A), the ranges of hours that every symbol listed at that time is missing are declared in `trend_oos/protocol.py` as a frozen halt list. The SHA-256 of the coverage report they were read from is frozen with the list, so both enter the protocol digest.
+    - A declared halt is treated exactly as the registered Tier D `SPOT_HALTS`: the affected 4h rows are not tradable, carry zero volume and take the preceding published close as their mark, and the signals use them as lowturn does for halt rows. This is the only carried-forward close the protocol permits.
+    - A range that is not exchange-wide does not qualify. Any hour missing outside the declared halts refuses the run.
 - **Legs:** the same 11 pairs, in the same roster order, as the Tier D dataset.
 - **Prior exposure:**
   - Every economic study in this repository, including the agy exploration Rounds 1–12, used data from 2021-01-01 onward.

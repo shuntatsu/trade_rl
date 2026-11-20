@@ -41,6 +41,7 @@ keys, no FS1 scoring.
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import sys
@@ -228,7 +229,7 @@ def load_spot_series(
     *,
     window: data.StageWindow,
     limit_close: datetime,
-    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+    halt_intervals: Sequence[tuple[datetime, datetime]] | None = None,
 ) -> tuple[RawMarketSeries | None, dict[str, object]]:
     """The complete hourly spot series of one symbol from its first listed 4h bar.
 
@@ -240,6 +241,8 @@ def load_spot_series(
     unavailable. Nothing is filled forward or invented; a symbol with no spot rows in
     the window returns ``None``.
     """
+    if halt_intervals is None:
+        halt_intervals = protocol.stage_halt_intervals()
     start_ms = ms_from_utc(window.load_start)
     end_ms = ms_from_utc(limit_close)
     first_open: int | None = None
@@ -257,6 +260,13 @@ def load_spot_series(
                 unpublished_months += 1
                 continue
             raise
+        except CarryIntegrityHalt as error:
+            if (error.evidence or {}).get("kind") != "malformed_archive":
+                raise
+            # the listing month's monthly archive is unusable: the reader rebuilds it
+            rows = reader.read_klines(
+                StoreMarket.SPOT, symbol, data.BASE_INTERVAL, lo, hi
+            )
         if rows:
             first_open = int(rows[0].open_time_ms)
             break
@@ -289,6 +299,13 @@ def load_spot_series(
     )
     opens = [int(row.open_time_ms) for row in rows]
     _check_order(opens, market=StoreMarket.SPOT, symbol=symbol, what="klines")
+    for h_lo, h_hi in protocol.declared_halt_intervals():
+        first = bisect.bisect_left(opens, ms_from_utc(h_lo))
+        if first < len(opens) and opens[first] + data.HOUR_MS <= ms_from_utc(h_hi):
+            raise data.StageDataError(
+                f"declared halt {h_lo.isoformat()}..{h_hi.isoformat()} is not "
+                f"exchange-wide: {symbol} has a published row at {_iso(opens[first])}"
+            )
     halts = [(ms_from_utc(lo), ms_from_utc(hi)) for lo, hi in halt_intervals]
     gaps = _missing_hours(opens, aligned, end_ms, explained=halts)
     if gaps:
@@ -321,10 +338,12 @@ def load_stage_dataset(
     window: data.StageWindow,
     limit_close: datetime,
     rules: dict[str, Any],
-    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+    halt_intervals: Sequence[tuple[datetime, datetime]] | None = None,
     data_authorization_url: str | None = None,
 ) -> tuple[MarketDataset, dict[str, dict[str, object]]]:
     """Read every roster symbol through the stage guard and assemble the dataset."""
+    if halt_intervals is None:
+        halt_intervals = protocol.stage_halt_intervals()
     guarded_detect = data.StageRowSource(detect, window=window, limit_close=limit_close)
     guarded_reader = data.StageRowSource(reader, window=window, limit_close=limit_close)
     spot: dict[str, RawMarketSeries | None] = {}
@@ -411,6 +430,12 @@ def build_parser() -> argparse.ArgumentParser:
     cov.add_argument("--allow-network", action="store_true")
     cov.add_argument("--daily-fallback", action="store_true")
     cov.add_argument("--output-dir", type=Path, required=True)
+    halts = commands.add_parser(
+        "halts-from-coverage",
+        help="derive the exchange-wide halt list (and its evidence SHA-256) from a "
+        "coverage.json; reads no market data",
+    )
+    halts.add_argument("--coverage", type=Path, required=True)
     run = commands.add_parser(
         "run", help="run one stage (needs the owner authorization comment)"
     )
@@ -461,6 +486,55 @@ def _vision_factory(
     return factory
 
 
+def _monthly_unusable(error: Exception) -> bool:
+    """A monthly archive that is unpublished (404) or fails the strict parse."""
+    kind = (getattr(error, "evidence", None) or {}).get("kind")
+    return kind in ("archive_not_published", "malformed_archive")
+
+
+class _MonthFallbackSource(tierd_driver.DailyFallbackSource):
+    """Daily fallback that also rebuilds an unusable monthly archive from dailies.
+
+    A month whose monthly archive is unpublished or malformed (never a checksum
+    fault) is rebuilt from checksum-verified daily archives with the same strict parse;
+    every filled hour records its day archive and SHA-256 (source
+    ``vision_daily_unusable_month``). A day that is unpublished or malformed stays
+    missing and is recorded in ``unusable_days()``. Nothing is filled forward.
+    """
+
+    def read_klines(
+        self,
+        market: StoreMarket,
+        symbol: str,
+        interval: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[Any]:
+        rows: list[Any] = []
+        for lo, hi in _month_chunks(start_ms, end_ms):
+            try:
+                rows.extend(super().read_klines(market, symbol, interval, lo, hi))
+            except (CarryCoverageError, CarryIntegrityHalt) as error:
+                if not _monthly_unusable(error):
+                    raise
+                missing = [
+                    hour
+                    for hour in range(lo, hi, data.HOUR_MS)
+                    if not self._explained(market, lo, hour)
+                ]
+                rows.extend(
+                    self._fill_hours(
+                        market,
+                        symbol,
+                        interval,
+                        missing,
+                        source="vision_daily_unusable_month",
+                        tolerate_malformed=True,
+                    )
+                )
+        return sorted(rows, key=lambda row: int(row.open_time_ms))
+
+
 def _sources(
     args: argparse.Namespace, plan: IngestionPlan, policy: EmbargoPolicy
 ) -> tuple[CarryRowSource, CarryRowSource]:
@@ -470,8 +544,8 @@ def _sources(
     if not args.daily_fallback:
         return primary, primary
     daily = _vision_factory(args.archive_dir, args.allow_network, policy)
-    return primary, tierd_driver.DailyFallbackSource(
-        primary, daily, halts=SPOT_HALTS, embargo=policy
+    return primary, _MonthFallbackSource(
+        primary, daily, halts=protocol.stage_halt_intervals(), embargo=policy
     )
 
 
@@ -614,9 +688,7 @@ def _coverage_sources(
     primary = factory(plan)
     if not args.daily_fallback:
         return primary, primary, log
-    fallback = tierd_driver.DailyFallbackSource(
-        primary, factory, halts=SPOT_HALTS, embargo=policy
-    )
+    fallback = _MonthFallbackSource(primary, factory, halts=SPOT_HALTS, embargo=policy)
     return primary, fallback, log
 
 
@@ -664,6 +736,18 @@ def _symbol_coverage(
                 {"phase": "listing", "kind": "coverage", "message": str(error)}
             )
             break
+        except CarryIntegrityHalt as error:
+            if (error.evidence or {}).get("kind") == "malformed_archive":
+                try:
+                    rows = reader.read_klines(
+                        StoreMarket.SPOT, symbol, data.BASE_INTERVAL, lo, hi
+                    )
+                except CarryScreenHalt as again:
+                    errors.append({"phase": "listing", **_halt_error(again)})
+                    break
+            else:
+                errors.append({"phase": "listing", **_halt_error(error)})
+                break
         except CarryScreenHalt as error:
             errors.append({"phase": "listing", **_halt_error(error)})
             break
@@ -784,7 +868,12 @@ def coverage_report(
     evidence = list(evidence_fn()) if callable(evidence_fn) else []
     fills_fn = getattr(reader, "fills", None)
     fills = list(fills_fn()) if callable(fills_fn) else []
+    unusable_fn = getattr(reader, "unusable_days", None)
+    unusable = list(unusable_fn()) if callable(unusable_fn) else []
     for symbol, entry in symbols.items():
+        entry["unusable_daily_archives"] = [
+            u for u in unusable if u.get("symbol") == symbol
+        ]
         mine = [e for e in evidence if e.get("symbol") == symbol]
         failures = [
             c
@@ -837,6 +926,64 @@ def coverage_report(
         "declared_halts": [
             [_iso(ms_from_utc(a)), _iso(ms_from_utc(b))] for a, b in SPOT_HALTS
         ],
+    }
+
+
+def halts_from_coverage(path: Path) -> dict[str, Any]:
+    """The exchange-wide ranges of a coverage.json as a declared halt list.
+
+    Only the report's exchange-wide ranges qualify. The result also lists, per symbol,
+    the missing ranges that would remain (and make a run refuse). It refuses a report
+    with read errors, and it computes nothing from prices.
+    """
+    raw = path.read_bytes()
+    document = json.loads(raw)
+    if document.get("schema_version") != COVERAGE_SCHEMA:
+        raise ValueError("not a trend_oos coverage report")
+    if document.get("stage") != protocol.STAGE_BACKCAST:
+        raise ValueError("declared halts are derived from the BACKCAST coverage")
+    bad = sorted(n for n, e in document["symbols"].items() if _read_errors(e))
+    if bad:
+        raise ValueError(f"the coverage report has read errors for {bad}")
+
+    def span(item: dict[str, Any]) -> tuple[datetime, datetime]:
+        lo = datetime.fromisoformat(item["first_missing_open"])
+        return lo, lo + timedelta(hours=int(item["hours"]))
+
+    shared = [span(r) for r in document["exchange_wide_gaps"]["ranges"]]
+
+    def inside(moment: datetime) -> bool:
+        return any(lo <= moment < hi for lo, hi in shared)
+
+    remaining: dict[str, list[dict[str, object]]] = {}
+    for name, entry in document["symbols"].items():
+        left: list[int] = []
+        for item in entry.get("missing_ranges", []):
+            lo, hi = span(item)
+            moment = lo
+            while moment < hi:
+                if not inside(moment):
+                    left.append(int(moment.timestamp() * 1_000))
+                moment += timedelta(hours=1)
+        if left:
+            remaining[name] = _hour_ranges(left)
+    return {
+        "coverage_json_sha256": _sha256(raw),
+        "coverage_protocol_digest": document.get("protocol_digest"),
+        "coverage_code_commit": document.get("code_commit"),
+        "declared_halts": [
+            [lo.strftime("%Y-%m-%dT%H:%M:%SZ"), hi.strftime("%Y-%m-%dT%H:%M:%SZ")]
+            for lo, hi in shared
+        ],
+        "declared_hours": sum(
+            int((hi - lo).total_seconds() // 3600) for lo, hi in shared
+        ),
+        "unread_chunks": {
+            n: e["unread_chunks"]
+            for n, e in document["symbols"].items()
+            if e.get("unread_chunks")
+        },
+        "gaps_that_would_remain_and_refuse_the_run": remaining,
     }
 
 
@@ -972,6 +1119,14 @@ def main(
             return EXIT_REFUSED
         out.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
         return EXIT_OK
+    if args.command == "halts-from-coverage":
+        try:
+            result = halts_from_coverage(args.coverage)
+        except (ValueError, OSError, KeyError) as error:
+            err.write(f"refused: {error}\n")
+            return EXIT_REFUSED
+        out.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        return EXIT_OK
     if args.command == "coverage":
         return _coverage_main(
             args,
@@ -1032,6 +1187,8 @@ def main(
             evidence = list(evidence_fn()) if callable(evidence_fn) else []
             fills_fn = getattr(reader, "fills", None)
             fills = list(fills_fn()) if callable(fills_fn) else []
+            unusable_fn = getattr(reader, "unusable_days", None)
+            unusable = list(unusable_fn()) if callable(unusable_fn) else []
         finally:
             for source in {id(detect): detect, id(reader): reader}.values():
                 close = getattr(source, "close", None)
@@ -1069,6 +1226,11 @@ def main(
                 "fills": fills,
                 "forward_fill": False,
                 "rest_fallback": False,
+                "unusable_daily_archives": unusable,
+            },
+            "declared_halts": {
+                "intervals": [list(pair) for pair in protocol.DECLARED_HALTS],
+                "coverage_json_sha256": protocol.COVERAGE_EVIDENCE_SHA256,
             },
             "forward_data_authorization": (
                 None

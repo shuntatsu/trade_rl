@@ -23,7 +23,8 @@ Contract (fail closed everywhere):
   bar plus settlement) nor the latest fully closed bar at fetch time, and
   :class:`StageRowSource` refuses any request or returned row beyond it before the data
   reaches the assembler.
-* **Halts** are the declared ``SPOT_HALTS``: a 4h spot bar is tradable only if all four
+* **Halts** are ``protocol.stage_halt_intervals()`` (the registered ``SPOT_HALTS`` plus the
+  declared exchange-wide outages): a 4h spot bar is tradable only if all four
   hours are, halted hours carry zero volume and only the preceding published close.
 * **Exchange rules** (lot size, minimum notional) are one static snapshot applied to
   every row; they are not point-in-time (for BACKCAST this approximates 2018-2020 by
@@ -42,7 +43,6 @@ import numpy as np
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import RawMarketSeries
-from trade_rl.evaluation.carry_multisymbol.protocol import SPOT_HALTS
 from trade_rl.evaluation.core7_mtf_study import tierd
 from trade_rl.evaluation.trend_oos import protocol
 
@@ -332,7 +332,7 @@ def assemble_stage_dataset(
     *,
     rules: Mapping[str, tuple[tierd.LegRules, tierd.LegRules]],
     limit_close: datetime,
-    halt_intervals: Sequence[tuple[datetime, datetime]] = SPOT_HALTS,
+    halt_intervals: Sequence[tuple[datetime, datetime]] | None = None,
     data_authorization_url: str | None = None,
 ) -> MarketDataset:
     """Assemble the 4h, 11-pair, 22-leg alternating dataset of one stage window.
@@ -343,6 +343,8 @@ def assemble_stage_dataset(
     ``(spot, perp)`` rules; the perpetual rules only fill inert columns.
     """
     roster = protocol.ROSTER
+    if halt_intervals is None:
+        halt_intervals = protocol.stage_halt_intervals()
     if set(spot) != set(roster) or len(spot) != len(roster):
         raise StageDataError(
             "spot must cover exactly the roster "

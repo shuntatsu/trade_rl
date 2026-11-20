@@ -12,6 +12,8 @@ module reads market data or computes a return.
 from __future__ import annotations
 
 import hashlib
+import re
+from datetime import UTC, datetime
 from typing import Final
 
 from trade_rl.artifacts import canonical_json_bytes
@@ -120,6 +122,16 @@ _SCENARIO_DELAY_BARS: Final[dict[str, int]] = {
 }
 
 
+#: Exchange-wide spot outages of the BACKCAST window, declared result-blind from the
+#: coverage report whose SHA-256 is ``COVERAGE_EVIDENCE_SHA256``. Each entry is a
+#: half-open ``(first missing hour open, end)`` UTC pair on whole hours; only ranges
+#: that every symbol listed then is missing qualify. They are treated exactly as the
+#: registered ``SPOT_HALTS`` (non-tradable rows with the preceding published close as
+#: their mark, zero volume); it is the only carried-forward close the protocol allows.
+DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
+COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+
+
 class ProtocolBindingError(RuntimeError):
     """A constant this protocol reuses no longer matches the pinned lowturn protocol."""
 
@@ -141,6 +153,36 @@ def verify_lowturn_binding() -> None:
         raise ProtocolBindingError("controls are not lowturn control families")
     if tuple(SCENARIOS) != ("BASE", "HIGH_COST", "DELAY_1BAR"):
         raise ProtocolBindingError("lowturn scenarios changed")
+
+
+def declared_halt_intervals() -> tuple[tuple[datetime, datetime], ...]:
+    """The declared exchange-wide halts as UTC datetimes; validated, ordered, disjoint."""
+    out: list[tuple[datetime, datetime]] = []
+    for lo_text, hi_text in DECLARED_HALTS:
+        lo = datetime.fromisoformat(lo_text.replace("Z", "+00:00")).astimezone(UTC)
+        hi = datetime.fromisoformat(hi_text.replace("Z", "+00:00")).astimezone(UTC)
+        if lo >= hi or lo.minute or lo.second or hi.minute or hi.second:
+            raise ProtocolBindingError(f"declared halt {lo_text}..{hi_text} is invalid")
+        if out and lo < out[-1][1]:
+            raise ProtocolBindingError("declared halts must be ordered and disjoint")
+        out.append((lo, hi))
+    if out and (
+        COVERAGE_EVIDENCE_SHA256 is None
+        or re.fullmatch(r"[0-9a-f]{64}", COVERAGE_EVIDENCE_SHA256) is None
+    ):
+        raise ProtocolBindingError(
+            "declared halts need the coverage.json SHA-256 they were derived from"
+        )
+    return tuple(out)
+
+
+def stage_halt_intervals() -> tuple[tuple[datetime, datetime], ...]:
+    """Registered ``SPOT_HALTS`` plus the declared halts, ordered and disjoint."""
+    merged = sorted([*SPOT_HALTS, *declared_halt_intervals()])
+    for (_, a_hi), (b_lo, _) in zip(merged, merged[1:], strict=False):
+        if b_lo < a_hi:
+            raise ProtocolBindingError("registered and declared halts overlap")
+    return tuple(merged)
 
 
 def scenario_cost(scenario: str) -> ExecutionCostConfig:
@@ -204,6 +246,18 @@ def protocol_payload() -> dict[str, object]:
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,
             "spot_halts": [[lo.isoformat(), hi.isoformat()] for lo, hi in SPOT_HALTS],
+            "declared_halts": {
+                "intervals": [list(pair) for pair in DECLARED_HALTS],
+                "coverage_json_sha256": COVERAGE_EVIDENCE_SHA256,
+                "qualification": "only hours every symbol listed then is missing, "
+                "after the month-from-daily-archives fallback",
+                "treatment": "identical to SPOT_HALTS: non-tradable rows, zero volume, "
+                "the preceding published close as the mark; the only carried-forward "
+                "close allowed; any other gap is refused",
+                "unusable_monthly_archive": "an unpublished or malformed monthly archive "
+                "is rebuilt from checksum-verified daily archives; a day that is "
+                "unpublished or malformed stays missing",
+            },
             "perp_legs": "not_loaded_unavailable_in_every_row_neither_arm_reads_them",
             "unlisted_spot_rows": "asset_inactive_not_tradable_information_unavailable_"
             "constant_sentinel_price_no_invented_price",
@@ -289,6 +343,7 @@ def protocol_payload() -> dict[str, object]:
 def protocol_digest() -> str:
     """SHA-256 hex digest of the canonical frozen protocol (binding verified first)."""
     verify_lowturn_binding()
+    declared_halt_intervals()
     return hashlib.sha256(canonical_json_bytes(protocol_payload())).hexdigest()
 
 
@@ -306,6 +361,8 @@ __all__ = [
     "CLAIM_BACKCAST",
     "CLAIM_BOTH",
     "CONTROLS",
+    "COVERAGE_EVIDENCE_SHA256",
+    "DECLARED_HALTS",
     "CONTROL_CASH",
     "CONTROL_EW_SPOT",
     "DATA_AUTHORIZATION_URL",
@@ -341,10 +398,12 @@ __all__ = [
     "VOL_TARGET",
     "WARMUP_BARS",
     "ProtocolBindingError",
+    "declared_halt_intervals",
     "protocol_digest",
     "protocol_payload",
     "risk_config",
     "scenario_cost",
     "scenario_signal_lag_bars",
+    "stage_halt_intervals",
     "verify_lowturn_binding",
 ]

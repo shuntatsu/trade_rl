@@ -53,10 +53,16 @@ SMALL = {
 }
 
 
+_MP: list[pytest.MonkeyPatch] = []
+
+
 @pytest.fixture(autouse=True)
-def _no_real_halts(monkeypatch: pytest.MonkeyPatch) -> None:
+def _no_real_halts(monkeypatch: pytest.MonkeyPatch) -> Any:
+    _MP[:] = [monkeypatch]
     monkeypatch.setattr(protocol, "DECLARED_HALTS", ())
     monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", None)
+    yield
+    _MP.clear()
 
 
 def small_window(monkeypatch: pytest.MonkeyPatch, stage: str) -> data.StageWindow:
@@ -77,6 +83,7 @@ class Rows:
         self.requests: list[tuple[str, int, int]] = []
         self.daily: set[tuple[str, int]] = set()
         self.funding_skip: dict[str, set[int]] = {}
+        self.funding_missing: dict[str, set[tuple[int, int]]] = {}
         self._cache: dict[str, np.ndarray] = {}
         self._epoch = _ms(EPOCH)
 
@@ -146,6 +153,12 @@ class Rows:
         assert market is StoreMarket.USDS_M
         lo, hi = self._span(symbol, start_ms, end_ms)
         if lo >= hi:
+            raise CarryCoverageError(
+                f"archive is not published: {symbol}",
+                {"kind": "archive_not_published", "status": 404},
+            )
+        moment = datetime.fromtimestamp(start_ms / 1_000, UTC)
+        if (moment.year, moment.month) in self.funding_missing.get(symbol, set()):
             raise CarryCoverageError(
                 f"archive is not published: {symbol}",
                 {"kind": "archive_not_published", "status": 404},
@@ -250,10 +263,17 @@ def tool(
 def run_argv(
     tmp_path: Path, stage: str, *flags: str, name: str = "out", url: str = AUTH
 ) -> list[str]:
+    confirm = (
+        ["--confirm-single-use"]
+        if stage == "DISJOINT" and "--no-confirm" not in flags
+        else []
+    )
+    flags = tuple(f for f in flags if f != "--no-confirm")
     return [
         "run",
         "--stage",
         stage,
+        *confirm,
         *flags,
         "--output-dir",
         str(tmp_path / name),
@@ -306,6 +326,12 @@ def symbol_file(tmp_path: Path, symbols: Sequence[str] = SYMBOLS) -> Path:
     stem = hashlib.sha256(json.dumps(list(symbols)).encode()).hexdigest()[:10]
     path = tmp_path / f"{stem}-forward-symbols.json"
     path.write_text(json.dumps(list(symbols)), encoding="utf-8")
+    if _MP:
+        _MP[0].setattr(
+            protocol,
+            "FORWARD_SYMBOLS_SHA256",
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
     return path
 
 
@@ -512,14 +538,16 @@ def test_forward_needs_a_supported_disjoint_decision_of_the_same_digest(
         ["USDCUSDT"],
         ["ABCUSDT", "ABCUSDT"],
     ):
+        bad_file = symbol_file(tmp_path, bad_symbols)  # re-pins, so the digest moves
         code, err = go(
             "--final",
             "--forward-symbols",
-            str(symbol_file(tmp_path, bad_symbols)),
+            str(bad_file),
             "--disjoint-decision",
-            str(good),
+            str(disjoint_decision(tmp_path)),
         )
         assert code == driver.EXIT_REFUSED and "FORWARD" in err
+    symbol_file(tmp_path)  # re-pin the good listing
     code, err = go("--final", *flags)
     assert code == driver.EXIT_OK, err
     receipt = json.loads(
@@ -924,7 +952,7 @@ def test_the_stage_symbols_are_the_roster_the_candidates_and_the_forward_listing
     assert driver.stage_symbols("DEV", None) == tuple(sorted(protocol.DEV_ROSTER))
     candidates = driver.stage_symbols("DISJOINT", None)
     assert len(candidates) == 441 and candidates == tuple(sorted(candidates))
-    with pytest.raises(ValueError, match="--forward-symbols"):
+    with pytest.raises(ValueError, match="not pinned"):
         driver.stage_symbols("FORWARD", None)
     listing = symbol_file(tmp_path, ["ZZZUSDT", "AAAUSDT"])
     assert driver.stage_symbols("FORWARD", listing) == ("AAAUSDT", "ZZZUSDT")
@@ -1121,3 +1149,160 @@ def test_the_forward_embargo_policy_is_bound_to_the_owner_relay_and_dev_is_enfor
     forward = driver.embargo_for(datetime(2026, 9, 1, tzinfo=UTC), stage="FORWARD")
     assert isinstance(forward, driver.ForwardEmbargoPolicy)
     assert forward.warmup_authorization_url == DATA_AUTH
+
+
+# ===================================================== B1: funding months, B2, B3
+
+
+def test_an_unpublished_funding_month_inside_the_listing_refuses_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DEV)
+    rows = Rows(listings(window, protocol.DEV_ROSTER))
+    rows.funding_missing["BTCUSDT"] = {(2022, 2)}
+    code, _, err = tool(
+        tmp_path, run_argv(tmp_path, "DEV"), gh=Gh(), now=NOW, rows=rows
+    )
+    assert code == driver.EXIT_REFUSED
+    assert "BTCUSDT" in err and "2022-02" in err and "unpublished" in err
+    assert not (tmp_path / "out" / driver.RUN_RECEIPT_NAME).exists()
+
+
+def test_funding_months_without_any_kline_bar_are_admissible_and_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS)
+    ended = window.load_start + timedelta(days=45)  # delisted mid February
+    rows = Rows(listings(window, last={SYMBOLS[2]: ended}))
+    code, _, err = tool(
+        tmp_path,
+        run_argv(tmp_path, "DISJOINT", "--dev-result", str(dev_result(tmp_path))),
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+    )
+    assert code in (driver.EXIT_OK, driver.EXIT_INVALID), err
+    receipt = json.loads(
+        (tmp_path / "out" / driver.DATA_RECEIPT_NAME).read_text("utf-8")
+    )
+    records = receipt["unpublished_funding_months"]
+    assert records and all(
+        r["admissible"] and r["symbol"] == SYMBOLS[2] for r in records
+    )
+    assert {r["month"] for r in records} == {"2021-03", "2021-04"}
+
+
+def test_coverage_records_an_inadmissible_funding_month_without_refusing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS[:3])
+    rows = Rows(listings(window, SYMBOLS[:3]))
+    rows.funding_missing[SYMBOLS[1]] = {(2021, 3)}
+    code, _, err = tool(
+        tmp_path,
+        ["coverage", "--stage", "DISJOINT", "--output-dir", str(tmp_path / "cov")],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        symbols=SYMBOLS[:3],
+        with_rules=False,
+    )
+    assert code == driver.EXIT_OK, err
+    document = json.loads((tmp_path / "cov" / driver.COVERAGE_NAME).read_text("utf-8"))
+    funding = document["symbols"][SYMBOLS[1]]["usds_m"]["funding"]
+    assert funding["unpublished_funding_months"] == [
+        {"symbol": SYMBOLS[1], "month": "2021-03", "admissible": False}
+    ]
+
+
+def test_forward_is_refused_while_the_symbol_file_is_unpinned_or_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_run: NoRun
+) -> None:
+    window = data.frozen_window(protocol.STAGE_FORWARD)
+    rows = Rows(listings(window))
+    listing = symbol_file(tmp_path)
+
+    def argv_now() -> list[str]:
+        # the pin is part of the protocol digest, so the DISJOINT decision is re-written
+        decision_file = disjoint_decision(tmp_path)
+        return run_argv(
+            tmp_path,
+            "FORWARD",
+            "--interim",
+            "--forward-symbols",
+            str(listing),
+            "--disjoint-decision",
+            str(decision_file),
+        )
+
+    monkeypatch.setattr(protocol, "FORWARD_SYMBOLS_SHA256", None)
+    argv = argv_now()
+    code, _, err = tool(tmp_path, argv, gh=Gh(), now=NOW, rows=rows)
+    assert code == driver.EXIT_REFUSED and "not pinned" in err and rows.requests == []
+    cov = ["coverage", "--stage", "FORWARD", "--forward-symbols", str(listing)]
+    code, _, err = tool(
+        tmp_path,
+        [*cov, "--output-dir", str(tmp_path / "cov")],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        with_rules=False,
+    )
+    assert code == driver.EXIT_REFUSED and "not pinned" in err
+    monkeypatch.setattr(protocol, "FORWARD_SYMBOLS_SHA256", "a" * 64)
+    argv = argv_now()
+    code, _, err = tool(tmp_path, argv, gh=Gh(), now=NOW, rows=rows)
+    assert code == driver.EXIT_REFUSED and "differs from the pinned" in err
+    code, _, err = tool(
+        tmp_path,
+        [*cov, "--output-dir", str(tmp_path / "cov2")],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        with_rules=False,
+    )
+    assert code == driver.EXIT_REFUSED and "differs from the pinned" in err
+    assert rows.requests == [] and not no_run.calls
+    assert "forward_symbols_sha256" in json.dumps(protocol.protocol_payload())
+
+
+def test_disjoint_needs_the_single_use_confirmation_and_records_the_run_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS)
+    rows = Rows(listings(window))
+    flags = ("--dev-result", str(dev_result(tmp_path)))
+    code, _, err = tool(
+        tmp_path,
+        run_argv(tmp_path, "DISJOINT", "--no-confirm", *flags),
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+    )
+    assert code == driver.EXIT_REFUSED and "--confirm-single-use" in err
+    assert rows.requests == []
+    code, _, err = tool(
+        tmp_path,
+        run_argv(tmp_path, "DEV", "--confirm-single-use"),
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+    )
+    assert code == driver.EXIT_REFUSED and "belongs to DISJOINT" in err
+    code, _, err = tool(
+        tmp_path,
+        run_argv(tmp_path, "DISJOINT", *flags, name="first-disjoint-run"),
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+    )
+    assert code in (driver.EXIT_OK, driver.EXIT_INVALID), err
+    result = json.loads(
+        (tmp_path / "first-disjoint-run" / runner.DECISION_NAME).read_text("utf-8")
+    )
+    assert result["output_dir_name"] == "first-disjoint-run"
+    assert result["single_use_stage"] is True
+    assert result["protocol_digest"] == protocol.protocol_digest()

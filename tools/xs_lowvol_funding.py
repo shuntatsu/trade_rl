@@ -159,9 +159,20 @@ def stage_symbols(stage: str, forward_symbols: Path | None) -> tuple[str, ...]:
         return tuple(sorted(protocol.DEV_ROSTER))
     if stage == protocol.STAGE_DISJOINT:
         return tuple(sorted(protocol.load_candidates()))
+    if protocol.FORWARD_SYMBOLS_SHA256 is None:
+        raise ValueError(
+            "FORWARD is refused: FORWARD_SYMBOLS_SHA256 is not pinned (the symbol file "
+            "is pinned by a result-blind amendment before any FORWARD read)"
+        )
     if forward_symbols is None:
         raise ValueError("FORWARD needs --forward-symbols (the listing at run time)")
-    return read_symbol_file(forward_symbols)[0]
+    symbols, digest = read_symbol_file(forward_symbols)
+    if digest != protocol.FORWARD_SYMBOLS_SHA256:
+        raise ValueError(
+            f"the FORWARD symbol file sha256 {digest} differs from the pinned "
+            f"{protocol.FORWARD_SYMBOLS_SHA256}"
+        )
+    return symbols
 
 
 def load_perp_rules(
@@ -321,23 +332,58 @@ def _read_klines_tolerant(
     return rows, unpublished
 
 
+def _months_with_rows(opens: Sequence[int]) -> set[tuple[int, int]]:
+    """``(year, month)`` of every month that holds a kline bar."""
+    months: set[tuple[int, int]] = set()
+    for opened in opens:
+        moment = datetime.fromtimestamp(opened / 1_000, UTC)
+        months.add((moment.year, moment.month))
+    return months
+
+
 def _read_funding_tolerant(
-    reader: CarryRowSource, symbol: str, first_open: int, end_ms: int
-) -> list[tuple[int, float]]:
-    """Settled funding events from ``first_open`` before ``end_ms``, deduplicated."""
+    reader: CarryRowSource,
+    symbol: str,
+    first_open: int,
+    end_ms: int,
+    *,
+    kline_months: set[tuple[int, int]],
+    refuse: bool = True,
+) -> tuple[list[tuple[int, float]], list[dict[str, object]]]:
+    """``(settled funding events, unpublished funding months)`` from ``first_open``.
+
+    A funding month may be unpublished only when the perp has no kline bar at all in that
+    month (before the listing, after the delisting). An unpublished funding month in which
+    the perp trades is not admissible: with ``refuse`` the call raises, naming the symbol
+    and the month (coverage records it instead). Every unpublished month is returned.
+    """
     events: dict[int, float] = {}
+    unpublished: list[dict[str, object]] = []
     for lo, hi in _month_chunks(first_open, end_ms):
         try:
             rows = reader.read_funding(_MARKET, symbol, lo, hi)
         except CarryCoverageError as error:
             if (error.evidence or {}).get("kind") != "archive_not_published":
                 raise
+            moment = datetime.fromtimestamp(lo / 1_000, UTC)
+            admissible = (moment.year, moment.month) not in kline_months
+            record: dict[str, object] = {
+                "symbol": symbol,
+                "month": f"{moment.year:04d}-{moment.month:02d}",
+                "admissible": admissible,
+            }
+            unpublished.append(record)
+            if refuse and not admissible:
+                raise data.StageDataError(
+                    f"{symbol}: the funding archive of {record['month']} is unpublished "
+                    "but the perp has kline bars in that month; refused"
+                ) from error
             continue
         for row in rows:
             stamp = int(row.funding_time_ms)
             if stamp < end_ms:
                 events[stamp] = float(row.rate)
-    return sorted(events.items())
+    return sorted(events.items()), unpublished
 
 
 def load_perp(
@@ -411,7 +457,13 @@ def load_perp(
             if lo_slot < hi_slot:
                 span = slice(lo_slot, hi_slot)
                 halted[span] = ~present[span]
-    events = _read_funding_tolerant(reader, symbol, first_open, end_ms)
+    events, funding_unpublished = _read_funding_tolerant(
+        reader,
+        symbol,
+        first_open,
+        end_ms,
+        kline_months=_months_with_rows([int(row.open_time_ms) for row in rows]),
+    )
     leg = data.PerpHourly(
         present=present,
         halted=halted,
@@ -429,6 +481,7 @@ def load_perp(
             "rows": len(rows),
             "last_published_open": _iso(last_open),
             "unpublished_months": unpublished,
+            "unpublished_funding_months": funding_unpublished,
             "halted_hours": int(halted.sum()),
             "funding_events": len(events),
         }
@@ -628,6 +681,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="FORWARD: the DISJOINT decision.json of the same digest (XS_SUPPORTED)",
     )
     run.add_argument("--forward-symbols", type=Path, default=None)
+    run.add_argument(
+        "--confirm-single-use",
+        action="store_true",
+        help="DISJOINT: confirm it runs exactly once for this protocol id",
+    )
     run.add_argument("--archive-dir", type=Path, required=True)
     run.add_argument("--allow-network", action="store_true")
     run.add_argument("--daily-fallback", action="store_true")
@@ -691,14 +749,22 @@ def _check_mode(args: argparse.Namespace, now: datetime) -> str:
             raise ValueError("--disjoint-decision belongs to FORWARD")
         if args.forward_symbols is not None:
             raise ValueError("--forward-symbols belongs to FORWARD")
+        if args.confirm_single_use and args.stage != protocol.STAGE_DISJOINT:
+            raise ValueError("--confirm-single-use belongs to DISJOINT")
         if args.stage == protocol.STAGE_DEV:
             if args.dev_result is not None:
                 raise ValueError("--dev-result belongs to DISJOINT")
         elif args.dev_result is None:
             raise ValueError("DISJOINT needs --dev-result (DEV runs first)")
+        elif not args.confirm_single_use:
+            raise ValueError(
+                "DISJOINT runs exactly once for this protocol id; pass --confirm-single-use"
+            )
         return runner.MODE_DECISION
     if args.dev_result is not None:
         raise ValueError("--dev-result belongs to DISJOINT")
+    if args.confirm_single_use:
+        raise ValueError("--confirm-single-use belongs to DISJOINT")
     if args.forward_symbols is None:
         raise ValueError("FORWARD needs --forward-symbols (the listing at run time)")
     if args.final == args.interim:
@@ -772,15 +838,24 @@ def _funding_coverage(
     first_open: int,
     end_ms: int,
     errors: list[dict[str, object]],
+    kline_months: set[tuple[int, int]],
 ) -> dict[str, object]:
     try:
-        events = _read_funding_tolerant(reader, symbol, first_open, end_ms)
+        events, unpublished = _read_funding_tolerant(
+            reader,
+            symbol,
+            first_open,
+            end_ms,
+            kline_months=kline_months,
+            refuse=False,
+        )
     except CarryScreenHalt as error:
         errors.append({"phase": "funding", **_halt_error(error)})
         return {"events": None}
     stamps = [t for t, _ in events]
     gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
     return {
+        "unpublished_funding_months": unpublished,
         "events": len(stamps),
         "first_event": None if not stamps else _iso(stamps[0]),
         "last_event": None if not stamps else _iso(stamps[-1]),
@@ -890,7 +965,14 @@ def _leg_coverage(
             "trailing_hours_after_last_row": int(trailing),
             "zero_volume_regular_rows": _hour_ranges(zero_volume),
             "unread_chunks": unread,
-            "funding": _funding_coverage(reader, symbol, first_open, end_ms, errors),
+            "funding": _funding_coverage(
+                reader,
+                symbol,
+                first_open,
+                end_ms,
+                errors,
+                _months_with_rows(sorted(present)),
+            ),
         }
     )
     return entry, first_open, last_open, set(missing)
@@ -1389,6 +1471,11 @@ def _run_main(
             "symbols_on_fallback_rules": fallback_rules,
             "forward_symbol_file_sha256": listing_sha,
             "listing_coverage": coverage,
+            "unpublished_funding_months": [
+                record
+                for entry in coverage.values()
+                for record in entry.get("unpublished_funding_months", [])  # type: ignore[attr-defined]
+            ],
             "archive_evidence_count": len(evidence),
             "archive_evidence_digest": (
                 tierd_driver._digest(evidence) if evidence else None

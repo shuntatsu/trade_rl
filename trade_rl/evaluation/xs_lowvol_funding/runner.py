@@ -659,6 +659,8 @@ def run_stage(
         "harness_source_digest": protocol.harness_source_digest(),
         "code_commit": code_commit,
         "run_date": when.isoformat(),
+        "output_dir_name": output_dir.name,
+        "single_use_stage": window.stage == protocol.STAGE_DISJOINT,
         "disclosures": list(DISCLOSURES),
     }
     manifest: dict[str, Any] = {

@@ -186,6 +186,9 @@ PRIOR_TRIALS: Final = 40
 #: (an amendment and a new digest). Empty until that amendment is made.
 DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
 COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+#: SHA-256 of the FORWARD symbol file, pinned by a result-blind amendment before any FORWARD
+#: read; FORWARD is refused while it is None.
+FORWARD_SYMBOLS_SHA256: Final[str | None] = None
 
 #: The harness files whose bytes enter the digest (a change to any of them is a new digest).
 HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
@@ -419,6 +422,7 @@ def protocol_payload() -> dict[str, object]:
             "start, ties by symbol name",
             "forward_listing": "all ASCII USDT perps listed at run time minus stablecoin "
             "and gold bases, supplied to the tool as a recorded file",
+            "forward_symbols_sha256": FORWARD_SYMBOLS_SHA256,
             "forward_excluded_bases": sorted(_EXCLUDED_BASES),
             "forward_ascii_rule": "[A-Z0-9]+USDT",
         },
@@ -558,9 +562,10 @@ def protocol_payload() -> dict[str, object]:
         },
         "sequencing": {
             "disjoint_requires_dev_result_without_invalid_cell": True,
+            "disjoint_single_use": "runs exactly once; the label, INVALID included, is final",
             "forward_requires_disjoint_decision_label": LABEL_SUPPORTED,
             "forward_final_not_before": FINAL_NOT_BEFORE,
-            "stop_rule": "XS_NOT_SUPPORTED ends the line; no constant is retuned",
+            "stop_rule": "XS_NOT_SUPPORTED or INVALID ends the line; no constant is retuned",
             "no_change_to_any_constant_after_any_stage_result": True,
             "authorizes_orders": False,
         },
@@ -612,6 +617,7 @@ __all__ = [
     "FORCED_CLOSE_ADVERSE",
     "FORCED_CLOSE_LEAD_BARS",
     "FORWARD_SCORING_FROM",
+    "FORWARD_SYMBOLS_SHA256",
     "FUNDING_EVENTS",
     "FUNDING_LOOKBACK_DAYS",
     "GROSS_CAP",

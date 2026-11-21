@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `8e4ba3d4429730691aca01ca7be21b9b3a1dd681a278889507bf2fa44012453b`
+Protocol digest: `4d055eea65aaf706c5b167783a859cd2f52c20350dfaf55f9549b5ef513d4f09`
 
 ## Question
 
@@ -41,17 +41,17 @@ A learning-to-rank diagnostic also attributed most of its test IC to the low-vol
   - Binance USD-M perpetual 1h klines and monthly funding-rate archives from Vision, checksum-verified. These are the same fetch, parse and daily-fallback paths as `agy_anchor_oos`.
   - A malformed or unpublished monthly kline archive is rebuilt from checksum-verified daily archives, with per-day provenance.
   - There is no forward fill.
+  - A monthly funding archive may be unpublished only for a month in which the perp has no kline bar at all (before its listing, after its delisting). If the perp has any kline bar in a month whose funding archive is unpublished, the run and `coverage` refuse (`coverage` only records it), naming the symbol and the month. Every unpublished funding month is recorded in the coverage report and the data receipt.
 - **Clock.** 4h bars aggregated from 1h bars, timestamped at bar close, as in Tier D. Funding events are booked at their funding time.
 - **Spot data.** No spot data is read. The book trades perps only.
 
 ### Candidate list (frozen)
 
-`trade_rl/evaluation/xs_lowvol_funding/candidates.json`, SHA-256 `fc680208899cd4166c9923f9cf9e8f8ebe829010aae073a935de10d6e6fefdf6`, holds 441 USDT perpetual symbols. It is the scoping note's 450-pair fetch superset with these removed:
+`trade_rl/evaluation/xs_lowvol_funding/candidates.json`, SHA-256 `fc680208899cd4166c9923f9cf9e8f8ebe829010aae073a935de10d6e6fefdf6`, holds 441 USDT perpetual symbols. It is derived from the scoping metadata (`symbols.json`: 450 USDT perpetuals with both spot and um monthly 1h archives, 2021-01 to 2026-07, the 16 touched symbols (BTC ETH BNB SOL XRP DOGE ADA AVAX LINK LTC DOT BCH SUI APT ARB OP) already excluded) by removing:
 
-- the 16 touched symbols (BTC ETH BNB SOL XRP DOGE ADA AVAX LINK LTC DOT BCH SUI APT ARB OP);
-- TRX (a conservative exclusion);
-- the six 1000x perps whose spot base differs (a unit mismatch on the spot side, removed by the scoping). 1000CAT, 1000CHEEMS, 1000SATS and 1MBABYDOGE remain: the book is perp-only and returns are scale invariant, so price scaling does not matter;
-- every symbol that is not ASCII `[A-Z0-9]+USDT` (one was removed), because the Vision path handling for such symbols is untested.
+- TRX (a conservative exclusion): 450 − 1 = 449;
+- the 7 entries flagged `price_scaled_1000x` (1000BONK, 1000BTTC, 1000FLOKI, 1000LUNC, 1000PEPE, 1000SHIB, 1000XEC), whose spot base differs (a unit mismatch on the spot side): 449 − 7 = 442. 1000CAT, 1000CHEEMS, 1000SATS and 1MBABYDOGE are not flagged and remain: the book is perp-only and returns are scale invariant, so price scaling does not matter;
+- every symbol that is not ASCII `[A-Z0-9]+USDT` (one), because the Vision path handling for such symbols is untested: 442 − 1 = 441.
 
 The list includes 24 pairs that were later delisted. It was built from archive listings, not from the current exchangeInfo, so delisted pairs are present.
 
@@ -95,6 +95,7 @@ Exchange-wide perp outages are declared result-blind from a coverage report, as 
 - **DISJOINT** is the primary falsifier. Its reads stop strictly before 2026-08-01 (the Pre-FS1 embargo).
 - **FORWARD**
   - Decisions before 2026-08-01 are warm-up only.
+  - The symbol file is built once from the Vision um listing, before any FORWARD read, by a result-blind amendment that pins its SHA-256 (`FORWARD_SYMBOLS_SHA256`, part of the protocol digest). It is identical for every interim and the final run and is never edited afterwards. FORWARD coverage and runs refuse while the pin is unset or when the file differs.
   - Interim reports are allowed monthly. They report the running numbers and are never a decision.
   - The final run happens at or after 2027-05-08T00:00Z, after the 2027-04 funding archive is published.
   - Its reads go through the exact data-authorization relay above.
@@ -114,6 +115,7 @@ Decisions are made weekly, at the 4h bar closing Monday 00:00 UTC. Orders fill a
    - Within each leg, raw weight `w_i ∝ 1/sigma_i`. Each leg is normalised so that `sum |w_i| * sigma_i = 1`, which gives equal stand-alone risk per leg.
 4. **Volatility target.**
    - The book is scaled to an ex-ante annualised volatility of **20%**.
+   - Disclosed: in a week where a forced-close name is zeroed after this scaling, the remaining book is not re-targeted, so its ex-ante volatility is below 20%.
    - The covariance is estimated from the last 360 4h log returns of the held names. It is shrunk 50/50 toward its own diagonal and annualised with 2190 bars per year.
 5. **Caps**, applied in this order:
    1. per-name `|w| ≤ 0.25`;
@@ -161,7 +163,7 @@ Every arm runs under every scenario. Only `CANDIDATE` is gated. The other arms e
 
 A cell is **INVALID** if any of these hold:
 
-- cash net of cumulative execution costs falls below −1e-6 × capital;
+- at any ledger interval, the borrowing `max(0, −cash_after − total_cost_after)` exceeds 1e-6 × capital (the `agy_anchor_oos` check reused unchanged, with the cumulative forced-close debits also taken out of `cash_after`);
 - a non-dust residual remains after terminal settlement;
 - the run reads a row outside its stage window or authorization.
 
@@ -204,14 +206,16 @@ These figures are reported and never gate:
 1. Freeze this spec and the implementation: pin the protocol digest and obtain an exact-head independent review.
 2. Run `coverage` for DISJOINT. It reads archives, validates rows and declares halts result-blind (an amendment and a new digest).
 3. Post a G4 relay that quotes the protocol id, the digest and the code commit. Then run DEV.
-4. If DEV has no INVALID cell, post a G4 relay and run DISJOINT once.
-5. **If the label is `XS_NOT_SUPPORTED`, the line stops.**
+4. If DEV has no INVALID cell, post a G4 relay and run DISJOINT exactly once.
+   - DISJOINT runs exactly once for this protocol id on these 441 names. Its label, including `INVALID`, is final. DEV exists to catch harness faults first; a harness fix after any DISJOINT result never reruns DISJOINT on these names (a successor protocol needs a fresh holdout).
+   - The tool requires an explicit `--confirm-single-use` for DISJOINT and writes the output directory name and the digest into the result, so a second DISJOINT result is visibly a second run. This is a procedural guard, enforced by the one G4 relay per stage.
+5. **If the label is `XS_NOT_SUPPORTED` or `INVALID`, the line stops.**
    - No constant is retuned on these 441 names.
    - A variant is a new protocol: it counts as further trials, and it must name a fresh holdout.
 6. **If the label is `XS_SUPPORTED`,** the CANDIDATE goes to FORWARD as a paper book. A paper-trading shadow of the same policy may be built.
    - This is not authorization for orders, API keys or live trading.
 
-A result is never reclassified after it is seen. An amendment after a result has been seen applies only to future stages, and it is disclosed.
+A result is never reclassified after it is seen. An amendment after a result has been seen applies only to future stages, and it is disclosed. It never permits rerunning DISJOINT on these names.
 
 ## Oracles (G2)
 
@@ -222,7 +226,7 @@ The implementation must pass synthetic tests that do not call production sizing:
 - **Universe membership.** The monthly top-30 is point-in-time. A name whose volume spikes only inside month M does not enter M.
 - **Forced close.** A delisting fixture charges exactly the scenario cost plus 5% on the closed notional and leaves no position.
 - **Funding sign.** A short perp leg with positive funding receives funding.
-- **Causality.** Appending future rows never changes any earlier decision.
+- **Causality.** Appending future rows never changes any earlier decision. The one disclosed exception is the forced-close schedule: it uses archive-end knowledge, modelling the delisting notice. Every other input obeys the append-future-rows invariance.
 - **Embargo.** DISJOINT refuses any row at or after 2026-08-01, and FORWARD refuses rows after the latest closed bar or outside the authorization.
 - **INVALID.** A borrowing cell is INVALID.
 

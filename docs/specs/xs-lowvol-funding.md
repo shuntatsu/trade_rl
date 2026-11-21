@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `743d1990416007065b36fff87c2e16a6a72cb1a17faee42c0f496037efa75bc0`
+Protocol digest: `4a2a57128da1b008ee62fa72065e19cb75da750c43e4845e6fa327a6e5c924c3`
 
 ## Question
 
@@ -89,6 +89,8 @@ Exchange-wide perp outages are declared result-blind from a coverage report, as 
 - **REST funding fallback.** If a monthly Vision fundingRate archive is unpublished in a month in which the (truncated) leg has at least one bar with volume, the month's events are read from the public Binance endpoint `https://fapi.binance.com/fapi/v1/fundingRate` (no key; only with `--allow-network`), paginated by `startTime` while 1000 events are returned, over the UTC month `[start, next month start)` clipped to the read limit. The response must name the symbol, have strictly increasing times inside the month and finite rates. The raw JSON of each month is cached under `<archive>/rest/fundingRate/<SYMBOL>/<SYMBOL>-fundingRate-<YYYY-MM>.json` and its SHA-256 and event count are recorded in the data receipt (`rest_funding`) and the coverage report, so the run is reproducible offline from the cache (a cache file is used before the network). The events are merged like archive events. Without cache and network, or on an invalid response, the run refuses as before (fail closed). If the REST endpoint returns no event for such a month (a perp that listed at the end of that month), the month is admissible only if the merged funding series has no gap longer than 24 hours around it, measured from the first bar with volume (or the last event before the month) to the next event (or the effective end); otherwise the run refuses.
 - **Coverage summary.** `coverage` applies the same truncation and fallback, and its printed summary lists `inadmissible_unpublished_funding_months` (count and `symbol:month`), `rest_funding_months` and `zombie_tail_legs`, so a refusal is visible before a run.
 - **Sequence.** DEV is rerun under the new protocol digest, and DISJOINT then runs exactly once under it.
+
+**Amendment 3 (2026-11-22, result-blind software validity).** Before any DISJOINT replay or return was computed, a synthetic review found that the Amendment 2 REST decoder implicitly coerced a malformed floating-point, string or boolean `fundingTime` into an integer, or a boolean/huge integer `fundingRate` into a float. The official USD-M endpoint publishes integer-millisecond `fundingTime` and string `fundingRate`; the updated decoder rejects any wrong field type and refuses malformed network responses and cached months without appending, caching or computing a result. This valid-response-preserving fail-closed change is nevertheless a new **harness source digest** and thus a new **protocol digest**: earlier review/CI/authorization and coverage under the previous digest do not transfer. Freeze, new result-blind coverage and any economic run remain on HOLD until exact-head independent review and fresh authorization; no real candidate data was read by this amendment.
 
 ## Stages
 

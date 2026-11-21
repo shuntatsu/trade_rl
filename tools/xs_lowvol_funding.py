@@ -422,10 +422,16 @@ class RestFundingSource:
                 raise RestFundingError(
                     f"{symbol}: a REST funding event names another symbol"
                 )
+            stamp = item.get("fundingTime")
+            rate_raw = item.get("fundingRate")
+            # The USD-M REST contract defines fundingTime as an integer
+            # millisecond timestamp and fundingRate as a numeric string. In
+            # particular, int(float_timestamp) must never shift an event.
+            if type(stamp) is not int or not isinstance(rate_raw, str):
+                raise RestFundingError(f"{symbol}: a REST funding event is malformed")
             try:
-                stamp = int(item["fundingTime"])
-                rate = float(item["fundingRate"])
-            except (KeyError, TypeError, ValueError) as error:
+                rate = float(rate_raw)
+            except (TypeError, ValueError, OverflowError) as error:
                 raise RestFundingError(
                     f"{symbol}: a REST funding event is malformed"
                 ) from error

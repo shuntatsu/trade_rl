@@ -15,6 +15,7 @@ Rules enforced here for every setup:
 from __future__ import annotations
 
 import hashlib
+import math
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -395,13 +396,37 @@ def dev_decision(
 
 
 def deflated_for(registry: TrialRegistry, record: TrialRecord) -> dict[str, float]:
-    """Deflated Sharpe of one registered trial against every registered trial."""
+    """Deflated Sharpe of an eligible completed trial, never a failed tail row."""
+    if record.status != "completed":
+        raise ValueError("deflated Sharpe requires a completed last trial")
+    required = ("sharpe_per_period", "n_obs", "skewness", "kurtosis")
+    missing = [field for field in required if field not in record.metrics]
+    if missing:
+        raise ValueError(f"completed trial is missing metrics: {', '.join(missing)}")
+    # The registry counts every failed trial, but a *headline* deflated Sharpe
+    # requires the last trial to carry a valid completed return distribution.
+    # In particular 4.9 observations must not silently become four.
+    count = record.metrics["n_obs"]
+    if type(count) is not int or count < 2:
+        raise ValueError("n_obs must be an integer of at least two")
+    moments: dict[str, float] = {}
+    for name in ("sharpe_per_period", "skewness", "kurtosis"):
+        value = record.metrics[name]
+        if type(value) not in (int, float):
+            raise ValueError(f"{name} must be a finite number")
+        try:
+            numeric = float(value)
+        except OverflowError as error:
+            raise ValueError(f"{name} must be a finite number") from error
+        if not math.isfinite(numeric):
+            raise ValueError(f"{name} must be a finite number")
+        moments[name] = numeric
     return registry_deflated_sharpe(
         registry.records(),
-        sharpe=float(record.metrics["sharpe_per_period"]),
-        n_obs=int(record.metrics["n_obs"]),
-        skewness=float(record.metrics["skewness"]),
-        kurtosis=float(record.metrics["kurtosis"]),
+        sharpe=moments["sharpe_per_period"],
+        n_obs=count,
+        skewness=moments["skewness"],
+        kurtosis=moments["kurtosis"],
     )
 
 

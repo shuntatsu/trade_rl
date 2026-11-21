@@ -30,6 +30,16 @@ unsupported platforms fail closed. A failed or interrupted write must be
 investigated by verifying the chain, not silently retried or repaired. This
 software safety feature is not economic-run approval or provenance of a trial.
 
+The read-only `tools.learning_lab registry --deflated-for-last` view only
+calculates a headline deflated Sharpe if the **literal last** registered trial is
+`completed` and contains all four required moments (`sharpe_per_period`,
+`n_obs`, `skewness`, `kurtosis`), with an integer observation count
+of at least two and finite numeric moments. A failed, invalid, shelved or
+incomplete last trial refuses this view with a clear error: it is **never
+silently omitted** or replaced by a more successful prior trial. The ordinary
+`registry` read still shows *all* trials, including failures; no record or
+chain field is altered by this reporting guard.
+
 | ID | Method | Role | Why it might help | Status |
 |---|---|---|---|---|
 | L1-PPO | PPO, discrete trade fraction | execution and rebalance timing on the anchor target | the anchor's gross edge is eaten by turnover | drafted |

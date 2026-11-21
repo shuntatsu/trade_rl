@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
@@ -15,6 +16,7 @@ from statistics import NormalDist
 import numpy as np
 import pytest
 
+from tools import learning_lab as lab_tool
 from trade_rl.evaluation.learning_lab import registry as reg
 from trade_rl.evaluation.learning_lab import splits
 from trade_rl.evaluation.learning_lab.metrics import summarize_returns
@@ -154,6 +156,144 @@ def _record(
         status=status,
         stop_reason=reason,
     )
+
+
+@pytest.mark.parametrize("status", ("shelved", "invalid", "failed"))
+def test_deflated_last_refuses_ineligible_terminal_record_without_crashing(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={},
+            status=status,
+            stop_reason="no valid Sharpe",
+        )
+    )
+    before = path.read_bytes()
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = lab_tool.main(
+        ["registry", "--registry", str(path), "--deflated-for-last"],
+        stdout=stdout,
+        stderr=stderr,
+    )
+    assert code == lab_tool.EXIT_REFUSED
+    assert stdout.getvalue() == ""
+    assert "completed" in stderr.getvalue()
+    assert path.read_bytes() == before and registry.verify() == 1
+    stdout, stderr = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(
+            ["registry", "--registry", str(path)],
+            stdout=stdout,
+            stderr=stderr,
+        )
+        == lab_tool.EXIT_OK
+    )
+    assert json.loads(stdout.getvalue())["trials"] == 1
+
+
+def test_deflated_last_refuses_incomplete_success_metrics(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={"sharpe_per_period": 0.05},
+            status="completed",
+        )
+    )
+    before = path.read_bytes()
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = lab_tool.main(
+        ["registry", "--registry", str(path), "--deflated-for-last"],
+        stdout=stdout,
+        stderr=stderr,
+    )
+    assert code == lab_tool.EXIT_REFUSED
+    assert stdout.getvalue() == "" and "missing" in stderr.getvalue()
+    assert path.read_bytes() == before and registry.verify() == 1
+
+
+@pytest.mark.parametrize("invalid_count", (True, 4.5, "4"))
+def test_deflated_last_does_not_silently_coerce_observation_count(
+    tmp_path: Path,
+    invalid_count: object,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={
+                "sharpe_per_period": 0.1,
+                "n_obs": invalid_count,
+                "skewness": 0.0,
+                "kurtosis": 3.0,
+            },
+            status="completed",
+        )
+    )
+    before = path.read_bytes()
+    out, err = io.StringIO(), io.StringIO()
+    code = lab_tool.main(
+        ["registry", "--registry", str(path), "--deflated-for-last"],
+        stdout=out,
+        stderr=err,
+    )
+    assert code == lab_tool.EXIT_REFUSED
+    assert "n_obs" in err.getvalue() and not out.getvalue()
+    assert path.read_bytes() == before and registry.verify() == 1
+
+
+def test_deflated_last_works_for_completed_record_with_real_moments(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={
+                "sharpe_per_period": 0.02,
+                "n_obs": 100,
+                "skewness": 0.0,
+                "kurtosis": 3.0,
+            },
+            status="completed",
+        )
+    )
+    out, err = io.StringIO(), io.StringIO()
+    code = lab_tool.main(
+        ["registry", "--registry", str(path), "--deflated-for-last"],
+        stdout=out,
+        stderr=err,
+    )
+    assert code == lab_tool.EXIT_OK, err.getvalue()
+    result = json.loads(out.getvalue())
+    assert result["trials"] == 1 and result["chain_verified"] is True
+    assert 0.0 <= result["deflated_sharpe"]["deflated_sharpe"] <= 1.0
 
 
 def test_the_registry_is_append_only_and_chained(tmp_path: Path) -> None:

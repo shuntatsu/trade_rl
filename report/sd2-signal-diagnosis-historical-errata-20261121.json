@@ -1,0 +1,94 @@
+{
+  "authorizes_economic_execution": false,
+  "authorizes_live_trading": false,
+  "current_author_packet": "report/sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json",
+  "frozen_protocol": "report/issue1146-sd0-signal-diagnosis-protocol-v4-20261111.json",
+  "frozen_protocol_digest": "1f48b065b03bc38299a751bef89456b57d5afc6a7d8b917668b1b461f852d0b3",
+  "historical_packets": [
+    {
+      "findings": [
+        {
+          "correction": "The old falsifier string is a stale historical claim, NOT a valid source pin for this snapshot. Use the immutable identity head for this historical snapshot and the later active packet plus source-closure regression for current code. Never reinterpret the old falsifier as a passing oracle.",
+          "historical_problem": "thesis.cheapest_falsifier checks static closure drift from obsolete 698ebb10095bad5cf1773fc524bf2adae836fa0f while identity binds 3e206e9620a4eeb0970eecbcceb550faa8275c15.",
+          "id": "stale_falsifier_source_head"
+        },
+        {
+          "correction": "The relevant software test is tests/integrations/cross_asset/test_dataset_overlay.py; the old packet did not attest it. Later source/test evidence must be verified independently. This correction does not assert first-release point-in-time data or any market execution.",
+          "historical_problem": "The Track D xa_ retrospective latest-vintage Dataset provenance change is mentioned in limitations but not pinned in historical evidence, oracle or cheapest_falsifier fields.",
+          "id": "trackd_overlay_oracle_not_pinned"
+        },
+        {
+          "correction": "Apply window_boundary_interpretation in THIS ERRATA ledger. A close timestamp at the cutoff belongs only to the preceding one-hour development bar; a bar opening at the cutoff or closing after it is forbidden. Do not read FS1 warm-up or sealed data.",
+          "historical_problem": "Historical claims.forbidden says touching cutoff onward while time.oracle admits a bar closing at cutoff; the packet does not explicitly disambiguate bar-close timestamps from half-open bar periods.",
+          "id": "fs1_bar_boundary_wording"
+        }
+      ],
+      "git_blob_sha": "f67e84011eec0950f142171887f0847c81396d18",
+      "historical_source_head": "3e206e9620a4eeb0970eecbcceb550faa8275c15",
+      "path": "report/sd2-signal-diagnosis-research-assurance-20261120-after-trackd-main.json",
+      "status": "historical_unreviewed_not_authoritative"
+    },
+    {
+      "findings": [
+        {
+          "correction": "Treat those retrospective prose statements as unverified by this snapshot. Later tests/evaluation/test_signal_diagnosis_run_units.py, tests/evaluation/test_signal_diagnosis_run_cli.py and tests/evaluation/test_signal_diagnosis_run_packet.py and later immutable packet are required to demonstrate the software claims; do not backdate the attestations.",
+          "historical_problem": "The final historical limitations paragraph claims causal per-vintage D2, empty-subset IC and CLI output-path/error checks, but this packet does not pin the corresponding version-specific falsifier and independent evidence. The state authority here describes absence of trading positions, not a substitute for causal feature-standardisation proof.",
+          "id": "later_d2_ic_cli_claims_not_pinned"
+        },
+        {
+          "correction": "Apply window_boundary_interpretation in THIS ERRATA ledger. A close timestamp at the cutoff belongs only to the preceding one-hour development bar; a bar opening at the cutoff or closing after it is forbidden. Do not read FS1 warm-up or sealed data.",
+          "historical_problem": "Historical claims.forbidden says touching cutoff onward while time.oracle admits a bar closing at cutoff; the packet does not explicitly disambiguate bar-close timestamps from half-open bar periods.",
+          "id": "fs1_bar_boundary_wording"
+        }
+      ],
+      "git_blob_sha": "2f444c043bf4dccc4e4647986774ab6d24022a4a",
+      "historical_source_head": "2f725160b4f585deb74eb431d846814676de996d",
+      "path": "report/sd2-signal-diagnosis-research-assurance-20261120-safe-unified-runner.json",
+      "status": "historical_unreviewed_not_authoritative"
+    },
+    {
+      "findings": [
+        {
+          "correction": "Do not count the historical packet as independent evidence for those claims. The later after-m2-consistent-oracles author packet and real tests/evaluation/test_signal_diagnosis_run_units.py and tests/evaluation/test_signal_diagnosis_run_cli.py provide separately reviewable source-level witnesses; no retrospective review is inferred.",
+          "historical_problem": "Historical limitations mentions empty-subset IC refusal and CLI error paths but its mechanism.independent_oracles and thesis.cheapest_falsifier do not pin those exact negative-case tests.",
+          "id": "later_ic_cli_claims_not_pinned"
+        },
+        {
+          "correction": "Apply window_boundary_interpretation in THIS ERRATA ledger. A close timestamp at the cutoff belongs only to the preceding one-hour development bar; a bar opening at the cutoff or closing after it is forbidden. Do not read FS1 warm-up or sealed data.",
+          "historical_problem": "Historical claims.forbidden says touching cutoff onward while time.oracle admits a bar closing at cutoff; the packet does not explicitly disambiguate bar-close timestamps from half-open bar periods.",
+          "id": "fs1_bar_boundary_wording"
+        }
+      ],
+      "git_blob_sha": "f6ab2464aebf4efc687b8cbb3ee1a6642a5c425e",
+      "historical_source_head": "04d7f22701b3dd0067e5d72cebe6db6d11a60c69",
+      "path": "report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json",
+      "status": "historical_unreviewed_not_authoritative"
+    }
+  ],
+  "immutable_originals_untouched": true,
+  "independent_historical_packet_review_pass": false,
+  "review_events": [
+    "https://github.com/shuntatsu/trade_rl/pull/1309#issuecomment-7056232804",
+    "https://github.com/shuntatsu/trade_rl/pull/1309#issuecomment-7057424559"
+  ],
+  "schema_version": "sd2_historical_assurance_errata_v1",
+  "scope_limitations": "This separately versioned audit ledger is a non-authorizing clarification of preserved, already-written historical software-only packets. It is not research_assurance_v1, not a replacement packet, not independent provider approval, and not evidence of market/PIT/FS1 evaluation. Known material historical inconsistencies stay OPEN and their original bytes remain unchanged. No G0-G5/G4, output replay, training, real/unused/final-data access or live orders are authorized.",
+  "source_scope": "software_only",
+  "status": "HISTORICAL_FINDINGS_OPEN",
+  "window_boundary_interpretation": {
+    "bar_close_timestamp_inclusive_end": "2026-08-01T00:00:00Z",
+    "bar_closing_after_end_is_refused": true,
+    "bar_closing_at_end_is_admitted": true,
+    "bar_timestamp_kind": "UTC_bar_close",
+    "base_interval": "1h",
+    "first_forbidden_fs1_period_open": "2026-08-01T00:00:00Z",
+    "forbids_any_fs1_period_access": true,
+    "interpretation": "The final DEVELOPMENT bar closes at the left endpoint of the FS1 warm-up interval and covers only the preceding hour. It does NOT read a bar opening at that instant. Any bar interval intersecting the FS1 interval is forbidden. Source admission uses bar-close stamps <= evaluation_end; the 1h grid means FS1-starting bars close later than evaluation_end and are refused. This clarifies the ambiguous historical phrase touching 2026-08-01T00:00Z onward without changing the frozen protocol or code.",
+    "one_hour_bar_period": "[close - 1h, close)",
+    "period_semantics": "half_open_bar_period_interval",
+    "source_oracles": [
+      "trade_rl/evaluation/signal_diagnosis_run/panel.py::admit_panel",
+      "tests/evaluation/test_signal_diagnosis_run_units.py::test_a_bar_after_the_window_end_is_refused_as_forbidden_data"
+    ]
+  }
+}

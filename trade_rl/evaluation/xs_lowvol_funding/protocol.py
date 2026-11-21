@@ -193,7 +193,7 @@ PRIOR_TRIALS: Final = 40
 #: no halt is declared; its SHA-256 is pinned as the evidence for that empty declaration.
 DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
 COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
-    "757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c"
+    "64149a6ff2e3770449481e048896d832d6e5eb558c17b950b76de0a06c25d594"
 )
 #: SHA-256 of the FORWARD symbol file, pinned by a result-blind amendment before any FORWARD
 #: read; FORWARD is refused while it is None.

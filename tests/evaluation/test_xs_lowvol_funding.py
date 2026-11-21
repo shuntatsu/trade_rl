@@ -744,7 +744,7 @@ def test_amendment_1_declares_no_halt_and_pins_its_coverage_evidence(
 ) -> None:
     assert protocol.DECLARED_HALTS == ()
     assert protocol.COVERAGE_EVIDENCE_SHA256 == (
-        "757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c"
+        "64149a6ff2e3770449481e048896d832d6e5eb558c17b950b76de0a06c25d594"
     )
     assert protocol.declared_halt_intervals() == ()
     monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", None)
@@ -761,7 +761,7 @@ def test_amendment_1_declares_no_halt_and_pins_its_coverage_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "ccfc8e93b94945038e093b01608760e8468c4c6b90d940fbdbc0f96fc609cb22"
+    "e9193110264427104e63bbe17f40dca35255ab25240394834a8916a9b5057487"
 )
 
 

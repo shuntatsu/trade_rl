@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `00530f3a26f042e07e3c795ef8046768f223cf1e812470009b62281ec78c21f6`
+Protocol digest: `e9193110264427104e63bbe17f40dca35255ab25240394834a8916a9b5057487`
 
 ## Question
 
@@ -93,6 +93,8 @@ Exchange-wide perp outages are declared result-blind from a coverage report, as 
 - **Sequence.** DEV is rerun under the new protocol digest, and DISJOINT then runs exactly once under it.
 
 **Amendment 3 (2026-11-22, result-blind software validity).** Before any DISJOINT replay or return was computed, a synthetic review found that the Amendment 2 REST decoder implicitly coerced a malformed floating-point, string or boolean `fundingTime` into an integer, or a boolean/huge integer `fundingRate` into a float. The official USD-M endpoint publishes integer-millisecond `fundingTime` and string `fundingRate`; the updated decoder rejects any wrong field type and refuses malformed network responses and cached months without appending, caching or computing a result. This valid-response-preserving fail-closed change is nevertheless a new **harness source digest** and thus a new **protocol digest**: earlier review/CI/authorization and coverage under the previous digest do not transfer. Freeze, new result-blind coverage and any economic run remain on HOLD until exact-head independent review and fresh authorization; no real candidate data was read by this amendment.
+
+**Amendment 4 (2026-11-22, result-blind coverage evidence).** `coverage` for DISJOINT ran from the clean code `d5e2b6a88dfd6c57e52473d16aa9ba733d2a7d0c` (protocol digest `00530f3a26f042e07e3c795ef8046768f223cf1e812470009b62281ec78c21f6`). It reported 0 exchange-wide perp gap hours, no read error, 0 inadmissible unpublished funding months, 38 REST funding months, 100 zombie-tail legs and 10 relisting-gap legs (AERGO, BNX, CTK, CVC, CVX, ICP, LIT, PUMP, SLP, TLM; 260–21567 hours). `DECLARED_HALTS` stays empty. The report's SHA-256 `64149a6ff2e3770449481e048896d832d6e5eb558c17b950b76de0a06c25d594` replaces the Amendment 1 value as `COVERAGE_EVIDENCE_SHA256`. Only this pin changes, which gives a new protocol digest. No signal, replay or return was computed.
 
 ## Stages
 

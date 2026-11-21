@@ -76,16 +76,21 @@ pre-images do not incur new orders. Relative `np.allclose` tolerance is forbidde
   extinguishes the corresponding allowance. Older paid fees are never recycled.
 - Inspect native ordered `OrderEvent` fills (not merely period-end cash).
   The current event schema does not carry each fill's execution fee. To ensure a
-  **conservative lower bound**, subtract the full nonnegative interval cost
-  (cross-checked against the cumulative ledger) and all negative non-trade cashflows
-  from `cash_before` **before the first ordered fill**. Omit positive non-trade
-  credits until after the audit. Then apply signed fill notionals in engine
-  sequence. This bound cannot silently treat later sales or credits as funding
-  for earlier purchases. It **can falsely invalidate cash-safe intervals**
-  (for example, a passive control whose exit fee is paid after sale proceeds);
-  such conservative INVALID results must not be promoted as economic findings.
-  Per-fill cost/cash evidence is required before eliminating these false
-  positives. Unexpected perp fills or contradictory fee totals fail closed.
+  **conservative lower bound**, reserve all negative non-trade cashflows from
+  `cash_before` before processing orders, but deduct the **full verified
+  interval execution cost immediately after the first filled order's signed
+  notional**. Subsequent fills receive no additional cost deduction, because
+  all nonnegative fees are already charged in the lower bound. If the interval
+  has no fill, reserve any reported cost at its start. Omit positive non-trade
+  credits until after the audit. This respects the native book's execution
+  order: sell proceeds arrive before that fill's cost, but later sell proceeds
+  cannot fund an earlier purchase. It prevents the known false INVALID on a
+  cash-safe passive exit that begins with a sale, while remaining conservative
+  on buy-first execution. It **can still falsely invalidate some cash-safe
+  paths**, because fees actually paid on later fills are charged at the first
+  fill in the lower bound. Such INVALID results are not economic findings.
+  Per-fill cost/cash evidence remains necessary to eliminate these residual
+  false positives. Unexpected perp fills or contradictory fee totals fail closed.
 - `min(cash_after, conservative ordered fill cash)` below
   `-0.000001 × initial_capital` is `negative_cash_borrowing` and INVALID **even
   if the deficit comes solely from fees**. The separately reported maximum

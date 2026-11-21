@@ -263,7 +263,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "493b665dbf27509ea4d84fbc7f86bd7571a93197b12af2d8a2248a75f5e77e09"
+    assert digest == "df08d0cdd428776674502aeeaf145feff5bbf01b3075aedf306c68cfa9805bb3"
 
 
 @pytest.mark.parametrize(

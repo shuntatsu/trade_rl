@@ -391,8 +391,10 @@ def protocol_payload() -> dict[str, object]:
             "LowturnPolicy",
             "invalid_on_borrowing": {
                 "reason": REASON_NEGATIVE_CASH,
-                "rule": "min(interval cash_after, optimistic ordered spot-fill "
-                "cash before fees) < -tolerance_fraction * initial_capital OR "
+                "rule": "min(interval cash_after, conservative ordered spot-fill "
+                "cash including all nonnegative interval execution fees charged "
+                "after the first signed fill, and all negative external cashflows "
+                "charged before fills) < -tolerance_fraction * initial_capital OR "
                 "per-interval unabsorbed-fee borrowing > that tolerance",
                 "tolerance_fraction": CASH_TOLERANCE_FRACTION,
                 "net_of_costs": "diagnostic only: fee allowance is extinguished by "

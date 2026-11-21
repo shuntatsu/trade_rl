@@ -483,7 +483,7 @@ def test_the_uncapped_rule_reproduces_zero_cost_financing_and_the_cap_removes_it
     assert capped.book.portfolio_value < free.book.portfolio_value
 
 
-def test_every_arm_cell_keeps_the_cash_account_with_conservative_fee_false_positives(
+def test_every_arm_cash_account_keeps_passive_sells_valid_when_cash_is_safe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     window, dataset = _low_vol_window(monkeypatch)
@@ -493,26 +493,21 @@ def test_every_arm_cell_keeps_the_cash_account_with_conservative_fee_false_posit
         output_dir=tmp_path / "out",
         expected_protocol_digest=protocol.protocol_digest(),
     )
-    # Before per-fill cost evidence exists, reserving every interval's fees
-    # before its first trade is deliberately fail-closed, even when the native
-    # passive EW control actually paid its exit fees *after* cash arrived.
-    assert result["label"] == "INVALID"
-    assert set(result["invalid_cells"]) == {
-        f"EW_HOLD_SPOT__{scenario}" for scenario in protocol.SCENARIOS
-    }
+    # The seeded synthetic replay is a software oracle, not an economic
+    # finding. Its passive controls sell before paying their own exit fees.
+    # Charging all costs after the first fill (rather than before it) keeps
+    # those genuinely cash-safe controls valid without allowing a buy loan.
+    assert result["label"] in (protocol.LABEL_SUPPORTED, protocol.LABEL_NOT_SUPPORTED)
+    assert result["invalid_cells"] == []
     for key, cell in result["cells"].items():
         assert cell["max_borrowing"] <= TOLERANCE, key
-        if cell["arm"] == "EW_HOLD_SPOT":
-            assert protocol.REASON_NEGATIVE_CASH in cell["invalid_reasons"], key
-        else:
-            assert protocol.REASON_NEGATIVE_CASH not in cell["invalid_reasons"], key
+        assert protocol.REASON_NEGATIVE_CASH not in cell["invalid_reasons"], key
         assert cell["causality_probe"]["shared_across_cost_scenarios"] is True
         assert cell["causality_probe"]["key"].startswith(cell["arm"] + "__lag")
         assert cell["returns_series"] == "dust_adjusted"
-    # After the fix, even the passive fully invested control reserves sufficient
-    # deterministic fill costs instead of financing them with negative cash.
+    # Its first sale can provide the cash needed to pay that sale's fee.
     ew = result["cells"]["EW_HOLD_SPOT__BASE"]
-    assert ew["min_cash"] < -TOLERANCE  # conservative false positive
+    assert ew["min_cash"] >= -TOLERANCE
     assert ew["max_borrowing"] <= TOLERANCE
     candidate = result["cells"]["TS_TREND_LONG_SPOT__BASE"]
     assert candidate["cap_statistics"]["cap_bound_fraction"] > 0.9
@@ -980,7 +975,7 @@ def test_real_replay_rotation_has_no_hidden_intra_interval_spot_loan(
     assert runner._cash_extremes(safe)[0] >= -TOLERANCE
 
 
-def test_fill_floor_reserves_all_interval_fees_before_ordered_buys() -> None:
+def test_fill_floor_charges_interval_fees_after_the_first_ordered_buy() -> None:
     """Cost-free ordered fills can hide a fee-financed temporary spot loan."""
     buy = SimpleNamespace(
         sequence=1,
@@ -1011,7 +1006,7 @@ def test_fill_floor_reserves_all_interval_fees_before_ordered_buys() -> None:
         ledger_evidence=SimpleNamespace(intervals=SimpleNamespace(intervals=(iv,)))
     )
     # The native book charges 10 at the first buy (cash=-10). Charging
-    # all 20 upfront conservatively proves a negative fee-inclusive floor.
+    # all 20 immediately after that buy proves a conservative negative floor.
     assert runner._cash_extremes(result) == (9_980.0, 0.0)
     assert runner._spot_fill_cash_floor(result) == pytest.approx(-20.0)
 
@@ -1084,7 +1079,7 @@ def test_synthetic_native_replay_detects_transient_fill_fee_borrowing(
     assert not cell.valid
 
 
-def test_conservative_fee_floor_may_refuse_a_native_cash_safe_exit(
+def test_sell_proceeds_precede_its_fees_in_native_cash_safe_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Document the intended false-positive cost of incomplete per-fill fees."""
@@ -1110,9 +1105,9 @@ def test_conservative_fee_floor_may_refuse_a_native_cash_safe_exit(
     result = _replay(dataset, window, policy)
     assert observed_cash and min(observed_cash) > 0.0
     assert runner._cash_extremes(result)[0] > 0.0
-    # Without per-fill fees, charging all interval costs at the beginning
-    # can over-reserve a later sell and refuse a genuinely cash-safe control.
-    assert runner._spot_fill_cash_floor(result) < -TOLERANCE
+    # A sell receives its proceeds before its own fee is deducted by the native
+    # book. The full fee envelope must not be charged before the first fill.
+    assert runner._spot_fill_cash_floor(result) >= -TOLERANCE
 
 
 @pytest.mark.parametrize("bad_cost", (float("nan"), -1.0, 7.0))

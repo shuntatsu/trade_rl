@@ -216,10 +216,14 @@ def _cash_extremes(
 def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | None:
     """Conservative cost-inclusive cash floor over native ordered spot fills.
 
-    OrderEvents carry no per-fill fee. Reserve the complete verified interval
-    cost and negative external flows before the first fill, and exclude any
-    positive external credits. This may reject genuinely cash-safe intervals
-    whose costs occurred after a sale; fail closed until per-fill fees exist.
+    OrderEvents carry no per-fill fee. Reserve all negative external flows
+    before any order but deduct the complete verified interval execution cost
+    immediately *after the first native fill's signed cash transfer*. This is
+    still a lower bound at each fill: actual fee costs never exceed their
+    nonnegative whole-interval sum, but sale proceeds cannot arrive before the
+    sale itself. Positive external credits are not anticipated. A first sale
+    with sufficient proceeds must not be invalidated by precharging its fee.
+    The lack of exact per-fill fee timing can still cause false positives.
     """
 
     ledger = result.ledger_evidence
@@ -250,15 +254,12 @@ def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | No
             )
         ):
             raise ValueError("invalid interval execution cost in fill evidence")
-        cash = (
-            float(iv.cash_before)
-            - interval_cost
-            + sum(min(0.0, value) for value in credits)
-        )
+        cash = float(iv.cash_before) + sum(min(0.0, value) for value in credits)
         cash_after = float(iv.cash_after)
         if not math.isfinite(cash) or not math.isfinite(cash_after):
             raise ValueError("nonfinite cash in fill evidence")
         lowest = min(lowest, cash, cash_after)
+        fees_charged = False
         for event in sorted(iv.order_events, key=lambda event: event.sequence):
             if event.event_type not in ("filled", "partial_fill"):
                 continue
@@ -276,9 +277,19 @@ def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | No
             ):
                 raise ValueError("invalid native spot fill in cash evidence")
             cash += (-1 if quantity > 0 else 1) * notional
+            if not fees_charged:
+                # No native per-fill fee is available. Charging all interval
+                # fees after the first fill underestimates every subsequent
+                # actual cash balance without inventing an earlier fee debit.
+                cash -= interval_cost
+                fees_charged = True
             if not math.isfinite(cash):
                 raise ValueError("nonfinite running cash in fill evidence")
             lowest = min(lowest, cash)
+        if not fees_charged:
+            # No fill can be shown to finance a reported interval fee.
+            # Refuse the unallocated cost conservatively at interval start.
+            lowest = min(lowest, cash - interval_cost)
     return lowest
 
 

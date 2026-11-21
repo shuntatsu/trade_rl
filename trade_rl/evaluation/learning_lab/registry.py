@@ -38,6 +38,19 @@ class RegistryError(ValueError):
     """The registry file or a record is inconsistent."""
 
 
+def _check_finite_metrics(value: Any, path: str = "metrics") -> None:
+    """Reject non-JSON numeric sentinels at any depth before creating a receipt."""
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise RegistryError(f"metric {path!r} is not finite")
+    elif isinstance(value, Mapping):
+        for key, child in value.items():
+            _check_finite_metrics(child, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _check_finite_metrics(child, f"{path}[{index}]")
+
+
 @dataclass(frozen=True, slots=True)
 class TrialRecord:
     method_id: str
@@ -61,9 +74,7 @@ class TrialRecord:
             raise RegistryError(f"status must be one of {STATUSES}")
         if self.status != "completed" and not self.stop_reason:
             raise RegistryError("a non-completed trial needs a stop_reason")
-        for key, value in self.metrics.items():
-            if isinstance(value, float) and not math.isfinite(value):
-                raise RegistryError(f"metric {key!r} is not finite")
+        _check_finite_metrics(self.metrics)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,7 +111,14 @@ def _line(index: int, prev: str, record: TrialRecord) -> bytes:
         "prev_sha256": prev,
         "record": record.to_dict(),
     }
-    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # TrialRecord is frozen but its metrics mapping can still be mutated after init.
+    _check_finite_metrics(record.metrics)
+    try:
+        return json.dumps(
+            body, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise RegistryError("registry record is not canonical JSON") from error
 
 
 class TrialRegistry:

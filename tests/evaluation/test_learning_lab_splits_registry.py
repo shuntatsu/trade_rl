@@ -193,6 +193,69 @@ def test_an_edited_removed_or_reordered_line_breaks_the_chain(tmp_path: Path) ->
     assert path.read_bytes() == broken
 
 
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("container", ["nested_dict", "nested_list"])
+def test_registry_rejects_nested_nonfinite_metrics(
+    tmp_path: Path, nonfinite: float, container: str
+) -> None:
+    """Nested statistics must not be stored as nonstandard JSON NaN/Infinity."""
+    metrics = (
+        {"halves": {"first": {"sharpe": nonfinite}}}
+        if container == "nested_dict"
+        else {"paths": [0.1, {"turnover": nonfinite}]}
+    )
+    with pytest.raises(reg.RegistryError, match="finite"):
+        reg.TrialRecord(
+            method_id="m",
+            config_digest="c" * 64,
+            seed=0,
+            split="validate",
+            code_commit="d" * 40,
+            metrics=metrics,
+            status="completed",
+        )
+    assert not (tmp_path / "trials.jsonl").exists()
+
+
+def test_mutated_nested_metrics_cannot_break_an_existing_registry(
+    tmp_path: Path,
+) -> None:
+    registry = reg.TrialRegistry(tmp_path / "trials.jsonl")
+    assert registry.append(_record(seed=0)) == 0
+    original = registry.path.read_bytes()
+    metrics: dict[str, object] = {"halves": {"first": {"sharpe": 0.05}}}
+    record = reg.TrialRecord(
+        method_id="m",
+        config_digest="c" * 64,
+        seed=1,
+        split="validate",
+        code_commit="d" * 40,
+        metrics=metrics,
+        status="completed",
+    )
+    metrics["halves"] = {"first": {"sharpe": float("nan")}}
+    with pytest.raises(reg.RegistryError, match="finite"):
+        registry.append(record)
+    assert registry.path.read_bytes() == original
+    assert registry.verify() == 1
+
+
+def test_nested_finite_metrics_roundtrip_under_v1_schema(tmp_path: Path) -> None:
+    registry = reg.TrialRegistry(tmp_path / "trials.jsonl")
+    record = reg.TrialRecord(
+        method_id="m",
+        config_digest="c" * 64,
+        seed=1,
+        split="validate",
+        code_commit="d" * 40,
+        metrics={"halves": {"first": {"sharpe": 0.05}}, "paths": [0.2, 0.3]},
+        status="completed",
+    )
+    assert registry.append(record) == 0
+    assert registry.verify() == 1
+    assert registry.records()[0].metrics == record.metrics
+
+
 def test_records_validate_their_fields(tmp_path: Path) -> None:
     with pytest.raises(reg.RegistryError, match="stop_reason"):
         _record(status="shelved")

@@ -173,10 +173,22 @@ _SCENARIO_DELAY_BARS: Final[dict[str, int]] = {
     DELAY_SCENARIO: 1,
 }
 
-#: Exchange-wide spot outages declared result-blind from a coverage report (see the
-#: spec). Empty until such a report exists; the report's SHA-256 is then frozen below.
-DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
-COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+#: Exchange-wide spot outages declared result-blind from the BACKCAST_2020 coverage
+#: report (spec Amendment 6). ``halts-from-coverage`` derived them from the report whose
+#: SHA-256 is frozen below; coverage ran at code ``bed9c8de`` under digest ``ce469144``.
+DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = (
+    ("2020-02-09T02:00:00Z", "2020-02-09T03:00:00Z"),
+    ("2020-02-19T12:00:00Z", "2020-02-19T17:00:00Z"),
+    ("2020-03-04T10:00:00Z", "2020-03-04T11:00:00Z"),
+    ("2020-04-25T02:00:00Z", "2020-04-25T04:00:00Z"),
+    ("2020-06-28T02:00:00Z", "2020-06-28T05:00:00Z"),
+    ("2020-11-30T06:00:00Z", "2020-11-30T07:00:00Z"),
+    ("2020-12-21T14:00:00Z", "2020-12-21T18:00:00Z"),
+    ("2020-12-25T02:00:00Z", "2020-12-25T03:00:00Z"),
+)
+COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
+    "fb8104aea3987be4ab5a4caa975b9f05f6135cb992955aa69073c3f6c29966eb"
+)
 
 
 #: The harness files whose bytes enter the digest (a change to any of them is a new digest).

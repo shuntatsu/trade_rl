@@ -164,3 +164,23 @@ Status: Active. Made before any result of this protocol existed, in response to 
 - **FORWARD warm-up is known-used data.** FORWARD loads from 2026-02-01 and decides from 2026-08-01. The rows of 2026-02-01 to 2026-07-31 are the Tier D period, known-used pre-2026-08 data; they warm the signal and are never scored. Only decisions from 2026-08-01 are out of sample.
 - **Strides.** The anchor policy of the port keeps the lab default (6, daily); the harness always passes 18 explicitly and a test pins it. The controls keep lowturn's weekly rebalance.
 - **Drawdown wording.** Condition 2 reads "max drawdown of 0.25 or more", as amended; any remaining 20% in the code comments refers to the shared core7 helper.
+
+## Amendment 6 (result-blind, before any engine replay or out-of-sample result)
+
+Status: Active. Made from coverage reports only. Coverage builds no signal, no replay and no return, so no result of this protocol exists.
+
+- **BACKCAST_2020 declared halts.** `halts-from-coverage` on the BACKCAST_2020 coverage report gave 8 exchange-wide spot outages (18 hours), and they are frozen in `protocol.DECLARED_HALTS`:
+  - 2020-02-09 02–03
+  - 2020-02-19 12–17
+  - 2020-03-04 10–11
+  - 2020-04-25 02–04
+  - 2020-06-28 02–05
+  - 2020-11-30 06–07
+  - 2020-12-21 14–18
+  - 2020-12-25 02–03
+  
+  All times are UTC, with half-open hour ranges.
+- **Coverage report.** Coverage ran at code `bed9c8de34342527fec55b460e1244e2b6bbc414` under digest `ce4691446c89d4851434b55bc52bb7e8d9da9b34e4cdfc2e042c7ed6d0b58979`, and the report's SHA-256 `fb8104aea3987be4ab5a4caa975b9f05f6135cb992955aa69073c3f6c29966eb` is frozen as `COVERAGE_EVIDENCE_SHA256`. The report shows no gap that would remain and refuse the run, and no unread chunk.
+- **FORWARD.** The FORWARD coverage report (SHA-256 `4752e862ff0e7b40429cd4411133e3ac049d4316a68e70950f94b8959457054c`) found 0 exchange-wide spot gap hours, so nothing is declared for it.
+- **Treatment.** The halts are treated exactly like the registered Tier D `SPOT_HALTS`. Any other missing hour still refuses the run.
+- **New digest.** Because `protocol.py` is part of the harness digest, this is a new protocol digest and needs a new G4 relay. Nothing else changes.

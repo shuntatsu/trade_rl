@@ -12,7 +12,6 @@ from typing import Any, cast
 
 import numpy as np
 
-from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.features.mtf6_signals import (
     Mtf6SignalPack,
     build_mtf6_signal_pack,
@@ -23,6 +22,7 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.core7_mtf_study import decision, protocol
 from trade_rl.evaluation.core7_mtf_study.decision import CellSummary
 from trade_rl.evaluation.dev_realdata_study.runner import terminal_dust
+from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence,
     SharedCashPortfolioReplayResult,
@@ -749,8 +749,20 @@ def _summarize_replay_cell(
 
 
 def _write_json_canonical(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(canonical_json_bytes(dict(payload)))
+    """Publish canonical JSON once through the Study owner without path-following."""
+    if ".." in path.parts:
+        raise ValueError("study output path must not contain parent traversal")
+    root = path.parent.absolute()
+    # Fail closed on static ancestor links before StudyStore can create directories;
+    # the descriptor-bound mutation lock guards POSIX ancestor swaps.
+    if any(
+        ancestor.is_symlink() or ancestor.is_junction()
+        for ancestor in (root, *root.parents)
+    ):
+        raise ValueError("study output path must not contain symlinked directories")
+    study = StudyStore(root)
+    with study.mutation_lock():
+        study.publish_json_once(path.name, dict(payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -891,9 +903,10 @@ def run_study(
         enforce_pre_fs1=enforce_pre_fs1,
     )
 
-    if (output_dir / "decision.json").exists() or (
-        output_dir / "study-manifest.json"
-    ).exists():
+    if any(
+        path.exists() or path.is_symlink()
+        for path in (output_dir / "decision.json", output_dir / "study-manifest.json")
+    ):
         raise FileExistsError(
             f"refusing to overwrite existing study output in {output_dir}"
         )

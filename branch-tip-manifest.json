@@ -1,0 +1,293 @@
+{
+  "schema": "trade_rl_branch_tip_snapshot_v2",
+  "captured_date": "2026-11-21",
+  "repository": "shuntatsu/trade_rl",
+  "archive_branch": "archive/branch-snapshot-20261121",
+  "main_head": "d13cc66464e6efd5708cf056e65bd4002a8696d1",
+  "previous_archive": "archive/branch-snapshot-20261120@2be720a5ef837462e4132ebecf982d8929112b6c",
+  "tree_semantics": "Snapshot-only Git commit, main tree plus manifest; each recorded branch head SHA is reachable through its commit parent ancestry. Not a merge to production main.",
+  "notes": "Preserves exact 56 GitHub branch tips at capture; no branch deletion or experiment authorization. Review-only and historical refs require separate owner verified cleanup and all active PR/CI/Task guards.",
+  "restore": "git fetch origin archive/branch-snapshot-20261121; git branch <restored-name> <sha-listed-below>",
+  "branches": [
+    {
+      "name": "archive/branch-snapshot-20261120",
+      "sha": "2be720a5ef837462e4132ebecf982d8929112b6c",
+      "protected": false
+    },
+    {
+      "name": "audit/m1-conversion-underflow-red-20261104",
+      "sha": "7fb6a2e1a9b714e7753bd61b4e4f4714085c66bd",
+      "protected": false
+    },
+    {
+      "name": "audit/m1-gemini4-blockers-red-20261105",
+      "sha": "baa70caa3ab6afe652566ceaf4644e6a314d2a15",
+      "protected": false
+    },
+    {
+      "name": "feat/agy-anchor-port",
+      "sha": "7a7ee5bca08ebb255d7b2d04eaeae5f0ce0ffa2a",
+      "protected": false
+    },
+    {
+      "name": "feat/issue1146-sd2-runner-20261113",
+      "sha": "38375e402d265b5e9868edc521cede87cd29c8c1",
+      "protected": false
+    },
+    {
+      "name": "feat/learning-lab",
+      "sha": "c60f9de65b97b7b38512a5bf12ff9a8a3f2effb5",
+      "protected": false
+    },
+    {
+      "name": "feat/xs-lowvol-funding",
+      "sha": "ef11e0b06d108fae34bc6ea0f33f63a9d2a02775",
+      "protected": false
+    },
+    {
+      "name": "fix/artifacts-verified-expected-size-bound-20261112",
+      "sha": "0b077f6e593a5e9134f43920cd0da87d57127212",
+      "protected": false
+    },
+    {
+      "name": "fix/core7-daily-fallback-digest-20261120",
+      "sha": "1850dd4d1bd16f74db37e175d979062a8da6a00d",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1067-taskpacket-scope-string-types-20261104",
+      "sha": "c6ff631dc7510bb6a1d006ddf8436b5b8057f6d3",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1131-json-staging-foreign-cleanup-20261119",
+      "sha": "924c81f51a8d457b9023561579f5a4f0e3c88664",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd-ewc-integer-roots-20261112",
+      "sha": "37be390eb16d0ccc3511c988910acb82380a7ca7",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd2-descriptor-nofollow-20261114",
+      "sha": "2253a3c52b27f8596fd4c1659afbcd3684102c62",
+      "protected": false
+    },
+    {
+      "name": "fix/issue1146-sd2-manifest-first-array-gate-20261113",
+      "sha": "6131b5d0c54f86a5cc9d50f641c163ad0b8d6fa8",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-bookstate-strict-underflow-atomicity-20261106",
+      "sha": "6e199bc1901e07d9d49073a44d8a6ef4203cc3a8",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-carry-cashflow-underflow-20261106",
+      "sha": "9918c2eb22a6989091ca1d34d3844ae3bd6bb318",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-carry-underflow-isolated-20261119",
+      "sha": "674b12d6f085d40fb10a4c0d19d4a72961b8f176",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-execution-cost-underflow-20261106",
+      "sha": "32735281a215c2a7f889e2e6df0209e4d43f6338",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-liquidity-zero-notional-20261106",
+      "sha": "072d69e7b76cf2725a3436b3ddcc27366bca7f2a",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-nonzero-execution-cost-underflow-20261119",
+      "sha": "eee9561283395209ef29d816e930fc2950bfff13",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-order-intent-notional-underflow-20261106",
+      "sha": "168d0039066aa7c9f40a2ff26bba854d7abf906c",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-set-margin-atomic-20261119",
+      "sha": "09e51ffe8c12d52f21cfdabf5884346cb25c84c5",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-source-branch-preservation-20261107",
+      "sha": "91e973935ab9d783393cf3d64fda897541b0e723",
+      "protected": false
+    },
+    {
+      "name": "fix/m1-subnormal-valuation-isolated-20261118",
+      "sha": "38e94a1f59052da198fb995f3d281eb20a3c68e6",
+      "protected": false
+    },
+    {
+      "name": "fix/m2-fd-exception-close-20261120",
+      "sha": "1c9887a577506c46d4013901d60106b1afb00bff",
+      "protected": false
+    },
+    {
+      "name": "infra/ppo-gemini-review-authority-v2",
+      "sha": "1b08d1be50de316789a014062be950814f4074d2",
+      "protected": false
+    },
+    {
+      "name": "main",
+      "sha": "d13cc66464e6efd5708cf056e65bd4002a8696d1",
+      "protected": false
+    },
+    {
+      "name": "ops/retire-superseded-sd2-refs-20261120",
+      "sha": "0304741182563e9d174f6e3b2dd942fcdf4f3cfc",
+      "protected": false
+    },
+    {
+      "name": "provenance/branch-retention",
+      "sha": "a62cb1f9cdd5645c9690c103510d890dcc671164",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-collection-policy-impl-20261108",
+      "sha": "cebfe8ffe56eee8759ec284a8bc3835842351355",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-prereg-20261108",
+      "sha": "b92fa6d1ac3a0b3cf3750cf42396d434e39b70cf",
+      "protected": false
+    },
+    {
+      "name": "research/funding-carry-attempt3-seal-ready-20261108",
+      "sha": "2c9c7a525e0f0a6d54d9f43bcc72c5a752dba944",
+      "protected": false
+    },
+    {
+      "name": "research/issue1025-tiny-native-value-smoke-20261028",
+      "sha": "7416c55a8ea2735d754339fcee5682b42b2c3df5",
+      "protected": false
+    },
+    {
+      "name": "research/issue735-ppo-normalization-request",
+      "sha": "ee8dde846286fe0d3a3f13a218b49e9a353e7619",
+      "protected": false
+    },
+    {
+      "name": "research/ppo-4h-indicator-smoke-execution",
+      "sha": "40d3a2a971834a2c7c84309647ad4f547462a93e",
+      "protected": false
+    },
+    {
+      "name": "research/trend-stops-20261110",
+      "sha": "8a29983698e53b61990fef20047723f9d83d63ed",
+      "protected": false
+    },
+    {
+      "name": "research/trend-stops-v2-20261113",
+      "sha": "b541e7e121d3b3d3a528af71ed0d6502c63af5b8",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-bounded-codeonly-base-20261114",
+      "sha": "93d94145c7809c7fc0f1819a500f910b28eb2a0f",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-pre-budget-source-20261114",
+      "sha": "3a3c959350fe31d4a05d9540d460c3187be3a772",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-2014-nofollow-history-20261121",
+      "sha": "bbc27e022865d5b9b76987454128385f7c9540b9",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-2020-history-20261121",
+      "sha": "f5f21c55bf62240f4edaa9191de83672ef82c13b",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-base-20261120",
+      "sha": "670a3f32eeb7709168f382d4f2ee7c3da818d209",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-packets-20261120",
+      "sha": "752dc00cb9805f91266aeb29752267fc69a6acab",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-source-20261120",
+      "sha": "25add7058aea068e2465d5d0b474285aca5b74cb",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-3037-tests-20261120",
+      "sha": "9830a891d08ee2646a6429d2c335530afcdf6062",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-after-main1293-base-20261121",
+      "sha": "9ca71fa23badfce0f7b3da7ce13d7b789a8b87f4",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-doc2-base-20261121",
+      "sha": "ea5c0f3e2138e4db07b68905065566266c24499f",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-doc2-mirror-20261121",
+      "sha": "60c84d2240e4b332ae51356057e48afe40545061",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-owner-docs-after1305-20261121",
+      "sha": "99f28b6e15293a779da4836aa99bc5b1e8091b17",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-owner-docs-after1305-base-20261121",
+      "sha": "d13cc66464e6efd5708cf056e65bd4002a8696d1",
+      "protected": false
+    },
+    {
+      "name": "review/issue1146-sd2-postm2-consistent-packet-20261120",
+      "sha": "f94ec17eab751ef0a5a7fec2e780e7f7a237f20a",
+      "protected": false
+    },
+    {
+      "name": "review/issue810-trend-oos-20261120-base",
+      "sha": "f1f8f80475242fd4cc3d10e4801074df7ae231f0",
+      "protected": false
+    },
+    {
+      "name": "review/issue810-trend-oos-20261120-protocol",
+      "sha": "6269f701b70ac83fb91aed1e182b7c70f44408d1",
+      "protected": false
+    },
+    {
+      "name": "review/issue810-trend-oos-20261120-runner",
+      "sha": "cd6691940e9d6d7bc6e882f43354ebba0f3f6e56",
+      "protected": false
+    },
+    {
+      "name": "review/issue810-trend-oos-20261120-scenarios",
+      "sha": "e855fb8ebfca0ed2b79c69a43f10b97ccecef1d9",
+      "protected": false
+    },
+    {
+      "name": "review/issue810-trend-oos-20261120-test-part1",
+      "sha": "f1f8f80475242fd4cc3d10e4801074df7ae231f0",
+      "protected": false
+    }
+  ]
+}

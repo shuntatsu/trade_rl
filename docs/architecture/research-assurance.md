@@ -1924,6 +1924,33 @@ does not report PASS); the seal, start, authorization comment and launch commit 
 `PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`, which holds the
 exact seal and launch procedure and what is still missing.
 
+#### Attempt 3 Linux platform packet (operating platform, systemd user service)
+
+The three earlier attempt-3 packets stay frozen and are not re-pinned. Running the
+screen on an always-on Fedora Linux host instead of the Windows PC edits
+`paper/watchdog.py` (SIGHUP off Windows) and adds `paper/linux_service.py` (Linux run
+layout, systemd user units, read-only chrony/timesyncd clock report). Both are in the
+packet-bound closure, and the closure on `main` already differs from the seal-candidate
+head by merged changes elsewhere, so a successor packet
+`report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json` (digest
+`702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3`, status UNREVIEWED, no PASS claimed) whose `protocol_head` and
+`implementation_head` are both `451d4e09d8bd`, the last commit that changes `trade_rl/` in
+that pull request, is the one a launch commit must match. (G0) The cheapest falsifiers
+are that a Linux stop, hangup or reboot could end the screen without a marker and that the
+attempt-2 root copy differs from the original; (G1/G3) the only changed boundary is
+evidence (how a termination is recorded and how liveness is checked): every economic
+field, tolerance, budget and criterion is the seal-candidate packet's, the claim level is
+`software_validity`, and no economic claim is made. (G2) The oracles are fake-signal and
+real-POSIX-signal tests of the marker, exact unit text parsed by the real `attempt3` and
+`cli` parsers, a comparison of the Linux restart budget and check cadence with the
+Windows recipe, and a fail-closed read-only clock report. The delta of the closure
+against the seal-candidate head is listed in the packet; whether the paper path executes
+the merged changes is a point left to the reviewer. The packet is not a seal
+authorization, no PASS is claimed, different-principal independence is not established
+and the extended same-account receipt review of its exact digest and heads is still
+required; the seal, start, authorization comment and launch commit stay
+`PENDING_OWNER_AUTHORIZATION`. See `docs/specs/funding-carry-paper.md`.
+
 **Known limitations:** `StudyResearchContext` は申告されたevidence consumptionをimmutableにするが、研究者・AIが実際に見た全情報を暗号学的に証明するものではない。parent context digestもそれ単独では外部artifactの存在・完全性や、祖先contextのconsumed-evidence closureが現在contextへ完全に継承されたことを証明しない。したがってreviewでは申告漏れと祖先closure漏れを引き続き反証し、未使用期間を守っても単一final windowだけで将来の普遍的収益性は証明できない。
 
 ## Research-specific contract: multi-symbol funding carry (Track B)

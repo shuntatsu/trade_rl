@@ -178,8 +178,13 @@ negative cash (including fee-only overdraft). Synthetic source regressions do no
 constitute a new economic experiment. Pending: independent accounting/G0–G3 review,
 new result-blind economic-stage/window authorization, exact-head CI and external
 review. No OOS rerun, FS1, unused/final consumption or live trading is authorized.
-AGY v1 is a separate historical INVALID result; its use of the shared net-fee
-diagnostic requires its own protocol-bound audit before future economic reuse.
+AGY v1 is a separate historical INVALID result. Its cash-margin/net cap and
+shared fee-credit diagnostic now differ from the executed source; while that
+software correction is evaluated, the ordinary `tools.agy_anchor_oos run` and
+`coverage` entrypoints are fail-closed for all previously defined v1 stages.
+This refusal occurs before clock, authorization or real-data access and does
+not change the historical v1 result. Synthetic injected-source tests remain;
+any subsequent economic study requires a new version and separate approval.
 
 ## Shared-portfolioのopt-in policy inference software path
 

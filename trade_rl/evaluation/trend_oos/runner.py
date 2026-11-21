@@ -231,6 +231,12 @@ def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | No
         return None
     lowest = math.inf
     for iv in ledger.intervals.intervals:
+        # A spot-long-only account has no short inventory that could incur
+        # borrowing interest. Refuse unexpected debits rather than overlooking
+        # their timing when reconstructing the ordered fill cash floor.
+        borrow_charge = float(iv.interval_borrow_cost)
+        if not math.isfinite(borrow_charge) or borrow_charge != 0.0:
+            raise ValueError("unexpected borrow cost in spot cash account")
         credits = tuple(
             float(value)
             for value in (

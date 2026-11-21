@@ -74,6 +74,11 @@ pre-images do not incur new orders. Relative `np.allclose` tolerance is forbidde
   cost boundaries. Track only *unabsorbed* fee overdraft: add the current interval
   cost, then cap the allowance by the current negative cash; any cash recovery
   extinguishes the corresponding allowance. Older paid fees are never recycled.
+- A long-only spot interval cannot incur short-inventory borrowing charges.
+  Require a **finite, exactly zero** native `interval_borrow_cost`; any nonzero
+  debit or malformed value refuses the software run before an OOS cell can be
+  claimed valid. This does not infer financing timing or rewrite historical v1
+  receipts.
 - Inspect native ordered `OrderEvent` fills (not merely period-end cash).
   The current event schema does not carry each fill's execution fee. To ensure a
   **conservative lower bound**, reserve all negative non-trade cashflows from

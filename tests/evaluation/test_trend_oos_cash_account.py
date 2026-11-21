@@ -343,6 +343,7 @@ def _spot_fill_probe(
         interval_funding=credits[0],
         interval_dividend=credits[1],
         interval_cash_interest=credits[2],
+        interval_borrow_cost=0.0,
         order_events=events,
     )
     return SimpleNamespace(
@@ -1000,6 +1001,7 @@ def test_fill_floor_charges_interval_fees_after_the_first_ordered_buy() -> None:
         interval_funding=0.0,
         interval_dividend=0.0,
         interval_cash_interest=0.0,
+        interval_borrow_cost=0.0,
         order_events=(buy, sell),
     )
     result = SimpleNamespace(
@@ -1108,6 +1110,52 @@ def test_sell_proceeds_precede_its_fees_in_native_cash_safe_exit(
     # A sell receives its proceeds before its own fee is deducted by the native
     # book. The full fee envelope must not be charged before the first fill.
     assert runner._spot_fill_cash_floor(result) >= -TOLERANCE
+
+
+@pytest.mark.parametrize(
+    "borrow_charge", (0.01, -1.0, float("nan"), float("inf"), float("-inf"))
+)
+def test_spot_only_cash_floor_refuses_any_borrow_cost(borrow_charge: float) -> None:
+    """A spot-long-only study cannot admit unexplained borrowing cashflows."""
+    source = _spot_fill_probe()
+    iv = source.ledger_evidence.intervals.intervals[0]
+    source.ledger_evidence.intervals.intervals = (
+        SimpleNamespace(**{**vars(iv), "interval_borrow_cost": borrow_charge}),
+    )
+    with pytest.raises(ValueError, match="borrow cost"):
+        runner._spot_fill_cash_floor(source)
+
+
+def test_unexpected_borrow_debit_cannot_be_hidden_by_a_later_spot_sale() -> None:
+    """Native borrow debit must fail closed even with positive interval-end cash."""
+    buy = SimpleNamespace(
+        sequence=1,
+        event_type="filled",
+        symbol_index=0,
+        filled_quantity=1.0,
+        filled_notional=10.0,
+    )
+    sell = SimpleNamespace(
+        sequence=2,
+        event_type="filled",
+        symbol_index=2,
+        filled_quantity=-1.0,
+        filled_notional=200.0,
+    )
+    source = _spot_fill_probe(events=(buy, sell))
+    iv = source.ledger_evidence.intervals.intervals[0]
+    source.ledger_evidence.intervals.intervals = (
+        SimpleNamespace(
+            **{
+                **vars(iv),
+                "cash_before": 100.0,
+                "cash_after": 140.0,
+                "interval_borrow_cost": 150.0,
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="borrow cost"):
+        runner._spot_fill_cash_floor(source)
 
 
 @pytest.mark.parametrize("bad_cost", (float("nan"), -1.0, 7.0))

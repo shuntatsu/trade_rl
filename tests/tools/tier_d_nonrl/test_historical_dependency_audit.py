@@ -110,3 +110,119 @@ def test_cli_fails_closed_when_static_owner_is_missing(monkeypatch, capsys) -> N
     assert report["analysis_complete"] is True
     assert report["missing_module_count"] == 3
     assert report["recovery_ready"] is False
+
+
+def test_tree_reads_only_the_selected_immutable_commit(tmp_path) -> None:
+    import subprocess
+
+    def git(*args: str) -> str:
+        return (
+            subprocess.check_output(
+                ["git", "-C", str(tmp_path), *args], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+
+    git("init", "-q")
+    root = tmp_path / "tools" / "tier_d_nonrl"
+    root.mkdir(parents=True)
+    source = root / "tier_d_runner.py"
+    source.write_text("DANGER = False\n", encoding="utf-8")
+    (tmp_path / "trade_rl").mkdir()
+    (tmp_path / "trade_rl" / "__init__.py").write_text("", encoding="utf-8")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "original",
+    )
+    original = git("rev-parse", "HEAD")
+    source.write_text("DANGER = True\n", encoding="utf-8")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "revised",
+    )
+    revised = git("rev-parse", "HEAD")
+    (root / "untracked.py").write_text("raise AssertionError('not read')\n")
+    before = git("status", "--porcelain")
+    first = audit._tree(tmp_path, original)
+    second = audit._tree(tmp_path, revised)
+    assert first["tools/tier_d_nonrl/tier_d_runner.py"] == "DANGER = False\n"
+    assert second["tools/tier_d_nonrl/tier_d_runner.py"] == "DANGER = True\n"
+    assert "tools/tier_d_nonrl/untracked.py" not in second
+    assert git("status", "--porcelain") == before
+
+
+def test_tree_refuses_untrusted_revision_and_noncommit_object(tmp_path) -> None:
+    import subprocess
+
+    import pytest
+
+    with pytest.raises(ValueError, match="literal 40-digit"):
+        audit._tree(tmp_path, "HEAD")
+    with pytest.raises(ValueError, match="literal 40-digit"):
+        audit._tree(tmp_path, "; rm -rf .")
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+    blob = (
+        subprocess.check_output(
+            ["git", "-C", str(tmp_path), "hash-object", "-w", "--stdin"],
+            input=b"fake commit",
+        )
+        .decode()
+        .strip()
+    )
+    with pytest.raises(ValueError, match="not a commit"):
+        audit._tree(tmp_path, blob)
+
+
+def test_cli_code_two_for_unresolved_seed(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        audit,
+        "_tree",
+        lambda repo, sha: {
+            "tools/tier_d_nonrl/tier_d_runner.py": "pass\n",
+        },
+    )
+    assert (
+        audit.main(
+            [
+                "--repo",
+                ".",
+                "--historical-sha",
+                "a" * 40,
+                "--maintained-sha",
+                "b" * 40,
+            ]
+        )
+        == 2
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["analysis_complete"] is False
+    assert result["recovery_ready"] is False
+
+
+def test_cli_refuses_unavailable_source(monkeypatch, capsys) -> None:
+    import pytest
+
+    def fail(repo, sha):
+        raise OSError("redacted private reason")
+
+    monkeypatch.setattr(audit, "_tree", fail)
+    with pytest.raises(SystemExit) as error:
+        audit.main(
+            ["--repo", ".", "--historical-sha", "a" * 40, "--maintained-sha", "b" * 40]
+        )
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert not result.out and "redacted private reason" not in result.err

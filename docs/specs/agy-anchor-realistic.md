@@ -193,3 +193,19 @@ Status: Active. These changes follow review [6001946862](https://github.com/shun
 - **Coverage re-confirms the data authorization.** `coverage` re-fetches the data-authorization relay after its last read and refuses, writing nothing, if the relay was edited. This is the same check `run` already makes, so Amendment 5's "unedited between the first and the last fetch" now holds for coverage too.
 - **`halts-from-coverage` checks provenance.** It refuses a report that was not produced from a clean tree. It reports whether the report's SHA-256 matches the frozen `COVERAGE_EVIDENCE_SHA256`. The frozen BACKCAST_2020 report matches.
 - **Line endings.** The branch's files are normalised to LF. The harness digest is built from LF-normalised bytes, so normalising alone does not change it; the edits above do.
+
+## Amendment 8 (made after a refused DEV attempt that produced no result)
+
+Status: Active.
+
+- **The refused attempt.** The DEV run authorized by [Issue #810 comment 7055512104](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7055512104), at code `ad696006` under digest `f4369159`, refused before any signal, replay or return was computed. The error was `a 4h bar carries two or more funding events`. It wrote only its data receipt. Its output directory is kept, and the next run writes to a new directory.
+- **Cause.** Binance shortened SOLUSDT's funding interval to 2 hours in November 2022, so 37 of its 4h bars hold two events. The other ten DEV perps keep 8-hour funding throughout. The harness derived events from the 4h dataset rows, and that path refuses such a bar by design.
+- **Change.** The harness now passes the exact hourly perp funding events to the port, stamped at the close of their hour. The port's documented `funding_events` path counts every event as the lab does from its funding rows.
+  - An hour with more than one event refuses the run.
+  - The causality probe perturbs the events after its cut as well.
+- **What is unchanged.**
+  - Where every bar holds at most one event, the count-based funding observations are identical to before, and a test pins this.
+  - The engine's funding accounting still sums a bar's events.
+  - The count-based means still start cold at the perp's first row.
+  - Signal constants, costs, risk, universe, windows and the decision rule are unchanged.
+- **Consequence.** This is a new digest, which needs a new review and a new G4 relay.

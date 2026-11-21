@@ -396,9 +396,38 @@ class StageData:
     taker_buy_quote_volume: np.ndarray
     #: first row at which both markets of the pair are listed; ``None`` if never both
     activation_rows: tuple[int | None, ...]
+    #: exact perp funding events per pair (Amendment 8): ``(hour close ns, rate)``
+    funding_events: tuple[tuple[np.ndarray, np.ndarray], ...]
 
     def with_dataset(self, dataset: MarketDataset, taker: np.ndarray) -> StageData:
         return replace(self, dataset=dataset, taker_buy_quote_volume=taker)
+
+    def with_funding_events(
+        self, events: tuple[tuple[np.ndarray, np.ndarray], ...]
+    ) -> StageData:
+        return replace(self, funding_events=events)
+
+
+def hourly_funding_events(
+    leg: HourlyLeg, *, name: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """The exact funding events of a perp leg, stamped at the close of their hour.
+
+    An hour holds at most one event. A 4h bar may hold several (Binance shortened some
+    funding intervals, for example SOLUSDT to 2h in November 2022); the anchor's
+    count-based means then count each of them, as the lab does from its funding rows.
+    """
+    series = leg.series
+    counts = series.funding_event_count
+    if counts is None:
+        raise StageDataError(f"{name}: funding event counts are required")
+    counts = np.asarray(counts, dtype=np.int64)
+    if np.any(counts > 1) or np.any(counts < 0):
+        raise StageDataError(f"{name}: an hour carries more than one funding event")
+    rows = np.flatnonzero(counts == 1)
+    stamps = np.asarray(series.timestamps).astype("datetime64[ms]").astype(np.int64)
+    rate = np.asarray(series.funding_rate, dtype=np.float64)
+    return stamps[rows] * 1_000_000, rate[rows].copy()
 
 
 def assemble_stage_dataset(
@@ -462,6 +491,8 @@ def assemble_stage_dataset(
     minimum = np.empty(n_legs)
     listing: dict[str, dict[str, object]] = {}
     first_rows: dict[tuple[str, int], int] = {}
+    empty_events = (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float64))
+    events: list[tuple[np.ndarray, np.ndarray]] = [empty_events for _ in roster]
     for pair, symbol in enumerate(roster):
         spot_rules, perp_rules = rules[symbol]
         lot[2 * pair], lot[2 * pair + 1] = spot_rules.lot_size, perp_rules.lot_size
@@ -508,6 +539,7 @@ def assemble_stage_dataset(
                     raise StageDataError(
                         f"{symbol}:perp has no halt calendar and must be tradable"
                     )
+                events[pair] = hourly_funding_events(leg, name=f"{symbol}:perp")
             else:
                 tierd._check_halts_masked(
                     bars.close_ns, bars.tradable, halt_intervals, symbol=symbol
@@ -614,6 +646,7 @@ def assemble_stage_dataset(
         dataset=dataset.with_content_identity(identity),
         taker_buy_quote_volume=taker,
         activation_rows=tuple(activation),
+        funding_events=tuple(events),
     )
 
 
@@ -697,7 +730,9 @@ def build_anchor_inputs(stage: StageData) -> AnchorInputs:
     """
     dataset = stage.dataset
     base = from_market_dataset(
-        dataset, taker_buy_quote_volume=stage.taker_buy_quote_volume
+        dataset,
+        taker_buy_quote_volume=stage.taker_buy_quote_volume,
+        funding_events=stage.funding_events,
     )
     n_rows = dataset.n_bars
     n_pairs = len(protocol.ROSTER)

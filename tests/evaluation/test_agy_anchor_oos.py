@@ -20,6 +20,10 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.evaluation.agy_anchor_oos import data, protocol, runner
 from trade_rl.evaluation.core7_mtf_study import tierd
+from trade_rl.strategies.agy_anchor.inputs import (
+    from_market_dataset,
+    funding_observations,
+)
 
 HOUR_MS = 3_600_000
 BAR = timedelta(hours=4)
@@ -788,6 +792,117 @@ def test_a_halted_spot_bar_is_not_valid_for_the_anchor(
     assert not inputs.spot_valid[100, 2] and inputs.perp_valid[100, 2]
     assert inputs.spot_valid[99, 2]
     assert inputs.spot_quote_volume[100, 2] == 0.0
+
+
+# ================================================== exact funding events (Amendment 8)
+
+
+def _with_funding_hours(leg: data.HourlyLeg, extra: dict[int, float]) -> data.HourlyLeg:
+    series = leg.series
+    rate = np.array(series.funding_rate, copy=True)
+    count = np.array(series.funding_event_count, copy=True)
+    available = np.array(series.funding_available, copy=True)
+    for hour, value in extra.items():
+        rate[hour], available[hour] = value, True
+        count[hour] = count[hour] + 1
+    return data.HourlyLeg(
+        RawMarketSeries(
+            timestamps=series.timestamps,
+            open=series.open,
+            high=series.high,
+            low=series.low,
+            close=series.close,
+            volume=series.volume,
+            funding_rate=rate,
+            funding_available=available,
+            funding_event_count=count,
+            tradable=series.tradable,
+        ),
+        leg.taker_buy_quote,
+    )
+
+
+def test_exact_events_equal_the_bar_stamped_events_when_each_bar_holds_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_BACKCAST)
+    stage = assemble(window)
+    exact = data.build_anchor_inputs(stage)
+    stamped = from_market_dataset(
+        stage.dataset, taker_buy_quote_volume=stage.taker_buy_quote_volume
+    )
+    for got, want in zip(
+        funding_observations(exact), funding_observations(stamped), strict=True
+    ):
+        np.testing.assert_array_equal(got, want)
+    # pairs without a perp carry no event
+    assert stage.funding_events[9][0].size == 0
+
+
+def test_a_4h_bar_with_two_funding_events_counts_both_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_BACKCAST)
+    spot, perp = leg_maps(window)
+    symbol = protocol.ROSTER[1]
+    # hour 7 of the leg already holds an event (row 1); hour 5 adds a second to row 1
+    perp[symbol] = _with_funding_hours(perp[symbol], {5: 0.004})
+    stage = assemble(window, spot=spot, perp=perp)
+    with pytest.raises(ValueError, match="two or more funding events"):
+        from_market_dataset(
+            stage.dataset, taker_buy_quote_volume=stage.taker_buy_quote_volume
+        )
+    inputs = data.build_anchor_inputs(stage)
+    ns, rate = inputs.funding_event_ns[1], inputs.funding_event_rate[1]
+    hour_rate = np.asarray(perp[symbol].series.funding_rate)
+    assert rate[0] == 0.004 and rate[1] == hour_rate[7]
+    assert np.all(np.diff(ns) > 0)
+    last, ma3, _ = funding_observations(inputs)
+    assert last[0, 1] == 0.0  # row 0 closes before either event
+    assert last[1, 1] == hour_rate[7]  # the later of the two events
+    assert ma3[1, 1] == pytest.approx((0.004 + hour_rate[7]) / 2)
+    # the dataset's own funding (accounting) still sums both events in the bar
+    assert np.asarray(stage.dataset.funding_rate)[1, 3] == pytest.approx(
+        0.004 + hour_rate[7]
+    )
+
+
+def test_an_hour_with_two_funding_events_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_BACKCAST)
+    spot, perp = leg_maps(window)
+    symbol = protocol.ROSTER[0]
+    perp[symbol] = _with_funding_hours(perp[symbol], {7: 0.001})
+    with pytest.raises(data.StageDataError, match="more than one funding event"):
+        assemble(window, spot=spot, perp=perp)
+
+
+def test_perturbing_the_future_moves_only_later_funding_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_BACKCAST)
+    stage = assemble(window)
+    cut = 400
+    moved = runner.perturb_future_stage(stage, cut_index=cut, seed=5)
+    cut_ns = int(
+        np.asarray(stage.dataset.timestamps)
+        .astype("datetime64[ns]")
+        .astype(np.int64)[cut]
+    )
+    for (ns, rate), (ns2, rate2) in zip(
+        stage.funding_events, moved.funding_events, strict=True
+    ):
+        np.testing.assert_array_equal(ns, ns2)
+        early = ns <= cut_ns
+        np.testing.assert_array_equal(rate[early], rate2[early])
+        if (~early).any():
+            assert not np.array_equal(rate[~early], rate2[~early])
+    base, other = (
+        funding_observations(data.build_anchor_inputs(x)) for x in (stage, moved)
+    )
+    for got, want in zip(other, base, strict=True):
+        np.testing.assert_array_equal(got[: cut + 1], want[: cut + 1])
 
 
 # ============================================================ windows and embargo

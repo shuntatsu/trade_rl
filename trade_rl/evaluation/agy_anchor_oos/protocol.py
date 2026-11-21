@@ -445,7 +445,8 @@ def protocol_payload() -> dict[str, object]:
             "taker_buy": "sum of the four hourly taker_buy_quote_volume values of each "
             "leg, zero where the leg is not tradable; carried as a (T, legs) array "
             "beside the dataset, never inside it",
-            "funding_events": "stamped at the close of the 4h bar holding them; "
+            "funding_events": "exact hourly events stamped at the close of their hour "
+            "(Amendment 8; a 4h bar may hold several); "
             "count-based means start cold at the first row of the perp",
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,

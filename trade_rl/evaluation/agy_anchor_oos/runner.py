@@ -100,7 +100,8 @@ DISCLOSURES: tuple[str, ...] = (
     "an unlisted market carries a constant sentinel price, never a market price; a pair is "
     "available to the signal 180 bars after both markets are listed",
     "the lab's all-ones cross-sectional demeans include unavailable pairs as zero columns",
-    "funding events are stamped at the close of their 4h bar and the count-based funding "
+    "funding events are the exact hourly events, stamped at the close of their hour "
+    "(Amendment 8; a 4h bar may hold several), and the count-based funding "
     "means start cold at the first row",
     "the last dataset row is two bars after the last decision bar; DEV ends at the Tier D "
     "last row 2026-07-31T20:00Z",
@@ -152,7 +153,19 @@ def perturb_future_stage(stage: StageData, *, cut_index: int, seed: int) -> Stag
     sl = slice(cut_index + 1, dataset.n_bars)
     volume = np.asarray(dataset.volume, dtype=np.float64)[sl]
     taker[sl] = volume * rng.uniform(0.0, 1.0, size=volume.shape)
-    return stage.with_dataset(dataset, taker)
+    # the exact funding events after the cut are perturbed too (Amendment 8)
+    cut_ns = int(
+        np.asarray(dataset.timestamps)
+        .astype("datetime64[ns]")
+        .astype(np.int64)[cut_index]
+    )
+    events: list[tuple[np.ndarray, np.ndarray]] = []
+    for ns, rate in stage.funding_events:
+        rate = np.array(rate, dtype=np.float64, copy=True)
+        later = np.asarray(ns) > cut_ns
+        rate[later] = rng.normal(0.0, 1e-3, size=int(later.sum()))
+        events.append((np.asarray(ns), rate))
+    return stage.with_dataset(dataset, taker).with_funding_events(tuple(events))
 
 
 def anchor_signals_of(stage: StageData) -> AnchorSignals:

@@ -264,6 +264,158 @@ def test_deflated_last_does_not_silently_coerce_observation_count(
     assert path.read_bytes() == before and registry.verify() == 1
 
 
+def test_deflated_view_uses_only_one_verified_registry_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    metrics = {
+        "sharpe_per_period": 0.05,
+        "n_obs": 100,
+        "skewness": 0.0,
+        "kurtosis": 3.0,
+    }
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics=metrics,
+            status="completed",
+        )
+    )
+    original_records = reg.TrialRegistry.records
+    reads = 0
+
+    def read_then_append(self: reg.TrialRegistry) -> list[reg.TrialRecord]:
+        nonlocal reads
+        snapshot = original_records(self)
+        reads += 1
+        if reads == 1:
+            self.append(
+                reg.TrialRecord(
+                    method_id="L1-PPO",
+                    config_digest="a" * 64,
+                    seed=1,
+                    split="validate",
+                    code_commit="b" * 40,
+                    metrics={},
+                    status="failed",
+                    stop_reason="concurrent append",
+                )
+            )
+        return snapshot
+
+    monkeypatch.setattr(reg.TrialRegistry, "records", read_then_append)
+    out, err = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(
+            ["registry", "--registry", str(path), "--deflated-for-last"],
+            stdout=out,
+            stderr=err,
+        )
+        == lab_tool.EXIT_OK
+    ), err.getvalue()
+    result = json.loads(out.getvalue())
+    assert reads == 1
+    assert result["trials"] == 1
+    assert result["deflated_sharpe"]["n_trials"] == 1.0
+    assert registry.verify() == 2
+
+
+@pytest.mark.parametrize(
+    "huge_count", (10**309, 10**1000), ids=("float_max_plus", "long_integer")
+)
+def test_deflated_last_refuses_unrepresentable_integer_observation_count(
+    tmp_path: Path,
+    huge_count: int,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={
+                "sharpe_per_period": 0.05,
+                "n_obs": huge_count,
+                "skewness": 0.0,
+                "kurtosis": 3.0,
+            },
+            status="completed",
+        )
+    )
+    before = path.read_bytes()
+    out, err = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(
+            ["registry", "--registry", str(path), "--deflated-for-last"],
+            stdout=out,
+            stderr=err,
+        )
+        == lab_tool.EXIT_REFUSED
+    )
+    assert not out.getvalue() and "n_obs" in err.getvalue()
+    assert path.read_bytes() == before and registry.verify() == 1
+
+
+@pytest.mark.parametrize("overflow_in", ("last_sharpe", "earlier_sharpe"))
+def test_deflated_last_refuses_numeric_overflow_in_trial_series(
+    tmp_path: Path,
+    overflow_in: str,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    if overflow_in == "earlier_sharpe":
+        registry.append(
+            reg.TrialRecord(
+                method_id="L1-PPO",
+                config_digest="a" * 64,
+                seed=0,
+                split="validate",
+                code_commit="b" * 40,
+                metrics={"sharpe_per_period": 10**1000},
+                status="completed",
+            )
+        )
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=1,
+            split="validate",
+            code_commit="b" * 40,
+            metrics={
+                "sharpe_per_period": 1e308 if overflow_in == "last_sharpe" else 0.05,
+                "n_obs": 100,
+                "skewness": 0.0,
+                "kurtosis": 3.0,
+            },
+            status="completed",
+        )
+    )
+    before = path.read_bytes()
+    out, err = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(
+            ["registry", "--registry", str(path), "--deflated-for-last"],
+            stdout=out,
+            stderr=err,
+        )
+        == lab_tool.EXIT_REFUSED
+    )
+    assert out.getvalue() == "" and "refused:" in err.getvalue()
+    assert path.read_bytes() == before and registry.verify() == (
+        2 if overflow_in == "earlier_sharpe" else 1
+    )
+
+
 @pytest.mark.parametrize("name", ("sharpe_per_period", "skewness", "kurtosis"))
 @pytest.mark.parametrize("invalid_moment", (True, None, "0.03"))
 def test_deflated_last_refuses_nonnumeric_moments_without_mutating_registry(
@@ -307,8 +459,7 @@ def test_deflated_last_refuses_nonnumeric_moments_without_mutating_registry(
 
 @pytest.mark.parametrize("name", ("sharpe_per_period", "skewness", "kurtosis"))
 @pytest.mark.parametrize("bad_value", (math.nan, math.inf, -math.inf, 10**1000))
-def test_deflated_for_refuses_unpersistable_moments_before_reading_registry(
-    tmp_path: Path,
+def test_deflated_for_refuses_unpersistable_moments_from_mutated_record(
     name: str,
     bad_value: float | int,
 ) -> None:
@@ -330,10 +481,8 @@ def test_deflated_for_refuses_unpersistable_moments_before_reading_registry(
         status="completed",
     )
     metrics[name] = bad_value
-    path = tmp_path / "no-registry-created.jsonl"
     with pytest.raises(ValueError, match=f"{name} must be a finite number"):
-        lab_runner.deflated_for(reg.TrialRegistry(path), record)
-    assert not path.exists()
+        lab_runner.deflated_for([record])
 
 
 def test_deflated_last_works_for_completed_record_with_real_moments(

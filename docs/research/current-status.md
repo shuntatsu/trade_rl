@@ -163,6 +163,24 @@ unchanged. It does not select a numeric stress recipe or establish financial per
 profitability, unused-period approval, or live eligibility.
 次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。
 
+## Issue #1306: trend spot cash-account safety, proposed v2 (software-only; 2026-11-21)
+
+The original `trend_long_spot_oos_v1` BACKCAST result was recorded as `OOS_SUPPORTED`, but
+its cumulative-fee deduction can conceal genuine later negative-cash borrowing.
+That historical result and its digest/receipts are **unchanged**, and the claim is
+**not verified cash-safe or profitable**. The previous 2018–2020 BACKCAST is consumed,
+not a fresh unseen holdout for any successor.
+
+The [v2 cash-account proposal](../specs/trend-long-spot-oos-v2.md) keeps the existing
+lowturn intent, scenarios and shared replay, but reserves maximum configured fill costs
+at the decision mark, checks unpaid fee credit per interval, and rejects any real
+negative cash (including fee-only overdraft). Synthetic source regressions do not
+constitute a new economic experiment. Pending: independent accounting/G0–G3 review,
+new result-blind economic-stage/window authorization, exact-head CI and external
+review. No OOS rerun, FS1, unused/final consumption or live trading is authorized.
+AGY v1 is a separate historical INVALID result; its use of the shared net-fee
+diagnostic requires its own protocol-bound audit before future economic reuse.
+
 ## Shared-portfolioのopt-in policy inference software path
 
 `trade_rl.strategies.portfolio_policy_codec` maps the immutable current-row

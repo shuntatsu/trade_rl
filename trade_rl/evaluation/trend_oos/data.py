@@ -1,4 +1,4 @@
-"""Stage-window 4h dataset assembly for ``trend_long_spot_oos_v1``, without any economics.
+"""Stage-window 4h dataset assembly for ``trend_long_spot_oos_v2``, without any economics.
 
 This module turns checksum-verified hourly Binance *spot* series into the 4h, 11-pair,
 22-leg alternating ``MarketDataset`` the unchanged lowturn policy trades on, for a stage

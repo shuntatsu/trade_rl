@@ -43,7 +43,7 @@ python -m tools.markdown_links --check
 - Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
 - Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
-- Out-of-sample test of `TS_TREND_LONG_SPOT` (pre-registered, BACKCAST then FORWARD, not yet run): [specs/trend-long-spot-oos.md](specs/trend-long-spot-oos.md)
+- Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Realistic out-of-sample test of the ported agy anchor (pre-registered, DEV, BACKCAST_2020 then FORWARD, not yet run): [specs/agy-anchor-realistic.md](specs/agy-anchor-realistic.md)
 - Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered, DEV, DISJOINT then FORWARD, not yet run): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
 

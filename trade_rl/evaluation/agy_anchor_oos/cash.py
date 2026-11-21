@@ -141,8 +141,9 @@ class AnchorCashAccountPolicy(PortfolioPolicy):
         effective = np.where(held, current, scale * proposed)
         measure = cash_measure(effective, rate=self._rate)
         net = net_exposure(effective)
+        # A relative tolerance can hide real microbuys that cross a cash limit.
         trades = not (
-            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL)
+            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL, rtol=0.0)
         )
         margin_factor = self._limit / measure if measure > self._limit + _EPS else 1.0
         net_factor = self._net_limit / net if net > self._net_limit + _EPS else 1.0

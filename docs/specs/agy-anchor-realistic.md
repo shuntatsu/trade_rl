@@ -1,6 +1,16 @@
 # Realistic agy anchor out-of-sample test (`agy_anchor_realistic_v1`)
 
-Status: Active. This protocol was frozen before any trade_rl-engine replay of the ported anchor and before any data in its out-of-sample windows was read for this signal.
+Status: **Historical v1 / economic execution HOLD (2026-11-21)**. This protocol
+was frozen before its original run. The original DEV and BACKCAST_2020 receipts
+and source/digest bindings remain immutable. Since the cash-cap and shared
+fee-credit/borrowing implementation were subsequently corrected, the new source
+must not execute further economic stages under the unchanged
+`agy_anchor_realistic_v1` identity. Ordinary `tools.agy_anchor_oos run` and
+`coverage` refuse before clock, G4, files or data access. The only callable stage
+paths now use explicitly injected synthetic test fixtures. A new real experiment
+requires a separately named protocol, genuinely eligible window, result-blind
+research review and its own authorization. This HOLD does not retroactively
+alter or upgrade the earlier INVALID BACKCAST_2020 outcome.
 
 ## Question
 

@@ -1,4 +1,4 @@
-"""Driver for the out-of-sample test ``trend_long_spot_oos_v1``.
+"""Driver for the out-of-sample test ``trend_long_spot_oos_v2``.
 
 ``python -m tools.trend_oos plan --stage BACKCAST|FORWARD``
 ``python -m tools.trend_oos coverage --stage BACKCAST|FORWARD``
@@ -1203,6 +1203,16 @@ def main(
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     args = build_parser().parse_args(argv)
+    # v2 is a software-only successor: both v1 windows are already consumed.
+    # The real CLI has no injected source; allow only explicit in-process synthetic
+    # test fixtures until a distinct, result-blind protocol/window is authorized.
+    # Refuse before the clock, GitHub, any file/source access, or output creation.
+    if args.command in {"run", "coverage"} and rows_factory is None:
+        err.write(
+            "refused: proposed v2 is software-only; consumed v1 stage windows "
+            "cannot be read or replayed as new research evidence\n"
+        )
+        return EXIT_REFUSED
     moment = now()
     if args.command == "plan":
         try:

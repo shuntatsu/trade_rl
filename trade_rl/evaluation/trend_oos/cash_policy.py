@@ -1,36 +1,23 @@
-"""Spot cash-account wrapper of the unchanged lowturn policy.
+"""Spot cash-account wrapper for the proposed trend-OOS v2 software revision.
 
-``lowturn_family_screen_v1`` allowed a spot gross of 2.0 while the engine finances negative
-cash at 0%. ``trend_long_spot_oos_v1`` trades on a spot cash account with no borrowing:
-after the frozen lowturn caps (which this wrapper does not touch), a proposal whose
-*effective* spot gross would exceed ``SPOT_GROSS_LIMIT`` is rescaled proportionally to
-exactly that gross.
+The unchanged lowturn target may demand spot gross 2.0 while its replay permits free
+cash financing. An actual spot cash account needs an execution-cost reserve as well as
+a gross cap. At each trade decision, let ``g0`` be the current spot gross and ``r``
+the largest *configured* deterministic per-notional fill cost across the frozen
+scenarios. The next effective spot gross ``g1`` obeys
+``g1 <= max(0, (gross_limit - r*g0)/(1+r))``. In addition, gross
+spending on *new buys alone* plus the fee reserve must not exceed cash already
+available before any sell fills. Future sell proceeds cannot finance earlier buys.
 
-Why the wrapper looks at effective weights and drops holds when it binds:
+A cap that binds drops every exact-quantity hold; otherwise the old deadband can
+leave excessive exposure. A pure HOLD or exact risk-scale pre-image creates no new
+orders and is left untouched. Every retargeted effective weight is divided by the
+pretrade risk scale once. The wrapper is causal and tracks pre-cap gross per rebalance.
 
-* ``PreTradeRisk`` multiplies a proposal by ``risk_scale`` once, and an exact-quantity
-  HOLD keeps the current weight. The weight a proposal will actually execute is therefore
-  ``current`` for a held leg and ``risk_scale * proposal`` for every other leg; that is the
-  vector whose gross is capped (gross is measured over the spot legs; no perpetual is ever available, which
-  the replay tests pin).
-* The lowturn deadband holds a leg whose *uncapped* target is within 0.02 of its current
-  weight. A capped target is lower, so a held leg could keep more than its capped share
-  and the mixture of held and re-targeted legs could creep above the limit. When the cap
-  binds the wrapper therefore drops every hold and re-targets the whole effective vector
-  scaled to gross exactly ``SPOT_GROSS_LIMIT``: no leg keeps weight the cap took from
-  the others, and the resulting book cannot exceed the limit through the deadband.
-* The lowturn pre-image proposal (``current / risk_scale`` while ``0 < risk_scale < 1``)
-  executes to exactly the current weights, and a pure hold executes to the current book.
-  Neither trades, and a trade-free proposal cannot change cash (a price move revalues
-  positions and equity together), so both pass through untouched even if the current gross
-  sits a hair above the limit from execution costs; capping them would only create
-  churn.
-* The rescaled proposal is divided by ``risk_scale`` again so that risk applies the scale
-  exactly once. Risk only ever reduces a proposal further (clip, gross, turnover), so the
-  limit holds after risk too.
-
-The wrapper is causal: it reads only the snapshot of the decision. It records, per
-rebalance decision, the pre-cap effective gross and whether the cap bound.
+This is not a guarantee of nonnegative *execution-time* cash: delayed price changes,
+partial fills, pending orders and additional Dataset fee rates are not bounded by this
+decision-mark estimate. The ledger audits ordered fills as well as interval closes
+and invalidates a cell rather than reusing historical fees as fictional cash.
 """
 
 from __future__ import annotations
@@ -111,18 +98,63 @@ class CashAccountPolicy(PortfolioPolicy):
         scale = risk_scale_of(snapshot)
         effective = np.where(held, current, scale * proposed)
         gross = float(np.abs(effective[spot]).sum())
+        # At one mark, total fill notional never exceeds current spot gross plus
+        # target spot gross. Reserve the highest configured scenario cost against
+        # that worst-case turnover before taking any new spot exposure.
+        current_gross = float(np.abs(current[spot]).sum())
+        fee_rate = protocol.cash_reserve_rate()
+        cash_gross_limit = max(
+            0.0, (self._limit - fee_rate * current_gross) / (1.0 + fee_rate)
+        )
         trades = not (
-            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL)
+            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL, rtol=0.0)
         )
         rebalance = (snapshot.index - self._start) % self._every == 0
-        binds = trades and gross > self._limit + _GROSS_EPS and scale > 0.0
+        # The native processor fills symbols by ascending index, so all new
+        # lower-index buys may execute before higher-index sells. Netting their
+        # eventual proceeds at decision time would be unsecured borrowing.
+        # Keep only cash that is already owned; never count sell proceeds here.
+        value = float(snapshot.account.portfolio_value)
+        cash = float(snapshot.account.cash)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError("portfolio value must be finite and positive")
+        if not np.isfinite(cash):
+            raise ValueError("cash balance must be finite")
+        cash_fraction = max(0.0, min(cash / value, 1.0 - current_gross))
+        current_spot = current[spot]
+        target_spot = effective[spot]
+
+        def buy_spend(factor: float) -> float:
+            return float(np.maximum(factor * target_spot - current_spot, 0.0).sum())
+
+        max_fraction = min(1.0, cash_gross_limit / gross) if gross > 0.0 else 1.0
+        if (
+            trades
+            and scale > 0.0
+            and (
+                buy_spend(max_fraction) * (1.0 + fee_rate) > cash_fraction + _GROSS_EPS
+            )
+        ):
+            # Buy principal and buy fees must be payable before any sell.
+            # Sells finance their own fees; they never require upfront cash.
+            # The separate gross cap covers worst-case *total* fill costs.
+            # Monotonic in the uniform target factor.
+            lower, upper = 0.0, max_fraction
+            for _ in range(64):
+                middle = (lower + upper) / 2.0
+                if buy_spend(middle) * (1.0 + fee_rate) <= cash_fraction:
+                    lower = middle
+                else:
+                    upper = middle
+            max_fraction = lower
+        binds = trades and max_fraction < 1.0 - _GROSS_EPS and scale > 0.0
         if rebalance:
             self.stats.rebalance_decisions += 1
             self.stats.pre_cap_gross.append(gross)
             self.stats.bound_decisions += int(binds)
         if not binds:
             return proposal
-        capped = effective * (self._limit / gross) / scale
+        capped = effective * max_fraction / scale
         return PortfolioTargetProposal(
             target_weights=tuple(float(w) for w in capped),
             hold_current_quantity_symbols=(),

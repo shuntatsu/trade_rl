@@ -1,4 +1,4 @@
-"""Out-of-sample test of ``TS_TREND_LONG_SPOT`` (``trend_long_spot_oos_v1``)."""
+"""Out-of-sample test of ``TS_TREND_LONG_SPOT`` (``trend_long_spot_oos_v2``)."""
 
 from __future__ import annotations
 

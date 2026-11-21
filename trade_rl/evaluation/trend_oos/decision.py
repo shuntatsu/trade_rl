@@ -1,4 +1,4 @@
-"""Pure, data-free decision rule and reported statistics of ``trend_long_spot_oos_v1``.
+"""Pure, data-free decision rule and reported statistics of ``trend_long_spot_oos_v2``.
 
 ``SUPPORTED(S)`` of a stage holds iff all nine cells (3 arms x 3 scenarios) are valid,
 no candidate cell reached a 20% drawdown, the candidate's BASE return is above 0 and its

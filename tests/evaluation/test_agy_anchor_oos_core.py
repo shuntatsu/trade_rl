@@ -237,6 +237,35 @@ def test_when_the_cap_binds_every_hold_is_dropped_so_the_deadband_cannot_creep()
     assert cash.cash_measure(raw) > 1.0
 
 
+def test_a_microscopic_real_buy_cannot_bypass_the_net_exposure_limit() -> None:
+    """Relative allclose must not hide real trades above the 0.97 cash cap."""
+    current = np.zeros(N_LEGS)
+    current[SPOT] = protocol.NET_EXPOSURE_LIMIT / len(SPOT)
+    proposed = current.copy()
+    proposed[SPOT] += 2e-7
+    policy = _wrapped(_Fixed(proposed))
+    proposal = policy.decide_portfolio(_snapshot(0, weights=current))
+    executed = _constrain(proposal, current, 0.0)
+    assert cash.net_exposure(executed) <= protocol.NET_EXPOSURE_LIMIT + 1e-9
+    assert policy.stats.bound_by_net_exposure == 1
+    assert proposal.hold_current_quantity_symbols == ()
+
+
+def test_a_microscopic_real_buy_cannot_bypass_the_margin_cash_limit() -> None:
+    """A costless relative comparison must not silently exceed margin cash 1.0."""
+    current = _w(s0=0.55, s1=0.40, p0=-0.125)
+    assert cash.cash_measure(current) == pytest.approx(protocol.CASH_LIMIT)
+    assert cash.net_exposure(current) < protocol.NET_EXPOSURE_LIMIT
+    proposed = current.copy()
+    proposed[2] += 2e-7
+    policy = _wrapped(_Fixed(proposed))
+    proposal = policy.decide_portfolio(_snapshot(0, weights=current))
+    executed = _constrain(proposal, current, 0.0)
+    assert cash.cash_measure(executed) <= protocol.CASH_LIMIT + 1e-9
+    assert policy.stats.bound_by_margin == 1
+    assert proposal.hold_current_quantity_symbols == ()
+
+
 def test_a_pure_hold_and_a_no_trade_pre_image_are_never_capped() -> None:
     current = _w(
         s0=0.55, s1=0.55, p0=-0.55, p1=0.55, p2=0.55

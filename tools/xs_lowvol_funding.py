@@ -33,6 +33,7 @@ and the evaluation: no orders, no API keys.
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import math
@@ -529,6 +530,83 @@ def split_zombie_tail(rows: Sequence[Any]) -> tuple[list[Any], int]:
     return list(rows[: last + 1]), len(rows) - (last + 1)
 
 
+def _zero_runs(bars: Sequence[tuple[int, bool]]) -> list[tuple[int, int]]:
+    """``[start open, end)`` of every run of consecutive zero-volume bars of at least
+    ``FUNDING_MAX_GAP_HOURS`` hours; ``bars`` are ``(open, traded)`` sorted by open."""
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    end = 0
+    for opened, traded in bars:
+        if not traded and start is not None and opened == end:
+            end = opened + data.HOUR_MS
+            continue
+        if start is not None:
+            runs.append((start, end))
+            start = None
+        if not traded:
+            start, end = opened, opened + data.HOUR_MS
+    if start is not None:
+        runs.append((start, end))
+    floor = protocol.FUNDING_MAX_GAP_HOURS * data.HOUR_MS
+    return [(a, b) for a, b in runs if b - a >= floor]
+
+
+def relisting_runs(
+    bars: Sequence[tuple[int, bool]], funding_ms: Sequence[int]
+) -> list[tuple[int, int]]:
+    """Interior zero-volume runs of at least 24 h with no funding event strictly inside.
+
+    Such a run is a delisting followed by a relisting (Amendment 2): the caller turns its
+    bars into missing hours. A shorter run, or one that holds a funding event, is kept.
+    """
+    stamps = sorted(funding_ms)
+    runs: list[tuple[int, int]] = []
+    for start, end in _zero_runs(bars):
+        index = bisect.bisect_right(stamps, start)
+        if index < len(stamps) and stamps[index] < end:
+            continue
+        runs.append((start, end))
+    return runs
+
+
+def _relisting_gap_runs(
+    reader: CarryRowSource,
+    symbol: str,
+    first_open: int,
+    end_ms: int,
+    bars: Sequence[tuple[int, bool]],
+    rest: RestFundingSource | None,
+    traded_span: tuple[int, int],
+    *,
+    tolerant: bool = False,
+) -> list[tuple[int, int]]:
+    """The relisting gap runs of a leg (reads the funding once to see events in the runs)."""
+    if not _zero_runs(bars):
+        return []
+    traded_months = _months_with_rows([o for o, traded in bars if traded])
+    try:
+        events, _ = _read_funding_tolerant(
+            reader,
+            symbol,
+            first_open,
+            end_ms,
+            kline_months=_months_with_rows([o for o, _ in bars]),
+            traded_months=traded_months,
+            traded_span=traded_span,
+            rest=rest,
+            refuse=False,
+        )
+    except CarryScreenHalt:
+        if not tolerant:
+            raise
+        events = []
+    return relisting_runs(bars, [t for t, _ in events])
+
+
+def _run_records(runs: Sequence[tuple[int, int]]) -> list[list[object]]:
+    return [[_iso(a), _iso(b), (b - a) // data.HOUR_MS] for a, b in runs]
+
+
 def _month_label(moment: datetime) -> str:
     return f"{moment.year:04d}-{moment.month:02d}"
 
@@ -554,13 +632,14 @@ def _read_funding_tolerant(
     """``(settled funding events, unpublished funding months)`` from ``first_open``.
 
     A funding month may be unpublished without a fallback only when the (truncated) perp
-    has no kline bar at all in that month (before the listing, after the effective end). In
+    has no bar with volume in that month (before the listing, after the effective end, or
+    only zero-volume bars that remain after the relisting-gap conversion). In
     a month with a traded bar (positive volume) the events come from the REST fallback
     (``rest``); without it, or when it fails, or when it returns no event while the merged
     series has a gap longer than ``FUNDING_MAX_GAP_HOURS`` there (measured inside
     ``traded_span``), the month is not admissible: with ``refuse`` the call raises, naming
-    the symbol and the month (coverage records it instead). A month with only interior
-    zero-volume bars stays inadmissible, as before. Every unpublished month is returned.
+    the symbol and the month (coverage records it instead). Every unpublished month is
+    returned.
     """
     traded = kline_months if traded_months is None else traded_months
     events: dict[int, float] = {}
@@ -578,7 +657,7 @@ def _read_funding_tolerant(
             record: dict[str, object] = {
                 "symbol": symbol,
                 "month": _month_label(moment),
-                "admissible": key not in kline_months,
+                "admissible": key not in traded,
             }
             problem = ""
             if key in traded and rest is not None:
@@ -683,6 +762,26 @@ def load_perp(
         return None, coverage
     effective_end = int(rows[-1].open_time_ms) + data.HOUR_MS
     coverage["effective_end"] = _iso(effective_end)
+    traded_span = (
+        int(next(r for r in rows if _traded_row(r)).open_time_ms),
+        effective_end,
+    )
+    gap_runs = _relisting_gap_runs(
+        reader,
+        symbol,
+        first_open,
+        end_ms,
+        [(int(r.open_time_ms), _traded_row(r)) for r in rows],
+        rest,
+        traded_span,
+    )
+    if gap_runs:
+        rows = [
+            r
+            for r in rows
+            if not any(a <= int(r.open_time_ms) < b for a, b in gap_runs)
+        ]
+    coverage["relisting_gap_runs"] = _run_records(gap_runs)
     n_hours = (end_ms - start_ms) // data.HOUR_MS
     present = np.zeros(n_hours, dtype=np.bool_)
     arrays = {
@@ -720,10 +819,7 @@ def load_perp(
         traded_months=_months_with_rows(
             [int(row.open_time_ms) for row in rows if _traded_row(row)]
         ),
-        traded_span=(
-            int(next(r for r in rows if _traded_row(r)).open_time_ms),
-            effective_end,
-        ),
+        traded_span=traded_span,
         rest=rest,
     )
     leg = data.PerpHourly(
@@ -1223,11 +1319,20 @@ def _leg_coverage(
     present = {
         opened for opened in present if last_open is not None and opened <= last_open
     }
-    zero_volume = [
-        opened
-        for opened in zero_volume
-        if last_open is not None and opened <= last_open
-    ]
+    gap_runs: list[tuple[int, int]] = []
+    if last_open is not None:
+        gap_runs = _relisting_gap_runs(
+            reader,
+            symbol,
+            first_open,
+            end_ms,
+            [(o, o in traded_opens) for o in sorted(present)],
+            rest,
+            (min(traded_opens), last_open + data.HOUR_MS),
+            tolerant=True,
+        )
+        present = {o for o in present if not any(a <= o < b for a, b in gap_runs)}
+    zero_volume = [opened for opened in zero_volume if opened in present]
     missing: list[int] = []
     if last_open is not None:
         missing = [
@@ -1249,6 +1354,7 @@ def _leg_coverage(
             "missing_ranges": _hour_ranges(missing),
             "trailing_hours_after_last_row": int(trailing),
             "zombie_tail_bars": zombie_bars,
+            "relisting_gap_runs": _run_records(gap_runs),
             "effective_end": (
                 None if last_open is None else _iso(last_open + data.HOUR_MS)
             ),
@@ -1485,10 +1591,13 @@ def coverage_summary_fields(entries: dict[str, Any]) -> dict[str, Any]:
     inadmissible: list[str] = []
     rest_months = 0
     zombies = 0
+    relisting = 0
     for name, markets in sorted(entries.items()):
         for entry in markets.values():
             if entry.get("zombie_tail_bars"):
                 zombies += 1
+            if entry.get("relisting_gap_runs"):
+                relisting += 1
             funding = entry.get("funding") or {}
             for record in funding.get("unpublished_funding_months", []):
                 if not record.get("admissible"):
@@ -1502,6 +1611,7 @@ def coverage_summary_fields(entries: dict[str, Any]) -> dict[str, Any]:
         },
         "rest_funding_months": rest_months,
         "zombie_tail_legs": zombies,
+        "relisting_gap_legs": relisting,
     }
 
 
@@ -1839,6 +1949,11 @@ def _run_main(
                 }
                 for symbol, entry in coverage.items()
                 if entry.get("zombie_tail_bars")
+            },
+            "relisting_gaps": {
+                symbol: entry["relisting_gap_runs"]
+                for symbol, entry in coverage.items()
+                if entry.get("relisting_gap_runs")
             },
             "rest_funding": {
                 "months": rest.evidence(),

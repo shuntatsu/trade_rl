@@ -1485,16 +1485,102 @@ def test_an_unpublished_funding_month_with_only_zombie_bars_no_longer_refuses(
         _load(live, window, "AAAUSDT")
 
 
-def test_a_zero_volume_only_month_inside_the_leg_still_refuses(
+def _zero_run(
+    rows: Rows, symbol: str, start: datetime, hours: int, *, keep_funding: bool
+) -> None:
+    first = _ms(start)
+    stamps = {first + i * HOUR_MS for i in range(hours)}
+    rows.zero_hours.setdefault(symbol, set()).update(stamps)
+    if not keep_funding:
+        rows.funding_skip.setdefault(symbol, set()).update(stamps)
+
+
+def test_an_interior_zero_volume_run_without_funding_becomes_missing_hours(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    start = window.load_start + timedelta(days=10)
+    _zero_run(rows, "AAAUSDT", start, 48, keep_funding=False)
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is not None
+    slot = 10 * 24
+    assert not leg.present[slot : slot + 48].any() and not leg.halted.any()
+    assert leg.present[slot - 1] and leg.present[slot + 48]
+    assert coverage["relisting_gap_runs"] == [
+        [start.isoformat(), (start + timedelta(hours=48)).isoformat(), 48]
+    ]
+    assert coverage["zombie_tail_bars"] == 0
+
+
+def test_a_zero_volume_month_of_a_relisted_perp_no_longer_refuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
     rows = Rows({"AAAUSDT": (window.load_start, None)})
     march = datetime(2021, 3, 1, tzinfo=UTC)
-    rows.zero_hours["AAAUSDT"] = {_ms(march) + i * HOUR_MS for i in range(31 * 24)}
+    _zero_run(rows, "AAAUSDT", march, 31 * 24, keep_funding=False)
     rows.funding_missing["AAAUSDT"] = {(2021, 3)}
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is not None
+    records = coverage["unpublished_funding_months"]
+    assert [r["month"] for r in records] == ["2021-03"]  # type: ignore[union-attr]
+    assert records[0]["admissible"]  # type: ignore[index]
+    # a month with a positive-volume bar still needs the fallback
+    live = Rows({"AAAUSDT": (window.load_start, None)})
+    live.funding_missing["AAAUSDT"] = {(2021, 3)}
     with pytest.raises(data.StageDataError, match="2021-03"):
-        _load_with(rows, window, "AAAUSDT", _rest(Path("unused"), RestStub()))
+        _load(live, window, "AAAUSDT")
+
+
+def test_a_held_name_is_force_closed_at_the_start_of_a_relisting_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    start = window.load_start + timedelta(days=60)
+    _zero_run(rows, "AAAUSDT", start, 48, keep_funding=False)
+    leg, _ = _load(rows, window, "AAAUSDT")
+    assert leg is not None
+    n_rows = leg.n_hours // protocol.BAR_HOURS
+    clock = (
+        _ms(window.load_start) + (np.arange(n_rows, dtype=np.int64) + 1) * data.BAR_MS
+    )
+    active = data._aggregate_4h(leg, clock_ms=clock, grid_ms=data.BAR_MS).active
+    first_gap = 60 * 24 // protocol.BAR_HOURS
+    assert active[first_gap - 1] and not active[first_gap]
+    forced = policy.XsInputs.forced_rows(active[:, None])[:, 0]
+    assert forced[first_gap - 1] and not forced[first_gap]
+    assert forced[first_gap - 1 - protocol.FORCED_CLOSE_LEAD_BARS]
+
+
+def test_short_zero_volume_runs_and_runs_with_funding_are_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    short = window.load_start + timedelta(days=5)
+    funded = window.load_start + timedelta(days=20)
+    _zero_run(rows, "AAAUSDT", short, 10, keep_funding=False)
+    _zero_run(rows, "AAAUSDT", funded, 48, keep_funding=True)
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is not None and coverage["relisting_gap_runs"] == []
+    assert leg.present[5 * 24 : 5 * 24 + 10].all()
+    assert leg.present[20 * 24 : 20 * 24 + 48].all()
+
+
+def test_relisting_runs_need_24_hours_and_no_event_strictly_inside() -> None:
+    hour = HOUR_MS
+    bars = [(i * hour, i not in range(10, 40)) for i in range(60)]
+    start, end = 10 * hour, 40 * hour
+    assert driver.relisting_runs(bars, []) == [(start, end)]
+    assert driver.relisting_runs(bars, [start]) == [(start, end)]  # at the edge
+    assert driver.relisting_runs(bars, [end]) == [(start, end)]
+    assert driver.relisting_runs(bars, [start + hour]) == []
+    short = [(i * hour, i not in range(10, 33)) for i in range(60)]
+    assert driver.relisting_runs(short, []) == []
+    broken = [(i * hour, i not in range(10, 40) or i == 20) for i in range(60)]
+    assert driver.relisting_runs([b for b in broken if b[0] != 25 * hour], []) == []
 
 
 def test_an_unpublished_traded_month_is_filled_from_rest_and_cached_raw(
@@ -1650,6 +1736,7 @@ def test_coverage_summary_names_inadmissible_rest_and_zombie_months(
     assert code == driver.EXIT_OK, err
     summary = json.loads(out)
     assert summary["zombie_tail_legs"] == 1
+    assert summary["relisting_gap_legs"] == 0
     assert summary["rest_funding_months"] == 1
     assert summary["inadmissible_unpublished_funding_months"] == {
         "count": 1,
@@ -1716,3 +1803,32 @@ def test_a_disjoint_run_records_zombie_legs_and_rest_months_in_the_data_receipt(
     (month,) = receipt["rest_funding"]["months"]
     assert month["symbol"] == SYMBOLS[3] and month["month"] == "2021-02"
     assert receipt["rest_funding"]["digest"] and len(month["sha256"]) == 64
+
+
+def test_coverage_counts_relisting_gap_legs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS[:2])
+    rows = Rows(listings(window, SYMBOLS[:2]))
+    _zero_run(
+        rows, SYMBOLS[0], datetime(2021, 3, 1, tzinfo=UTC), 31 * 24, keep_funding=False
+    )
+    rows.funding_missing[SYMBOLS[0]] = {(2021, 3)}
+    code, out, err = tool(
+        tmp_path,
+        ["coverage", "--stage", "DISJOINT", "--output-dir", str(tmp_path / "cov")],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        symbols=SYMBOLS[:2],
+        with_rules=False,
+    )
+    assert code == driver.EXIT_OK, err
+    summary = json.loads(out)
+    assert summary["relisting_gap_legs"] == 1
+    assert summary["inadmissible_unpublished_funding_months"]["count"] == 0
+    document = json.loads((tmp_path / "cov" / driver.COVERAGE_NAME).read_text("utf-8"))
+    entry = document["symbols"][SYMBOLS[0]]["usds_m"]
+    assert entry["relisting_gap_runs"][0][2] == 31 * 24
+    assert entry["missing_hours"] == 31 * 24

@@ -86,6 +86,7 @@ FORCED_CLOSE_LEAD_BARS: Final = 42
 #: (trailing zero-volume "zombie" bars are dropped); the forced-close lead counts back from it.
 #: An unpublished monthly funding archive in a traded month is filled from the REST endpoint;
 #: if that returns no event, the merged series must have no gap longer than this many hours there.
+#: The same span is the minimum length of an interior zero-volume run turned into missing hours.
 FUNDING_MAX_GAP_HOURS: Final = 24
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
@@ -525,6 +526,13 @@ def protocol_payload() -> dict[str, object]:
             "otherwise inactive (sentinel price, not tradable)",
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,
+            "relisting_gap": "an interior run of at least 24 consecutive 1h bars with base "
+            "and quote volume 0 and no funding event strictly inside is a delisting and "
+            "relisting: its bars become missing hours before eligibility, forced close, "
+            "funding admissibility and gap checks (Amendment 2; the gap then follows the "
+            "existing unexplained-gap rules; a held name is force-closed when the gap "
+            "starts, the same archive-knowledge exception as the delisting forced close); "
+            "shorter runs and runs with a funding event are kept",
             "zombie_tail": "the trailing run of zero-volume 1h bars after a perp's last "
             "bar with volume is dropped as not listed before universe, forced-close, "
             "funding and gap rules (Amendment 2; uses archive-end knowledge like the "

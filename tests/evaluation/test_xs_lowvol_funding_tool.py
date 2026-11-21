@@ -374,6 +374,42 @@ def no_run(monkeypatch: pytest.MonkeyPatch) -> NoRun:
 # ======================================================================== plan
 
 
+@pytest.mark.parametrize("stage", protocol.STAGES)
+def test_real_economic_run_refuses_hindsight_delisting_before_any_io(
+    tmp_path: Path, stage: str
+) -> None:
+    """No real OOS label can be produced without point-in-time notice evidence."""
+    calls: list[str] = []
+
+    def forbidden(name: str) -> Any:
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            calls.append(name)
+            raise AssertionError(f"{name} was called before the causal run gate")
+
+        return fail
+
+    out, err = io.StringIO(), io.StringIO()
+    argv = [
+        *run_argv(tmp_path, stage),
+        "--archive-dir",
+        str(tmp_path / "nonexistent-archive"),
+        "--exchange-info-perp",
+        str(tmp_path / "nonexistent-rules.json"),
+    ]
+    code = driver.main(
+        argv,
+        stdout=out,
+        stderr=err,
+        now=forbidden("clock"),
+        state=forbidden("git"),
+        gh=forbidden("G4"),
+    )
+    assert code == driver.EXIT_REFUSED
+    assert not out.getvalue() and "hindsight" in err.getvalue().lower()
+    assert not calls
+    assert not (tmp_path / "out").exists()
+
+
 def test_plan_prints_the_digest_the_bindings_and_every_window() -> None:
     for stage in protocol.STAGES:
         out, err = io.StringIO(), io.StringIO()

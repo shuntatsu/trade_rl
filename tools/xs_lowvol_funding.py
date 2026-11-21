@@ -1720,6 +1720,17 @@ def main(
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     args = build_parser().parse_args(argv)
+    # This proposed study models a 42-bar public delisting notice by inspecting
+    # the eventual archive end. Without timestamped notice data that was
+    # actually available at each decision, a real OOS replay would be hindsight.
+    # Refuse all real run commands before a clock, G4, file, row or output touch;
+    # injected synthetic row factories remain available for contract tests.
+    if args.command == "run" and rows_factory is None:
+        err.write(
+            "refused: hindsight delisting notices have no verified point-in-time "
+            "publication evidence; no real economic run is authorized\n"
+        )
+        return EXIT_REFUSED
     moment = now()
     if args.command == "plan":
         try:

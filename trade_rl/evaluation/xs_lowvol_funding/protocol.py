@@ -486,6 +486,9 @@ def protocol_payload() -> dict[str, object]:
             },
         },
         "forced_close": {
+            "real_run_authority": "refused before external IO until exact, timestamped "
+            "public notice evidence is causally available at each decision; "
+            "archive-end lookahead is synthetic/hindsight-model only",
             "rule": "a held name's target is 0 from the decision bar 42 4h bars before "
             "its last available bar onward (the lead uses knowledge of the archive end, "
             "modelling the public delisting announcement); the end is the effective "

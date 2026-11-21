@@ -72,7 +72,8 @@ MIN_REPLAY_BARS = 2 * protocol.REBALANCE_EVERY_BARS
 DISCLOSURES: tuple[str, ...] = (
     "every arm trades a spot cash account: after the lowturn caps the spot gross is "
     "capped at 1.0 (lowturn v1 allowed 2.0 with zero-cost financing); a cell that "
-    "borrows is INVALID (negative_cash_borrowing)",
+    "borrows at any ordered spot fill or ledger close is INVALID "
+    "(negative_cash_borrowing); later sells cannot prefinance earlier buys",
     "the causality probe is per (arm, signal lag) and shared by the cost scenarios",
     "exchange rules (lot size, minimum notional) are one static snapshot applied to "
     "every row, not point-in-time; for BACKCAST this approximates 2018-2020 by the "
@@ -210,6 +211,47 @@ def _cash_extremes(
     return lowest, greatest_borrow
 
 
+def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | None:
+    """Optimistic running cash over native ordered spot fills (not bar closes).
+
+    The shared execution engine fills symbols in order and permits buys before
+    sells. Starting with actual cash, add *all* positive non-trade cashflows up
+    front but omit nonnegative costs and negative flows: the reconstruction is an
+    upper bound on available cash, so a negative value proves real borrowing.
+    No replay-book state or historical receipt is modified.
+    """
+    ledger = result.ledger_evidence
+    if ledger is None or not ledger.intervals.intervals:
+        return None
+    lowest = math.inf
+    for iv in ledger.intervals.intervals:
+        cash = float(iv.cash_before) + sum(
+            max(0.0, float(value))
+            for value in (
+                iv.interval_funding,
+                iv.interval_dividend,
+                iv.interval_cash_interest,
+            )
+        )
+        if not math.isfinite(cash):
+            raise ValueError("nonfinite cash or external credit in fill evidence")
+        lowest = min(lowest, cash, float(iv.cash_after))
+        for event in iv.order_events:
+            if event.event_type not in ("filled", "partial_fill"):
+                continue
+            # The v2 research policy is spot-only; a perp fill would break
+            # the cash-principal reconstruction and must not be accepted.
+            if event.symbol_index % 2:
+                raise ValueError("unexpected perpetual fill in spot cash account")
+            if event.filled_quantity == 0 or event.filled_notional < 0:
+                raise ValueError("invalid native spot fill in cash evidence")
+            cash += (-1 if event.filled_quantity > 0 else 1) * event.filled_notional
+            if not math.isfinite(cash):
+                raise ValueError("nonfinite running cash in fill evidence")
+            lowest = min(lowest, cash)
+    return lowest
+
+
 def _build_cell(
     *,
     arm: str,
@@ -233,6 +275,9 @@ def _build_cell(
     returns = _dust_adjusted(raw_returns, result, summary.terminal_dust)
     reasons = list(summary.invalid_reasons)
     min_cash, max_borrowing = _cash_extremes(result)
+    fill_floor = _spot_fill_cash_floor(result)
+    if min_cash is not None and fill_floor is not None:
+        min_cash = min(min_cash, fill_floor)
     tolerance = protocol.CASH_TOLERANCE_FRACTION * protocol.INITIAL_CAPITAL
     # A real spot cash account cannot finance even execution fees by overdraft.
     # The net-of-unpaid-fees measure is a separate diagnostic, never credit.

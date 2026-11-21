@@ -1,6 +1,8 @@
 # Proposed trend spot cash-account safety revision (`trend_long_spot_oos_v2`)
 
-Status: **Software-only proposal / HOLD**, 2026-11-21. This is **not** an
+Status: Active (documentation lifecycle only), 2026-11-21.
+
+**Economic authorization: HOLD / software-only proposal.** This is **not** an
 owner-approved one-shot economic protocol, an authorization to revisit data,
 or a replacement for any immutable `trend_long_spot_oos_v1` run.
 
@@ -45,13 +47,26 @@ The v2 nominal gross bound is
 g1 <= max(0, (1 - r*g0)/(1+r))
 ```
 
-Because no same-mark turnover can exceed `g0 + g1`, this leaves enough cash at
-the decision mark to pay the configured cost of even a full liquidation followed
-by a new book. The old 1.0 cap cannot reserve fees and does not guarantee a cash
-account. Whenever this bound binds, clear all quantity-HOLDs and scale the full
-effective target, then invert the risk factor once so downstream risk scales once.
-Pure HOLDs and genuine exact no-trade pre-images do not incur new orders. Relative
-`np.allclose` tolerance is forbidden (`rtol=0`).
+Because no same-mark turnover can exceed `g0 + g1`, this leaves enough equity
+at the decision mark to pay the configured total fill cost. **Equity is not free
+cash:** native fills process symbols in ascending index, so a new lower-index buy
+may execute before any higher-index sale. Independently of the gross bound, for
+a uniform multiplier `f` on the full effective target `t`, require:
+
+```text
+B(f) = sum_spot(max(0, f*t_i - current_i))
+B(f) * (1 + r) <= max(0, min(cash_before / equity, 1 - g0))
+```
+
+The `B(f)` constraint reserves actual current cash for all newly bought positions
+and their configured buy fees **without counting future sale proceeds**. Solve for
+the greatest admissible `f` by monotonic bisection; an all-sell exit can proceed
+without prior free cash because its own proceeds pay its fees. The first gross
+bound still reserves *total* worst-configured buy-and-sell costs. Whenever either
+constraint binds, clear all quantity-HOLDs and uniformly scale the full effective
+target, then invert the risk factor once. Pure HOLDs and genuine exact no-trade
+pre-images do not incur new orders. Relative `np.allclose` tolerance is forbidden
+(`rtol=0`).
 
 **Execution-time safety is a separate hard gate.** In each observer ledger interval:
 
@@ -59,10 +74,16 @@ Pure HOLDs and genuine exact no-trade pre-images do not incur new orders. Relati
   cost boundaries. Track only *unabsorbed* fee overdraft: add the current interval
   cost, then cap the allowance by the current negative cash; any cash recovery
   extinguishes the corresponding allowance. Older paid fees are never recycled.
-- `min(cash_after)` below `-0.000001 × initial_capital` is
-  `negative_cash_borrowing` and INVALID **even if the deficit comes solely from fees**.
-  The separately reported maximum borrowing *net of unabsorbed fees* is diagnostic,
-  not a license for fee-financed negative cash.
+- Inspect native ordered `OrderEvent` fills (not merely period-end cash).
+  Reconstruct an **optimistic** running spot cash bound from `cash_before`, signed
+  fill notionals and all positive non-trading credits made available upfront;
+  omitting fees and negative cashflows can only overestimate real cash. A negative
+  path therefore establishes intrabar borrowing even if later sells restore a
+  positive `cash_after`. Unexpected perp fills fail closed.
+- `min(cash_after, optimistic ordered fill cash)` below
+  `-0.000001 × initial_capital` is `negative_cash_borrowing` and INVALID **even
+  if the deficit comes solely from fees**. The separately reported maximum
+  borrowing *net of unabsorbed fees* remains diagnostic, not financing credit.
 - Forward price movement, unfavorable fill sequencing, unfilled sells, unmodeled
   fee additions and pending orders may exceed the nominal decision reserve. Such
   cells must fail the raw-cash gate; there is no post-hoc retry or rescue.

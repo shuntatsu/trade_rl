@@ -161,11 +161,9 @@ def test_the_deadband_cannot_let_gross_creep_above_the_limit() -> None:
     proposal = policy.decide_portfolio(snapshot)
     assert proposal.hold_current_quantity_symbols == ()
     executed = _executes_to(proposal, current, 0.0)
-    assert _gross(executed) == pytest.approx(
-        (1.0 - 0.9 * protocol.cash_reserve_rate())
-        / (1.0 + protocol.cash_reserve_rate()),
-        abs=1e-12,
-    )
+    buys = float(np.maximum(executed[SPOTS] - current[SPOTS], 0.0).sum())
+    assert buys * (1.0 + protocol.cash_reserve_rate()) <= 0.1 + 1e-12
+    assert 0.1 < _gross(executed) < 0.3  # sell proceeds cannot prefinance new legs
     assert np.all(executed[SPOTS] > 0.0)  # proportional: every leg keeps a share
 
 
@@ -798,3 +796,101 @@ def test_the_run_receipt_records_the_coverage_commit_and_the_cash_account(
         "gross_limit": 1.0,
         "invalid_on": "negative_cash_borrowing",
     }
+
+
+def test_rotation_cannot_spend_future_sale_proceeds_before_sells_fill() -> None:
+    """Sells do not finance buys when the shared engine processes lower IDs first."""
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+
+    current = np.zeros(N_LEGS)
+    current[[12, 14, 16]] = 0.2
+    target = np.zeros(N_LEGS)
+    target[[0, 2, 4]] = 0.2
+    snap = _snapshot(0, weights=current)
+    snap = replace(snap, account=replace(snap.account, cash=40_000.0))
+    inner = LowturnPolicy(
+        family="TS_TREND_LONG_SPOT", signals=_trend_pack(), start_index=0
+    )
+    inner.decide_portfolio = lambda s: PortfolioTargetProposal(tuple(target))  # type: ignore[method-assign]
+    wrapped = CashAccountPolicy(inner, start_index=0)
+    proposal = wrapped.decide_portfolio(snap)
+    effective = _executes_to(proposal, current, 0.0)
+    buys = float(np.maximum(effective[SPOTS] - current[SPOTS], 0).sum())
+    assert buys * (1 + protocol.cash_reserve_rate()) <= 0.4 + 1e-10
+    assert 0.35 < _gross(effective) < 0.5
+    assert wrapped.stats.bound_decisions == 1
+
+
+def test_real_replay_rotation_has_no_hidden_intra_interval_spot_loan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Independent ordered-fill cash oracle, using actual engine OrderEvents."""
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+
+    window, dataset = _low_vol_window(monkeypatch)
+    start = window.first_decision_index
+
+    class RotatingLowturn(LowturnPolicy):
+        def decide_portfolio(self, snapshot: Any) -> Any:
+            if snapshot.index == start:
+                w = np.zeros(N_LEGS)
+                w[[12, 14, 16]] = 0.2
+                return PortfolioTargetProposal(tuple(w))
+            if snapshot.index == start + 6:
+                w = np.zeros(N_LEGS)
+                w[[0, 2, 4]] = 0.2
+                return PortfolioTargetProposal(tuple(w))
+            return PortfolioTargetProposal(
+                tuple(float(w) for w in snapshot.account.weights),
+                hold_current_quantity_symbols=tuple(range(N_LEGS)),
+            )
+
+    def run(capped: bool) -> Any:
+        inner = RotatingLowturn(
+            family="TS_TREND_LONG_SPOT",
+            signals=build_oos_signals(dataset),
+            start_index=start,
+        )
+        return _replay(
+            dataset,
+            window,
+            CashAccountPolicy(inner, start_index=start) if capped else inner,
+        )
+
+    def min_before_fee_cash(result: Any) -> float:
+        floor = float("inf")
+        for iv in result.ledger_evidence.intervals.intervals:
+            # Spot-only fixture, and funding/dividend/interest are zero. Fees are
+            # charged at fills, so this no-fee oracle is an optimistic upper bound.
+            assert iv.interval_funding == 0.0
+            assert iv.interval_dividend == 0.0
+            assert iv.interval_cash_interest == 0.0
+            cash = float(iv.cash_before)
+            floor = min(floor, cash)
+            for ev in sorted(iv.order_events, key=lambda e: e.sequence):
+                if ev.event_type not in ("filled", "partial_fill"):
+                    continue
+                assert ev.symbol_index % 2 == 0
+                cash += (-1 if ev.filled_quantity > 0 else 1) * ev.filled_notional
+                floor = min(floor, cash)
+        return floor
+
+    unsafe = run(capped=False)
+    safe = run(capped=True)
+    assert min_before_fee_cash(unsafe) < -0.05 * protocol.INITIAL_CAPITAL
+    assert runner._cash_extremes(unsafe)[0] > 0  # old endpoint-only false green
+    assert runner._spot_fill_cash_floor(unsafe) < -0.05 * protocol.INITIAL_CAPITAL
+    cell = runner._build_cell(
+        arm="TS_TREND_LONG_SPOT",
+        scenario="BASE",
+        result=unsafe,
+        dataset=dataset,
+        causality_passed=True,
+        probe_key="synthetic",
+        cap_statistics={},
+    )
+    assert "negative_cash_borrowing" in cell.invalid_reasons
+    assert not cell.valid and cell.min_cash < -0.05 * protocol.INITIAL_CAPITAL
+    assert min_before_fee_cash(safe) >= -TOLERANCE
+    assert runner._spot_fill_cash_floor(safe) >= -TOLERANCE
+    assert runner._cash_extremes(safe)[0] >= -TOLERANCE

@@ -375,18 +375,25 @@ def protocol_payload() -> dict[str, object]:
             "limited to max(0, (gross_limit - configured_cost_rate_max * "
             "current_spot_gross) / (1 + configured_cost_rate_max)); this covers "
             "worst-case current+target turnover at the frozen configured fill-cost rates",
-            "reserve_limitations": "next-bar price changes, partial-fill sequencing, "
+            "pre_sale_buy_budget": "new spot buys sum(max(0, scaled_target_i - "
+            "current_i)) times (1 + configured_cost_rate_max) must not exceed "
+            "max(0, min(actual_cash / portfolio_value, 1 - current_spot_gross)); "
+            "uniform target reduction with no credit for later sell fills",
+            "reserve_limitations": "next-bar price changes, partial fills, "
             "pending orders and source-supplied venue costs are not bounded by this "
-            "decision-mark reserve; each actual negative-cash ledger interval is INVALID",
+            "decision-mark reserve; actual ordered spot fills and interval close "
+            "are separately audited for negative cash and make the cell INVALID",
             "when_binding": "all exact-quantity holds are dropped and the effective "
-            "vector is proportionally retargeted below gross 1.0 to reserve fees; "
-            "a true no-trade HOLD or exact risk-scale pre-image is never capped",
+            "vector is proportionally retargeted to cover total fees and pre-sale "
+            "buy financing; a true no-trade HOLD or exact risk-scale pre-image "
+            "is never capped",
             "wrapper": "trend_oos.cash_policy.CashAccountPolicy around the unchanged "
             "LowturnPolicy",
             "invalid_on_borrowing": {
                 "reason": REASON_NEGATIVE_CASH,
-                "rule": "min cash_after < -tolerance_fraction * initial_capital "
-                "OR per-interval unabsorbed-fee borrowing > that tolerance",
+                "rule": "min(interval cash_after, optimistic ordered spot-fill "
+                "cash before fees) < -tolerance_fraction * initial_capital OR "
+                "per-interval unabsorbed-fee borrowing > that tolerance",
                 "tolerance_fraction": CASH_TOLERANCE_FRACTION,
                 "net_of_costs": "diagnostic only: fee allowance is extinguished by "
                 "cash recovery and cannot offset future purchases; even an overdraft "

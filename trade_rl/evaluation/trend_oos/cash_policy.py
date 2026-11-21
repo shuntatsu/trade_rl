@@ -5,8 +5,9 @@ cash financing. An actual spot cash account needs an execution-cost reserve as w
 a gross cap. At each trade decision, let ``g0`` be the current spot gross and ``r``
 the largest *configured* deterministic per-notional fill cost across the frozen
 scenarios. The next effective spot gross ``g1`` obeys
-``g1 <= max(0, (gross_limit - r*g0)/(1+r))``. At the decision mark, this reserves
-at least ``r*(g0+g1)`` of equity against worst-case configured turnover.
+``g1 <= max(0, (gross_limit - r*g0)/(1+r))``. In addition, gross
+spending on *new buys alone* plus the fee reserve must not exceed cash already
+available before any sell fills. Future sell proceeds cannot finance earlier buys.
 
 A cap that binds drops every exact-quantity hold; otherwise the old deadband can
 leave excessive exposure. A pure HOLD or exact risk-scale pre-image creates no new
@@ -15,8 +16,8 @@ pretrade risk scale once. The wrapper is causal and tracks pre-cap gross per reb
 
 This is not a guarantee of nonnegative *execution-time* cash: delayed price changes,
 partial fills, pending orders and additional Dataset fee rates are not bounded by this
-decision-mark estimate. The ledger checks actual negative cash and invalidates the
-cell rather than reusing historical fees as fictional cash.
+decision-mark estimate. The ledger audits ordered fills as well as interval closes
+and invalidates a cell rather than reusing historical fees as fictional cash.
 """
 
 from __future__ import annotations
@@ -109,14 +110,48 @@ class CashAccountPolicy(PortfolioPolicy):
             held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL, rtol=0.0)
         )
         rebalance = (snapshot.index - self._start) % self._every == 0
-        binds = trades and gross > cash_gross_limit + _GROSS_EPS and scale > 0.0
+        # The native processor fills symbols by ascending index, so all new
+        # lower-index buys may execute before higher-index sells. Netting their
+        # eventual proceeds at decision time would be unsecured borrowing.
+        # Keep only cash that is already owned; never count sell proceeds here.
+        value = float(snapshot.account.portfolio_value)
+        cash_fraction = max(
+            0.0, min(float(snapshot.account.cash) / value, 1.0 - current_gross)
+        )
+        current_spot = current[spot]
+        target_spot = effective[spot]
+
+        def buy_spend(factor: float) -> float:
+            return float(np.maximum(factor * target_spot - current_spot, 0.0).sum())
+
+        max_fraction = min(1.0, cash_gross_limit / gross) if gross > 0.0 else 1.0
+        if (
+            trades
+            and scale > 0.0
+            and (
+                buy_spend(max_fraction) * (1.0 + fee_rate) > cash_fraction + _GROSS_EPS
+            )
+        ):
+            # Buy principal and buy fees must be payable before any sell.
+            # Sells finance their own fees; they never require upfront cash.
+            # The separate gross cap covers worst-case *total* fill costs.
+            # Monotonic in the uniform target factor.
+            lower, upper = 0.0, max_fraction
+            for _ in range(64):
+                middle = (lower + upper) / 2.0
+                if buy_spend(middle) * (1.0 + fee_rate) <= cash_fraction:
+                    lower = middle
+                else:
+                    upper = middle
+            max_fraction = lower
+        binds = trades and max_fraction < 1.0 - _GROSS_EPS and scale > 0.0
         if rebalance:
             self.stats.rebalance_decisions += 1
             self.stats.pre_cap_gross.append(gross)
             self.stats.bound_decisions += int(binds)
         if not binds:
             return proposal
-        capped = effective * (cash_gross_limit / gross) / scale
+        capped = effective * max_fraction / scale
         return PortfolioTargetProposal(
             target_weights=tuple(float(w) for w in capped),
             hold_current_quantity_symbols=(),

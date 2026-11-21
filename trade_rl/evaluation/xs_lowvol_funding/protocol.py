@@ -527,12 +527,13 @@ def protocol_payload() -> dict[str, object]:
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,
             "relisting_gap": "an interior run of at least 24 consecutive 1h bars with base "
-            "and quote volume 0 and no funding event strictly inside is a delisting and "
-            "relisting: its bars become missing hours before eligibility, forced close, "
+            "and quote volume 0 (funding events inside or not) is a delisting and "
+            "relisting: its bars become missing hours and the funding events strictly "
+            "inside it are dropped, before eligibility, forced close, "
             "funding admissibility and gap checks (Amendment 2; the gap then follows the "
             "existing unexplained-gap rules; a held name is force-closed when the gap "
             "starts, the same archive-knowledge exception as the delisting forced close); "
-            "shorter runs and runs with a funding event are kept",
+            "shorter runs are kept",
             "zombie_tail": "the trailing run of zero-volume 1h bars after a perp's last "
             "bar with volume is dropped as not listed before universe, forced-close, "
             "funding and gap rules (Amendment 2; uses archive-end knowledge like the "

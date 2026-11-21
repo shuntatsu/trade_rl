@@ -1554,33 +1554,44 @@ def test_a_held_name_is_force_closed_at_the_start_of_a_relisting_gap(
     assert forced[first_gap - 1 - protocol.FORCED_CLOSE_LEAD_BARS]
 
 
-def test_short_zero_volume_runs_and_runs_with_funding_are_kept(
+def test_short_zero_volume_runs_are_kept_and_long_runs_with_funding_are_converted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
     rows = Rows({"AAAUSDT": (window.load_start, None)})
     short = window.load_start + timedelta(days=5)
     funded = window.load_start + timedelta(days=20)
-    _zero_run(rows, "AAAUSDT", short, 10, keep_funding=False)
+    _zero_run(rows, "AAAUSDT", short, 10, keep_funding=True)
     _zero_run(rows, "AAAUSDT", funded, 48, keep_funding=True)
     leg, coverage = _load(rows, window, "AAAUSDT")
-    assert leg is not None and coverage["relisting_gap_runs"] == []
-    assert leg.present[5 * 24 : 5 * 24 + 10].all()
-    assert leg.present[20 * 24 : 20 * 24 + 48].all()
+    assert leg is not None
+    assert coverage["relisting_gap_runs"] == [
+        [funded.isoformat(), (funded + timedelta(hours=48)).isoformat(), 48]
+    ]
+    assert leg.present[5 * 24 : 5 * 24 + 10].all()  # 10 h run kept
+    slot = 20 * 24
+    assert not leg.present[slot : slot + 48].any()
+    # the fake archive publishes an event every 8 h; those strictly inside are dropped
+    start_ms, end_ms = _ms(funded), _ms(funded + timedelta(hours=48))
+    assert not np.any((leg.funding_ms > start_ms) & (leg.funding_ms < end_ms))
+    dropped = coverage["dropped_funding_events_in_gaps"]
+    assert (
+        dropped == 5
+    )  # events at +8, +16, +24, +32, +40 h; +0 and +48 are at the edges
+    assert coverage["funding_events"] == len(leg.funding_ms)
 
 
-def test_relisting_runs_need_24_hours_and_no_event_strictly_inside() -> None:
+def test_relisting_runs_need_24_hours_and_ignore_funding() -> None:
     hour = HOUR_MS
     bars = [(i * hour, i not in range(10, 40)) for i in range(60)]
-    start, end = 10 * hour, 40 * hour
-    assert driver.relisting_runs(bars, []) == [(start, end)]
-    assert driver.relisting_runs(bars, [start]) == [(start, end)]  # at the edge
-    assert driver.relisting_runs(bars, [end]) == [(start, end)]
-    assert driver.relisting_runs(bars, [start + hour]) == []
+    assert driver.relisting_runs(bars) == [(10 * hour, 40 * hour)]
     short = [(i * hour, i not in range(10, 33)) for i in range(60)]
-    assert driver.relisting_runs(short, []) == []
+    assert driver.relisting_runs(short) == []
     broken = [(i * hour, i not in range(10, 40) or i == 20) for i in range(60)]
-    assert driver.relisting_runs([b for b in broken if b[0] != 25 * hour], []) == []
+    assert driver.relisting_runs([b for b in broken if b[0] != 25 * hour]) == []
+    events = [(t * hour, 0.0001) for t in (10, 11, 25, 39, 40)]
+    kept, dropped = driver.drop_funding_in_runs(events, [(10 * hour, 40 * hour)])
+    assert dropped == 3 and [t for t, _ in kept] == [10 * hour, 40 * hour]
 
 
 def test_an_unpublished_traded_month_is_filled_from_rest_and_cached_raw(

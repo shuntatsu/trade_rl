@@ -33,7 +33,6 @@ and the evaluation: no orders, no API keys.
 from __future__ import annotations
 
 import argparse
-import bisect
 import hashlib
 import json
 import math
@@ -557,56 +556,21 @@ def _zero_runs(bars: Sequence[tuple[int, bool]]) -> list[tuple[int, int]]:
     return [(a, b) for a, b in runs if b - a >= floor]
 
 
-def relisting_runs(
-    bars: Sequence[tuple[int, bool]], funding_ms: Sequence[int]
-) -> list[tuple[int, int]]:
-    """Interior zero-volume runs of at least 24 h with no funding event strictly inside.
+def relisting_runs(bars: Sequence[tuple[int, bool]]) -> list[tuple[int, int]]:
+    """Interior zero-volume runs of at least 24 h, funding events inside or not.
 
     Such a run is a delisting followed by a relisting (Amendment 2): the caller turns its
-    bars into missing hours. A shorter run, or one that holds a funding event, is kept.
+    bars into missing hours and drops the funding events inside it. A shorter run is kept.
     """
-    stamps = sorted(funding_ms)
-    runs: list[tuple[int, int]] = []
-    for start, end in _zero_runs(bars):
-        index = bisect.bisect_right(stamps, start)
-        if index < len(stamps) and stamps[index] < end:
-            continue
-        runs.append((start, end))
-    return runs
+    return _zero_runs(bars)
 
 
-def _relisting_gap_runs(
-    reader: CarryRowSource,
-    symbol: str,
-    first_open: int,
-    end_ms: int,
-    bars: Sequence[tuple[int, bool]],
-    rest: RestFundingSource | None,
-    traded_span: tuple[int, int],
-    *,
-    tolerant: bool = False,
-) -> list[tuple[int, int]]:
-    """The relisting gap runs of a leg (reads the funding once to see events in the runs)."""
-    if not _zero_runs(bars):
-        return []
-    traded_months = _months_with_rows([o for o, traded in bars if traded])
-    try:
-        events, _ = _read_funding_tolerant(
-            reader,
-            symbol,
-            first_open,
-            end_ms,
-            kline_months=_months_with_rows([o for o, _ in bars]),
-            traded_months=traded_months,
-            traded_span=traded_span,
-            rest=rest,
-            refuse=False,
-        )
-    except CarryScreenHalt:
-        if not tolerant:
-            raise
-        events = []
-    return relisting_runs(bars, [t for t, _ in events])
+def drop_funding_in_runs(
+    events: Sequence[tuple[int, float]], runs: Sequence[tuple[int, int]]
+) -> tuple[list[tuple[int, float]], int]:
+    """``(events outside every run, number dropped)``: strictly inside ``(start, end)``."""
+    kept = [(t, r) for t, r in events if not any(a < t < b for a, b in runs)]
+    return kept, len(events) - len(kept)
 
 
 def _run_records(runs: Sequence[tuple[int, int]]) -> list[list[object]]:
@@ -772,15 +736,7 @@ def load_perp(
         int(next(r for r in rows if _traded_row(r)).open_time_ms),
         effective_end,
     )
-    gap_runs = _relisting_gap_runs(
-        reader,
-        symbol,
-        first_open,
-        end_ms,
-        [(int(r.open_time_ms), _traded_row(r)) for r in rows],
-        rest,
-        traded_span,
-    )
+    gap_runs = relisting_runs([(int(r.open_time_ms), _traded_row(r)) for r in rows])
     if gap_runs:
         rows = [
             r
@@ -828,6 +784,8 @@ def load_perp(
         traded_span=traded_span,
         rest=rest,
     )
+    events, dropped = drop_funding_in_runs(events, gap_runs)
+    coverage["dropped_funding_events_in_gaps"] = dropped
     leg = data.PerpHourly(
         present=present,
         halted=halted,
@@ -1206,6 +1164,7 @@ def _funding_coverage(
     traded_months: set[tuple[int, int]],
     traded_span: tuple[int, int] | None,
     rest: RestFundingSource | None,
+    gap_runs: Sequence[tuple[int, int]] = (),
 ) -> dict[str, object]:
     try:
         events, unpublished = _read_funding_tolerant(
@@ -1222,12 +1181,14 @@ def _funding_coverage(
     except CarryScreenHalt as error:
         errors.append({"phase": "funding", **_halt_error(error)})
         return {"events": None}
+    events, dropped = drop_funding_in_runs(events, gap_runs)
     stamps = [t for t, _ in events]
     gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
     return {
         "unpublished_funding_months": unpublished,
         "rest_funding_months": sum(1 for u in unpublished if "rest_events" in u),
         "events": len(stamps),
+        "dropped_funding_events_in_gaps": dropped,
         "first_event": None if not stamps else _iso(stamps[0]),
         "last_event": None if not stamps else _iso(stamps[-1]),
         "max_gap_hours": None if not gaps else max(gaps) / data.HOUR_MS,
@@ -1327,16 +1288,7 @@ def _leg_coverage(
     }
     gap_runs: list[tuple[int, int]] = []
     if last_open is not None:
-        gap_runs = _relisting_gap_runs(
-            reader,
-            symbol,
-            first_open,
-            end_ms,
-            [(o, o in traded_opens) for o in sorted(present)],
-            rest,
-            (min(traded_opens), last_open + data.HOUR_MS),
-            tolerant=True,
-        )
+        gap_runs = relisting_runs([(o, o in traded_opens) for o in sorted(present)])
         present = {o for o in present if not any(a <= o < b for a, b in gap_runs)}
     zero_volume = [opened for opened in zero_volume if opened in present]
     missing: list[int] = []
@@ -1380,8 +1332,12 @@ def _leg_coverage(
                     else (min(traded_opens), last_open + data.HOUR_MS)
                 ),
                 rest,
+                gap_runs,
             ),
         }
+    )
+    entry["dropped_funding_events_in_gaps"] = entry["funding"].get(
+        "dropped_funding_events_in_gaps", 0
     )
     return entry, first_open, last_open, set(missing)
 

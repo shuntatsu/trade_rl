@@ -921,6 +921,7 @@ def _coverage_document(**over: Any) -> dict[str, Any]:
         "stage": "BACKCAST_2020",
         "protocol_digest": "d" * 64,
         "code_commit": "e" * 40,
+        "working_tree_clean": True,
         "symbols": {
             "BTCUSDT": {
                 "spot": leg(
@@ -953,7 +954,7 @@ def _coverage_document(**over: Any) -> dict[str, Any]:
 
 
 def test_halts_from_coverage_declares_only_spot_exchange_wide_ranges_and_lists_what_remains(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = _write(tmp_path, "coverage.json", _coverage_document())
     result = driver.halts_from_coverage(path)
@@ -962,6 +963,14 @@ def test_halts_from_coverage_declares_only_spot_exchange_wide_ranges_and_lists_w
     ]
     assert result["declared_hours"] == 3
     assert len(result["coverage_json_sha256"]) == 64
+    # nothing frozen (the autouse fixture): no match is claimed
+    assert result["matches_frozen_evidence"] is None
+    monkeypatch.setattr(
+        protocol, "COVERAGE_EVIDENCE_SHA256", result["coverage_json_sha256"]
+    )
+    assert driver.halts_from_coverage(path)["matches_frozen_evidence"] is True
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", "f" * 64)
+    assert driver.halts_from_coverage(path)["matches_frozen_evidence"] is False
     # a perpetual gap is never a halt: it remains and would refuse the run
     remaining = result["gaps_that_would_remain_and_refuse_the_run"]
     assert list(remaining) == ["ETHUSDT:usds_m"]
@@ -986,6 +995,7 @@ def test_halts_from_coverage_refuses_the_wrong_stage_errors_and_hidden_listings(
         (_coverage_document(schema_version="x"), "not an agy_anchor_oos coverage"),
         (errored, "read errors"),
         (hidden, "listing would move"),
+        (_coverage_document(working_tree_clean=False), "clean tree"),
     ):
         path = _write(tmp_path, "c.json", document)
         out, err = io.StringIO(), io.StringIO()

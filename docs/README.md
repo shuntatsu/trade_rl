@@ -45,6 +45,8 @@ python -m tools.markdown_links --check
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Realistic out-of-sample test of the ported agy anchor (pre-registered, DEV, BACKCAST_2020 then FORWARD, not yet run): [specs/agy-anchor-realistic.md](specs/agy-anchor-realistic.md)
+- Learning lab method registry (draft, software harness and synthetic tests only): [specs/learning-lab-registry.md](specs/learning-lab-registry.md)
+- RL execution overlay for the agy anchor (development study draft, not yet run): [specs/anchor-rl-execution-dev.md](specs/anchor-rl-execution-dev.md)
 
 ## 情報の所有先と更新
 

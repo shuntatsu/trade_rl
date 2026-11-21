@@ -225,3 +225,28 @@ def test_the_learning_lab_extra_pins_exact_versions_of_the_training_stack() -> N
         if name in pinned:
             assert pinned[name] == version  # one training stack, not two
     assert not any(r.startswith("sb3-contrib") for r in project["dependencies"])
+
+
+def test_anchor_rl_draft_matches_frozen_lab_window_and_trainer_contract() -> None:
+    """A draft must not describe a known-used test window as validation evidence."""
+    from datetime import date, timedelta
+
+    from trade_rl.evaluation.learning_lab import splits
+
+    spec = (ROOT / "docs/specs/anchor-rl-execution-dev.md").read_text(encoding="utf-8")
+    labels = (
+        ("Train window", splits.TRAIN),
+        ("Validation window", splits.VALIDATE),
+        ("Diagnostic test window", splits.TEST),
+    )
+    for label, name in labels:
+        window = splits.FROZEN_SPLITS[name]
+        start = date.fromisoformat(str(window.start)[:10])
+        last = date.fromisoformat(str(window.stop)[:10]) - timedelta(days=1)
+        assert f"| {label} | Tier D {start} .. {last} (" in spec
+    assert "2024-01-01 .. 2026-07-31" not in spec
+    assert "`agents.train_agent`" in spec
+    assert (
+        "per-symbol-action `fit_shared_portfolio_ppo` trainer is not this overlay trainer"
+        in spec
+    )

@@ -44,15 +44,11 @@ def _setup(monkeypatch: pytest.MonkeyPatch) -> Any:
             self.pr_open: set[int] = set()
             self.deleted: list[tuple[BranchInfo, ...]] = []
             self.post_extra = False
-            self.drift_before_delete = False
 
         def repository_default_branch(self) -> str:
             return "main"
 
         def branches(self) -> tuple[BranchInfo, ...]:
-            if self.drift_before_delete and self.deleted == []:
-                self.drift_before_delete = False
-                self.refs.append(_ref("foreign/new-branch", "f" * 40))
             return tuple(self.refs)
 
         def open_pull_request_refs(self) -> tuple[OpenPullRequestRefs, ...]:
@@ -297,3 +293,263 @@ def test_archive_snapshot_source_is_pinned_and_never_overwritten() -> None:
     assert mod.ARCHIVE_BRANCH == "archive/branch-snapshot-20261121"
     assert mod.ARCHIVE_HEAD == "b95286e38df9e46a10f9fb43fbfac14dd3c51499"
     assert "archive/" not in mod.CLOSED_PR_SOURCES
+
+
+def _snapshot_manifest() -> dict[str, Any]:
+    """A valid synthetic 56-tip archive, including the fixed six source tips."""
+    entries = [
+        {"name": "main", "sha": mod._SNAPSHOT_MAIN, "protected": False},
+        {
+            "name": "archive/branch-snapshot-20261120",
+            "sha": "1" * 40,
+            "protected": False,
+        },
+    ]
+    entries.extend(
+        {"name": name, "sha": sha, "protected": False}
+        for name, sha in sorted(
+            {
+                **mod.HISTORICAL_MAIN_ANCESTORS,
+                **{name: pair[0] for name, pair in mod.CLOSED_PR_SOURCES.items()},
+            }.items()
+        )
+    )
+    entries.extend(
+        {
+            "name": f"synthetic/extra-{index:02d}",
+            "sha": f"{index + 100:040x}",
+            "protected": False,
+        }
+        for index in range(56 - len(entries))
+    )
+    assert len(entries) == 56
+    return {
+        "schema": "trade_rl_branch_tip_snapshot_v2",
+        "repository": mod.REPOSITORY,
+        "archive_branch": mod.ARCHIVE_BRANCH,
+        "main_head": mod._SNAPSHOT_MAIN,
+        "branches": entries,
+    }
+
+
+def _fake_git_archive(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, Any],
+    *,
+    ref_sha: str | None = None,
+) -> None:
+    def run(*argv: str) -> str:
+        if argv == ("rev-parse", f"refs/remotes/origin/{mod.ARCHIVE_BRANCH}"):
+            return mod.ARCHIVE_HEAD if ref_sha is None else ref_sha
+        if argv == ("show", f"{mod.ARCHIVE_HEAD}:branch-tip-manifest.json"):
+            return json.dumps(payload)
+        raise AssertionError(f"unexpected Git access: {argv!r}")
+
+    monkeypatch.setattr(mod, "_git", run)
+
+
+def test_archive_manifest_parses_all_56_tips_and_pins_each_exact_name_and_sha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _snapshot_manifest()
+    _fake_git_archive(monkeypatch, payload)
+    parsed = mod._archive_manifest()
+    assert len(parsed) == 56
+    assert parsed["main"] == mod._SNAPSHOT_MAIN
+    for name, pair in mod.CLOSED_PR_SOURCES.items():
+        assert parsed[name] == pair[0]
+    for name, sha in mod.HISTORICAL_MAIN_ANCESTORS.items():
+        assert parsed[name] == sha
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "archive-ref-drift",
+        "wrong-schema",
+        "wrong-repository",
+        "wrong-archive-name",
+        "wrong-snapshot-main",
+        "missing-tip",
+        "duplicate-name",
+        "invalid-sha",
+        "non-boolean-protected",
+        "missing-main-tip",
+        "non-object-tip",
+    ],
+)
+def test_archive_manifest_rejects_corrupted_metadata_and_ref_drift(
+    monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    payload = _snapshot_manifest()
+    ref_sha: str | None = None
+    if fault == "archive-ref-drift":
+        ref_sha = "f" * 40
+    elif fault == "wrong-schema":
+        payload["schema"] = "unknown"
+    elif fault == "wrong-repository":
+        payload["repository"] = "other/repo"
+    elif fault == "wrong-archive-name":
+        payload["archive_branch"] = "archive/other"
+    elif fault == "wrong-snapshot-main":
+        payload["main_head"] = "f" * 40
+    elif fault == "missing-tip":
+        payload["branches"].pop()
+    elif fault == "duplicate-name":
+        payload["branches"][-1]["name"] = payload["branches"][1]["name"]
+    elif fault == "invalid-sha":
+        payload["branches"][2]["sha"] = "invalid"
+    elif fault == "non-boolean-protected":
+        payload["branches"][3]["protected"] = 1
+    elif fault == "missing-main-tip":
+        payload["branches"][0]["name"] = "synthetic/missing-original-main"
+    elif fault == "non-object-tip":
+        payload["branches"][4] = "malformed"
+    else:
+        raise AssertionError(fault)
+    _fake_git_archive(monkeypatch, payload, ref_sha=ref_sha)
+    with pytest.raises(RuntimeError, match="archive"):
+        mod._archive_manifest()
+
+
+@pytest.mark.parametrize(
+    ("target", "error"),
+    [
+        ("fix/core7-daily-fallback-digest-20261120", "Core7 fallback code"),
+        ("review/issue810-trend-oos-20261120-base", "old review base"),
+        ("review/issue810-trend-oos-20261120-test-part1", "old review base"),
+    ],
+)
+def test_each_target_main_ancestry_loss_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, target: str, error: str
+) -> None:
+    api = _setup(monkeypatch)
+    tip = (
+        mod.CLOSED_PR_SOURCES[target][0]
+        if target in mod.CLOSED_PR_SOURCES
+        else mod.HISTORICAL_MAIN_ANCESTORS[target]
+    )
+    # Both review bases share an exact SHA; fail-closed on the first matching one.
+    monkeypatch.setattr(
+        mod,
+        "_is_ancestor",
+        lambda older, newer: not (older == tip and newer == mod._SNAPSHOT_MAIN),
+    )
+    with pytest.raises(RuntimeError, match=error):
+        mod.retire(api, apply=False)
+    assert api.deleted == []
+
+
+def test_live_main_tip_mismatch_blocks_all_deletion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    api = _setup(monkeypatch)
+    _owner(monkeypatch, tmp_path)
+    monkeypatch.setattr(mod, "_git_main", lambda: "f" * 40)
+    with pytest.raises(RuntimeError, match="main/archive identity"):
+        mod.retire(api, apply=True)
+    assert api.deleted == []
+
+
+def test_pre_apply_branch_roster_drift_aborts_without_deleting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    api = _setup(monkeypatch)
+    _owner(monkeypatch, tmp_path)
+    original = api.branches
+    calls = 0
+
+    def concurrent_branch_creation() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            api.refs.append(_ref("foreign/concurrent-branch", "f" * 40))
+        return original()
+
+    api.branches = concurrent_branch_creation
+    with pytest.raises(RuntimeError, match="branch roster changed before apply"):
+        mod.retire(api, apply=True)
+    assert calls == 2
+    assert api.deleted == []
+
+
+def test_post_first_check_open_pr_drift_aborts_without_deleting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    api = _setup(monkeypatch)
+    _owner(monkeypatch, tmp_path)
+    calls = 0
+    target = "review/issue810-trend-oos-20261120-runner"
+
+    def changing_open_pr_refs() -> tuple[OpenPullRequestRefs, ...]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return ()
+        return (
+            OpenPullRequestRefs(
+                target,
+                mod.CLOSED_PR_SOURCES[target][0],
+                "main",
+                mod._SNAPSHOT_MAIN,
+            ),
+        )
+
+    api.open_pull_request_refs = changing_open_pr_refs
+    with pytest.raises(RuntimeError, match="eligibility drift"):
+        mod.retire(api, apply=True)
+    assert calls == 2
+    assert api.deleted == []
+
+
+def test_main_cli_preview_then_exact_created_owner_apply_routes_correctly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    api = _setup(monkeypatch)
+    _owner(monkeypatch, tmp_path)
+    monkeypatch.setenv("GH_TOKEN", "synthetic-ephemeral-unit-token")
+    constructions: list[dict[str, str]] = []
+
+    def make_api(*, repository: str, token: str, api_url: str) -> Any:
+        constructions.append(
+            {"repository": repository, "token": token, "api_url": api_url}
+        )
+        return api
+
+    monkeypatch.setattr(mod, "GitHubApi", make_api)
+    assert mod.main([]) == 0
+    preview = capsys.readouterr().out
+    assert "- mode: preview" in preview
+    assert "- exact eligible candidates: 6" in preview
+    assert "- deleted and verified: 0" in preview
+    assert api.deleted == []
+
+    assert mod.main(["--apply"]) == 0
+    applied = capsys.readouterr().out
+    assert "- mode: apply" in applied
+    assert "- deleted and verified: 6" in applied
+    assert len(api.deleted) == 1
+    assert len(api.deleted[0]) == 6
+    assert mod.main(["--apply"]) == 0
+    assert "- deleted and verified: 0" in capsys.readouterr().out
+    assert len(api.deleted) == 1
+    assert (
+        constructions
+        == [
+            {
+                "repository": mod.REPOSITORY,
+                "token": "synthetic-ephemeral-unit-token",
+                "api_url": "https://api.github.com",
+            }
+        ]
+        * 3
+    )
+
+
+def test_main_cli_requires_real_token_even_for_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="GitHub Actions token"):
+        mod.main([])

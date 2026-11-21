@@ -1,4 +1,4 @@
-"""One-shot owner-only retirement of eight frozen obsolete branch names.
+"""One-shot owner-only retirement of six frozen obsolete branch names.
 
 All original histories are retained by a pinned 56-tip archival commit.
 Neither merging this code nor reviewing a PR authorizes the deletion: only
@@ -28,24 +28,16 @@ ARCHIVE_HEAD = "b95286e38df9e46a10f9fb43fbfac14dd3c51499"
 OWNER_LOGIN = "shuntatsu"
 OWNER_ID = 148511409
 ISSUE_NUMBER = 1057
-COMMAND = "/retire-eight-superseded-refs-20261121 " + ARCHIVE_HEAD
+COMMAND = "/retire-six-superseded-refs-20261121 " + ARCHIVE_HEAD
 _SNAPSHOT_MAIN = "d13cc66464e6efd5708cf056e65bd4002a8696d1"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
-# Six exact closed/unmerged PR source branches. No research, M1, audit, infra,
+# Four exact closed/unmerged PR source branches. No research, M1, audit, infra,
 # provenance, main, or archive refs are listed here.
 CLOSED_PR_SOURCES: Mapping[str, tuple[str, int]] = {
     "fix/core7-daily-fallback-digest-20261120": (
         "1850dd4d1bd16f74db37e175d979062a8da6a00d",
         1284,
-    ),
-    "fix/issue1131-json-staging-foreign-cleanup-20261119": (
-        "924c81f51a8d457b9023561579f5a4f0e3c88664",
-        1274,
-    ),
-    "fix/m2-fd-exception-close-20261120": (
-        "1c9887a577506c46d4013901d60106b1afb00bff",
-        1296,
     ),
     "review/issue810-trend-oos-20261120-protocol": (
         "6269f701b70ac83fb91aed1e182b7c70f44408d1",
@@ -69,7 +61,7 @@ HISTORICAL_MAIN_ANCESTORS: Mapping[str, str] = {
         "f1f8f80475242fd4cc3d10e4801074df7ae231f0"
     ),
 }
-EXPECTED_COUNT = 8
+EXPECTED_COUNT = 6
 
 
 def _git(*argv: str) -> str:
@@ -206,7 +198,7 @@ def _select(
     targets.update({name: pair[0] for name, pair in CLOSED_PR_SOURCES.items()})
     if (
         len(targets) != EXPECTED_COUNT
-        or len(CLOSED_PR_SOURCES) != 6
+        or len(CLOSED_PR_SOURCES) != 4
         or len(HISTORICAL_MAIN_ANCESTORS) != 2
     ):
         raise RuntimeError("frozen allowlist unexpectedly changed")
@@ -293,7 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     observed, planned, deleted = retire(api, apply=args.apply)
     report = "\n".join(
         [
-            "## Frozen eight obsolete branch name retirement",
+            "## Frozen six obsolete branch name retirement",
             f"- mode: {'apply' if args.apply else 'preview'}",
             f"- observed branch names: {observed}",
             f"- exact eligible candidates: {len(planned)}",

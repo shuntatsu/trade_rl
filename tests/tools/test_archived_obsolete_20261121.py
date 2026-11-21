@@ -1,4 +1,4 @@
-"""Falsifiable synthetic coverage for fixed eight-ref 2026-11-21 retirement."""
+"""Falsifiable synthetic coverage for fixed six-ref 2026-11-21 retirement."""
 
 from __future__ import annotations
 
@@ -123,12 +123,12 @@ def _owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return event
 
 
-def test_only_eight_exact_nonreserved_targets() -> None:
-    assert len(mod.CLOSED_PR_SOURCES) == 6
+def test_only_six_exact_nonreserved_targets() -> None:
+    assert len(mod.CLOSED_PR_SOURCES) == 4
     assert len(mod.HISTORICAL_MAIN_ANCESTORS) == 2
-    assert mod.EXPECTED_COUNT == 8
+    assert mod.EXPECTED_COUNT == 6
     names = set(mod.CLOSED_PR_SOURCES) | set(mod.HISTORICAL_MAIN_ANCESTORS)
-    assert len(names) == 8
+    assert len(names) == 6
     assert all(
         not name.startswith(
             (
@@ -144,15 +144,17 @@ def test_only_eight_exact_nonreserved_targets() -> None:
         for name in names
     )
     assert mod.COMMAND.endswith(mod.ARCHIVE_HEAD)
+    assert "fix/m2-fd-exception-close-20261120" not in names
+    assert "fix/issue1131-json-staging-foreign-cleanup-20261119" not in names
 
 
-def test_dry_run_selects_eight_and_never_mutates(
+def test_dry_run_selects_six_and_never_mutates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = _setup(monkeypatch)
     total, selected, deleted = mod.retire(api, apply=False)
-    assert total == 10
-    assert len(selected) == 8
+    assert total == 8
+    assert len(selected) == 6
     assert deleted == ()
     assert api.deleted == []
 
@@ -173,7 +175,7 @@ def test_open_merged_wrong_head_or_wrong_repo_pr_is_not_eligible(
         api.pr_wrong_repos.add(number)
     _, selected, _ = mod.retire(api, apply=False)
     assert "review/issue810-trend-oos-20261120-protocol" not in selected
-    assert len(selected) == 7
+    assert len(selected) == 5
 
 
 def test_live_open_pr_active_workflow_and_protected_refs_are_excluded(
@@ -181,7 +183,7 @@ def test_live_open_pr_active_workflow_and_protected_refs_are_excluded(
 ) -> None:
     api = _setup(monkeypatch)
     head = "review/issue810-trend-oos-20261120-runner"
-    workflow = "fix/issue1131-json-staging-foreign-cleanup-20261119"
+    workflow = "review/issue810-trend-oos-20261120-protocol"
     protected = "review/issue810-trend-oos-20261120-base"
     api.opens = (
         OpenPullRequestRefs(head, mod.CLOSED_PR_SOURCES[head][0], "main", "a" * 40),
@@ -192,7 +194,7 @@ def test_live_open_pr_active_workflow_and_protected_refs_are_excluded(
         for row in api.refs
     ]
     _, selected, _ = mod.retire(api, apply=False)
-    assert len(selected) == 5
+    assert len(selected) == 3
     assert head not in selected
     assert workflow not in selected
     assert protected not in selected
@@ -202,7 +204,7 @@ def test_sha_drift_fails_closed_before_any_deletion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = _setup(monkeypatch)
-    name = "fix/m2-fd-exception-close-20261120"
+    name = "fix/core7-daily-fallback-digest-20261120"
     api.refs = [
         _ref(row.name, "f" * 40) if row.name == name else row for row in api.refs
     ]
@@ -248,8 +250,8 @@ def test_successful_exact_sha_atomic_batch_then_idempotent(
     api = _setup(monkeypatch)
     _owner(monkeypatch, tmp_path)
     total, planned, deleted = mod.retire(api, apply=True)
-    assert total == 10
-    assert len(planned) == 8
+    assert total == 8
+    assert len(planned) == 6
     assert deleted == planned
     assert len(api.deleted) == 1
     assert tuple(x.name for x in api.deleted[0]) == planned

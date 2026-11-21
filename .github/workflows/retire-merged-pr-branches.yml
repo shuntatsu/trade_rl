@@ -232,14 +232,14 @@ jobs:
         run: python3 -m tools.archived_superseded_sd2_retirement --apply
 
   archived-obsolete-20261121:
-    name: Retire eight exact archived obsolete refs (owner-only)
+    name: Retire six exact archived obsolete refs (owner-only)
     if: >-
       github.repository == 'shuntatsu/trade_rl' &&
       github.event_name == 'issue_comment' &&
       github.event.action == 'created' &&
       github.actor == 'shuntatsu' &&
       github.event.issue.number == 1057 &&
-      github.event.comment.body == '/retire-eight-superseded-refs-20261121 b95286e38df9e46a10f9fb43fbfac14dd3c51499'
+      github.event.comment.body == '/retire-six-superseded-refs-20261121 b95286e38df9e46a10f9fb43fbfac14dd3c51499'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -254,7 +254,7 @@ jobs:
         shell: bash
         run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Preview fixed eight obsolete refs with live protections
+      - name: Preview fixed six obsolete refs with live protections
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

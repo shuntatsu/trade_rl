@@ -225,27 +225,38 @@ def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | No
         return None
     lowest = math.inf
     for iv in ledger.intervals.intervals:
-        cash = float(iv.cash_before) + sum(
-            max(0.0, float(value))
+        credits = tuple(
+            float(value)
             for value in (
                 iv.interval_funding,
                 iv.interval_dividend,
                 iv.interval_cash_interest,
             )
         )
-        if not math.isfinite(cash):
-            raise ValueError("nonfinite cash or external credit in fill evidence")
-        lowest = min(lowest, cash, float(iv.cash_after))
-        for event in iv.order_events:
+        if not all(math.isfinite(value) for value in credits):
+            raise ValueError("nonfinite external credit in fill evidence")
+        cash = float(iv.cash_before) + sum(max(0.0, value) for value in credits)
+        cash_after = float(iv.cash_after)
+        if not math.isfinite(cash) or not math.isfinite(cash_after):
+            raise ValueError("nonfinite cash in fill evidence")
+        lowest = min(lowest, cash, cash_after)
+        for event in sorted(iv.order_events, key=lambda event: event.sequence):
             if event.event_type not in ("filled", "partial_fill"):
                 continue
             # The v2 research policy is spot-only; a perp fill would break
             # the cash-principal reconstruction and must not be accepted.
             if event.symbol_index % 2:
                 raise ValueError("unexpected perpetual fill in spot cash account")
-            if event.filled_quantity == 0 or event.filled_notional < 0:
+            quantity = float(event.filled_quantity)
+            notional = float(event.filled_notional)
+            if (
+                not math.isfinite(quantity)
+                or quantity == 0.0
+                or not math.isfinite(notional)
+                or notional < 0.0
+            ):
                 raise ValueError("invalid native spot fill in cash evidence")
-            cash += (-1 if event.filled_quantity > 0 else 1) * event.filled_notional
+            cash += (-1 if quantity > 0 else 1) * notional
             if not math.isfinite(cash):
                 raise ValueError("nonfinite running cash in fill evidence")
             lowest = min(lowest, cash)

@@ -329,6 +329,78 @@ def test_cash_ledger_rejects_discontinuous_total_cost_boundaries() -> None:
         runner._cash_extremes(source)
 
 
+def _spot_fill_probe(
+    *,
+    credits: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    events: tuple[Any, ...] = (),
+) -> Any:
+    iv = SimpleNamespace(
+        cash_before=5.0,
+        cash_after=5.0,
+        interval_funding=credits[0],
+        interval_dividend=credits[1],
+        interval_cash_interest=credits[2],
+        order_events=events,
+    )
+    return SimpleNamespace(
+        ledger_evidence=SimpleNamespace(intervals=SimpleNamespace(intervals=(iv,)))
+    )
+
+
+@pytest.mark.parametrize("credit_index", (0, 1, 2))
+@pytest.mark.parametrize("bad_credit", (float("nan"), float("-inf"), float("inf")))
+def test_fill_floor_refuses_nonfinite_external_cashflows(
+    credit_index: int, bad_credit: float
+) -> None:
+    credits = [0.0, 0.0, 0.0]
+    credits[credit_index] = bad_credit
+    with pytest.raises(ValueError, match="nonfinite.*credit|nonfinite.*cash"):
+        runner._spot_fill_cash_floor(_spot_fill_probe(credits=tuple(credits)))
+
+
+@pytest.mark.parametrize("bad_quantity", (float("nan"), float("inf"), float("-inf")))
+def test_fill_floor_refuses_nonfinite_native_fill_quantity(bad_quantity: float) -> None:
+    event = SimpleNamespace(
+        sequence=1,
+        event_type="filled",
+        symbol_index=0,
+        filled_quantity=bad_quantity,
+        filled_notional=3.0,
+    )
+    with pytest.raises(ValueError, match="invalid native spot fill"):
+        runner._spot_fill_cash_floor(_spot_fill_probe(events=(event,)))
+
+
+def test_fill_floor_respects_native_fill_sequence_even_if_input_unsorted() -> None:
+    # A buy happened first but a fixture/list serialized a later sell first.
+    # The final cash of 5 cannot hide a transient 5-unit spot loan.
+    sell = SimpleNamespace(
+        sequence=2,
+        event_type="filled",
+        symbol_index=2,
+        filled_quantity=-1.0,
+        filled_notional=10.0,
+    )
+    buy = SimpleNamespace(
+        sequence=1,
+        event_type="filled",
+        symbol_index=0,
+        filled_quantity=1.0,
+        filled_notional=10.0,
+    )
+    assert runner._spot_fill_cash_floor(_spot_fill_probe(events=(sell, buy))) == -5.0
+
+
+@pytest.mark.parametrize("bad_value", (0.0, -100.0))
+def test_cash_policy_refuses_nonpositive_portfolio_value(
+    bad_value: float,
+) -> None:
+    snap = _snapshot(0, value=100_000.0)
+    snap = replace(snap, account=replace(snap.account, portfolio_value=bad_value))
+    with pytest.raises(ValueError, match="portfolio value"):
+        _wrapped().decide_portfolio(snap)
+
+
 # ----------------------------------------------- the replay: free leverage and the fix
 
 

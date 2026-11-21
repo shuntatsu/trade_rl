@@ -115,9 +115,12 @@ class CashAccountPolicy(PortfolioPolicy):
         # eventual proceeds at decision time would be unsecured borrowing.
         # Keep only cash that is already owned; never count sell proceeds here.
         value = float(snapshot.account.portfolio_value)
-        cash_fraction = max(
-            0.0, min(float(snapshot.account.cash) / value, 1.0 - current_gross)
-        )
+        cash = float(snapshot.account.cash)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError("portfolio value must be finite and positive")
+        if not np.isfinite(cash):
+            raise ValueError("cash balance must be finite")
+        cash_fraction = max(0.0, min(cash / value, 1.0 - current_gross))
         current_spot = current[spot]
         target_spot = effective[spot]
 

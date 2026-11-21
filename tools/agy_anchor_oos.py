@@ -34,6 +34,7 @@ import bisect
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TextIO
@@ -48,6 +49,7 @@ from trade_rl.data.source import RawMarketSeries
 from trade_rl.evaluation.agy_anchor_oos import data, decision, protocol, runner
 from trade_rl.evaluation.core7_mtf_study import protocol as core7_protocol
 from trade_rl.evaluation.trend_oos.data import StageEmbargoError
+from trade_rl.integrations.binance import vision_funding_url
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
     CarryIntegrityHalt,
@@ -66,6 +68,8 @@ from trade_rl.integrations.market_store.carry_source import (
 )
 from trade_rl.integrations.market_store.contracts import (
     ArchiveKind,
+    ArchiveSpec,
+    PeriodKind,
     StoreMarket,
     Universe,
     ms_from_utc,
@@ -78,7 +82,13 @@ from trade_rl.integrations.market_store.parse import (
     ArchiveContentError,
     parse_kline_archive,
 )
-from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
+from trade_rl.integrations.market_store.plan import (
+    DEFAULT_MONTHLY_PUBLICATION_LAG,
+    IngestionPlan,
+    _month_start,
+    _next_month,
+    plan_ingestion,
+)
 from trade_rl.integrations.market_store.rules import ExchangeInfoError
 
 EXIT_OK = base.EXIT_OK
@@ -113,11 +123,97 @@ _parse_instant = base._parse_instant
 _hour_ranges = base._hour_ranges
 _halt_error = base._halt_error
 _read_errors = base._read_errors
-embargo_for = base.embargo_for
-ForwardEmbargoPolicy = base.ForwardEmbargoPolicy
 
 
 # ----------------------------------------------------------------------- loading
+
+
+def _ceil_month(value: datetime) -> datetime:
+    floor = _month_start(value)
+    return floor if floor == value else _next_month(floor)
+
+
+@dataclass(frozen=True, slots=True)
+class AnchorForwardEmbargoPolicy(EmbargoPolicy):
+    """Market-store embargo for FORWARD reads, bound to this protocol's owner relay.
+
+    The Tier D / core7 embargo and ``tools.trend_oos.ForwardEmbargoPolicy`` (bound to the
+    older relay) are untouched. It admits archives strictly before ``admit_before``, a UTC
+    midnight: the day after the read limit, or the end of the month holding it when the
+    monthly funding archive needs that (see :func:`embargo_for`).
+    """
+
+    admit_before: datetime = datetime(2026, 8, 1, tzinfo=UTC)
+
+    def __post_init__(self) -> None:
+        EmbargoPolicy.__post_init__(self)
+        if self.warmup_authorization_url != protocol.DATA_AUTHORIZATION_URL:
+            raise ValueError(
+                "the FORWARD embargo path is bound to the owner authorization "
+                f"{protocol.DATA_AUTHORIZATION_URL}"
+            )
+        moment = self.admit_before
+        if moment.tzinfo is None or moment != moment.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ):
+            raise ValueError("admit_before must be a UTC midnight")
+
+    @property
+    def sealed_start(self) -> datetime:
+        return self.admit_before
+
+    @property
+    def warmup_start(self) -> datetime:
+        return self.admit_before
+
+
+def embargo_for(limit_close: datetime, *, stage: str) -> EmbargoPolicy:
+    """The stage's embargo policy: the enforced default before 2026-08-01, else FORWARD's.
+
+    Funding exists only as monthly archives, and the month that holds the read limit ends
+    after it. The FORWARD policy therefore admits archives up to the end of that month (never
+    further); the reader discards every row after the limit, and the row guard refuses them.
+    """
+    admit_before = _ceil_day(limit_close)
+    if admit_before <= data.DEFAULT_EMBARGO:
+        return EmbargoPolicy.enforced()
+    if stage != protocol.STAGE_FORWARD:
+        raise StageEmbargoError("only FORWARD may read past the default embargo")
+    return AnchorForwardEmbargoPolicy(
+        warmup_authorization_url=protocol.DATA_AUTHORIZATION_URL,
+        admit_before=max(admit_before, _ceil_month(limit_close)),
+    )
+
+
+def _auth_url(stage: str) -> str | None:
+    """The owner relay a stage's reads are bound to (DEV reads known-used data: none)."""
+    return (
+        protocol.DATA_AUTHORIZATION_URL if stage in protocol.AUTHORIZED_STAGES else None
+    )
+
+
+def funding_boundary(now: datetime) -> datetime:
+    """The end of the last funding month that has a published monthly archive.
+
+    Binance Vision publishes ``fundingRate`` only as monthly archives (there is no daily
+    funding archive), and the market-store planner uses a month once it is complete and
+    ``DEFAULT_MONTHLY_PUBLICATION_LAG`` old. Funding after this instant does not exist in
+    the archives; nothing is invented or fetched from elsewhere to cover it.
+    """
+    return _month_start(_floor_day(now) - DEFAULT_MONTHLY_PUBLICATION_LAG)
+
+
+def require_funding_published(limit_close: datetime, now: datetime) -> None:
+    """Refuse a read limit whose last funding month is not published yet."""
+    needed = _ceil_month(limit_close)
+    boundary = funding_boundary(now)
+    if needed > boundary:
+        raise StageEmbargoError(
+            f"the USD-M funding archive of the month ending {needed.isoformat()} is not "
+            f"published yet (monthly archives are used {DEFAULT_MONTHLY_PUBLICATION_LAG.days} "
+            f"days after the month ends; funding is published through {boundary.isoformat()}); "
+            "funding is never invented or taken from another source"
+        )
 
 
 def build_plan(
@@ -126,17 +222,55 @@ def build_plan(
     now: datetime,
     policy: EmbargoPolicy,
 ) -> IngestionPlan:
-    """Hourly spot and USD-M klines and perpetual funding, ``[load_start, ceil_day(limit))``."""
+    """Hourly spot and USD-M klines, and monthly funding of every perp over the read range.
+
+    The market-store planner plans a funding month only when it ends inside
+    ``[start, ceil_day(limit))``. The stage reads funding up to the read limit, which usually
+    lies inside a month, so the month that holds the limit is planned here as well (its
+    rows after the limit are discarded by the reader). A month that is not published yet
+    refuses (:func:`require_funding_published`).
+    """
     universe = Universe(
         symbols=protocol.ROSTER, interval=data.BASE_INTERVAL, markets=_MARKETS
     )
-    return plan_ingestion(
+    plan = plan_ingestion(
         universe,
         start=window.load_start,
         end=_ceil_day(limit_close),
         now=now,
         embargo=policy,
     )
+    require_funding_published(limit_close, now)
+    needed_end = _ceil_month(limit_close)
+    have = {
+        (spec.symbol, spec.period_start)
+        for spec in plan.specs
+        if spec.kind is ArchiveKind.FUNDING_RATE
+    }
+    extra: list[ArchiveSpec] = []
+    for symbol in protocol.ROSTER:
+        month = _month_start(window.load_start)
+        while month < needed_end:
+            following = _next_month(month)
+            if (symbol, month) not in have:
+                url = vision_funding_url(StoreMarket.USDS_M.binance, symbol, month)
+                extra.append(
+                    ArchiveSpec(
+                        kind=ArchiveKind.FUNDING_RATE,
+                        market=StoreMarket.USDS_M,
+                        symbol=symbol,
+                        interval=None,
+                        period_kind=PeriodKind.MONTHLY,
+                        period_start=month,
+                        period_end=following,
+                        url=url,
+                        checksum_url=f"{url}.CHECKSUM",
+                    )
+                )
+            month = following
+    for spec in extra:
+        policy.check_archive_end(spec.period_end, url=spec.url)
+    return replace(plan, specs=(*plan.specs, *extra))
 
 
 def _probe(reader: Any, market: StoreMarket, symbol: str, day_ms: int) -> bool:
@@ -396,7 +530,9 @@ def plan_document(stage: str, now: datetime) -> dict[str, Any]:
         },
         "final_not_before": protocol.FINAL_NOT_BEFORE,
         "latest_closed_bar": data.latest_closed_bar(now).isoformat(),
-        "forward_data_authorization_url": protocol.DATA_AUTHORIZATION_URL,
+        "data_authorization_url": protocol.DATA_AUTHORIZATION_URL,
+        "data_authorization_stages": list(protocol.AUTHORIZED_STAGES),
+        "harness_source_digest": protocol.harness_source_digest(),
         "default_embargo": data.DEFAULT_EMBARGO.isoformat(),
         "protocol": protocol.protocol_payload(),
     }
@@ -480,6 +616,14 @@ def _load_prior(path: Path, *, stage: str, what: str) -> dict[str, Any]:
 
 def _load_dev_result(path: Path) -> dict[str, Any]:
     document = _load_prior(path, stage=protocol.STAGE_DEV, what="DEV result")
+    invalid = document.get("invalid_cells")
+    if not isinstance(invalid, list):
+        raise ValueError("the DEV result carries no invalid_cells list")
+    if invalid:
+        raise ValueError(
+            f"the DEV result has invalid cells {invalid}: the port is not fit to run "
+            "(DEV may stop the line); BACKCAST_2020 is refused"
+        )
     return {"sha256": document["__sha256"], "status": document.get("status")}
 
 
@@ -532,21 +676,19 @@ def _stage_limit(
     limit = data.read_limit(
         window,
         now=now,
-        authorization_url=(
-            protocol.DATA_AUTHORIZATION_URL
-            if args.stage == protocol.STAGE_FORWARD
-            else None
-        ),
+        authorization_url=_auth_url(args.stage),
         through=args.through,
     )
     if mode == runner.MODE_INTERIM and args.through is None:
-        limit = min(limit, _floor_day(now))
+        # klines need a closed day; funding exists only through the last published month
+        limit = min(limit, _floor_day(now), funding_boundary(now))
     if limit <= window.first_decision + 2 * data.BAR:
         raise StageEmbargoError("no closed day beyond the first decision")
     if _ceil_day(limit) > _floor_day(now):
         raise StageEmbargoError(
             "the day archive holding the last read row is not closed yet"
         )
+    require_funding_published(limit, now)
     return limit
 
 
@@ -892,6 +1034,19 @@ def coverage_report(
     }
 
 
+def _reconfirm_data_authorization(
+    first: g4.CommentSnapshot | None, gh: g4.GhRunner
+) -> None:
+    """Re-fetch the data-authorization relay; an edit since ``first`` authorizes nothing."""
+    if first is None:
+        return
+    again = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
+    if again.body_sha256 != first.body_sha256 or again.updated_at != first.updated_at:
+        raise g4.G4AuthError(
+            "the data-authorization comment was edited after it was first fetched"
+        )
+
+
 def halts_from_coverage(path: Path) -> dict[str, Any]:
     """The exchange-wide spot ranges of a coverage.json as a declared halt list.
 
@@ -905,6 +1060,8 @@ def halts_from_coverage(path: Path) -> dict[str, Any]:
         raise ValueError("not an agy_anchor_oos coverage report")
     if document.get("stage") != protocol.STAGE_BACKCAST:
         raise ValueError("declared halts are derived from the BACKCAST_2020 coverage")
+    if document.get("working_tree_clean") is not True:
+        raise ValueError("the coverage report was not produced from a clean tree")
     legs = [
         (name, market, entry)
         for name, markets in document["symbols"].items()
@@ -944,8 +1101,11 @@ def halts_from_coverage(path: Path) -> dict[str, Any]:
                 moment += timedelta(hours=1)
         if left:
             remaining[f"{name}:{market}"] = _hour_ranges(left)
+    frozen = protocol.COVERAGE_EVIDENCE_SHA256
     return {
         "coverage_json_sha256": _sha256(raw),
+        "frozen_coverage_evidence_sha256": frozen,
+        "matches_frozen_evidence": None if frozen is None else _sha256(raw) == frozen,
         "coverage_protocol_digest": document.get("protocol_digest"),
         "coverage_code_commit": document.get("code_commit"),
         "declared_halts": [
@@ -994,7 +1154,7 @@ def _coverage_main(
         )
         limit = _stage_limit(args, window, moment, mode)
         data_auth: g4.CommentSnapshot | None = None
-        if args.stage == protocol.STAGE_FORWARD:
+        if _auth_url(args.stage) is not None:
             data_auth = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
         commit, clean = state()
         policy = embargo_for(limit, stage=args.stage)
@@ -1018,6 +1178,8 @@ def _coverage_main(
                 close = getattr(source, "close", None)
                 if callable(close):
                     close()
+        # the data authorization must be unedited from before the first read to after the last
+        _reconfirm_data_authorization(data_auth, gh)
         document = {
             "schema_version": COVERAGE_SCHEMA,
             "protocol_id": protocol.PROTOCOL_ID,
@@ -1028,7 +1190,7 @@ def _coverage_main(
             "source": "vision_spot_and_usdm_1h_and_funding",
             "daily_fallback_enabled": bool(args.daily_fallback),
             "allow_network": bool(args.allow_network),
-            "forward_data_authorization": (
+            "data_authorization": (
                 None
                 if data_auth is None
                 else {
@@ -1161,7 +1323,7 @@ def _run_main(
         g4.require_protocol_digest(first_fetch, digest)
         g4.require_protocol_id(first_fetch, protocol.PROTOCOL_ID)
         data_auth: g4.CommentSnapshot | None = None
-        if args.stage == protocol.STAGE_FORWARD:
+        if _auth_url(args.stage) is not None:
             data_auth = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
         commit, clean = state()
         if not clean:
@@ -1182,11 +1344,7 @@ def _run_main(
                 window=window,
                 limit_close=limit,
                 rules=rules,
-                data_authorization_url=(
-                    protocol.DATA_AUTHORIZATION_URL
-                    if args.stage == protocol.STAGE_FORWARD
-                    else None
-                ),
+                data_authorization_url=_auth_url(args.stage),
             )
             evidence_fn = getattr(reader, "evidence", None)
             evidence = list(evidence_fn()) if callable(evidence_fn) else []
@@ -1204,15 +1362,7 @@ def _run_main(
         auth_receipt = g4.confirm_unedited(
             args.authorization_url, first_fetch, gh, protocol_digest=digest
         )
-        if data_auth is not None:
-            again = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
-            if (
-                again.body_sha256 != data_auth.body_sha256
-                or again.updated_at != data_auth.updated_at
-            ):
-                raise g4.G4AuthError(
-                    "the data-authorization comment was edited after it was first fetched"
-                )
+        _reconfirm_data_authorization(data_auth, gh)
         args.output_dir.mkdir(parents=True, exist_ok=False)
         dataset = stage.dataset
         data_receipt: dict[str, object] = {
@@ -1221,6 +1371,7 @@ def _run_main(
             "protocol_digest": digest,
             "port_source_digest": protocol.PORT_SOURCE_DIGEST,
             "parity_fixture_sha256": protocol.FIXTURE_SHA256,
+            "harness_source_digest": protocol.harness_source_digest(),
             "stage": args.stage,
             "mode": mode,
             "window": window.to_dict(),
@@ -1256,7 +1407,7 @@ def _run_main(
                 "limit": protocol.CASH_LIMIT,
                 "invalid_on": protocol.REASON_NEGATIVE_CASH,
             },
-            "forward_data_authorization": (
+            "data_authorization": (
                 None
                 if data_auth is None
                 else {

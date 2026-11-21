@@ -84,6 +84,11 @@ PARTICIPATION_CAP: Final = 0.01
 #: ``1 / max_leverage``. A different rate is a new protocol.
 INITIAL_MARGIN_RATE: Final = 0.4
 CASH_LIMIT: Final = 1.0
+#: Amendment 3: the engine books perp notional through cash like spot notional
+#: (``simulation/accounting.py:820``), so the net signed exposure is capped as well.
+#: Amendment 4: 3% below 1.0, because orders are sized at the decision close and filled at
+#: the next bar, so a book at net 1.0 overshoots cash by the price gap plus costs.
+NET_EXPOSURE_LIMIT: Final = 0.97
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
@@ -125,7 +130,13 @@ STAGE_WINDOWS: Final[dict[str, dict[str, str]]] = {
     },
 }
 FINAL_NOT_BEFORE: Final = "2027-05-02T00:00:00Z"
-DATA_AUTHORIZATION_URL: Final = trend.DATA_AUTHORIZATION_URL
+#: Owner scope relay (Issue #810) covering fetching and reading data for any pre-registered
+#: out-of-sample / forward protocol. Bound for BACKCAST_2020 and FORWARD reads (owner-authored,
+#: unedited between fetches); DEV reads known-used data and needs no relay of its own.
+DATA_AUTHORIZATION_URL: Final = (
+    "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247"
+)
+AUTHORIZED_STAGES: Final[tuple[str, ...]] = (STAGE_BACKCAST, STAGE_FORWARD)
 
 # --- decision rule -------------------------------------------------------------------
 #: Amendment 2: the owner's 25% research drawdown budget (quote in the spec). The ramp is
@@ -162,10 +173,33 @@ _SCENARIO_DELAY_BARS: Final[dict[str, int]] = {
     DELAY_SCENARIO: 1,
 }
 
-#: Exchange-wide spot outages declared result-blind from a coverage report (see the
-#: spec). Empty until such a report exists; the report's SHA-256 is then frozen below.
-DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
-COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+#: Exchange-wide spot outages declared result-blind from the BACKCAST_2020 coverage
+#: report (spec Amendment 6). ``halts-from-coverage`` derived them from the report whose
+#: SHA-256 is frozen below; coverage ran at code ``bed9c8de`` under digest ``ce469144``.
+DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = (
+    ("2020-02-09T02:00:00Z", "2020-02-09T03:00:00Z"),
+    ("2020-02-19T12:00:00Z", "2020-02-19T17:00:00Z"),
+    ("2020-03-04T10:00:00Z", "2020-03-04T11:00:00Z"),
+    ("2020-04-25T02:00:00Z", "2020-04-25T04:00:00Z"),
+    ("2020-06-28T02:00:00Z", "2020-06-28T05:00:00Z"),
+    ("2020-11-30T06:00:00Z", "2020-11-30T07:00:00Z"),
+    ("2020-12-21T14:00:00Z", "2020-12-21T18:00:00Z"),
+    ("2020-12-25T02:00:00Z", "2020-12-25T03:00:00Z"),
+)
+COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
+    "fb8104aea3987be4ab5a4caa975b9f05f6135cb992955aa69073c3f6c29966eb"
+)
+
+
+#: The harness files whose bytes enter the digest (a change to any of them is a new digest).
+HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
+    "protocol.py",
+    "cash.py",
+    "decision.py",
+    "data.py",
+    "runner.py",
+)
+HARNESS_TOOL_RELATIVE_PATH: Final = "tools/agy_anchor_oos.py"
 
 
 class ProtocolBindingError(RuntimeError):
@@ -182,6 +216,34 @@ def port_source_digest() -> str:
     digest = hashlib.sha256()
     for path in sorted(root.glob("*.py")):
         digest.update(path.name.encode("utf-8") + b"\0")
+        digest.update(_normalised(path.read_bytes()))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def harness_source_digest(
+    *, package_dir: Path | None = None, tool_path: Path | None = None
+) -> str:
+    """SHA-256 over the harness source (name and LF-normalised bytes), like the port digest.
+
+    It covers ``protocol, cash, decision, data, runner`` of this package and
+    ``tools/agy_anchor_oos.py``. It is *computed*, not pinned: protocol.py is one of the
+    hashed files, so a pinned value would be self-referential. Any edit to the harness
+    therefore changes the protocol digest. A missing file fails closed.
+    """
+    root = Path(__file__).resolve().parent if package_dir is None else package_dir
+    tool = (
+        Path(__file__).resolve().parents[3] / HARNESS_TOOL_RELATIVE_PATH
+        if tool_path is None
+        else tool_path
+    )
+    digest = hashlib.sha256()
+    entries = [(name, root / name) for name in HARNESS_PACKAGE_FILES]
+    entries.append((HARNESS_TOOL_RELATIVE_PATH, tool))
+    for name, path in entries:
+        if not path.is_file():
+            raise ProtocolBindingError(f"harness source file {path} is missing")
+        digest.update(name.encode("utf-8") + b"\0")
         digest.update(_normalised(path.read_bytes()))
         digest.update(b"\0")
     return digest.hexdigest()
@@ -329,9 +391,23 @@ def protocol_payload() -> dict[str, object]:
             "lowturn_protocol_id": LOWTURN_PROTOCOL_ID,
             "lowturn_protocol_digest": LOWTURN_PROTOCOL_DIGEST,
             "control": "EW_HOLD_SPOT and CASH are lowturn LowturnPolicy families, "
-            "wrapped in trend_oos.cash_policy.CashAccountPolicy",
+            "wrapped in the same AnchorCashAccountPolicy as the anchor",
         },
         "data_authorization_url": DATA_AUTHORIZATION_URL,
+        "data_authorization": {
+            "url": DATA_AUTHORIZATION_URL,
+            "stages": list(AUTHORIZED_STAGES),
+            "scope": "owner scope relay: fetching and reading data for any pre-registered "
+            "out-of-sample / forward protocol",
+            "binding": "owner-authored and unedited between two fetches, for every "
+            "BACKCAST_2020 and FORWARD read; recorded in the receipt",
+            "dev": "known-used data; no relay needed",
+        },
+        "harness": {
+            "files": [*HARNESS_PACKAGE_FILES, HARNESS_TOOL_RELATIVE_PATH],
+            "harness_source_digest": harness_source_digest(),
+            "binding": "computed, not pinned (protocol.py is hashed)",
+        },
         "roster": list(ROSTER),
         "leg_layout": "alternating_spot_perp_even_index_spot_odd_index_perp",
         "arms": {"candidate": CANDIDATE, "controls": list(CONTROLS)},
@@ -369,7 +445,8 @@ def protocol_payload() -> dict[str, object]:
             "taker_buy": "sum of the four hourly taker_buy_quote_volume values of each "
             "leg, zero where the leg is not tradable; carried as a (T, legs) array "
             "beside the dataset, never inside it",
-            "funding_events": "stamped at the close of the 4h bar holding them; "
+            "funding_events": "exact hourly events stamped at the close of their hour "
+            "(Amendment 8; a 4h bar may hold several); "
             "count-based means start cold at the first row of the perp",
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,
@@ -412,7 +489,21 @@ def protocol_payload() -> dict[str, object]:
             "conservative": True,
             "different_rate": "a new protocol",
             "cash_limit": CASH_LIMIT,
-            "application": "every arm, after the signal's own caps, on the effective "
+            "net_exposure_limit": NET_EXPOSURE_LIMIT,
+            "amendment_3": "the scale enforces both (a) spot long gross + "
+            "initial_margin_rate * perp gross <= cash_limit and (b) the sum of signed "
+            "weights <= net_exposure_limit, because the engine books every leg, perps "
+            "included, through cash (accounting.py:820 cash_after = cash - (signed_"
+            "notional + cost); accounting.py:387 portfolio_value = cash + position "
+            "values), so cash is about capital * (1 - net exposure) minus costs",
+            "amendment_4": "the net exposure limit is 0.97, a 3% buffer for the price "
+            "gap between the decision close and the next-bar fill; the margin bound "
+            "(a) stays at cash_limit 1.0 and the 1e-6 negative-cash tolerance is "
+            "unchanged",
+            "scale_factor": "the whole target is scaled proportionally by the tighter "
+            "of the two factors; the negative-cash check is unchanged",
+            "application": "all three arms (the controls are spot-only, so both bounds "
+            "reduce to their spot gross), after the signal's own caps, on the effective "
             "weights (held legs at their current weight, others times risk_scale); "
             "proportional scaling; when binding all holds are dropped",
             "invalid_on_borrowing": {
@@ -423,7 +514,9 @@ def protocol_payload() -> dict[str, object]:
             },
             "reported_not_gating": [
                 "cap_bound_fraction_of_rebalance_decisions",
+                "bound_by_margin_net_exposure_or_both_counts",
                 "mean_pre_cap_measure",
+                "mean_pre_cap_net",
                 "min_cash",
                 "max_borrowing",
             ],
@@ -485,6 +578,7 @@ def protocol_payload() -> dict[str, object]:
 def protocol_digest() -> str:
     """SHA-256 hex digest of the canonical frozen protocol (bindings verified first)."""
     verify_port_binding()
+    verify_fixture_binding()
     verify_lowturn_binding()
     verify_margin_binding()
     declared_halt_intervals()
@@ -508,11 +602,13 @@ __all__ = [
     "CONTROLS",
     "CONTROL_CASH",
     "CONTROL_EW_SPOT",
+    "AUTHORIZED_STAGES",
     "DATA_AUTHORIZATION_URL",
     "DEADBAND",
     "DELAY_SCENARIO",
     "FINAL_NOT_BEFORE",
     "FIXTURE_SHA256",
+    "HARNESS_PACKAGE_FILES",
     "HIGH_COST_SCENARIO",
     "INITIAL_CAPITAL",
     "INITIAL_MARGIN_RATE",
@@ -524,6 +620,7 @@ __all__ = [
     "LABEL_SUPPORTED",
     "LEG_ROSTER",
     "MAX_DRAWDOWN_LIMIT",
+    "NET_EXPOSURE_LIMIT",
     "MIN_BASE_SHARPE",
     "PAIR_WARMUP_BARS",
     "PERIODS_PER_YEAR",
@@ -547,6 +644,7 @@ __all__ = [
     "arm_signal_lag_bars",
     "declared_halt_intervals",
     "fixture_path",
+    "harness_source_digest",
     "port_source_digest",
     "protocol_digest",
     "protocol_payload",

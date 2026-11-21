@@ -45,7 +45,7 @@ agy's non-RL anchor `ANC_BIDIR_75_25` is a cross-sectional mean-reversion strate
 
 - **Universe:** the 11 Tier D pairs. A pair is tradable only from when both its spot and its perp markets exist and have the warm-up the signal needs. Before that, it is unavailable.
 - **Data:** Binance public Vision archives, checksum-verified, with taker-buy volume. Missing hours are handled as in `trend_long_spot_oos_v1`: daily-archive rebuild, then declared exchange-wide halts from a result-blind coverage report. Any undeclared gap refuses the run.
-- **Authorization:** FORWARD and BACKCAST_2020 reads are covered by owner comment 7028416072. Each run needs its own G4 relay quoting this protocol id and digest.
+- **Authorization:** BACKCAST_2020 and FORWARD reads are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247), which covers fetching and reading data for any pre-registered out-of-sample or forward protocol (Amendment 5; it was owner comment 7028416072). Every such read binds that comment (owner-authored, unedited between two fetches) and records it in the receipt. DEV reads known-used data and needs no relay of its own. Each run also needs its own G4 relay quoting this protocol id and digest.
 
 ## Decision rule (frozen)
 
@@ -132,3 +132,80 @@ The owner raised the research drawdown budget to 25%. Quote, 2026-11-20: 「25�
 - Everything else is unchanged: signal, stride, caps, costs, `max_leverage`, participation cap, universe, windows, the cash account of Amendment 1 and the other four conditions.
 - `trend_long_spot_oos_v1` and the earlier protocols stay at 0.20: they are already frozen and run, and this amendment changes no value outside this protocol.
 - The probe's synthetic decision snapshots come from the shared Core7 helper and carry its 0.10 / 0.20 limits. They only exercise the causality probe; the replay itself runs with the config above.
+
+## Amendment 3 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Reason: the engine's booking of perpetual legs through cash was discovered during implementation, before any result of this protocol existed (no stage has been run and no replay of the ported anchor has produced a number).
+
+- The engine books every leg, perpetuals included, through cash like spot: a fill sets `cash_after = cash - (signed_notional + cost)` over all legs (`trade_rl/simulation/accounting.py:820`) and the book is valued as `cash + sum of signed position values` (`accounting.py:387`). So cash is about `capital * (1 - sum of signed weights)` minus costs. The Amendment 1 cap (a) alone does not keep cash non-negative: a net-long book can sit inside (a) and still borrow.
+- The cash-account scale therefore enforces both: (a) spot long gross + 0.4 x perp gross <= 1.0, and (b) the net signed exposure, the sum of all signed weights, <= 0.97 (Amendment 4; it was 1.0), so that cash stays >= 0 before costs. The whole target is scaled proportionally by the tighter of the two factors. A carry-like book (spot long, perp short) has a net near zero and is not affected by (b).
+- The negative-cash INVALID check is unchanged (cash net of cumulative execution costs below -1e-6 x capital).
+- It is reported, never gating, how often each bound was the binding one (margin, net exposure or both).
+- Everything else is unchanged. A proposal that does not trade is never capped. The risk layer can only shrink a book and the anchor's per-name cap (0.55) is applied before this scale, so risk clipping does not undo (b); a residual breach would still be caught by the unchanged check and make the cell INVALID.
+
+## Amendment 4 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Made before any result of this protocol existed.
+
+- The net-exposure bound (b) of Amendment 3 is 0.97, not 1.0. Orders are sized at the decision close and filled at the next bar, so a book at net exactly 1.0 overshoots cash by the price gap plus costs. In a synthetic check at exactly 1.0 the entry fill overshot by about 0.009% of capital, which exceeds the 1e-6 negative-cash tolerance. A 3% buffer covers normal 4h-boundary gaps on a 24/7 market.
+- The margin bound (a) stays at 1.0. The negative-cash tolerance (1e-6 x capital, net of cumulative execution costs) is unchanged: any cell that still borrows is INVALID, as the spec intends.
+- Everything else is unchanged.
+
+## Amendment 5 (result-blind, before any engine replay or out-of-sample read)
+
+Status: Active. Made before any result of this protocol existed, in response to a report-only pre-review of the harness. It changes no signal constant, stride, cost, risk value, universe or window.
+
+- **Authorization scope.** The data authorization is the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247). It is bound for every BACKCAST_2020 and FORWARD read (coverage and run), must be owner-authored and unedited between the first and the last fetch of a run, and is recorded in the coverage report and the data receipt. The dataset identity of those stages carries it.
+- **Digest binds the harness.** The protocol digest includes `harness_source_digest`, a SHA-256 over `protocol.py`, `cash.py`, `decision.py`, `data.py`, `runner.py` and `tools/agy_anchor_oos.py`, built like the port digest (name and LF-normalised bytes). It is computed, not pinned, because `protocol.py` is one of the hashed files. `protocol_digest()` also verifies the parity fixture binding. Any edit to the harness is therefore a new digest and needs a new G4 relay.
+- **Controls share the cash account.** The controls `CASH` and `EW_HOLD_SPOT` run in the same cash-account wrapper as the anchor (margin bound 1.0 and net-exposure bound 0.97 of Amendments 1, 3 and 4). They are spot-only, so both bounds reduce to their spot gross; the earlier spot-gross-1.0 wrapper would have exposed them to the same entry-gap overshoot Amendment 4 removes from the anchor. Held legs count at their current weight in the net-exposure bound (the effective vector is what is bounded). A leg that is halted or invalid cannot be traded, so a held weight above the bound cannot always be reduced; such a breach is caught by the unchanged negative-cash check.
+- **DEV may stop the line.** BACKCAST_2020 is refused unless the DEV result has no invalid cell. An invalid DEV cell means the port or the harness is broken; it may stop the line and never retunes anything.
+- **Activation transient (disclosed, not removed).** The anchor's hybrid alphas demean across all eleven symbol columns (`all_ones`, as in the lab). A pair that is not yet available is a zero column in those demeans, and a pair that has just become available enters them with windows that still contain the neutral pre-activation values. Excluding a pair from the demean until its basis window is fully real would need a change inside the port, which is bound by the parity fixture and a pinned digest; it was not done. The 180-bar pair warm-up exceeds the 42-bar basis mean and the 84-bar basis deviation, so those windows are real by the time a pair is available.
+- **Cold EMA seed residual (disclosed).** The exponential averages of the chain start cold at zero (late pairs at their activation, early pairs at the first row) and carry the seed forward. With the 126-bar half-life of the carry average, 0.5^(180/126) = 37% of the seed weight remains when a late pair becomes available, and 0.5^(540/126) = 5% at the first decision of an early pair. Shorter averages are flushed. This residual is part of the protocol.
+- **FORWARD warm-up is known-used data.** FORWARD loads from 2026-02-01 and decides from 2026-08-01. The rows of 2026-02-01 to 2026-07-31 are the Tier D period, known-used pre-2026-08 data; they warm the signal and are never scored. Only decisions from 2026-08-01 are out of sample.
+- **Strides.** The anchor policy of the port keeps the lab default (6, daily); the harness always passes 18 explicitly and a test pins it. The controls keep lowturn's weekly rebalance.
+- **Drawdown wording.** Condition 2 reads "max drawdown of 0.25 or more", as amended; any remaining 20% in the code comments refers to the shared core7 helper.
+
+## Amendment 6 (result-blind, before any engine replay or out-of-sample result)
+
+Status: Active. Made from coverage reports only. Coverage builds no signal, no replay and no return, so no result of this protocol exists.
+
+- **BACKCAST_2020 declared halts.** `halts-from-coverage` on the BACKCAST_2020 coverage report gave 8 exchange-wide spot outages (18 hours), and they are frozen in `protocol.DECLARED_HALTS`:
+  - 2020-02-09 02–03
+  - 2020-02-19 12–17
+  - 2020-03-04 10–11
+  - 2020-04-25 02–04
+  - 2020-06-28 02–05
+  - 2020-11-30 06–07
+  - 2020-12-21 14–18
+  - 2020-12-25 02–03
+  
+  All times are UTC, with half-open hour ranges.
+- **Coverage report.** Coverage ran at code `bed9c8de34342527fec55b460e1244e2b6bbc414` under digest `ce4691446c89d4851434b55bc52bb7e8d9da9b34e4cdfc2e042c7ed6d0b58979`, and the report's SHA-256 `fb8104aea3987be4ab5a4caa975b9f05f6135cb992955aa69073c3f6c29966eb` is frozen as `COVERAGE_EVIDENCE_SHA256`. The report shows no gap that would remain and refuse the run, and no unread chunk.
+- **FORWARD.** The FORWARD coverage report (SHA-256 `4752e862ff0e7b40429cd4411133e3ac049d4316a68e70950f94b8959457054c`) found 0 exchange-wide spot gap hours, so nothing is declared for it.
+- **Treatment.** The halts are treated exactly like the registered Tier D `SPOT_HALTS`. Any other missing hour still refuses the run.
+- **New digest.** Because `protocol.py` is part of the harness digest, this is a new protocol digest and needs a new G4 relay. Nothing else changes.
+
+## Amendment 7 (result-blind, review follow-up before any engine replay or out-of-sample result)
+
+Status: Active. These changes follow review [6001946862](https://github.com/shuntatsu/trade_rl/pull/1304#pullrequestreview-6001946862). They change no signal, cost, risk value, universe, window or decision rule.
+
+- **Disclosure text.** The manifest's cash-account disclosure now states the net signed exposure bound actually enforced, `<= 0.97` (Amendment 4). It previously said 1.0.
+- **Coverage re-confirms the data authorization.** `coverage` re-fetches the data-authorization relay after its last read and refuses, writing nothing, if the relay was edited. This is the same check `run` already makes, so Amendment 5's "unedited between the first and the last fetch" now holds for coverage too.
+- **`halts-from-coverage` checks provenance.** It refuses a report that was not produced from a clean tree. It reports whether the report's SHA-256 matches the frozen `COVERAGE_EVIDENCE_SHA256`. The frozen BACKCAST_2020 report matches.
+- **Line endings.** The branch's files are normalised to LF. The harness digest is built from LF-normalised bytes, so normalising alone does not change it; the edits above do.
+
+## Amendment 8 (made after a refused DEV attempt that produced no result)
+
+Status: Active.
+
+- **The refused attempt.** The DEV run authorized by [Issue #810 comment 7055512104](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7055512104), at code `ad696006` under digest `f4369159`, refused before any signal, replay or return was computed. The error was `a 4h bar carries two or more funding events`. It wrote only its data receipt. Its output directory is kept, and the next run writes to a new directory.
+- **Cause.** Binance shortened SOLUSDT's funding interval to 2 hours in November 2022, so 37 of its 4h bars hold two events. The other ten DEV perps keep 8-hour funding throughout. The harness derived events from the 4h dataset rows, and that path refuses such a bar by design.
+- **Change.** The harness now passes the exact hourly perp funding events to the port, stamped at the close of their hour. The port's documented `funding_events` path counts every event as the lab does from its funding rows.
+  - An hour with more than one event refuses the run.
+  - The causality probe perturbs the events after its cut as well.
+- **What is unchanged.**
+  - Where every bar holds at most one event, the count-based funding observations are identical to before, and a test pins this.
+  - The engine's funding accounting still sums a bar's events.
+  - The count-based means still start cold at the perp's first row.
+  - Signal constants, costs, risk, universe, windows and the decision rule are unchanged.
+- **Consequence.** This is a new digest, which needs a new review and a new G4 relay.

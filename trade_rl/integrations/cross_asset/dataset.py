@@ -105,6 +105,11 @@ def with_cross_asset_global_features(
             "dataset already has a cross-asset overlay; select all features "
             "in one call to preserve source provenance"
         )
+    if any(name.startswith(GLOBAL_PREFIX) for name in dataset.global_feature_names):
+        raise ValueError(
+            "cross-asset global feature names already present; cannot append "
+            "an untracked second overlay"
+        )
     source = frame if normalizer is None else normalizer.transform(frame)
     chosen = source.select(names)
     hindsight = _hindsight_series(chosen, frame.opt_in_series)
@@ -121,9 +126,6 @@ def with_cross_asset_global_features(
         {key for sources in chosen.column_sources for key in sources}
     )
     added_names = tuple(f"{GLOBAL_PREFIX}{name}" for name in names)
-    collisions = set(added_names) & set(dataset.global_feature_names)
-    if collisions:
-        raise ValueError(f"global feature names already present: {sorted(collisions)}")
 
     usable = chosen.available
     values = np.where(usable, chosen.values, 0.0).astype(np.float32)

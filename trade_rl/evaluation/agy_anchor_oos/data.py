@@ -159,8 +159,10 @@ def read_limit(
 ) -> datetime:
     """The last row close that may be read: the exclusive limit of the hourly opens.
 
-    DEV and BACKCAST_2020 need no authorization but are refused while their window is not
-    over. FORWARD reads exist only on the path bound to ``protocol.DATA_AUTHORIZATION_URL``.
+    DEV needs no authorization; BACKCAST_2020 and FORWARD need the owner relay. DEV and
+    BACKCAST_2020 are refused while their window is not
+    over. BACKCAST_2020 and FORWARD reads exist only on the path bound to
+    ``protocol.DATA_AUTHORIZATION_URL``; DEV reads known-used data.
     The limit never exceeds the stage's last row or the latest fully closed bar; ``through``
     (a smaller 4h-grid instant) may only lower it.
     """
@@ -169,13 +171,13 @@ def read_limit(
         raise StageEmbargoError(
             f"no closed bar beyond the first decision {window.first_decision.isoformat()}"
         )
-    if window.stage == protocol.STAGE_FORWARD:
+    if window.stage in protocol.AUTHORIZED_STAGES:
         if authorization_url != protocol.DATA_AUTHORIZATION_URL:
             raise StageEmbargoError(
-                "FORWARD reads need the owner authorization "
+                f"{window.stage} reads need the owner authorization "
                 f"{protocol.DATA_AUTHORIZATION_URL}"
             )
-    elif limit != window.last_row_close:
+    if window.stage != protocol.STAGE_FORWARD and limit != window.last_row_close:
         raise StageEmbargoError(f"the {window.stage} stage window is not over yet")
     if through is not None:
         stamp = _utc(through, field="through")
@@ -394,9 +396,38 @@ class StageData:
     taker_buy_quote_volume: np.ndarray
     #: first row at which both markets of the pair are listed; ``None`` if never both
     activation_rows: tuple[int | None, ...]
+    #: exact perp funding events per pair (Amendment 8): ``(hour close ns, rate)``
+    funding_events: tuple[tuple[np.ndarray, np.ndarray], ...]
 
     def with_dataset(self, dataset: MarketDataset, taker: np.ndarray) -> StageData:
         return replace(self, dataset=dataset, taker_buy_quote_volume=taker)
+
+    def with_funding_events(
+        self, events: tuple[tuple[np.ndarray, np.ndarray], ...]
+    ) -> StageData:
+        return replace(self, funding_events=events)
+
+
+def hourly_funding_events(
+    leg: HourlyLeg, *, name: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """The exact funding events of a perp leg, stamped at the close of their hour.
+
+    An hour holds at most one event. A 4h bar may hold several (Binance shortened some
+    funding intervals, for example SOLUSDT to 2h in November 2022); the anchor's
+    count-based means then count each of them, as the lab does from its funding rows.
+    """
+    series = leg.series
+    counts = series.funding_event_count
+    if counts is None:
+        raise StageDataError(f"{name}: funding event counts are required")
+    counts = np.asarray(counts, dtype=np.int64)
+    if np.any(counts > 1) or np.any(counts < 0):
+        raise StageDataError(f"{name}: an hour carries more than one funding event")
+    rows = np.flatnonzero(counts == 1)
+    stamps = np.asarray(series.timestamps).astype("datetime64[ms]").astype(np.int64)
+    rate = np.asarray(series.funding_rate, dtype=np.float64)
+    return stamps[rows] * 1_000_000, rate[rows].copy()
 
 
 def assemble_stage_dataset(
@@ -429,14 +460,18 @@ def assemble_stage_dataset(
         raise StageDataError("rules must cover exactly the roster symbols")
     clock = stage_clock(window, limit_close)
     limit = _utc(limit_close, field="limit_close")
-    needs_authorization = limit > DEFAULT_EMBARGO
-    if needs_authorization and (
-        window.stage != protocol.STAGE_FORWARD
-        or data_authorization_url != protocol.DATA_AUTHORIZATION_URL
+    needs_authorization = window.stage in protocol.AUTHORIZED_STAGES
+    if (
+        needs_authorization
+        and data_authorization_url != protocol.DATA_AUTHORIZATION_URL
     ):
         raise StageEmbargoError(
-            "rows at or after the default embargo need the FORWARD stage and the "
-            f"owner authorization {protocol.DATA_AUTHORIZATION_URL}"
+            f"{window.stage} reads need the owner authorization "
+            f"{protocol.DATA_AUTHORIZATION_URL}"
+        )
+    if limit > DEFAULT_EMBARGO and window.stage != protocol.STAGE_FORWARD:
+        raise StageEmbargoError(
+            "rows at or after the default embargo need the FORWARD stage"
         )
     n_rows, n_legs = len(clock), 2 * len(roster)
     shape = (n_rows, n_legs)
@@ -456,6 +491,8 @@ def assemble_stage_dataset(
     minimum = np.empty(n_legs)
     listing: dict[str, dict[str, object]] = {}
     first_rows: dict[tuple[str, int], int] = {}
+    empty_events = (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.float64))
+    events: list[tuple[np.ndarray, np.ndarray]] = [empty_events for _ in roster]
     for pair, symbol in enumerate(roster):
         spot_rules, perp_rules = rules[symbol]
         lot[2 * pair], lot[2 * pair + 1] = spot_rules.lot_size, perp_rules.lot_size
@@ -502,6 +539,7 @@ def assemble_stage_dataset(
                     raise StageDataError(
                         f"{symbol}:perp has no halt calendar and must be tradable"
                     )
+                events[pair] = hourly_funding_events(leg, name=f"{symbol}:perp")
             else:
                 tierd._check_halts_masked(
                     bars.close_ns, bars.tradable, halt_intervals, symbol=symbol
@@ -608,6 +646,7 @@ def assemble_stage_dataset(
         dataset=dataset.with_content_identity(identity),
         taker_buy_quote_volume=taker,
         activation_rows=tuple(activation),
+        funding_events=tuple(events),
     )
 
 
@@ -642,15 +681,16 @@ def validate_stage_dataset(stage: StageData, window: StageWindow) -> int:
         raise StageDataError("an inactive leg is tradable or carries volume")
     if len(stage.activation_rows) != len(protocol.ROSTER):
         raise StageDataError("activation rows must cover the roster")
-    if last > DEFAULT_EMBARGO:
-        payload = dataset.identity_payload_json or ""
-        if (
-            window.stage != protocol.STAGE_FORWARD
-            or protocol.DATA_AUTHORIZATION_URL not in payload
-        ):
-            raise StageEmbargoError(
-                "rows at or after the default embargo carry no FORWARD authorization"
-            )
+    payload = dataset.identity_payload_json or ""
+    if (
+        window.stage in protocol.AUTHORIZED_STAGES
+        and protocol.DATA_AUTHORIZATION_URL not in payload
+    ):
+        raise StageEmbargoError(
+            f"a {window.stage} dataset carries no owner authorization in its identity"
+        )
+    if last > DEFAULT_EMBARGO and window.stage != protocol.STAGE_FORWARD:
+        raise StageEmbargoError("only the FORWARD stage may reach the default embargo")
     return int(ts.size - 1)
 
 
@@ -690,7 +730,9 @@ def build_anchor_inputs(stage: StageData) -> AnchorInputs:
     """
     dataset = stage.dataset
     base = from_market_dataset(
-        dataset, taker_buy_quote_volume=stage.taker_buy_quote_volume
+        dataset,
+        taker_buy_quote_volume=stage.taker_buy_quote_volume,
+        funding_events=stage.funding_events,
     )
     n_rows = dataset.n_bars
     n_pairs = len(protocol.ROSTER)

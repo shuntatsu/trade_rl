@@ -121,7 +121,7 @@ trade_rl/
     ├── rl_family_comparison/{__init__.py,contract.py,cells.py,comparison.py}
     ├── paper/
     │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,collection_policy.py}
-    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py}
+    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py,linux_service.py}
     │   └── {storage_probe.py,assessment.py,cli.py}
     ├── gates/{models.py,resolve.py}
     ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
@@ -323,6 +323,12 @@ whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluat
 `paper/attempt3.py` is the same plan/seal/launch composition for the successor: it reads
 the preserved attempt-2 root's identity with the v1 reader (read-only), builds lineage
 v4 and the `screen_plan_v3`, and has the same offline/no-collector import boundary.
+`paper/linux_service.py` is the Linux operating platform of that screen: the run layout,
+the systemd user unit text and a read-only chrony/timesyncd clock report (allow-listed
+read-only commands only); it imports no network, collector, journal or market surface,
+writes a unit only on an explicit `--output-dir` and never changes host state. Its
+successor packet is
+`report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json`.
 `paper/predecessor.py` holds attempt 1's recorded identity, the canonical lineage v3
 and v4 records, the single lineage classifier (`lineage_structure_problems`) and the
 read-only re-verification of a recorded predecessor root. `seal_collection`,

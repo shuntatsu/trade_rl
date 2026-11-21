@@ -7,12 +7,42 @@ import hashlib
 import os
 import stat
 import tempfile
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
 from trade_rl._validation import require_sha256
+
+
+# Only the current thread's active Study publication may name an open
+# directory capability through /proc/self/fd or /dev/fd. A caller-provided
+# alias to any other process FD must remain an untrusted symlink ancestor.
+class _ScopedDirectoryFds(threading.local):
+    """Per-thread publication capabilities that cannot leak to other threads."""
+
+    def __init__(self) -> None:
+        self.allowed: frozenset[tuple[int, int, int]] = frozenset()
+
+
+_TRUSTED_DIRECTORY_FDS = _ScopedDirectoryFds()
+
+
+@contextmanager
+def _trusted_process_directory_fd(descriptor: int) -> Iterator[None]:
+    """Temporarily authorize one held directory inode for nested Study paths."""
+
+    status = os.fstat(descriptor)
+    if not stat.S_ISDIR(status.st_mode):
+        raise ValueError("trusted publication descriptor is not a directory")
+    identity = (descriptor, status.st_dev, status.st_ino)
+    previous = _TRUSTED_DIRECTORY_FDS.allowed
+    _TRUSTED_DIRECTORY_FDS.allowed = previous | frozenset((identity,))
+    try:
+        yield
+    finally:
+        _TRUSTED_DIRECTORY_FDS.allowed = previous
 
 
 def file_digest_and_size(
@@ -35,6 +65,84 @@ def file_digest(path: Path, *, field: str = "artifact file") -> str:
     return file_digest_and_size(path, field=field)[0]
 
 
+def _open_directory_descriptor_nofollow(source: Path) -> int:
+    """Open a POSIX directory chain without following untrusted symlinks.
+
+    /proc/self/fd/N and /dev/fd/N may name a trusted descriptor capability
+    only when the enclosing Study publisher registered its exact open inode.
+    Unregistered process-FD paths remain forbidden symlinked ancestors.
+    All remaining children and ordinary paths use O_NOFOLLOW. The caller owns
+    and must close the returned fd.
+    """
+
+    if (
+        os.name != "posix"
+        or not getattr(os, "O_NOFOLLOW", 0)
+        or not getattr(os, "O_DIRECTORY", 0)
+        or os.open not in os.supports_dir_fd
+    ):
+        raise OSError(errno.ENOTSUP, "directory-descriptor no-follow is unsupported")
+
+    # Reject raw parent traversal before abspath could erase its components.
+    if ".." in Path(source).parts:
+        raise OSError(errno.ENOTDIR, "directory parent traversal is forbidden")
+    path = Path(os.path.abspath(source))
+    components = path.parts
+    flags = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
+    capability_index: int | None = None
+    if components[:4] == ("/", "proc", "self", "fd"):
+        capability_index = 4
+    elif components[:3] == ("/", "dev", "fd"):
+        capability_index = 3
+
+    if (
+        capability_index is not None
+        and len(components) > capability_index
+        and components[capability_index].isascii()
+        and components[capability_index].isdecimal()
+    ):
+        # The proc/dev FD alias is a privileged internal capability only for
+        # the exact inode registered by this thread's active Study publisher.
+        # An arbitrary caller-supplied number must not bypass ancestor nofollow.
+        # Reject huge/padded decimal aliases before int() or os.dup(), which
+        # otherwise leak ValueError or OverflowError instead of OSError.
+        fd_text = components[capability_index]
+        if len(fd_text) > 10 or (len(fd_text) > 1 and fd_text[0] == "0"):
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
+        source_fd = int(fd_text)
+        if source_fd > 2_147_483_647:
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
+        descriptor = os.dup(source_fd)
+        try:
+            status = os.fstat(descriptor)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        identity = (source_fd, status.st_dev, status.st_ino)
+        if not stat.S_ISDIR(status.st_mode):
+            os.close(descriptor)
+            raise OSError(errno.ENOTDIR, "process descriptor is not a directory")
+        if identity not in _TRUSTED_DIRECTORY_FDS.allowed:
+            os.close(descriptor)
+            raise OSError(errno.ELOOP, "untrusted process directory FD alias")
+        start = capability_index + 1
+    else:
+        descriptor = os.open(path.anchor, flags)
+        start = 1
+
+    try:
+        for component in components[start:]:
+            next_fd = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_fd
+        result = descriptor
+        descriptor = -1
+        return result
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
     """Open with a no-follow directory chain where descriptor-relative I/O exists."""
 
@@ -51,22 +159,16 @@ def _open_regular_file_descriptor(source: Path, *, field: str) -> int:
         and directory_flag
         and os.open in os.supports_dir_fd
     ):
-        directory_flags = getattr(os, "O_PATH", os.O_RDONLY) | directory_flag | nofollow
-        parent_fd = os.open(source.anchor, directory_flags)
         try:
-            for component in source.parts[1:-1]:
-                try:
-                    next_fd = os.open(component, directory_flags, dir_fd=parent_fd)
-                except OSError as error:
-                    if error.errno in (errno.ELOOP, errno.ENOTDIR):
-                        raise ValueError(
-                            f"{field} parent must not contain a symlink or non-directory"
-                        ) from error
-                    raise
-                os.close(parent_fd)
-                parent_fd = next_fd
-            # Even a concurrent replacement of an ancestor cannot redirect the
-            # opened descriptor chain outside the inspected directory objects.
+            parent_fd = _open_directory_descriptor_nofollow(source.parent)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                raise ValueError(
+                    f"{field} parent must not contain a symlink or non-directory"
+                ) from error
+            raise
+        try:
+            # The verified parent is a held capability, not a rechecked path.
             return os.open(source.name, leaf_flags, dir_fd=parent_fd)
         finally:
             os.close(parent_fd)

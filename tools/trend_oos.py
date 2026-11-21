@@ -222,6 +222,13 @@ def _month_chunks(start_ms: int, end_ms: int) -> list[tuple[int, int]]:
     return chunks
 
 
+def _last_complete_day_start_ms(start_ms: int, end_exclusive_ms: int) -> int | None:
+    """Latest fully admitted UTC day; never probe beyond the stage read limit."""
+    day_ms = 24 * data.HOUR_MS
+    day_start = (end_exclusive_ms // day_ms - 1) * day_ms
+    return day_start if day_start >= start_ms else None
+
+
 def load_spot_series(
     detect: CarryRowSource,
     reader: CarryRowSource,
@@ -265,10 +272,15 @@ def load_spot_series(
         except CarryIntegrityHalt as error:
             if (error.evidence or {}).get("kind") != "malformed_archive":
                 raise
-            # the listing month's monthly archive is unusable: the reader rebuilds it
+            # Only a verified daily reconstruction can establish first listing.
             rows = reader.read_klines(
                 StoreMarket.SPOT, symbol, data.BASE_INTERVAL, lo, hi
             )
+            if not rows:
+                raise data.StageDataError(
+                    f"{symbol}: malformed monthly listing at {_iso(lo)} has no "
+                    "verified daily replacement; cannot infer a later listing"
+                ) from error
         if rows:
             first_open = int(rows[0].open_time_ms)
             break
@@ -278,7 +290,12 @@ def load_spot_series(
     # if its last day is published as a daily archive the run refuses instead of
     # silently moving the listing to a later month
     for lo, hi in leading:
-        day = hi - 24 * data.HOUR_MS
+        day = _last_complete_day_start_ms(lo, hi)
+        if day is None:
+            raise data.StageDataError(
+                f"{symbol}: no complete UTC day to verify the unpublished "
+                f"leading month starting {_iso(lo)}; listing is unknown"
+            )
         if reader.probe_published_day(symbol, day):  # type: ignore[attr-defined]
             raise data.StageDataError(
                 f"{symbol}: the monthly archive of the leading month starting "
@@ -539,25 +556,41 @@ class _MonthFallbackSource(tierd_driver.DailyFallbackSource):
         rows: list[Any] = []
         for lo, hi in _month_chunks(start_ms, end_ms):
             try:
-                rows.extend(super().read_klines(market, symbol, interval, lo, hi))
+                primary = list(
+                    self._primary.read_klines(market, symbol, interval, lo, hi)
+                )
             except (CarryCoverageError, CarryIntegrityHalt) as error:
                 if not _monthly_unusable(error):
                     raise
+                # Only a primary-month failure permits tolerant whole-month repair.
+                # A malformed DAILY file encountered below must fail closed.
                 missing = [
                     hour
                     for hour in range(lo, hi, data.HOUR_MS)
                     if not self._explained(market, lo, hour)
                 ]
-                rows.extend(
-                    self._fill_hours(
-                        market,
-                        symbol,
-                        interval,
-                        missing,
-                        source="vision_daily_unusable_month",
-                        tolerate_malformed=True,
+                if missing:
+                    rows.extend(
+                        self._fill_hours(
+                            market,
+                            symbol,
+                            interval,
+                            missing,
+                            source="vision_daily_unusable_month",
+                            tolerate_malformed=True,
+                        )
                     )
-                )
+                continue
+
+            present = {int(row.open_time_ms) for row in primary}
+            missing = [
+                hour
+                for hour in range(lo, hi, data.HOUR_MS)
+                if hour not in present and not self._explained(market, lo, hour)
+            ]
+            rows.extend(primary)
+            if missing:
+                rows.extend(self._fill_hours(market, symbol, interval, missing))
         return sorted(rows, key=lambda row: int(row.open_time_ms))
 
 
@@ -758,8 +791,19 @@ def _symbol_coverage(
         except CarryCoverageError as error:
             if (error.evidence or {}).get("kind") == "archive_not_published":
                 unpublished_leading += 1
+                day = _last_complete_day_start_ms(lo, hi)
+                if day is None:
+                    errors.append(
+                        {
+                            "phase": "listing",
+                            "kind": "no_complete_day",
+                            "message": f"{symbol}: no complete UTC day to verify "
+                            f"unpublished month {_iso(lo)}; listing is unknown",
+                        }
+                    )
+                    break
                 probe = getattr(reader, "probe_published_day", None)
-                if callable(probe) and probe(symbol, hi - 24 * data.HOUR_MS):
+                if callable(probe) and probe(symbol, day):
                     leading_with_dailies.append(_iso(lo))
                 continue
             errors.append(
@@ -774,6 +818,15 @@ def _symbol_coverage(
                     )
                 except CarryScreenHalt as again:
                     errors.append({"phase": "listing", **_halt_error(again)})
+                    break
+                if not rows:
+                    errors.append(
+                        {
+                            "phase": "listing",
+                            "kind": "malformed_archive",
+                            "message": f"{symbol}: malformed monthly archive at {_iso(lo)} has no verified daily replacement",
+                        }
+                    )
                     break
             else:
                 errors.append({"phase": "listing", **_halt_error(error)})

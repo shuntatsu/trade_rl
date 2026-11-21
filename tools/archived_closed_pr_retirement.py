@@ -45,6 +45,17 @@ ISSUE_NUMBER = 1057
 BATCH_SIZE = 7
 MAX_DELETES = 28
 
+# A second owner-approved, separately triggered retirement for two additional
+# closed, unmerged PR source refs. Never replay the old 28-ref command to add
+# more deletion authority. The names are separately pinned in the 85-tip
+# archive; neither is active, open-PR-linked, or assigned to a worktree.
+FOLLOWUP_COMMAND = "/retire-two-archived-closed-prs-20261120 " + ARCHIVE_HEAD
+FOLLOWUP_COUNT = 2
+FOLLOWUP_CLOSED_PR_ALLOWLIST: Mapping[str, int] = {
+    "fix/issue810-crossasset-symlink-test-portability-20261120": 1286,
+    "fix/m2-study-json-exclusive-publication-20261110": 1205,
+}
+
 # Frozen owner-directed closure set. Every name/SHA is also pinned in the
 # immutable archive manifest; every PR number must be genuinely closed at its
 # exact matching final head. These sources are discarded historical work, not
@@ -82,7 +93,7 @@ CLOSED_PR_ALLOWLIST: Mapping[str, int] = {
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def _owner_comment_event() -> None:
+def _owner_comment_event(*, followup: bool = False) -> None:
     if (
         os.environ.get("GITHUB_ACTIONS") != "true"
         or os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
@@ -105,14 +116,21 @@ def _owner_comment_event() -> None:
         or not isinstance(comment.get("user"), dict)
         or comment["user"].get("id") != OWNER_ID
         or comment["user"].get("login") != OWNER_LOGIN
-        or comment.get("body") != COMMAND
+        or comment.get("body") != (FOLLOWUP_COMMAND if followup else COMMAND)
+        or (followup and event.get("action") != "created")
     ):
         raise RuntimeError("missing exact owner Issue #1057 command")
 
 
-def _closed_pr_proof(api: GitHubApi, branch: BranchInfo) -> bool:
+def _closed_pr_proof(
+    api: GitHubApi,
+    branch: BranchInfo,
+    *,
+    followup: bool = False,
+) -> bool:
     """Never treat a merely closed PR at a different head as closure evidence."""
-    number = CLOSED_PR_ALLOWLIST.get(branch.name)
+    allowlist = FOLLOWUP_CLOSED_PR_ALLOWLIST if followup else CLOSED_PR_ALLOWLIST
+    number = allowlist.get(branch.name)
     if type(number) is not int or number <= 0:
         return False
     p: Any = api._request_json("GET", f"pulls/{number}")
@@ -146,6 +164,7 @@ def _select(
     frozen: Mapping[str, str],
     open_refs: Sequence[OpenPullRequestRefs],
     active: frozenset[str],
+    followup: bool = False,
 ) -> tuple[BranchInfo, ...]:
     """Read-only selection; closed PRs and archive are authority for *only* allowlisted names."""
     refs = {b.name: b for b in branches}
@@ -157,13 +176,12 @@ def _select(
     if main.sha != _git_main():
         raise RuntimeError("GitHub main differs from complete checkout history")
     open_names = open_pull_request_branch_names(open_refs)
-    if (
-        len(CLOSED_PR_ALLOWLIST) != MAX_DELETES
-        or len(set(CLOSED_PR_ALLOWLIST.values())) != MAX_DELETES
-    ):
+    allowlist = FOLLOWUP_CLOSED_PR_ALLOWLIST if followup else CLOSED_PR_ALLOWLIST
+    expected = FOLLOWUP_COUNT if followup else MAX_DELETES
+    if len(allowlist) != expected or len(set(allowlist.values())) != expected:
         raise RuntimeError("one-shot closed PR allowlist has changed")
     out = []
-    for name, number in sorted(CLOSED_PR_ALLOWLIST.items()):
+    for name in sorted(allowlist):
         branch = refs.get(name)
         if branch is None:
             continue  # Idempotent: previously retired ref is no longer selected.
@@ -188,7 +206,7 @@ def _select(
             continue
         if not _git_ancestor(branch.sha, ARCHIVE_HEAD):
             raise RuntimeError(f"frozen archive does not reach {name}")
-        if _closed_pr_proof(api, branch):
+        if _closed_pr_proof(api, branch, followup=followup):
             out.append(branch)
     return tuple(out)
 
@@ -204,7 +222,7 @@ def _git_main() -> str:
 
 
 def retire(
-    api: GitHubApi, *, apply: bool
+    api: GitHubApi, *, apply: bool, followup: bool = False
 ) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
     if api._repository != REPOSITORY or api.repository_default_branch() != "main":
         raise RuntimeError("ref retirement is restricted to shuntatsu/trade_rl/main")
@@ -216,11 +234,12 @@ def retire(
         frozen=frozen,
         open_refs=api.open_pull_request_refs(),
         active=api.active_workflow_branch_names(),
+        followup=followup,
     )
     selected_names = tuple(b.name for b in selected)
     if not apply or not selected:
         return len(before), selected_names, ()
-    _owner_comment_event()
+    _owner_comment_event(followup=followup)
     require_retirement_origin()
     main_sha = next(x.sha for x in before if x.name == "main")
     if os.environ.get("GITHUB_SHA") != main_sha:
@@ -241,6 +260,7 @@ def retire(
             frozen=frozen,
             open_refs=api.open_pull_request_refs(),
             active=api.active_workflow_branch_names(),
+            followup=followup,
         )
         if not set(batch).issubset(newly):
             raise RuntimeError(
@@ -259,6 +279,7 @@ def retire(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--followup", action="store_true")
     args = parser.parse_args(argv)
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -266,11 +287,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     api = GitHubApi(
         repository=REPOSITORY, token=token, api_url="https://api.github.com"
     )
-    before, selected, deleted = retire(api, apply=args.apply)
+    before, selected, deleted = retire(api, apply=args.apply, followup=args.followup)
     summary = "\n".join(
         (
             "## One-shot frozen closed-PR source retirement",
             f"- mode: {'apply' if args.apply else 'preview'}",
+            f"- scope: {'two-exact-followup' if args.followup else 'original-28'}",
             f"- observed: {before}",
             f"- exact closed-PR candidates: {len(selected)}",
             f"- deleted and verified: {len(deleted)}",

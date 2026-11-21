@@ -18,7 +18,11 @@ This v2 source is a synthetic-only safety successor. The unchanged lowturn strat
 original scenario costs, controls, risk scaling, end-of-replay settlement, and
 causality probes are used for mechanical regression tests, **not** economic approval.
 The v1 BACKCAST/FORWARD windows are retained as software layout fixtures only; they
-are **not** an eligible new research holdout. Any future economic stage must receive
+are **not** an eligible new research holdout. The public `tools.trend_oos` CLI
+**refuses real `run` and `coverage` for either stage before opening data or
+querying the clock/GitHub**, even with an otherwise well-formed v2 authorization
+comment. In-process synthetic fixture injection is used for software tests only;
+it must not be used as an operator economic execution entry point. Any future economic stage must receive
 a result-blind G0–G3 design review, an explicitly authorized new protocol/window,
 its own G4 relay quoting the new exact digest and commit, and fresh independent
 software review. Old v1 G4 comments cannot authorize v2. Neither v1 nor v2 grants

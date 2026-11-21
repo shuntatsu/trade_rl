@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `1fae7b85192d7b8a6ccd6f2e8195c2828478f30bc60ec6a67c5c282c5af4f65a`
+Protocol digest: `cf7bc6aa2eca47d447bf8edd8315c8a50e913b51db67a5b016f08d3ba659eb71`
 
 ## Question
 

@@ -541,7 +541,7 @@ class XsPolicy(PortfolioPolicy):
         stats.pre_cap_gross.append(float(np.abs(effective).sum()))
         stats.pre_cap_net.append(float(effective.sum()))
         trades = not (
-            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL)
+            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL, rtol=0.0)
         )
         binds = trades and factor < 1.0 and scale > 0.0
         if binds:

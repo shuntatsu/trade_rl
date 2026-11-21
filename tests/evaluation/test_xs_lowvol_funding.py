@@ -11,6 +11,7 @@ import math
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -136,6 +137,40 @@ def test_caps_apply_per_name_first_then_gross_proportionally() -> None:
     # per-name leaves 0.25 each (gross 3.0 > 2.0): every weight is scaled by 2/3
     assert np.allclose(many, 0.25 * 2.0 / 3.0)
     assert math.isclose(float(np.abs(many).sum()), 2.0)
+
+
+def test_a_microscopic_real_buy_at_cash_limit_is_not_treated_as_a_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default NumPy relative allclose must not hide executable cap violations."""
+    inputs = _alternating_inputs()
+    current = np.full(6, protocol.NET_EXPOSURE_LIMIT / 6)
+    proposed = current + 2e-7
+    monkeypatch.setattr(
+        policy,
+        "book_target",
+        lambda *args, **kwargs: (proposed.copy(), 6, 0),
+    )
+    snapshot = SimpleNamespace(
+        symbols=inputs.legs,
+        index=399,
+        account=SimpleNamespace(
+            weights=tuple(current),
+            portfolio_value=100_000.0,
+            peak_value=100_000.0,
+            max_drawdown=0.0,
+        ),
+        risk=SimpleNamespace(drawdown_start=0.125, drawdown_stop=0.25),
+    )
+    candidate = policy.XsPolicy(
+        arm=protocol.ARM_EW_LONG,
+        inputs=inputs,
+        start_index=399,
+    )
+    result = candidate.decide_portfolio(snapshot)  # type: ignore[arg-type]
+    assert candidate.stats.bound_by_net_exposure == 1
+    assert result.hold_current_quantity_symbols == ()
+    assert sum(result.target_weights) <= protocol.NET_EXPOSURE_LIMIT + 1e-9
 
 
 def test_cash_account_scales_by_the_tighter_of_margin_and_net_exposure() -> None:
@@ -722,7 +757,7 @@ def test_declared_halts_are_empty_until_the_amendment_and_need_their_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "1fae7b85192d7b8a6ccd6f2e8195c2828478f30bc60ec6a67c5c282c5af4f65a"
+    "cf7bc6aa2eca47d447bf8edd8315c8a50e913b51db67a5b016f08d3ba659eb71"
 )
 
 

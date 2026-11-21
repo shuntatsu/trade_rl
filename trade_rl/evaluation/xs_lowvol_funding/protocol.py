@@ -478,6 +478,11 @@ def protocol_payload() -> dict[str, object]:
             "invalid_on_borrowing": {
                 "reason": REASON_NEGATIVE_CASH,
                 "tolerance_fraction": CASH_TOLERANCE_FRACTION,
+                "rule": "only still-unpaid per-interval execution fees offset "
+                "negative cash; an interval cash recovery extinguishes the "
+                "remaining fee allowance, and forced-close charges remain "
+                "independent cash debits; nonfinite, nonmonotone, or "
+                "discontinuous cost evidence is refused",
             },
         },
         "forced_close": {

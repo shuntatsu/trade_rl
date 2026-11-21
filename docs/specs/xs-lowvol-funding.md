@@ -181,7 +181,7 @@ Every arm runs under every scenario. Only `CANDIDATE` is gated. The other arms e
 
 A cell is **INVALID** if any of these hold:
 
-- at any ledger interval, the borrowing `max(0, −cash_after − total_cost_after)` exceeds 1e-6 × capital (the `agy_anchor_oos` check reused unchanged, with the cumulative forced-close debits also taken out of `cash_after`);
+- at any ledger interval, the cash balance after cumulative forced-close debits, less **only still-unpaid execution fees from the current and previously unrecovered intervals**, implies borrowing above 1e-6 × capital. Fees stop being borrowing credit when cash recovers; lifetime historical fees cannot offset a later loan. Cumulative cost boundaries, monotonicity, finiteness and forced-close debit amounts are validated before the borrowed-cash calculation (proposed software-only amendment; the previously published funding/coverage evidence is not reinterpreted);
 - a non-dust residual remains after terminal settlement (the terminal unwind above makes this a failure of the engine path, not of a one-bar close; only lean-core terminal dust is excepted);
 - the run reads a row outside its stage window or authorization.
 

@@ -11,6 +11,7 @@ import json
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -35,6 +36,72 @@ from trade_rl.strategies.portfolio import (
     PortfolioPolicy,
     PortfolioTargetProposal,
 )
+
+
+def _cash_path(cash: tuple[float, ...], costs: tuple[float, ...]) -> Any:
+    intervals = []
+    previous = 0.0
+    for balance, total in zip(cash, costs, strict=True):
+        intervals.append(
+            SimpleNamespace(
+                cash_after=balance, total_cost_before=previous, total_cost_after=total
+            )
+        )
+        previous = total
+    return SimpleNamespace(
+        ledger_evidence=SimpleNamespace(
+            intervals=SimpleNamespace(intervals=tuple(intervals))
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "cash,costs,debits,want",
+    [
+        ((-3000.0, 500.0, -2500.0), (3000.0, 3000.0, 3000.0), (0.0, 0.0, 0.0), 2500.0),
+        ((-3000.0, -100.0, -2500.0), (3000.0, 3000.0, 3000.0), (0.0, 0.0, 0.0), 2400.0),
+        ((-3000.0, 500.0, -2500.0), (3000.0, 3000.0, 3050.0), (0.0, 0.0, 0.0), 2450.0),
+        ((-3000.0, 500.0, -2500.0), (3000.0, 3000.0, 3000.0), (0.0, 0.0, 50.0), 2550.0),
+        ((-3000.0, 0.0), (3000.0, 3000.0), (0.0, 0.0), 0.0),
+    ],
+)
+def test_xs_cash_fee_allowance_expires_on_recovery(
+    cash: tuple[float, ...],
+    costs: tuple[float, ...],
+    debits: tuple[float, ...],
+    want: float,
+) -> None:
+    low, borrowed = runner._min_cash_and_borrowing(
+        _cash_path(cash, costs), np.asarray(debits)
+    )
+    assert low == pytest.approx(min(c - d for c, d in zip(cash, debits, strict=True)))
+    assert borrowed == pytest.approx(want)
+
+
+@pytest.mark.parametrize(
+    "cash,costs,debits",
+    [
+        ((float("nan"),), (1.0,), (0.0,)),
+        ((-1.0,), (float("inf"),), (0.0,)),
+        ((-1.0, -2.0), (10.0, 9.0), (0.0, 0.0)),
+        ((-1.0, -2.0), (10.0, 10.0), (0.0, float("nan"))),
+        ((-1.0, -2.0), (10.0, 10.0), (0.0, -1.0)),
+        ((-1.0, -2.0), (10.0, 10.0), (0.0,)),
+    ],
+)
+def test_xs_cash_fee_accounting_fails_closed_on_malformed_evidence(
+    cash: tuple[float, ...], costs: tuple[float, ...], debits: tuple[float, ...]
+) -> None:
+    with pytest.raises(ValueError):
+        runner._min_cash_and_borrowing(_cash_path(cash, costs), np.asarray(debits))
+
+
+def test_xs_cash_fee_accounting_checks_interval_cost_continuity() -> None:
+    probe = _cash_path((-5.0, -7.0), (10.0, 11.0))
+    probe.ledger_evidence.intervals.intervals[1].total_cost_before = 9.0
+    with pytest.raises(ValueError, match="discontinuous"):
+        runner._min_cash_and_borrowing(probe, np.zeros(2))
+
 
 LAST_ROW = 470  # AAA's last available bar when it is delisted in the fixtures
 

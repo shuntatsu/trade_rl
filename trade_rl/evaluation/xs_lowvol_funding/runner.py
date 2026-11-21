@@ -81,8 +81,9 @@ MIN_REPLAY_BARS = 2 * protocol.REBALANCE_EVERY_BARS
 DISCLOSURES: tuple[str, ...] = (
     "every arm trades a cash account: after the per-name and gross caps the target is scaled "
     "by the tighter of 0.4 x perp gross <= 1.0 and net signed exposure <= 0.97; a cell whose "
-    "cash net of cumulative execution costs and forced-close debits falls below -1e-6 x "
-    "capital is INVALID (negative_cash_borrowing)",
+    "cash net of still-unpaid interval execution fee overdrafts and forced-close "
+    "debits below -1e-6 x capital is INVALID (negative_cash_borrowing); "
+    "lifetime historical fees are not reusable borrowing credit",
     "the forced-close rule closes a held name from 42 bars before its last available bar "
     "(a modelled one-week delisting announcement that uses knowledge of the archive end); "
     "the extra adverse 5% is a post-replay cash debit at each fill bar, so the engine's "
@@ -446,14 +447,48 @@ def _leg_attribution(
 def _min_cash_and_borrowing(
     result: SharedCashPortfolioReplayResult, cumulative_debit: np.ndarray
 ) -> tuple[float | None, float | None]:
-    """``(min cash, max borrowing)`` with the forced-close debits taken out of cash."""
+    """Measure true borrowing with only still-unpaid interval execution fees.
+
+    A fee overdraft ceases to be a possible explanation when cash recovers.
+    Lifetime paid fees must never be reused to excuse later borrowing. Forced
+    exit charges are independent cash debits, not fee credit.
+    """
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
         return None, None
     intervals = ledger.intervals.intervals
-    cash = np.asarray([float(iv.cash_after) for iv in intervals]) - cumulative_debit
-    cost = np.asarray([float(iv.total_cost_after) for iv in intervals])
-    return float(cash.min()), float(np.maximum(0.0, -cash - cost).max())
+    debits = np.asarray(cumulative_debit, dtype=np.float64)
+    if (
+        debits.shape != (len(intervals),)
+        or not np.isfinite(debits).all()
+        or np.any(debits < 0.0)
+        or np.any(np.diff(debits) < 0.0)
+    ):
+        raise ValueError("forced-close cumulative debits are malformed")
+    lowest = math.inf
+    greatest_borrow = 0.0
+    unpaid_fee_overdraft = 0.0
+    previous_cost: float | None = None
+    for position, interval in enumerate(intervals):
+        cash = float(interval.cash_after) - float(debits[position])
+        before = float(interval.total_cost_before)
+        after = float(interval.total_cost_after)
+        if not all(math.isfinite(value) for value in (cash, before, after)):
+            raise ValueError("nonfinite cash or execution cost evidence")
+        if before < 0.0 or after < before:
+            raise ValueError("execution costs must be cumulative and nonnegative")
+        if previous_cost is not None and not math.isclose(
+            previous_cost, before, rel_tol=1e-12, abs_tol=1e-9
+        ):
+            raise ValueError("execution cost ledger intervals are discontinuous")
+        interval_cost = after - before
+        unpaid_fee_overdraft = min(
+            max(0.0, -cash), unpaid_fee_overdraft + interval_cost
+        )
+        greatest_borrow = max(greatest_borrow, max(0.0, -cash - unpaid_fee_overdraft))
+        lowest = min(lowest, cash)
+        previous_cost = after
+    return lowest, greatest_borrow
 
 
 def _build_cell(

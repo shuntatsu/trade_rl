@@ -2462,6 +2462,128 @@ def test_an_unusable_monthly_archive_is_rebuilt_from_verified_daily_archives(
     }
 
 
+def test_bad_daily_archive_never_discards_valid_partial_monthly_rows() -> None:
+    """Only a primary *monthly* parse failure can trigger whole-month rebuilding."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    rows = _Rows({s: datetime(2018, 1, 1, tzinfo=UTC) for s in protocol.ROSTER})
+
+    class PartialMonth:
+        def read_klines(
+            self, market: Any, symbol: str, interval: str, start: int, end: int
+        ) -> list[KlineRow]:
+            return [
+                row
+                for row in rows.read_klines(market, symbol, interval, start, end)
+                if row.open_time_ms != _ms(2018, 2, 10)
+            ]
+
+    source = driver._MonthFallbackSource(
+        PartialMonth(),
+        lambda plan: _DailySource(plan, {"2018-02-10": "malformed"}, rows),
+        halts=(),
+        embargo=None,
+    )
+    with pytest.raises(CarryIntegrityHalt, match="bad row"):
+        source.read_klines(
+            StoreMarket.SPOT, "BTCUSDT", "1h", _ms(2018, 2, 1), _ms(2018, 3, 1)
+        )
+    assert not any(
+        item["source"] == "vision_daily_unusable_month" for item in source.fills()
+    )
+
+
+def test_malformed_listing_month_with_no_daily_rows_cannot_be_called_unlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only 404 can establish an unlisted leading month, not a parse failure."""
+    from trade_rl.integrations.binance.carry import CarryIntegrityHalt
+
+    window = _small_window(monkeypatch, "BACKCAST")
+
+    class MalformedMonthly:
+        def read_klines(
+            self, market: Any, symbol: str, interval: str, start: int, end: int
+        ) -> list[KlineRow]:
+            if _ms(2018, 2, 1) <= start < _ms(2018, 3, 1):
+                raise CarryIntegrityHalt(
+                    "malformed listing month", {"kind": "malformed_archive"}
+                )
+            raise CarryCoverageError("not published", {"kind": "archive_not_published"})
+
+    class NoDailyArchive:
+        def read_klines(
+            self, market: Any, symbol: str, interval: str, start: int, end: int
+        ) -> list[KlineRow]:
+            return []
+
+        def probe_published_day(self, symbol: str, day_start_ms: int) -> bool:
+            return False
+
+    with pytest.raises(data.StageDataError, match="malformed"):
+        driver.load_spot_series(
+            MalformedMonthly(),
+            NoDailyArchive(),
+            "BTCUSDT",
+            window=window,
+            limit_close=window.last_row_close,
+            halt_intervals=(),
+        )
+    coverage, first, _ = driver._symbol_coverage(
+        MalformedMonthly(),
+        NoDailyArchive(),
+        "BTCUSDT",
+        window=window,
+        limit_close=window.last_row_close,
+        halt_intervals=(),
+    )
+    assert first is None
+    assert any("malformed" in str(e).lower() for e in coverage["errors"])
+
+
+def test_short_leading_month_without_a_complete_day_refuses_unknown_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial month must neither look past embargo nor infer an unlisted leg."""
+    window = _small_window(monkeypatch, "BACKCAST")
+    through = window.load_start + timedelta(hours=8)
+
+    class UnpublishedMonthly:
+        def read_klines(self, *args: Any) -> list[KlineRow]:
+            raise CarryCoverageError("404", {"kind": "archive_not_published"})
+
+    class DailyProbe:
+        def __init__(self) -> None:
+            self.days: list[int] = []
+
+        def probe_published_day(self, symbol: str, day_start_ms: int) -> bool:
+            self.days.append(day_start_ms)
+            return False
+
+    reader = DailyProbe()
+    with pytest.raises(data.StageDataError, match="no complete UTC day"):
+        driver.load_spot_series(
+            UnpublishedMonthly(),
+            reader,
+            "BTCUSDT",
+            window=window,
+            limit_close=through,
+            halt_intervals=(),
+        )
+
+    coverage, first, present = driver._symbol_coverage(
+        UnpublishedMonthly(),
+        reader,
+        "BTCUSDT",
+        window=window,
+        limit_close=through,
+        halt_intervals=(),
+    )
+    assert first is None and not present
+    assert any("no complete UTC day" in str(e) for e in coverage["errors"])
+    assert reader.days == []
+
+
 def test_a_checksum_fault_is_never_rescued_by_the_daily_fallback() -> None:
     from trade_rl.integrations.binance.carry import CarryIntegrityHalt
 

@@ -106,6 +106,34 @@ def test_a_proposal_within_the_limit_is_untouched_and_counted_as_not_bound() -> 
     assert policy.stats.to_dict()["cap_bound_fraction"] == 0.0
 
 
+def test_a_tiny_real_buy_cannot_bypass_the_gross_cap_as_an_approximate_hold() -> None:
+    """Relative allclose may hide eleven genuine 2e-7 buys at gross exactly one."""
+    current = np.zeros(N_LEGS)
+    current[SPOTS] = 1.0 / 11.0
+    drawdown = 0.14999989  # risk scale 0.5000011, effective proposed gross 1.0000022
+    snapshot = _snapshot(
+        0,
+        weights=current,
+        value=100_000.0 * (1.0 - drawdown),
+        peak=100_000.0,
+        max_dd=drawdown,
+    )
+    policy = CashAccountPolicy(
+        LowturnPolicy(
+            family="TS_TREND_LONG_SPOT",
+            signals=_trend_pack(),
+            start_index=0,
+            deadband=0.0,
+        ),
+        start_index=0,
+    )
+    proposal = policy.decide_portfolio(snapshot)
+    effective = _executes_to(proposal, current, drawdown)
+    assert _gross(effective) <= 1.0 + 1e-9
+    assert policy.stats.bound_decisions == 1
+    assert proposal.hold_current_quantity_symbols == ()
+
+
 def test_the_deadband_cannot_let_gross_creep_above_the_limit() -> None:
     """Five legs sit within the deadband of the *uncapped* target (0.1818) and are
     held, six are far from it: the lowturn mixture has gross 1.99. The wrapper drops

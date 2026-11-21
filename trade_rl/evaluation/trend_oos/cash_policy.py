@@ -111,8 +111,9 @@ class CashAccountPolicy(PortfolioPolicy):
         scale = risk_scale_of(snapshot)
         effective = np.where(held, current, scale * proposed)
         gross = float(np.abs(effective[spot]).sum())
+        # Relative allclose can classify real buys as holds while gross exceeds the cap.
         trades = not (
-            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL)
+            held.all() or np.allclose(effective, current, atol=_NO_TRADE_ATOL, rtol=0.0)
         )
         rebalance = (snapshot.index - self._start) % self._every == 0
         binds = trades and gross > self._limit + _GROSS_EPS and scale > 0.0

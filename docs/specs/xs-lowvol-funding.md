@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `d9c4c800dfa9743e1d8de8f2e25f1e6b03abb4e750bab88fe7d86ed0a1422482`
+Protocol digest: `743d1990416007065b36fff87c2e16a6a72cb1a17faee42c0f496037efa75bc0`
 
 ## Question
 
@@ -70,7 +70,7 @@ If fewer than 12 symbols are eligible, the month holds no book and the CANDIDATE
 
 - A held name is closed when its perp archive ends or a gap starts that no declared halt explains.
   - Its target is forced to 0 from the decision bar **42** 4h bars (7 days) before its last available bar onward. This models Binance's roughly one-week advance delisting notice.
-  - The 42-bar lead uses knowledge of the archive end. It models the public delisting announcement and is disclosed as such.
+  - The 42-bar lead uses knowledge of the archive end. It models the public delisting announcement and is disclosed as such. The end is the **effective end** (Amendment 2): the close of the leg's last 1h bar with volume.
   - Each fill of the forced close is charged the scenario cost plus an extra adverse **5%** of the closed notional. The charge is booked as a cash debit at that fill bar.
 - There is no write-off branch. If any position of such a name is still held at its last available bar (no capacity, below minimum notional), the run refuses, naming the symbol.
   - This is a disclosed limitation: the shared replay cannot continue past an engine settlement of a held position, and handling it would need an amendment.
@@ -81,7 +81,14 @@ If fewer than 12 symbols are eligible, the month holds no book and the CANDIDATE
 
 Exchange-wide perp outages are declared result-blind from a coverage report, as in `agy_anchor_oos`. `coverage` reads archives and validates rows. It computes no signal, replay or return. A range qualifies only if every symbol listed at that time is missing it. Any other missing hour of an eligible, held or ranked symbol follows the rules above.
 
-**Amendment 1 (2026-11-21, result-blind).** `coverage` for DISJOINT ran from code `ef11e0b06d108fae34bc6ea0f33f63a9d2a02775` (protocol digest `1fae7b85…`) on a clean tree. It reported 0 exchange-wide perp gap hours and no read error, so `DECLARED_HALTS` stays empty. Ten legs have symbol-specific gaps (AERGO, BNX, CTK, CVC, CVX, ICP, LIT, PUMP, SLP, TLM; 7–122 hours); they follow the eligibility and forced-close rules above. The report's SHA-256 `757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c` is pinned as `COVERAGE_EVIDENCE_SHA256`. No signal, replay or return was computed.
+**Amendment 1 (2026-11-21, result-blind).** `coverage` for DISJOINT ran from code `ef11e0b06d108fae34bc6ea0f33f63a9d2a02775` (protocol digest `1fae7b85…`) on a clean tree. It reported 0 exchange-wide perp gap hours and no read error, so `DECLARED_HALTS` stays empty. Ten legs have symbol-specific gaps (AERGO, BNX, CTK, CVC, CVX, ICP, LIT, PUMP, SLP, TLM; 7–122 hours); they follow the eligibility and forced-close rules above. The report's SHA-256 `757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c` is pinned as `COVERAGE_EVIDENCE_SHA256`. No signal, replay or return was computed. Amendment 2 supersedes that report as evidence: a new coverage report, produced by the amended tool, will be pinned in a separate result-blind commit before DEV is rerun.
+
+**Amendment 2 (2026-11-21, result-blind).** The single-use DISJOINT attempt at code `21becb5616f036d5f8c10944d7ff8e68550dc4e8`, run under the relay https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7062196515, refused on `A2ZUSDT` (the monthly funding archive of 2026-04 is unpublished but the perp has kline bars in that month) before any signal, replay or return was computed. It wrote no output directory. No DISJOINT label exists and the single-use run has not been consumed. The cause is a data-format fact found from volumes only: Binance Vision keeps publishing flat 1h kline archives with volume 0 ("zombie bars") after a perp is delisted. The harness changes as follows.
+
+- **Zombie-tail truncation.** The effective listing end of a perp leg is the close of its last 1h bar with volume (base or quote volume above 0). The trailing run of zero-volume bars after it is dropped as not listed before anything else uses the leg: universe eligibility, funding admissibility, gap checks and the forced-close schedule, which now keys on the effective end (a delisted held name is closed before the zombie tail, as the delisting-notice model intends). Only the trailing run is dropped; interior zero-volume bars follow the existing rules. A leg with no bar with volume is never listed. The data receipt and the coverage report record, per leg, `zombie_tail_bars` and `effective_end`. This uses archive-end knowledge exactly like the disclosed forced-close exception and is part of that same exception.
+- **REST funding fallback.** If a monthly Vision fundingRate archive is unpublished in a month in which the (truncated) leg has at least one bar with volume, the month's events are read from the public Binance endpoint `https://fapi.binance.com/fapi/v1/fundingRate` (no key; only with `--allow-network`), paginated by `startTime` while 1000 events are returned, over the UTC month `[start, next month start)` clipped to the read limit. The response must name the symbol, have strictly increasing times inside the month and finite rates. The raw JSON of each month is cached under `<archive>/rest/fundingRate/<SYMBOL>/<SYMBOL>-fundingRate-<YYYY-MM>.json` and its SHA-256 and event count are recorded in the data receipt (`rest_funding`) and the coverage report, so the run is reproducible offline from the cache (a cache file is used before the network). The events are merged like archive events. Without cache and network, or on an invalid response, the run refuses as before (fail closed). If the REST endpoint returns no event for such a month (a perp that listed at the end of that month), the month is admissible only if the merged funding series has no gap longer than 24 hours around it, measured from the first bar with volume (or the last event before the month) to the next event (or the effective end); otherwise the run refuses.
+- **Coverage summary.** `coverage` applies the same truncation and fallback, and its printed summary lists `inadmissible_unpublished_funding_months` (count and `symbol:month`), `rest_funding_months` and `zombie_tail_legs`, so a refusal is visible before a run.
+- **Sequence.** DEV is rerun under the new protocol digest, and DISJOINT then runs exactly once under it.
 
 ## Stages
 
@@ -234,7 +241,7 @@ The implementation must pass synthetic tests that do not call production sizing:
 - **Universe membership.** The monthly top-30 is point-in-time. A name whose volume spikes only inside month M does not enter M.
 - **Forced close.** A delisting fixture charges exactly the scenario cost plus 5% on the closed notional and leaves no position.
 - **Funding sign.** A short perp leg with positive funding receives funding.
-- **Causality.** Appending future rows never changes any earlier decision. The one disclosed exception is the forced-close schedule: it uses archive-end knowledge, modelling the delisting notice. Every other input obeys the append-future-rows invariance.
+- **Causality.** Appending future rows never changes any earlier decision. The one disclosed exception is the forced-close schedule: it uses archive-end knowledge (the effective end after zombie-tail truncation), modelling the delisting notice. Every other input obeys the append-future-rows invariance.
 - **Embargo.** DISJOINT refuses any row at or after 2026-08-01, and FORWARD refuses rows after the latest closed bar or outside the authorization.
 - **INVALID.** A borrowing cell is INVALID.
 

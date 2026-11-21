@@ -35,8 +35,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import sys
-from collections.abc import Sequence
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -341,6 +346,199 @@ def _months_with_rows(opens: Sequence[int]) -> set[tuple[int, int]]:
     return months
 
 
+# ------------------------------------------------------------- REST funding
+
+
+REST_FUNDING_URL = "https://fapi.binance.com/fapi/v1/fundingRate"
+REST_PAGE_LIMIT = 1_000
+_REST_MAX_PAGES = 100
+#: One raw REST page: ``(symbol, start_ms, end_ms_inclusive) -> JSON bytes``.
+RestFetch = Callable[[str, int, int], bytes]
+
+
+class RestFundingError(RuntimeError):
+    """The REST funding fallback is unavailable or returned an invalid response."""
+
+
+class RestFundingNotCached(RestFundingError):
+    """No cache file and no network: the fallback is not available (fail closed)."""
+
+
+def binance_rest_fetch(symbol: str, start_ms: int, end_ms: int) -> bytes:
+    """One page of the public ``fundingRate`` endpoint (no key); a few bounded retries."""
+    url = (
+        f"{REST_FUNDING_URL}?symbol={symbol}&startTime={start_ms}"
+        f"&endTime={end_ms}&limit={REST_PAGE_LIMIT}"
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": "xs-lowvol-funding"})
+    last: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return bytes(response.read())
+        except urllib.error.HTTPError as error:
+            last = error
+            if error.code not in (418, 429) and error.code < 500:
+                break
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = error
+        time.sleep(float(attempt))
+    raise RestFundingError(f"{symbol}: the REST funding request failed: {last}")
+
+
+class RestFundingSource:
+    """Monthly funding events from the REST endpoint, cached raw under the archive dir.
+
+    A month is served from its cache file when one exists (so a run is reproducible
+    offline); otherwise it is fetched (only when a fetcher is configured, i.e.
+    ``--allow-network``), paginated by ``startTime``, validated and cached. Without a cache
+    file and fetcher it raises :class:`RestFundingNotCached` (fail closed). Each month's raw
+    JSON SHA-256 and event count are recorded as evidence.
+    """
+
+    def __init__(self, cache_dir: Path, fetch: RestFetch | None) -> None:
+        self._cache_dir = cache_dir
+        self._fetch = fetch
+        self._evidence: dict[tuple[str, str], dict[str, object]] = {}
+
+    def evidence(self) -> list[dict[str, object]]:
+        return [self._evidence[key] for key in sorted(self._evidence)]
+
+    def _path(self, symbol: str, month: str, clipped_end: int | None) -> Path:
+        suffix = "" if clipped_end is None else f"-until-{clipped_end}"
+        return self._cache_dir / symbol / f"{symbol}-fundingRate-{month}{suffix}.json"
+
+    @staticmethod
+    def _validate(
+        raw: object, symbol: str, lo: int, hi: int
+    ) -> list[tuple[int, float]]:
+        """Symbol, strictly increasing times inside ``[lo, hi)`` and finite rates."""
+        if not isinstance(raw, list):
+            raise RestFundingError(f"{symbol}: the REST funding response is not a list")
+        events: list[tuple[int, float]] = []
+        previous = lo - 1
+        for item in raw:
+            if not isinstance(item, dict) or item.get("symbol") != symbol:
+                raise RestFundingError(
+                    f"{symbol}: a REST funding event names another symbol"
+                )
+            try:
+                stamp = int(item["fundingTime"])
+                rate = float(item["fundingRate"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise RestFundingError(
+                    f"{symbol}: a REST funding event is malformed"
+                ) from error
+            if not math.isfinite(rate):
+                raise RestFundingError(f"{symbol}: a REST funding rate is not finite")
+            if stamp <= previous:
+                raise RestFundingError(
+                    f"{symbol}: REST funding times are not strictly increasing or "
+                    "lie before the month"
+                )
+            if stamp >= hi:
+                raise RestFundingError(
+                    f"{symbol}: a REST funding event lies after the month"
+                )
+            previous = stamp
+            events.append((stamp, rate))
+        return events
+
+    def _download(self, symbol: str, lo: int, hi: int) -> list[Any]:
+        raw: list[Any] = []
+        cursor = lo
+        for _ in range(_REST_MAX_PAGES):
+            try:
+                page = json.loads(self._fetch(symbol, cursor, hi - 1))  # type: ignore[misc]
+            except ValueError as error:
+                raise RestFundingError(
+                    f"{symbol}: a REST funding page is not JSON"
+                ) from error
+            if not isinstance(page, list):
+                raise RestFundingError(f"{symbol}: the REST funding page is not a list")
+            raw.extend(page)
+            if len(page) < REST_PAGE_LIMIT:
+                return raw
+            try:
+                cursor = int(page[-1]["fundingTime"]) + 1
+            except (KeyError, TypeError, ValueError) as error:
+                raise RestFundingError(
+                    f"{symbol}: a REST funding page is malformed"
+                ) from error
+        raise RestFundingError(f"{symbol}: the REST funding pagination did not end")
+
+    def month(
+        self, symbol: str, lo: int, month_end: int, end_ms: int
+    ) -> list[tuple[int, float]]:
+        """Events of ``[lo, min(month_end, end_ms))``; the month needs no archive."""
+        hi = min(month_end, end_ms)
+        moment = datetime.fromtimestamp(lo / 1_000, UTC)
+        label = _month_label(moment)
+        path = self._path(symbol, label, None if hi == month_end else hi)
+        source = "cache"
+        if path.is_file():
+            payload = path.read_bytes()
+            try:
+                raw: object = json.loads(payload)
+            except ValueError as error:
+                raise RestFundingError(
+                    f"{path}: the cached REST response is not JSON"
+                ) from error
+        elif self._fetch is None:
+            raise RestFundingNotCached(
+                f"{symbol}: the REST funding of {label} is not cached and the network "
+                "is not allowed"
+            )
+        else:
+            source = "network"
+            raw = self._download(symbol, lo, hi)
+        events = self._validate(raw, symbol, lo, hi)
+        if source == "network":
+            payload = canonical_json_bytes(raw)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            partial = path.with_suffix(".json.part")
+            partial.write_bytes(payload)
+            os.replace(partial, path)
+        self._evidence[(symbol, label)] = {
+            "symbol": symbol,
+            "month": label,
+            "events": len(events),
+            "sha256": _sha256(payload),
+            "source": source,
+            "file": path.name,
+        }
+        return events
+
+
+def _traded_row(row: Any) -> bool:
+    """A bar counts as traded when its base or quote volume is positive."""
+    return bool(row.volume > 0 or row.quote_volume > 0)
+
+
+def split_zombie_tail(rows: Sequence[Any]) -> tuple[list[Any], int]:
+    """``(rows up to the last traded bar, dropped trailing zero-volume bars)``.
+
+    Vision keeps publishing flat zero-volume bars after a perp is delisted; only that
+    trailing run is "not listed". Interior zero-volume bars are kept. With no traded bar
+    at all every row is dropped.
+    """
+    last = -1
+    for index, row in enumerate(rows):
+        if _traded_row(row):
+            last = index
+    return list(rows[: last + 1]), len(rows) - (last + 1)
+
+
+def _month_label(moment: datetime) -> str:
+    return f"{moment.year:04d}-{moment.month:02d}"
+
+
+def _next_month_ms(lo: int) -> int:
+    return ms_from_utc(
+        _next_month(_month_start(datetime.fromtimestamp(lo / 1_000, UTC)))
+    )
+
+
 def _read_funding_tolerant(
     reader: CarryRowSource,
     symbol: str,
@@ -348,17 +546,26 @@ def _read_funding_tolerant(
     end_ms: int,
     *,
     kline_months: set[tuple[int, int]],
+    traded_months: set[tuple[int, int]] | None = None,
+    traded_span: tuple[int, int] | None = None,
+    rest: RestFundingSource | None = None,
     refuse: bool = True,
 ) -> tuple[list[tuple[int, float]], list[dict[str, object]]]:
     """``(settled funding events, unpublished funding months)`` from ``first_open``.
 
-    A funding month may be unpublished only when the perp has no kline bar at all in that
-    month (before the listing, after the delisting). An unpublished funding month in which
-    the perp trades is not admissible: with ``refuse`` the call raises, naming the symbol
-    and the month (coverage records it instead). Every unpublished month is returned.
+    A funding month may be unpublished without a fallback only when the (truncated) perp
+    has no kline bar at all in that month (before the listing, after the effective end). In
+    a month with a traded bar (positive volume) the events come from the REST fallback
+    (``rest``); without it, or when it fails, or when it returns no event while the merged
+    series has a gap longer than ``FUNDING_MAX_GAP_HOURS`` there (measured inside
+    ``traded_span``), the month is not admissible: with ``refuse`` the call raises, naming
+    the symbol and the month (coverage records it instead). A month with only interior
+    zero-volume bars stays inadmissible, as before. Every unpublished month is returned.
     """
+    traded = kline_months if traded_months is None else traded_months
     events: dict[int, float] = {}
     unpublished: list[dict[str, object]] = []
+    empty: list[tuple[int, int, dict[str, object]]] = []
     for lo, hi in _month_chunks(first_open, end_ms):
         try:
             rows = reader.read_funding(_MARKET, symbol, lo, hi)
@@ -366,24 +573,58 @@ def _read_funding_tolerant(
             if (error.evidence or {}).get("kind") != "archive_not_published":
                 raise
             moment = datetime.fromtimestamp(lo / 1_000, UTC)
-            admissible = (moment.year, moment.month) not in kline_months
+            key = (moment.year, moment.month)
+            start = ms_from_utc(_month_start(moment))
             record: dict[str, object] = {
                 "symbol": symbol,
-                "month": f"{moment.year:04d}-{moment.month:02d}",
-                "admissible": admissible,
+                "month": _month_label(moment),
+                "admissible": key not in kline_months,
             }
+            problem = ""
+            if key in traded and rest is not None:
+                try:
+                    fetched = rest.month(symbol, start, _next_month_ms(lo), end_ms)
+                except RestFundingNotCached as failure:
+                    problem = f" ({failure})"
+                except RestFundingError as failure:
+                    problem = f" (REST fallback: {failure})"
+                    record["rest_error"] = str(failure)
+                else:
+                    record["admissible"] = True
+                    record["rest_events"] = len(fetched)
+                    events.update(fetched)
+                    if not fetched:
+                        empty.append((lo, hi, record))
             unpublished.append(record)
-            if refuse and not admissible:
+            if refuse and not record["admissible"]:
                 raise data.StageDataError(
                     f"{symbol}: the funding archive of {record['month']} is unpublished "
-                    "but the perp has kline bars in that month; refused"
+                    f"but the perp has kline bars in that month; refused{problem}"
                 ) from error
             continue
         for row in rows:
             stamp = int(row.funding_time_ms)
             if stamp < end_ms:
                 events[stamp] = float(row.rate)
-    return sorted(events.items()), unpublished
+    stamps = sorted(events)
+    if empty:
+        span_lo, span_hi = (first_open, end_ms) if traded_span is None else traded_span
+        limit = protocol.FUNDING_MAX_GAP_HOURS * data.HOUR_MS
+        for lo, hi, record in empty:
+            before = [t for t in stamps if t < lo]
+            after = [t for t in stamps if t >= hi]
+            start = max(before[-1], span_lo) if before else span_lo
+            stop = min(after[0], span_hi) if after else span_hi
+            if stop - start > limit:
+                record["admissible"] = False
+                record["rest_gap_hours"] = (stop - start) / data.HOUR_MS
+                if refuse:
+                    raise data.StageDataError(
+                        f"{symbol}: the funding archive of {record['month']} is unpublished, "
+                        "the REST fallback returned no event and the funding series has a "
+                        f"gap of {(stop - start) / data.HOUR_MS:g} hours there; refused"
+                    )
+    return [(t, events[t]) for t in stamps], unpublished
 
 
 def load_perp(
@@ -394,8 +635,14 @@ def load_perp(
     window: data.StageWindow,
     limit_close: datetime,
     halt_intervals: Sequence[tuple[datetime, datetime]],
+    rest: RestFundingSource | None = None,
 ) -> tuple[data.PerpHourly | None, dict[str, object]]:
     """The hourly series of one perp on the stage grid, or ``None`` if never listed.
+
+    The effective listing end is the close of the last bar with volume: the trailing
+    zero-volume bars Vision keeps publishing after a delisting ("zombie bars") are dropped
+    first (Amendment 2), so the universe, the forced-close schedule, the funding rule and
+    the gap checks all see the leg end there.
 
     Unlike a fixed roster the series may end (delisting) or hold gaps: a missing hour inside
     a declared exchange-wide halt (and between the first and the last published hour) is
@@ -429,6 +676,13 @@ def load_perp(
         symbol=symbol,
         what="klines",
     )
+    rows, zombie_bars = split_zombie_tail(rows)
+    coverage["zombie_tail_bars"] = zombie_bars
+    if not rows:
+        coverage["effective_end"] = None
+        return None, coverage
+    effective_end = int(rows[-1].open_time_ms) + data.HOUR_MS
+    coverage["effective_end"] = _iso(effective_end)
     n_hours = (end_ms - start_ms) // data.HOUR_MS
     present = np.zeros(n_hours, dtype=np.bool_)
     arrays = {
@@ -463,6 +717,14 @@ def load_perp(
         first_open,
         end_ms,
         kline_months=_months_with_rows([int(row.open_time_ms) for row in rows]),
+        traded_months=_months_with_rows(
+            [int(row.open_time_ms) for row in rows if _traded_row(row)]
+        ),
+        traded_span=(
+            int(next(r for r in rows if _traded_row(r)).open_time_ms),
+            effective_end,
+        ),
+        rest=rest,
     )
     leg = data.PerpHourly(
         present=present,
@@ -497,6 +759,7 @@ def load_stage_hourly(
     limit_close: datetime,
     symbols: Sequence[str],
     halt_intervals: Sequence[tuple[datetime, datetime]] | None = None,
+    rest: RestFundingSource | None = None,
 ) -> tuple[dict[str, data.PerpHourly], dict[str, dict[str, object]]]:
     """Read every symbol's hourly series through the stage guard (never-listed ones omitted)."""
     if halt_intervals is None:
@@ -517,6 +780,7 @@ def load_stage_hourly(
             window=window,
             limit_close=limit_close,
             halt_intervals=halt_intervals,
+            rest=rest,
         )
         coverage[symbol] = entry
         if leg is not None:
@@ -837,6 +1101,9 @@ def _funding_coverage(
     end_ms: int,
     errors: list[dict[str, object]],
     kline_months: set[tuple[int, int]],
+    traded_months: set[tuple[int, int]],
+    traded_span: tuple[int, int] | None,
+    rest: RestFundingSource | None,
 ) -> dict[str, object]:
     try:
         events, unpublished = _read_funding_tolerant(
@@ -845,6 +1112,9 @@ def _funding_coverage(
             first_open,
             end_ms,
             kline_months=kline_months,
+            traded_months=traded_months,
+            traded_span=traded_span,
+            rest=rest,
             refuse=False,
         )
     except CarryScreenHalt as error:
@@ -854,6 +1124,7 @@ def _funding_coverage(
     gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
     return {
         "unpublished_funding_months": unpublished,
+        "rest_funding_months": sum(1 for u in unpublished if "rest_events" in u),
         "events": len(stamps),
         "first_event": None if not stamps else _iso(stamps[0]),
         "last_event": None if not stamps else _iso(stamps[-1]),
@@ -868,11 +1139,13 @@ def _leg_coverage(
     *,
     window: data.StageWindow,
     limit_close: datetime,
+    rest: RestFundingSource | None = None,
 ) -> tuple[dict[str, Any], int | None, int | None, set[int]]:
     """Coverage facts of one perp; never raises on a gap, a 404 or a bad archive.
 
     Returns ``(entry, first listed open, last published open, missing hours between them)``.
-    Hours after the last published row are the archive's end (a delisting), not a gap.
+    Hours after the last traded row are the effective end (a delisting), not a gap; the
+    trailing zero-volume "zombie" bars after it are dropped like the run does (Amendment 2).
     """
     start_ms, end_ms = ms_from_utc(window.load_start), ms_from_utc(limit_close)
     errors: list[dict[str, object]] = []
@@ -921,6 +1194,7 @@ def _leg_coverage(
         return entry, None, None, set()
     present: set[int] = set()
     zero_volume: list[int] = []
+    traded_opens: set[int] = set()
     unread: list[dict[str, object]] = []
     for lo, hi in _month_chunks(first_open, end_ms):
         span = {"from": _iso(lo), "to": _iso(hi)}
@@ -940,7 +1214,20 @@ def _leg_coverage(
             present.add(opened)
             if row.volume == 0:
                 zero_volume.append(opened)
-    last_open = max(present) if present else None
+            if _traded_row(row):
+                traded_opens.add(opened)
+    last_open = max(traded_opens) if traded_opens else None
+    zombie_bars = sum(
+        1 for opened in present if last_open is None or opened > last_open
+    )
+    present = {
+        opened for opened in present if last_open is not None and opened <= last_open
+    }
+    zero_volume = [
+        opened
+        for opened in zero_volume
+        if last_open is not None and opened <= last_open
+    ]
     missing: list[int] = []
     if last_open is not None:
         missing = [
@@ -961,6 +1248,10 @@ def _leg_coverage(
             "missing_hours": len(missing),
             "missing_ranges": _hour_ranges(missing),
             "trailing_hours_after_last_row": int(trailing),
+            "zombie_tail_bars": zombie_bars,
+            "effective_end": (
+                None if last_open is None else _iso(last_open + data.HOUR_MS)
+            ),
             "zero_volume_regular_rows": _hour_ranges(zero_volume),
             "unread_chunks": unread,
             "funding": _funding_coverage(
@@ -970,6 +1261,13 @@ def _leg_coverage(
                 end_ms,
                 errors,
                 _months_with_rows(sorted(present)),
+                _months_with_rows(sorted(traded_opens)),
+                (
+                    None
+                    if last_open is None
+                    else (min(traded_opens), last_open + data.HOUR_MS)
+                ),
+                rest,
             ),
         }
     )
@@ -1004,6 +1302,7 @@ def coverage_report(
     window: data.StageWindow,
     limit_close: datetime,
     symbols: Sequence[str],
+    rest: RestFundingSource | None = None,
 ) -> dict[str, Any]:
     """Per-symbol listing, gaps, fills, placeholders, funding and checksum results.
 
@@ -1027,6 +1326,7 @@ def coverage_report(
             symbol,
             window=window,
             limit_close=limit_close,
+            rest=rest,
         )
         entries[symbol] = {_MARKET.value: entry}
         if first is not None and last is not None:
@@ -1091,6 +1391,7 @@ def coverage_report(
         "exchange_wide_perp_gaps": _exchange_wide(firsts, lasts, missing),
         "archive_evidence_count": len(evidence),
         "archive_evidence_digest": tierd_driver._digest(evidence) if evidence else None,
+        "rest_funding_evidence": [] if rest is None else rest.evidence(),
         "daily_fallback_filled_hours": len(fills),
         "registered_halts": [
             [_iso(ms_from_utc(a)), _iso(ms_from_utc(b))]
@@ -1179,6 +1480,42 @@ def _coverage_read_errors(entries: dict[str, Any]) -> list[str]:
     )
 
 
+def coverage_summary_fields(entries: dict[str, Any]) -> dict[str, Any]:
+    """What would refuse a run, visible before it: inadmissible funding months, REST, zombies."""
+    inadmissible: list[str] = []
+    rest_months = 0
+    zombies = 0
+    for name, markets in sorted(entries.items()):
+        for entry in markets.values():
+            if entry.get("zombie_tail_bars"):
+                zombies += 1
+            funding = entry.get("funding") or {}
+            for record in funding.get("unpublished_funding_months", []):
+                if not record.get("admissible"):
+                    inadmissible.append(f"{name}:{record['month']}")
+                if "rest_events" in record:
+                    rest_months += 1
+    return {
+        "inadmissible_unpublished_funding_months": {
+            "count": len(inadmissible),
+            "months": inadmissible,
+        },
+        "rest_funding_months": rest_months,
+        "zombie_tail_legs": zombies,
+    }
+
+
+def _rest_source(
+    args: argparse.Namespace, rest_fetch: RestFetch | None
+) -> RestFundingSource:
+    """The REST funding fallback: a raw cache under the archive dir, the network only with
+    ``--allow-network``."""
+    fetch: RestFetch | None = None
+    if args.allow_network:
+        fetch = binance_rest_fetch if rest_fetch is None else rest_fetch
+    return RestFundingSource(args.archive_dir / "rest" / "fundingRate", fetch)
+
+
 def _coverage_main(
     args: argparse.Namespace,
     *,
@@ -1188,6 +1525,7 @@ def _coverage_main(
     rows_factory: RowSourceFactory | None,
     moment: datetime,
     gh: g4.GhRunner,
+    rest_fetch: RestFetch | None = None,
 ) -> int:
     try:
         if args.stage != protocol.STAGE_FORWARD and (
@@ -1223,6 +1561,7 @@ def _coverage_main(
                 window=window,
                 limit_close=limit,
                 symbols=symbols,
+                rest=_rest_source(args, rest_fetch),
             )
         finally:
             for source in {id(detect): detect, id(reader): reader}.values():
@@ -1285,6 +1624,7 @@ def _coverage_main(
                     "hours"
                 ],
                 "legs_with_read_errors": errored,
+                **coverage_summary_fields(entries),
             },
             indent=2,
             sort_keys=True,
@@ -1303,6 +1643,7 @@ def main(
     rows_factory: RowSourceFactory | None = None,
     now: Clock = lambda: datetime.now(UTC),
     gh: g4.GhRunner = g4.default_gh,
+    rest_fetch: RestFetch | None = None,
 ) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
@@ -1333,6 +1674,7 @@ def main(
             rows_factory=rows_factory,
             moment=moment,
             gh=gh,
+            rest_fetch=rest_fetch,
         )
     return _run_main(
         args,
@@ -1342,6 +1684,7 @@ def main(
         rows_factory=rows_factory,
         moment=moment,
         gh=gh,
+        rest_fetch=rest_fetch,
     )
 
 
@@ -1360,6 +1703,7 @@ def _run_main(
     rows_factory: RowSourceFactory | None,
     moment: datetime,
     gh: g4.GhRunner,
+    rest_fetch: RestFetch | None = None,
 ) -> int:
     try:
         mode = _check_mode(args, moment)
@@ -1405,9 +1749,15 @@ def _run_main(
             if args.stage == protocol.STAGE_FORWARD
             else None
         )
+        rest = _rest_source(args, rest_fetch)
         try:
             hourly, coverage = load_stage_hourly(
-                detect, reader, window=window, limit_close=limit, symbols=symbols
+                detect,
+                reader,
+                window=window,
+                limit_close=limit,
+                symbols=symbols,
+                rest=rest,
             )
             evidence_fn = getattr(reader, "evidence", None)
             evidence = list(evidence_fn()) if callable(evidence_fn) else []
@@ -1482,6 +1832,20 @@ def _run_main(
             "archive_evidence_digest": (
                 tierd_driver._digest(evidence) if evidence else None
             ),
+            "zombie_tail": {
+                symbol: {
+                    "zombie_tail_bars": entry.get("zombie_tail_bars"),
+                    "effective_end": entry.get("effective_end"),
+                }
+                for symbol, entry in coverage.items()
+                if entry.get("zombie_tail_bars")
+            },
+            "rest_funding": {
+                "months": rest.evidence(),
+                "digest": (
+                    tierd_driver._digest(rest.evidence()) if rest.evidence() else None
+                ),
+            },
             "daily_fallback": {
                 "enabled": bool(args.daily_fallback),
                 "filled_hours": len(fills),

@@ -13,7 +13,8 @@ inverse-volatility weights (``sum |w| * sigma = 1`` per leg), scales the book to
 ex-ante volatility with the 50/50 diagonal-shrunk covariance of the last 360 log returns,
 and then applies, in this order, the per-name cap, the gross cap and the cash account. A
 held name is closed by a forced-close rule from 42 bars before its last available bar (a
-modelled one-week delisting announcement: it uses knowledge of the archive end).
+modelled one-week delisting announcement: it uses knowledge of the archive end, which is the
+close of the last 1h bar with volume once trailing zero-volume "zombie" bars are dropped).
 
 The pure helpers (``zr``, ``select_legs``, ``leg_weights``, ``vol_target_scale``,
 ``cap_weights``, ``cash_factors``) are public so the oracles can test them against

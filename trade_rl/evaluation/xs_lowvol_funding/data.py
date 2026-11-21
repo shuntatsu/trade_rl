@@ -14,11 +14,13 @@ Contract (fail closed everywhere):
 * **Bar states.** A 4h bar whose four hours are all published is active and tradable. A bar
   whose missing hours all lie inside a declared exchange-wide halt (and whose preceding bar
   is active) is active but not tradable: zero volume, the preceding close, no funding.
-  Every other bar (before the first listing, after the archive ends, inside an unexplained
+  Every other bar (before the first listing, after the effective end, inside an unexplained
   gap, the partial first bar) is inactive and not tradable with one constant sentinel price,
   never an invented price. The first inactive bar after an active one carries that last
   close as its open: it is the bar at which the engine settles a position the forced-close
-  rule could not close.
+  rule could not close. The effective end is the close of the last 1h bar with volume: the
+  tool drops the trailing zero-volume bars Vision publishes after a delisting before it
+  builds the hourly series.
 * **Embargo.** DEV and DISJOINT stop strictly before 2026-08-01; only FORWARD may read past
   it, and only on the exact owner authorization URL, never past the stage's last row nor the
   latest closed bar. DISJOINT and FORWARD datasets carry the authorization in their identity.

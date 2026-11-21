@@ -20,7 +20,7 @@ import pytest
 
 from tests.evaluation import test_core7_mtf_tierd as tierd_tests
 from tools import xs_lowvol_funding as driver
-from trade_rl.evaluation.xs_lowvol_funding import data, protocol, runner
+from trade_rl.evaluation.xs_lowvol_funding import data, policy, protocol, runner
 from trade_rl.integrations.binance.carry import CarryCoverageError
 from trade_rl.integrations.market_store.contracts import (
     FundingRow,
@@ -84,6 +84,8 @@ class Rows:
         self.daily: set[tuple[str, int]] = set()
         self.funding_skip: dict[str, set[int]] = {}
         self.funding_missing: dict[str, set[tuple[int, int]]] = {}
+        self.zombie_from: dict[str, int] = {}
+        self.zero_hours: dict[str, set[int]] = {}
         self._cache: dict[str, np.ndarray] = {}
         self._epoch = _ms(EPOCH)
 
@@ -125,10 +127,17 @@ class Rows:
                 continue
             i = (open_ms - self._epoch) // HOUR_MS
             o, c = float(path[i - 1]), float(path[i])
+            dead = open_ms >= self.zombie_from.get(symbol, 1 << 62) or open_ms in (
+                self.zero_hours.get(symbol, set())
+            )
             quote = (
-                150_000_000.0
-                + (i % 7) * 1_000_000.0
-                + 1_000.0 * (sum(map(ord, symbol)) % 50)
+                0.0
+                if dead
+                else (
+                    150_000_000.0
+                    + (i % 7) * 1_000_000.0
+                    + 1_000.0 * (sum(map(ord, symbol)) % 50)
+                )
             )
             rows.append(
                 KlineRow(
@@ -137,7 +146,7 @@ class Rows:
                     high=Decimal(f"{max(o, c) * 1.001:.8f}"),
                     low=Decimal(f"{min(o, c) * 0.999:.8f}"),
                     close=Decimal(f"{c:.8f}"),
-                    volume=Decimal("1000000.0"),
+                    volume=Decimal("0" if dead else "1000000.0"),
                     close_time_ms=open_ms + HOUR_MS - 1,
                     quote_volume=Decimal(f"{quote:.2f}"),
                     trades=100,
@@ -243,6 +252,7 @@ def tool(
     symbols: Sequence[str] = SYMBOLS,
     absent: Sequence[str] = (),
     with_rules: bool = True,
+    rest_fetch: Any = None,
 ) -> tuple[int, str, str]:
     perp = tmp_path / "perp.json"
     perp.write_bytes(perp_payload([*symbols, *protocol.DEV_ROSTER], absent=absent))
@@ -256,6 +266,7 @@ def tool(
         rows_factory=lambda plan: rows,
         now=lambda: now,
         gh=gh,
+        rest_fetch=rest_fetch,
     )
     return code, out.getvalue(), err.getvalue()
 
@@ -1327,3 +1338,381 @@ def test_forward_defaults_to_the_packaged_pinned_symbol_file(
     with pytest.raises(ValueError, match="differs from the pinned"):
         driver.stage_symbols("FORWARD", other)
     assert driver.stage_symbols("FORWARD", packaged) == symbols
+
+
+# ============================================== Amendment 2: zombie tail, REST funding
+
+
+class RestStub:
+    """Injected REST fetcher (no HTTP): 8-hourly events, per-symbol overrides."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, int]] = []
+        self.empty: set[str] = set()
+        self.fail: set[str] = set()
+        self.times: dict[str, list[int]] = {}
+
+    def __call__(self, symbol: str, start_ms: int, end_ms: int) -> bytes:
+        self.calls.append((symbol, start_ms, end_ms))
+        if symbol in self.fail:
+            raise driver.RestFundingError(f"{symbol}: the REST funding request failed")
+        if symbol in self.empty:
+            stamps: list[int] = []
+        elif symbol in self.times:
+            stamps = [t for t in self.times[symbol] if start_ms <= t <= end_ms]
+        else:
+            first = -(-start_ms // (8 * HOUR_MS)) * 8 * HOUR_MS
+            stamps = list(range(first, end_ms + 1, 8 * HOUR_MS))
+        page = stamps[: driver.REST_PAGE_LIMIT]
+        return json.dumps(
+            [
+                {
+                    "symbol": symbol,
+                    "fundingTime": t,
+                    "fundingRate": "0.00010000",
+                    "markPrice": "1.0",
+                }
+                for t in page
+            ]
+        ).encode("utf-8")
+
+
+def _rest(tmp_path: Path, fetch: Any = None) -> driver.RestFundingSource:
+    return driver.RestFundingSource(tmp_path / "rest" / "fundingRate", fetch)
+
+
+def _load_with(
+    rows: Rows,
+    window: data.StageWindow,
+    symbol: str,
+    rest: driver.RestFundingSource | None,
+) -> tuple[data.PerpHourly | None, dict[str, object]]:
+    limit = window.last_row_close
+    guarded = data.StageRowSource(
+        rows, window=window, limit_close=limit, symbols=[symbol]
+    )
+    return driver.load_perp(
+        guarded,
+        guarded,
+        symbol,
+        window=window,
+        limit_close=limit,
+        halt_intervals=(),
+        rest=rest,
+    )
+
+
+def test_split_zombie_tail_drops_only_the_trailing_zero_volume_run() -> None:
+    def bar(volume: str, quote: str = "0") -> Any:
+        return type(
+            "R", (), {"volume": Decimal(volume), "quote_volume": Decimal(quote)}
+        )()
+
+    rows = [bar("1"), bar("0"), bar("2"), bar("0"), bar("0")]
+    kept, dropped = driver.split_zombie_tail(rows)
+    assert kept == rows[:3] and dropped == 2
+    assert driver.split_zombie_tail([bar("0"), bar("0")]) == ([], 2)
+    assert driver.split_zombie_tail([bar("0", "5")])[1] == 0  # quote volume counts
+    assert driver.split_zombie_tail([]) == ([], 0)
+
+
+def test_a_zombie_tail_is_dropped_and_the_forced_close_keys_on_the_effective_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    dead = window.load_start + timedelta(days=50)
+    rows.zombie_from["AAAUSDT"] = _ms(dead)
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is not None
+    slot = 50 * 24
+    assert leg.present[:slot].all() and not leg.present[slot:].any()
+    assert coverage["effective_end"] == dead.isoformat()
+    assert coverage["zombie_tail_bars"] == leg.n_hours - slot
+    assert coverage["rows"] == slot
+    # the forced-close schedule is derived from the leg's last active 4h bar
+    n_rows = leg.n_hours // protocol.BAR_HOURS
+    clock = (
+        _ms(window.load_start) + (np.arange(n_rows, dtype=np.int64) + 1) * data.BAR_MS
+    )
+    active = data._aggregate_4h(leg, clock_ms=clock, grid_ms=data.BAR_MS).active
+    last = int(np.flatnonzero(active)[-1])
+    assert last == slot // protocol.BAR_HOURS - 1
+    forced = policy.XsInputs.forced_rows(active[:, None])[:, 0]
+    assert int(np.flatnonzero(forced)[-1]) == last
+    assert int(forced.sum()) == protocol.FORCED_CLOSE_LEAD_BARS + 1
+
+
+def test_interior_zero_volume_bars_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    hole = _ms(window.load_start + timedelta(days=10))
+    rows.zero_hours["AAAUSDT"] = {hole, hole + HOUR_MS}
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is not None and coverage["zombie_tail_bars"] == 0
+    assert leg.present[10 * 24] and leg.present[10 * 24 + 1]
+    assert leg.quote_volume[10 * 24] == 0.0
+    assert coverage["effective_end"] == window.last_row_close.isoformat()
+
+
+def test_a_leg_of_only_zero_volume_bars_is_not_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.zombie_from["AAAUSDT"] = 0
+    leg, coverage = _load(rows, window, "AAAUSDT")
+    assert leg is None and coverage["effective_end"] is None
+    assert coverage["zombie_tail_bars"] > 0
+
+
+def test_an_unpublished_funding_month_with_only_zombie_bars_no_longer_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.zombie_from["AAAUSDT"] = _ms(window.load_start + timedelta(days=45))
+    rows.funding_missing["AAAUSDT"] = {(2021, 3), (2021, 4)}
+    leg, coverage = _load(rows, window, "AAAUSDT")  # no REST source, no network
+    assert leg is not None
+    records = coverage["unpublished_funding_months"]
+    assert [r["month"] for r in records] == ["2021-03", "2021-04"]  # type: ignore[union-attr]
+    assert all(r["admissible"] for r in records)  # type: ignore[union-attr]
+    # the same unpublished month with real trading still refuses without the fallback
+    live = Rows({"AAAUSDT": (window.load_start, None)})
+    live.funding_missing["AAAUSDT"] = {(2021, 3)}
+    with pytest.raises(data.StageDataError, match="2021-03"):
+        _load(live, window, "AAAUSDT")
+
+
+def test_a_zero_volume_only_month_inside_the_leg_still_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    march = datetime(2021, 3, 1, tzinfo=UTC)
+    rows.zero_hours["AAAUSDT"] = {_ms(march) + i * HOUR_MS for i in range(31 * 24)}
+    rows.funding_missing["AAAUSDT"] = {(2021, 3)}
+    with pytest.raises(data.StageDataError, match="2021-03"):
+        _load_with(rows, window, "AAAUSDT", _rest(Path("unused"), RestStub()))
+
+
+def test_an_unpublished_traded_month_is_filled_from_rest_and_cached_raw(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.funding_missing["AAAUSDT"] = {(2021, 2)}
+    stub = RestStub()
+    rest = _rest(tmp_path, stub)
+    leg, coverage = _load_with(rows, window, "AAAUSDT", rest)
+    assert leg is not None
+    feb = datetime(2021, 2, 1, tzinfo=UTC)
+    mar = datetime(2021, 3, 1, tzinfo=UTC)
+    in_feb = [t for t in leg.funding_ms if _ms(feb) <= t < _ms(mar)]
+    assert len(in_feb) == 28 * 3 and np.all(np.diff(leg.funding_ms) > 0)
+    assert stub.calls == [("AAAUSDT", _ms(feb), _ms(mar) - 1)]
+    record = coverage["unpublished_funding_months"][0]  # type: ignore[index]
+    assert record["admissible"] and record["rest_events"] == 28 * 3
+    cache = (
+        tmp_path
+        / "rest"
+        / "fundingRate"
+        / "AAAUSDT"
+        / "AAAUSDT-fundingRate-2021-02.json"
+    )
+    (evidence,) = rest.evidence()
+    assert evidence["sha256"] == hashlib.sha256(cache.read_bytes()).hexdigest()
+    assert evidence["events"] == 28 * 3 and evidence["source"] == "network"
+
+
+def test_rest_paginates_by_start_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(driver, "REST_PAGE_LIMIT", 10)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.funding_missing["AAAUSDT"] = {(2021, 2)}
+    stub = RestStub()
+    leg, _ = _load_with(rows, window, "AAAUSDT", _rest(tmp_path, stub))
+    assert leg is not None
+    assert len(stub.calls) == 9  # 84 events, 10 per page
+    assert stub.calls[1][1] > stub.calls[0][1]
+    feb = datetime(2021, 2, 1, tzinfo=UTC)
+    mar = datetime(2021, 3, 1, tzinfo=UTC)
+    assert len([t for t in leg.funding_ms if _ms(feb) <= t < _ms(mar)]) == 28 * 3
+
+
+def test_an_empty_rest_month_is_admissible_only_when_the_gap_check_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    stub = RestStub()
+    stub.empty.add("AAAUSDT")
+    # listed at the end of January: the first funding event is on February 1st
+    late = Rows({"AAAUSDT": (datetime(2021, 1, 31, 12, tzinfo=UTC), None)})
+    late.funding_missing["AAAUSDT"] = {(2021, 1)}
+    leg, coverage = _load_with(late, window, "AAAUSDT", _rest(tmp_path, stub))
+    assert leg is not None
+    record = coverage["unpublished_funding_months"][0]  # type: ignore[index]
+    assert record["admissible"] and record["rest_events"] == 0
+    # listed early in the month: 27 days without an event is not continuous
+    early = Rows({"AAAUSDT": (datetime(2021, 1, 5, tzinfo=UTC), None)})
+    early.funding_missing["AAAUSDT"] = {(2021, 1)}
+    with pytest.raises(data.StageDataError, match="gap of"):
+        _load_with(early, window, "AAAUSDT", _rest(tmp_path / "b", stub))
+
+
+def test_without_network_and_cache_the_traded_unpublished_month_refuses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.funding_missing["AAAUSDT"] = {(2021, 2)}
+    with pytest.raises(data.StageDataError, match="not cached"):
+        _load_with(rows, window, "AAAUSDT", _rest(tmp_path, None))
+
+
+def test_a_cached_rest_month_is_reused_offline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.funding_missing["AAAUSDT"] = {(2021, 2)}
+    online = _rest(tmp_path, RestStub())
+    first, _ = _load_with(rows, window, "AAAUSDT", online)
+    offline = _rest(tmp_path, None)
+    second, _ = _load_with(rows, window, "AAAUSDT", offline)
+    assert first is not None and second is not None
+    assert np.array_equal(first.funding_ms, second.funding_ms)
+    (before,), (after,) = online.evidence(), offline.evidence()
+    assert after["source"] == "cache" and after["sha256"] == before["sha256"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda e: [{**e[0], "symbol": "OTHERUSDT"}, *e[1:]],
+        lambda e: [e[1], e[0], *e[2:]],
+        lambda e: [{**e[0], "fundingTime": 0}, *e[1:]],
+        lambda e: [*e[:-1], {**e[-1], "fundingTime": 1_617_235_200_000}],
+        lambda e: [{**e[0], "fundingRate": "nan"}, *e[1:]],
+        lambda e: {"code": -1121},
+    ],
+)
+def test_invalid_rest_responses_are_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutate: Any,
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    rows = Rows({"AAAUSDT": (window.load_start, None)})
+    rows.funding_missing["AAAUSDT"] = {(2021, 2)}
+    good = RestStub()
+
+    def bad(symbol: str, start_ms: int, end_ms: int) -> bytes:
+        return json.dumps(mutate(json.loads(good(symbol, start_ms, end_ms)))).encode()
+
+    with pytest.raises(data.StageDataError, match="2021-02"):
+        _load_with(rows, window, "AAAUSDT", _rest(tmp_path, bad))
+    assert not list((tmp_path / "rest").rglob("*.json"))  # nothing invalid is cached
+
+
+def test_coverage_summary_names_inadmissible_rest_and_zombie_months(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS[:3])
+    rows = Rows(listings(window, SYMBOLS[:3]))
+    rows.zombie_from[SYMBOLS[0]] = _ms(window.load_start + timedelta(days=45))
+    rows.funding_missing[SYMBOLS[0]] = {(2021, 3), (2021, 4)}  # zombie months
+    rows.funding_missing[SYMBOLS[1]] = {(2021, 2)}  # traded, REST fills it
+    rows.funding_missing[SYMBOLS[2]] = {(2021, 3)}  # traded, REST fails
+    stub = RestStub()
+    stub.fail.add(SYMBOLS[2])
+    code, out, err = tool(
+        tmp_path,
+        [
+            "coverage",
+            "--stage",
+            "DISJOINT",
+            "--allow-network",
+            "--output-dir",
+            str(tmp_path / "cov"),
+        ],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        symbols=SYMBOLS[:3],
+        with_rules=False,
+        rest_fetch=stub,
+    )
+    assert code == driver.EXIT_OK, err
+    summary = json.loads(out)
+    assert summary["zombie_tail_legs"] == 1
+    assert summary["rest_funding_months"] == 1
+    assert summary["inadmissible_unpublished_funding_months"] == {
+        "count": 1,
+        "months": [f"{SYMBOLS[2]}:2021-03"],
+    }
+    document = json.loads((tmp_path / "cov" / driver.COVERAGE_NAME).read_text("utf-8"))
+    zombie = document["symbols"][SYMBOLS[0]]["usds_m"]
+    assert zombie["zombie_tail_bars"] > 0 and zombie["effective_end"]
+    assert zombie["trailing_hours_after_last_row"] == zombie["zombie_tail_bars"]
+    assert document["rest_funding_evidence"][0]["symbol"] == SYMBOLS[1]
+    # without the network the traded month is inadmissible instead of REST-filled
+    code, out, err = tool(
+        tmp_path,
+        [
+            "coverage",
+            "--stage",
+            "DISJOINT",
+            "--output-dir",
+            str(tmp_path / "cov2"),
+        ],
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        symbols=SYMBOLS[:3],
+        with_rules=False,
+    )
+    assert code == driver.EXIT_OK, err
+    summary = json.loads(out)
+    assert summary["inadmissible_unpublished_funding_months"]["months"] == [
+        f"{SYMBOLS[2]}:2021-03"
+    ]
+    assert summary["rest_funding_months"] == 1  # SYMBOLS[1] is served from the cache
+
+
+def test_a_disjoint_run_records_zombie_legs_and_rest_months_in_the_data_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_DISJOINT)
+    monkeypatch.setattr(protocol, "load_candidates", lambda *a, **k: SYMBOLS)
+    rows = Rows(listings(window))
+    rows.zombie_from[SYMBOLS[2]] = _ms(window.load_start + timedelta(days=45))
+    rows.funding_missing[SYMBOLS[2]] = {(2021, 3), (2021, 4)}
+    rows.funding_missing[SYMBOLS[3]] = {(2021, 2)}
+    code, _, err = tool(
+        tmp_path,
+        run_argv(
+            tmp_path,
+            "DISJOINT",
+            "--dev-result",
+            str(dev_result(tmp_path)),
+            "--allow-network",
+        ),
+        gh=Gh(),
+        now=NOW,
+        rows=rows,
+        rest_fetch=RestStub(),
+    )
+    assert code in (driver.EXIT_OK, driver.EXIT_INVALID), err
+    receipt = json.loads(
+        (tmp_path / "out" / driver.DATA_RECEIPT_NAME).read_text("utf-8")
+    )
+    assert receipt["zombie_tail"][SYMBOLS[2]]["zombie_tail_bars"] > 0
+    assert receipt["zombie_tail"][SYMBOLS[2]]["effective_end"]
+    (month,) = receipt["rest_funding"]["months"]
+    assert month["symbol"] == SYMBOLS[3] and month["month"] == "2021-02"
+    assert receipt["rest_funding"]["digest"] and len(month["sha256"]) == 64

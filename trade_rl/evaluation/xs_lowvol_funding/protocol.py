@@ -82,6 +82,11 @@ FORCED_CLOSE_ADVERSE: Final = 0.05
 #: A held name is closed from this many 4h bars before its last available bar (about the
 #: one-week public delisting notice); the lead uses knowledge of the archive end.
 FORCED_CLOSE_LEAD_BARS: Final = 42
+#: Amendment 2: the effective listing end of a perp is the close of its last bar with volume
+#: (trailing zero-volume "zombie" bars are dropped); the forced-close lead counts back from it.
+#: An unpublished monthly funding archive in a traded month is filled from the REST endpoint;
+#: if that returns no event, the merged series must have no gap longer than this many hours there.
+FUNDING_MAX_GAP_HOURS: Final = 24
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
@@ -477,7 +482,8 @@ def protocol_payload() -> dict[str, object]:
         "forced_close": {
             "rule": "a held name's target is 0 from the decision bar 42 4h bars before "
             "its last available bar onward (the lead uses knowledge of the archive end, "
-            "modelling the public delisting announcement)",
+            "modelling the public delisting announcement); the end is the effective "
+            "end: the close of the last 1h bar with volume (Amendment 2)",
             "lead_bars": FORCED_CLOSE_LEAD_BARS,
             "adverse_charge": FORCED_CLOSE_ADVERSE,
             "booked": "cash debit at each fill bar of the forced close, applied to the "
@@ -519,6 +525,17 @@ def protocol_payload() -> dict[str, object]:
             "otherwise inactive (sentinel price, not tradable)",
             "daily_fallback": "checksum_verified_daily_archives_only_provenance_recorded",
             "forward_fill": False,
+            "zombie_tail": "the trailing run of zero-volume 1h bars after a perp's last "
+            "bar with volume is dropped as not listed before universe, forced-close, "
+            "funding and gap rules (Amendment 2; uses archive-end knowledge like the "
+            "forced-close exception); interior zero-volume bars are kept",
+            "rest_funding": {
+                "when": "a monthly funding archive is unpublished in a month with a bar "
+                "of positive volume",
+                "source": "binance_fapi_v1_fundingRate_public_raw_json_cached_sha256",
+                "empty_month_admissible_if_max_gap_hours_at_most": FUNDING_MAX_GAP_HOURS,
+                "otherwise": "refuse (fail closed; network only with --allow-network)",
+            },
             "declared_halts": {
                 "intervals": [list(pair) for pair in DECLARED_HALTS],
                 "coverage_json_sha256": COVERAGE_EVIDENCE_SHA256,
@@ -630,6 +647,7 @@ __all__ = [
     "FINAL_NOT_BEFORE",
     "FORCED_CLOSE_ADVERSE",
     "FORCED_CLOSE_LEAD_BARS",
+    "FUNDING_MAX_GAP_HOURS",
     "FORWARD_SCORING_FROM",
     "FORWARD_SYMBOLS_RELATIVE_PATH",
     "FORWARD_SYMBOLS_SHA256",

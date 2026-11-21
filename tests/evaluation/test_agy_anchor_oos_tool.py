@@ -288,6 +288,53 @@ def no_run(monkeypatch: pytest.MonkeyPatch) -> NoRun:
     return fake
 
 
+@pytest.mark.parametrize("stage", protocol.STAGES)
+@pytest.mark.parametrize("command", ("run", "coverage"))
+def test_changed_agy_v1_default_cli_refuses_new_economic_uses_before_any_io(
+    tmp_path: Path, stage: str, command: str
+) -> None:
+    """The changed cash oracle cannot be reused under an executed v1 identity."""
+    argv = [
+        command,
+        "--stage",
+        stage,
+        "--archive-dir",
+        str(tmp_path / "archive"),
+        "--output-dir",
+        str(tmp_path / "result"),
+    ]
+    if command == "run":
+        argv.extend(
+            [
+                "--exchange-info-spot",
+                str(tmp_path / "spot.json"),
+                "--exchange-info-perp",
+                str(tmp_path / "perp.json"),
+                "--authorization-url",
+                "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-1",
+            ]
+        )
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail(
+            "closed v1 must not call the clock, credentials, state or real data"
+        )
+
+    out, err = io.StringIO(), io.StringIO()
+    code = driver.main(
+        argv,
+        stdout=out,
+        stderr=err,
+        now=forbidden,
+        state=forbidden,
+        gh=forbidden,
+    )
+    assert code == driver.EXIT_REFUSED
+    assert "historical" in err.getvalue()
+    assert out.getvalue() == ""
+    assert not (tmp_path / "result").exists()
+
+
 # ======================================================================== plan
 
 

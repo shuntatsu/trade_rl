@@ -1,6 +1,7 @@
-"""Frozen constants and digest of the out-of-sample test ``trend_long_spot_oos_v1``.
+"""Proposed successor ``trend_long_spot_oos_v2``; no old economic run is renewed.
 
-The normative text is ``docs/specs/trend-long-spot-oos.md``. The rule under test is
+The normative software proposal is ``docs/specs/trend-long-spot-oos-v2.md``.
+The historical v1 protocol and consumed outcome are not retroactively changed. The rule under test is
 ``TS_TREND_LONG_SPOT`` of ``lowturn_family_screen_v1`` and every value it trades with
 is *imported* from :mod:`trade_rl.evaluation.lowturn_screen.protocol` (never re-typed),
 so this protocol cannot drift away from it. The digest of the lowturn protocol that is
@@ -22,8 +23,8 @@ from trade_rl.evaluation.lowturn_screen import protocol as lowturn
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
-PROTOCOL_SCHEMA: Final = "trend_long_spot_oos_protocol_v1"
-PROTOCOL_ID: Final = "trend_long_spot_oos_v1"
+PROTOCOL_SCHEMA: Final = "trend_long_spot_oos_protocol_v2"
+PROTOCOL_ID: Final = "trend_long_spot_oos_v2"
 
 #: The lowturn protocol this one reuses, and the digest it had when this one was frozen
 #: (``feat/lowturn-family-screen`` at ``7fb05514``).
@@ -167,10 +168,34 @@ COVERAGE_EVIDENCE_PROTOCOL_DIGEST: Final = (
 #: Spot gross limit of every arm. lowturn v1 allowed a spot gross of 2.0 while the
 #: engine finances negative cash at 0%, which is free leverage.
 SPOT_GROSS_LIMIT: Final = 1.0
-#: A cell whose borrowing (negative cash net of the execution costs paid so far) exceeds
-#: this fraction of the initial capital at any interval is invalid.
+#: Even a fee-financed overdraft is borrowing: raw cash below this fraction of
+#: initial capital makes the cell invalid. Fee-adjusted borrowing is diagnostic only.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
 REASON_NEGATIVE_CASH: Final = "negative_cash_borrowing"
+
+
+def cash_reserve_rate() -> float:
+    """Conservative per-notional configured fill-cost rate across frozen scenarios.
+
+    The policy knows no future fill price or source-specific fee. This reserves the
+    worst deterministic configured fee, spread and maximum participation impact;
+    ledger verification must still reject actual borrowing after fills.
+    """
+    rates = []
+    for scenario in SCENARIOS:
+        cost = scenario_cost(scenario)
+        if cost.slippage_std or cost.tail_slippage_probability:
+            raise ValueError("spot cash reserve requires deterministic scenario costs")
+        rates.append(
+            cost.multiplier
+            * (
+                cost.fee_rate
+                + max(cost.maker_fee_rate, cost.taker_fee_rate)
+                + cost.spread_rate
+                + cost.impact_rate
+            )
+        )
+    return max(rates)
 
 
 class ProtocolBindingError(RuntimeError):
@@ -342,23 +367,39 @@ def protocol_payload() -> dict[str, object]:
             "cash at 0%; the candidate is therefore the same rule on a spot cash account, "
             "not lowturn v1 TS_TREND_LONG_SPOT",
             "gross_limit": SPOT_GROSS_LIMIT,
-            "application": "every arm, after the frozen lowturn caps, on the target the "
-            "policy proposes (effective weights: held legs at their current weight, other "
-            "legs times risk_scale); proportional scaling to gross exactly the limit",
-            "when_binding": "all exact-quantity holds are dropped and the whole effective "
-            "vector is re-targeted, so the deadband cannot let gross creep; a proposal "
-            "that does not trade (pure hold, pre-image of an unchanged risk scale) is "
-            "never capped",
+            "application": "every arm, after the frozen lowturn caps, on effective spot "
+            "weights (held legs current, other legs risk-scaled); true absolute no-trade "
+            "HOLDs remain unchanged; binding removes holds",
+            "configured_cost_rate_max": cash_reserve_rate(),
+            "configured_cost_reserve": "at a decision mark, proposed spot gross is "
+            "limited to max(0, (gross_limit - configured_cost_rate_max * "
+            "current_spot_gross) / (1 + configured_cost_rate_max)); this covers "
+            "worst-case current+target turnover at the frozen configured fill-cost rates",
+            "pre_sale_buy_budget": "new spot buys sum(max(0, scaled_target_i - "
+            "current_i)) times (1 + configured_cost_rate_max) must not exceed "
+            "max(0, min(actual_cash / portfolio_value, 1 - current_spot_gross)); "
+            "uniform target reduction with no credit for later sell fills",
+            "reserve_limitations": "next-bar price changes, partial fills, "
+            "pending orders and source-supplied venue costs are not bounded by this "
+            "decision-mark reserve; actual ordered spot fills and interval close "
+            "are separately audited for negative cash and make the cell INVALID",
+            "when_binding": "all exact-quantity holds are dropped and the effective "
+            "vector is proportionally retargeted to cover total fees and pre-sale "
+            "buy financing; a true no-trade HOLD or exact risk-scale pre-image "
+            "is never capped",
             "wrapper": "trend_oos.cash_policy.CashAccountPolicy around the unchanged "
             "LowturnPolicy",
             "invalid_on_borrowing": {
                 "reason": REASON_NEGATIVE_CASH,
-                "rule": "max over ledger intervals of (-cash_after - total_cost_after) "
-                "greater than tolerance_fraction * initial_capital",
+                "rule": "min(interval cash_after, conservative ordered spot-fill "
+                "cash including all nonnegative interval execution fees charged "
+                "after the first signed fill, and all negative external cashflows "
+                "charged before fills) < -tolerance_fraction * initial_capital OR "
+                "per-interval unabsorbed-fee borrowing > that tolerance",
                 "tolerance_fraction": CASH_TOLERANCE_FRACTION,
-                "net_of_costs": "the engine debits execution costs from cash, so a book "
-                "fully invested at gross 1.0 holds a cash balance of minus the costs it "
-                "paid; that is not borrowing",
+                "net_of_costs": "diagnostic only: fee allowance is extinguished by "
+                "cash recovery and cannot offset future purchases; even an overdraft "
+                "solely due to fees is INVALID",
             },
             "reported_not_gating": [
                 "cap_bound_fraction_of_rebalance_decisions",
@@ -435,6 +476,7 @@ __all__ = [
     "BOOTSTRAP_SEED",
     "CANDIDATE",
     "CASH_TOLERANCE_FRACTION",
+    "cash_reserve_rate",
     "CLAIM_BACKCAST",
     "CLAIM_BOTH",
     "CONTROLS",

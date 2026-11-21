@@ -2626,8 +2626,11 @@ def load_incomplete_pair_attempt(
         before = os.fstat(handle.fileno())
         if before.st_size > max_receipt_bytes:
             raise ValueError("failure receipt exceeds configured byte budget")
-        # Bounded even if the file grows between the first fstat and read.
-        raw = handle.read(max_receipt_bytes + 1)
+        # The byte budget bounds st_size above. Read one byte beyond the
+        # observed file length, not beyond the much larger allowed budget:
+        # buffered read(n) can allocate n bytes even for a tiny file.
+        # The extra byte and the following EOF/stat checks detect growth.
+        raw = handle.read(before.st_size + 1)
         if len(raw) > max_receipt_bytes:
             raise ValueError("failure receipt exceeds configured byte budget")
         if handle.read(1):

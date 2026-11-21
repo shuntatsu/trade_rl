@@ -379,7 +379,18 @@ class ExecutionOverlayEnv(gym.Env):
             dtype=np.float32,
         )
         self._episode: _Episode | None = None
-        self._bars_per_day = self.config.decision_every_bars
+        # Decision cadence controls when the agent acts; observation windows
+        # and elapsed days use the *native dataset bar duration* instead.
+        timestamps = np.asarray(dataset.timestamps)
+        spacing = timestamps[1] - timestamps[0]
+        day = np.timedelta64(1, "D")
+        if (
+            spacing <= np.timedelta64(0, "ns")
+            or day % spacing != np.timedelta64(0, "ns")
+            or not np.all(np.diff(timestamps) == spacing)
+        ):
+            raise OverlayError("dataset must have uniform native bars dividing one day")
+        self._bars_per_day = int(day // spacing)
 
     # ------------------------------------------------------------------ gym API
 

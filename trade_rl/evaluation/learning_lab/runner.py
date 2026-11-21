@@ -72,6 +72,9 @@ def protocol_payload() -> dict[str, Any]:
         "splits": splits.splits_payload(),
         "data_cutoff": str(splits.DATA_CUTOFF),
         "overlay": OverlayConfig().payload(),
+        "observation_bar_clock": "uniform dataset-native interval, not decision stride",
+        "run_identity": "config digest includes actual initial_capital",
+        "statistics_validity": "finite typed DEV metrics; finite numeric DSR and trial variance",
         "methods": list(method_ids()),
         "fixed_strides": list(baselines.FIXED_STRIDES),
         "reward": "net_equity_increment of the shared-portfolio engine, gamma 1",
@@ -105,6 +108,12 @@ class LabSetup:
     data_kind: str = "synthetic"
 
     def __post_init__(self) -> None:
+        if (
+            type(self.initial_capital) not in (int, float)
+            or not math.isfinite(self.initial_capital)
+            or self.initial_capital <= 0
+        ):
+            raise RunnerError("initial_capital must be finite and positive")
         splits.require_before_cutoff(self.dataset.timestamps)
         splits.validate_split_set(dict(self.splits))
 
@@ -194,6 +203,7 @@ def config_digest(
         "splits": splits.splits_payload(dict(setup.splits)),
         "dataset_id": setup.dataset.dataset_id,
         "data_kind": setup.data_kind,
+        "initial_capital": float(setup.initial_capital),
         "signal_lag_bars": setup.signal_lag_bars,
         "cost": asdict(setup.execution_cost),
         "risk": asdict(setup.risk_config),
@@ -350,16 +360,38 @@ def evaluate_method(
     return record
 
 
+def _dev_stat(row: Mapping[str, Any], field: str, context: str) -> float:
+    """Fail closed on missing/invalid metrics before comparing development arms."""
+    try:
+        value = row[field]
+    except (TypeError, KeyError) as error:
+        raise RunnerError(f"{context}.{field} is missing") from error
+    if type(value) not in (float, int):
+        raise RunnerError(f"{context}.{field} must be a finite number")
+    try:
+        numeric = float(value)
+    except OverflowError as error:
+        raise RunnerError(f"{context}.{field} must be finite") from error
+    if not math.isfinite(numeric):
+        raise RunnerError(f"{context}.{field} must be finite")
+    return numeric
+
+
+def _dev_halves(row: Mapping[str, Any], context: str) -> dict[str, float]:
+    halves: dict[str, float] = {}
+    for key in ("half1", "half2"):
+        subrow = row.get(key)
+        if not isinstance(subrow, Mapping):
+            raise RunnerError(f"{context}.{key} is not a metrics map")
+        halves[key] = _dev_stat(subrow, "sharpe_per_period", f"{context}.{key}")
+    return halves
+
+
 def dev_decision(
     agent_validation: Mapping[int, Mapping[str, Any]],
     baseline_validation: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """The study's DEV rule over validate metrics (a label for development only).
-
-    ``DEV_PROMISING`` needs: the median-seed net Sharpe beats the best fixed stride; at least
-    ``MIN_SEEDS_BEATING`` seeds beat it; the median seed wins both validation halves; and no
-    seed's validation drawdown reaches ``MAX_VALIDATION_DRAWDOWN``.
-    """
+    """Apply the frozen DEV comparison after checking every compared scalar."""
     strides = [
         m
         for m in baseline_validation
@@ -367,21 +399,38 @@ def dev_decision(
     ]
     if not strides or not agent_validation:
         raise RunnerError("the rule needs fixed-stride baselines and agent seeds")
-    key = "sharpe_per_period"
-    best = max(strides, key=lambda m: baseline_validation[m][key])
-    best_metrics = baseline_validation[best]
+    baseline_sharpes = {
+        name: _dev_stat(baseline_validation[name], "sharpe_per_period", name)
+        for name in strides
+    }
+    baseline_halves = {
+        name: _dev_halves(baseline_validation[name], name) for name in strides
+    }
+    sharpes = {
+        seed: _dev_stat(row, "sharpe_per_period", f"seed {seed}")
+        for seed, row in agent_validation.items()
+    }
+    drawdowns = {
+        seed: _dev_stat(row, "max_drawdown", f"seed {seed}")
+        for seed, row in agent_validation.items()
+    }
+    agent_halves = {
+        seed: _dev_halves(row, f"seed {seed}") for seed, row in agent_validation.items()
+    }
+    best = max(strides, key=lambda name: baseline_sharpes[name])
     seeds = sorted(agent_validation)
-    sharpes = {s: float(agent_validation[s][key]) for s in seeds}
     median_sharpe = statistics.median(sharpes.values())
+    if not math.isfinite(median_sharpe):
+        raise RunnerError("median validation Sharpe must be finite")
     median_seed = min(seeds, key=lambda s: (abs(sharpes[s] - median_sharpe), s))
-    beating = [s for s in seeds if sharpes[s] > float(best_metrics[key])]
+    beating = [seed for seed in seeds if sharpes[seed] > baseline_sharpes[best]]
     halves = all(
-        float(agent_validation[median_seed][h][key]) > float(best_metrics[h][key])
-        for h in ("half1", "half2")
+        agent_halves[median_seed][half] > baseline_halves[best][half]
+        for half in ("half1", "half2")
     )
-    worst_dd = max(float(agent_validation[s]["max_drawdown"]) for s in seeds)
+    worst_dd = max(drawdowns.values())
     checks = {
-        "median_beats_best_stride": median_sharpe > float(best_metrics[key]),
+        "median_beats_best_stride": median_sharpe > baseline_sharpes[best],
         "seeds_beating": len(beating) >= MIN_SEEDS_BEATING,
         "both_halves": halves,
         "drawdown_below_limit": worst_dd < MAX_VALIDATION_DRAWDOWN,

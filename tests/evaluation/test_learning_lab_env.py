@@ -348,6 +348,41 @@ def test_actions_and_lifecycle_are_validated() -> None:
         env.reset(options={"x": 1})
 
 
+@pytest.mark.parametrize("bad_symbol", (-1, True, 1.0))
+def test_negative_or_nonnative_hold_symbols_are_already_rejected_by_proposal(
+    bad_symbol: object,
+) -> None:
+    # The contract is in PortfolioTargetProposal, not duplicated in the overlay.
+    with pytest.raises((TypeError, ValueError), match="hold symbol"):
+        PortfolioTargetProposal(
+            target_weights=(0.0,) * 8,
+            hold_current_quantity_symbols=(bad_symbol,),  # type: ignore[arg-type]
+        )
+
+
+def test_observation_time_uses_native_bar_duration_not_decision_stride() -> None:
+    st = support.stage()
+    env = oe.ExecutionOverlayEnv(
+        st.dataset,
+        start_index=support.START,
+        stop_index=support.STOP,
+        base_factory=baselines.anchor_stack_factory(
+            st.signals, start_index=support.START
+        ),
+        execution_cost=protocol.scenario_cost("BASE"),
+        risk_config=protocol.risk_config(),
+        config=oe.OverlayConfig(
+            decision_every_bars=18, initial_capital=support.CAPITAL
+        ),
+    )
+    assert env._bars_per_day == 6
+    env.reset(seed=0)
+    observation, _, done, _, _ = env.step(0)
+    assert not done
+    index = oe.OBSERVATION_FIELDS.index("days_since_last_trade")
+    assert observation[index] == pytest.approx(3.0)
+
+
 def test_a_hold_that_moves_the_book_is_refused() -> None:
     snapshot = _snapshot(3, weights=(0.1,) + (0.0,) * 7)
     bad = PortfolioTargetProposal(

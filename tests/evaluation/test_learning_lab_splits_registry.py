@@ -10,12 +10,14 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from statistics import NormalDist
 
 import numpy as np
 import pytest
 
+from tests.evaluation import learning_lab_support as support
 from tools import learning_lab as lab_tool
 from trade_rl.evaluation.learning_lab import registry as reg
 from trade_rl.evaluation.learning_lab import runner as lab_runner
@@ -861,6 +863,144 @@ def test_records_validate_their_fields(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------- deflated Sharpe
+
+
+@pytest.mark.parametrize(
+    "n_trials,variance",
+    [
+        (True, 0.01),
+        (2.5, 0.01),
+        (0, 0.01),
+        (10**20, 0.01),
+        (2, float("nan")),
+        (2, float("inf")),
+        (2, True),
+    ],
+)
+def test_expected_max_sharpe_rejects_invalid_numeric_inputs(
+    n_trials: object, variance: float
+) -> None:
+    with pytest.raises(ValueError):
+        reg.expected_max_sharpe(n_trials, variance)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"sharpe": float("nan")},
+        {"sharpe": 1e200},
+        {"skewness": float("inf")},
+        {"kurtosis": float("nan")},
+        {"n_obs": True},
+        {"n_obs": 2.5},
+        {"n_obs": 10**400},
+        {"n_trials": False},
+        {"trial_sharpe_variance": float("inf")},
+        {"kurtosis": float("inf")},
+    ],
+)
+def test_deflated_sharpe_refuses_bad_statistics(updates: dict[str, object]) -> None:
+    params: dict[str, object] = {
+        "sharpe": 0.1,
+        "n_obs": 300,
+        "skewness": 0.0,
+        "kurtosis": 3.0,
+        "n_trials": 4,
+        "trial_sharpe_variance": 0.01,
+    }
+    params.update(updates)
+    with pytest.raises(ValueError):
+        reg.deflated_sharpe_ratio(**params)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad", (True, "nope", None, 10**400, float("nan")))
+def test_trial_sharpes_refuses_malformed_registered_metric(bad: object) -> None:
+    metrics: dict[str, object] = {"sharpe_per_period": 0.02}
+    record = reg.TrialRecord(
+        method_id="m",
+        config_digest="a" * 64,
+        seed=0,
+        split="validate",
+        code_commit="b" * 40,
+        metrics=metrics,
+        status="completed",
+    )
+    metrics["sharpe_per_period"] = bad
+    with pytest.raises(ValueError):
+        reg.trial_sharpes([record])
+
+
+def test_registry_deflation_rejects_overflowed_sample_variance() -> None:
+    records = [_record(seed=i, sharpe=s) for i, s in enumerate((1e200, -1e200))]
+    with pytest.raises(ValueError):
+        reg.registry_deflated_sharpe(
+            records, sharpe=0.1, n_obs=200, skewness=0.0, kurtosis=3.0
+        )
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"method_id": 1},
+        {"split": 2},
+        {"code_commit": True},
+        {"stop_reason": 17},
+        {"recorded_at": 123},
+        {"status": False},
+    ],
+)
+def test_trial_records_refuse_nontext_identity_and_metadata(
+    changed: dict[str, object],
+) -> None:
+    payload: dict[str, object] = {
+        "method_id": "L1-PPO",
+        "config_digest": "a" * 64,
+        "seed": 0,
+        "split": "validate",
+        "code_commit": "b" * 40,
+        "metrics": {},
+        "status": "completed",
+    }
+    payload.update(changed)
+    with pytest.raises(reg.RegistryError):
+        reg.TrialRecord(**payload)  # type: ignore[arg-type]
+
+
+def test_config_digest_binds_actual_initial_capital() -> None:
+    payload = lab_runner.protocol_payload()
+    assert payload["observation_bar_clock"].startswith("uniform dataset-native")
+    assert payload["run_identity"] == "config digest includes actual initial_capital"
+    setup = support.synthetic_setup(n_bars=120)
+    method = "BASE-STRIDE-6"
+    baseline = lab_runner.config_digest(setup, None, method)
+    richer = replace(setup, initial_capital=setup.initial_capital * 2)
+    assert lab_runner.config_digest(richer, None, method) != baseline
+    with pytest.raises(lab_runner.RunnerError, match="initial_capital"):
+        replace(setup, initial_capital=0.0)
+
+
+def test_dev_gate_refuses_nonfinite_agent_and_baseline_values() -> None:
+    def row(*, sharpe: float = 0.03, dd: float = 0.05) -> dict[str, object]:
+        return {
+            "sharpe_per_period": sharpe,
+            "max_drawdown": dd,
+            "half1": {"sharpe_per_period": sharpe},
+            "half2": {"sharpe_per_period": sharpe},
+        }
+
+    baseline = {"BASE-STRIDE-6": row(sharpe=0.01)}
+    agents = {seed: row() for seed in range(5)}
+    assert (
+        lab_runner.dev_decision(agents, baseline)["label"] == lab_runner.LABEL_PROMISING
+    )
+    for bad_input in (
+        ({**agents, 4: row(dd=float("nan"))}, baseline),
+        (agents, {"BASE-STRIDE-6": row(sharpe=float("nan"))}),
+        ({**agents, 0: row(sharpe=float("inf"))}, baseline),
+        ({0: row(sharpe=1e308), 1: row(sharpe=1e308)}, baseline),
+    ):
+        with pytest.raises((lab_runner.RunnerError, ValueError)):
+            lab_runner.dev_decision(*bad_input)
 
 
 def test_expected_max_sharpe_known_values() -> None:

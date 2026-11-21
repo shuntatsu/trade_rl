@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import NormalDist
-from typing import Any, Final
+from typing import Any, Final, cast
 
 try:
     import fcntl
@@ -71,16 +71,30 @@ class TrialRecord:
     recorded_at: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.method_id or not self.split or not self.code_commit:
-            raise RegistryError("method_id, split and code_commit are required")
-        if _HEX64.fullmatch(self.config_digest) is None:
+        if any(
+            type(value) is not str or not value
+            for value in (self.method_id, self.split, self.code_commit)
+        ):
+            raise RegistryError(
+                "method_id, split and code_commit must be nonempty strings"
+            )
+        if (
+            type(self.config_digest) is not str
+            or _HEX64.fullmatch(self.config_digest) is None
+        ):
             raise RegistryError("config_digest must be a lowercase sha256")
         if type(self.seed) is not int or self.seed < 0:
             raise RegistryError("seed must be a non-negative int")
-        if self.status not in STATUSES:
+        if type(self.status) is not str or self.status not in STATUSES:
             raise RegistryError(f"status must be one of {STATUSES}")
+        if self.stop_reason is not None and type(self.stop_reason) is not str:
+            raise RegistryError("stop_reason must be a string or None")
+        if self.recorded_at is not None and type(self.recorded_at) is not str:
+            raise RegistryError("recorded_at must be a string or None")
         if self.status != "completed" and not self.stop_reason:
             raise RegistryError("a non-completed trial needs a stop_reason")
+        if not isinstance(self.metrics, Mapping):
+            raise RegistryError("metrics must be a mapping")
         _check_finite_metrics(self.metrics)
 
     def to_dict(self) -> dict[str, Any]:
@@ -262,18 +276,42 @@ class TrialRegistry:
             return [TrialRecord.from_dict(json.loads(line)["record"]) for line in lines]
 
 
+def _finite_statistic(value: object, name: str) -> float:
+    """Convert only native JSON numeric scalars, refusing overflow and sentinels."""
+    if type(value) not in (int, float):
+        raise ValueError(f"{name} must be a finite number")
+    try:
+        number = float(cast("int | float", value))
+    except OverflowError as error:
+        raise ValueError(f"{name} must be a finite number") from error
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number")
+    return number
+
+
 def expected_max_sharpe(n_trials: int, trial_sharpe_variance: float) -> float:
-    """``SR0``: expected maximum Sharpe of ``n_trials`` skill-less trials."""
-    if n_trials < 1:
-        raise ValueError("n_trials must be at least 1")
-    if trial_sharpe_variance < 0.0 or not math.isfinite(trial_sharpe_variance):
-        raise ValueError("trial_sharpe_variance must be finite and non-negative")
-    if n_trials == 1 or trial_sharpe_variance == 0.0:
+    """SR0: expected maximum Sharpe over typed, finite trial statistics."""
+    if type(n_trials) is not int or n_trials < 1:
+        raise ValueError("n_trials must be a positive integer")
+    variance = _finite_statistic(trial_sharpe_variance, "trial_sharpe_variance")
+    if variance < 0.0:
+        raise ValueError("trial_sharpe_variance must be nonnegative")
+    if n_trials == 1 or variance == 0.0:
         return 0.0
-    return math.sqrt(trial_sharpe_variance) * (
-        (1.0 - _EULER_GAMMA) * _NORMAL.inv_cdf(1.0 - 1.0 / n_trials)
-        + _EULER_GAMMA * _NORMAL.inv_cdf(1.0 - 1.0 / (n_trials * math.e))
+    tail = 1.0 / n_trials
+    # float64 loses the probability tail beyond ~1e16 independent trials;
+    # NormalDist.inv_cdf(1) would throw StatisticsError or imply infinity.
+    high = 1.0 - tail
+    lower = 1.0 - tail / math.e
+    if not (0.0 < high < 1.0 and 0.0 < lower < 1.0):
+        raise ValueError("n_trials exceeds representable Gaussian tail precision")
+    value = math.sqrt(variance) * (
+        (1.0 - _EULER_GAMMA) * _NORMAL.inv_cdf(high)
+        + _EULER_GAMMA * _NORMAL.inv_cdf(lower)
     )
+    if not math.isfinite(value):
+        raise ValueError("expected maximum Sharpe must be finite")
+    return value
 
 
 def deflated_sharpe_ratio(
@@ -285,25 +323,35 @@ def deflated_sharpe_ratio(
     n_trials: int,
     trial_sharpe_variance: float,
 ) -> float:
-    """Probability that ``sharpe`` (per period) beats the expected best of ``n_trials``."""
-    if n_obs < 2:
-        raise ValueError("n_obs must be at least 2")
+    """Probability that a finite per-period Sharpe beats the expected null maximum."""
+    if type(n_obs) is not int or n_obs < 2:
+        raise ValueError("n_obs must be an integer of at least two")
+    obs = _finite_statistic(n_obs, "n_obs")
+    candidate = _finite_statistic(sharpe, "sharpe")
+    skew = _finite_statistic(skewness, "skewness")
+    kurt = _finite_statistic(kurtosis, "kurtosis")
     benchmark = expected_max_sharpe(n_trials, trial_sharpe_variance)
-    variance_term = 1.0 - skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe**2
-    if variance_term <= 0.0:
-        raise ValueError("the Sharpe estimator variance is not positive")
-    z = (sharpe - benchmark) * math.sqrt(n_obs - 1) / math.sqrt(variance_term)
+    try:
+        variance_term = 1.0 - skew * candidate + (kurt - 1.0) / 4.0 * candidate**2
+        if not math.isfinite(variance_term) or variance_term <= 0.0:
+            raise ValueError("Sharpe estimator variance must be positive and finite")
+        z = (candidate - benchmark) * math.sqrt(obs - 1.0) / math.sqrt(variance_term)
+    except OverflowError as error:
+        raise ValueError("deflated Sharpe numerical overflow") from error
+    if not math.isfinite(z):
+        raise ValueError("deflated Sharpe score must be finite")
     return _NORMAL.cdf(z)
 
 
 def trial_sharpes(
     records: Iterable[TrialRecord], *, key: str = SHARPE_KEY
 ) -> list[float]:
-    return [
-        float(record.metrics[key])
-        for record in records
-        if key in record.metrics and math.isfinite(float(record.metrics[key]))
-    ]
+    """Missing Sharpe on failures is fine; present invalid Sharpe is not."""
+    values: list[float] = []
+    for record in records:
+        if key in record.metrics:
+            values.append(_finite_statistic(record.metrics[key], key))
+    return values
 
 
 def registry_deflated_sharpe(
@@ -315,20 +363,21 @@ def registry_deflated_sharpe(
     kurtosis: float,
     key: str = SHARPE_KEY,
 ) -> dict[str, float]:
-    """Deflated Sharpe of one candidate against *every* registered trial.
-
-    ``n_trials`` counts all records (failed and shelved ones too); the variance is taken
-    over the per-period Sharpes the records carry (ddof 1; zero with fewer than two).
-    """
+    """Include *all* registered attempts, refusing overflowed trial dispersion."""
     all_records = list(records)
     sharpes = trial_sharpes(all_records, key=key)
     n_trials = max(1, len(all_records))
-    mean = sum(sharpes) / len(sharpes) if sharpes else 0.0
-    variance = (
-        sum((s - mean) ** 2 for s in sharpes) / (len(sharpes) - 1)
-        if len(sharpes) > 1
-        else 0.0
-    )
+    try:
+        mean = sum(sharpes) / len(sharpes) if sharpes else 0.0
+        variance = (
+            sum((s - mean) ** 2 for s in sharpes) / (len(sharpes) - 1)
+            if len(sharpes) > 1
+            else 0.0
+        )
+    except OverflowError as error:
+        raise ValueError("trial Sharpe variance overflow") from error
+    if not math.isfinite(mean) or not math.isfinite(variance):
+        raise ValueError("trial Sharpe variance must be finite")
     return {
         "n_trials": float(n_trials),
         "trial_sharpe_variance": variance,

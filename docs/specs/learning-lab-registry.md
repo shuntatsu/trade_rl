@@ -11,6 +11,18 @@ Every method is evaluated in one common harness. The harness provides:
 
 A method is shelved with the reason it stopped. Nothing is deleted.
 
+Software safety (not economic approval): the per-run configuration digest binds
+actual initial capital as well as the dataset, signal lag, costs and risk. The
+development rule validates all compared Sharpe, half-period Sharpe and drawdown
+inputs as finite native numeric scalars before ranking; missing, NaN, infinite,
+overflowed or nonnumeric evidence refuses instead of producing DEV_PROMISING.
+The trial registry requires typed text identity/metadata and a valid JSONL shape;
+DSR, Gaussian null quantiles and trial variance similarly refuse malformed or
+overflowed numeric inputs. Missing Sharpe on failed/shelved records does not remove
+those trials from the multiple-testing count. Observation features and elapsed
+days derive their native bars/day from the uniform dataset timestamp interval,
+not the independently configured agent decision stride.
+
 ## Local trial registry concurrency (software contract)
 
 `TrialRegistry.append` takes a POSIX advisory **exclusive lock on the registry

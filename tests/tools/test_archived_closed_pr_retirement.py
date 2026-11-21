@@ -269,7 +269,7 @@ def test_workflow_is_gated_to_exact_issue_comment_token() -> None:
     )
     workflow = p.read_text(encoding="utf-8")
     token = "$" + "{{ github.token }}"
-    assert workflow.count("GH_TOKEN: " + token) == 8
+    assert workflow.count("GH_TOKEN: " + token) == 12
     assert "frozen-closed-pr-retirement:" in workflow
     assert mod.COMMAND in workflow
     assert "ref: main" in workflow

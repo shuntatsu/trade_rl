@@ -739,11 +739,15 @@ def test_forward_listing_exclusions() -> None:
     assert not protocol.forward_symbol_allowed("USDT")
 
 
-def test_declared_halts_are_empty_until_the_amendment_and_need_their_evidence(
+def test_amendment_1_declares_no_halt_and_pins_its_coverage_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert protocol.DECLARED_HALTS == () and protocol.COVERAGE_EVIDENCE_SHA256 is None
+    assert protocol.DECLARED_HALTS == ()
+    assert protocol.COVERAGE_EVIDENCE_SHA256 == (
+        "757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c"
+    )
     assert protocol.declared_halt_intervals() == ()
+    monkeypatch.setattr(protocol, "COVERAGE_EVIDENCE_SHA256", None)
     monkeypatch.setattr(
         protocol, "DECLARED_HALTS", (("2021-05-19T10:00:00Z", "2021-05-19T12:00:00Z"),)
     )
@@ -757,7 +761,7 @@ def test_declared_halts_are_empty_until_the_amendment_and_need_their_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "cf7bc6aa2eca47d447bf8edd8315c8a50e913b51db67a5b016f08d3ba659eb71"
+    "d9c4c800dfa9743e1d8de8f2e25f1e6b03abb4e750bab88fe7d86ed0a1422482"
 )
 
 

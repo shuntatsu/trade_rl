@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `cf7bc6aa2eca47d447bf8edd8315c8a50e913b51db67a5b016f08d3ba659eb71`
+Protocol digest: `d9c4c800dfa9743e1d8de8f2e25f1e6b03abb4e750bab88fe7d86ed0a1422482`
 
 ## Question
 
@@ -80,6 +80,8 @@ If fewer than 12 symbols are eligible, the month holds no book and the CANDIDATE
 ### Declared halts
 
 Exchange-wide perp outages are declared result-blind from a coverage report, as in `agy_anchor_oos`. `coverage` reads archives and validates rows. It computes no signal, replay or return. A range qualifies only if every symbol listed at that time is missing it. Any other missing hour of an eligible, held or ranked symbol follows the rules above.
+
+**Amendment 1 (2026-11-21, result-blind).** `coverage` for DISJOINT ran from code `ef11e0b06d108fae34bc6ea0f33f63a9d2a02775` (protocol digest `1fae7b85…`) on a clean tree. It reported 0 exchange-wide perp gap hours and no read error, so `DECLARED_HALTS` stays empty. Ten legs have symbol-specific gaps (AERGO, BNX, CTK, CVC, CVX, ICP, LIT, PUMP, SLP, TLM; 7–122 hours); they follow the eligibility and forced-close rules above. The report's SHA-256 `757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c` is pinned as `COVERAGE_EVIDENCE_SHA256`. No signal, replay or return was computed.
 
 ## Stages
 

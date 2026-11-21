@@ -183,9 +183,12 @@ BOOTSTRAP_CHUNK: Final = 250
 PRIOR_TRIALS: Final = 40
 
 #: Exchange-wide perpetual outages declared result-blind from the DISJOINT coverage report
-#: (an amendment and a new digest). Empty until that amendment is made.
+#: (Amendment 1). The DISJOINT coverage report (code ef11e0b0) found no exchange-wide gap, so
+#: no halt is declared; its SHA-256 is pinned as the evidence for that empty declaration.
 DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
-COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
+COVERAGE_EVIDENCE_SHA256: Final[str | None] = (
+    "757cbdd8f4d0a1ce7c783ea91bd3e7a16f719b5e5c3e8d00f1979e6a6b8b7d5c"
+)
 #: SHA-256 of the FORWARD symbol file, pinned by a result-blind amendment before any FORWARD
 #: read; FORWARD is refused while it is None.
 FORWARD_SYMBOLS_SHA256: Final[str | None] = (

@@ -18,6 +18,7 @@ import pytest
 
 from tools import learning_lab as lab_tool
 from trade_rl.evaluation.learning_lab import registry as reg
+from trade_rl.evaluation.learning_lab import runner as lab_runner
 from trade_rl.evaluation.learning_lab import splits
 from trade_rl.evaluation.learning_lab.metrics import summarize_returns
 
@@ -228,7 +229,7 @@ def test_deflated_last_refuses_incomplete_success_metrics(
     assert path.read_bytes() == before and registry.verify() == 1
 
 
-@pytest.mark.parametrize("invalid_count", (True, 4.5, "4"))
+@pytest.mark.parametrize("invalid_count", (True, 4.5, "4", -1, 0, 1))
 def test_deflated_last_does_not_silently_coerce_observation_count(
     tmp_path: Path,
     invalid_count: object,
@@ -261,6 +262,78 @@ def test_deflated_last_does_not_silently_coerce_observation_count(
     assert code == lab_tool.EXIT_REFUSED
     assert "n_obs" in err.getvalue() and not out.getvalue()
     assert path.read_bytes() == before and registry.verify() == 1
+
+
+@pytest.mark.parametrize("name", ("sharpe_per_period", "skewness", "kurtosis"))
+@pytest.mark.parametrize("invalid_moment", (True, None, "0.03"))
+def test_deflated_last_refuses_nonnumeric_moments_without_mutating_registry(
+    tmp_path: Path,
+    name: str,
+    invalid_moment: object,
+) -> None:
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    metrics: dict[str, object] = {
+        "sharpe_per_period": 0.05,
+        "n_obs": 100,
+        "skewness": 0.0,
+        "kurtosis": 3.0,
+    }
+    metrics[name] = invalid_moment
+    registry.append(
+        reg.TrialRecord(
+            method_id="L1-PPO",
+            config_digest="a" * 64,
+            seed=0,
+            split="validate",
+            code_commit="b" * 40,
+            metrics=metrics,
+            status="completed",
+        )
+    )
+    before = path.read_bytes()
+    out, err = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(
+            ["registry", "--registry", str(path), "--deflated-for-last"],
+            stdout=out,
+            stderr=err,
+        )
+        == lab_tool.EXIT_REFUSED
+    )
+    assert not out.getvalue() and name in err.getvalue()
+    assert path.read_bytes() == before and registry.verify() == 1
+
+
+@pytest.mark.parametrize("name", ("sharpe_per_period", "skewness", "kurtosis"))
+@pytest.mark.parametrize("bad_value", (math.nan, math.inf, -math.inf, 10**1000))
+def test_deflated_for_refuses_unpersistable_moments_before_reading_registry(
+    tmp_path: Path,
+    name: str,
+    bad_value: float | int,
+) -> None:
+    # The registry rejects nonfinite floats on append. Also defend the runner
+    # against a mutable TrialRecord supplied directly by an in-process caller.
+    metrics: dict[str, object] = {
+        "sharpe_per_period": 0.05,
+        "n_obs": 100,
+        "skewness": 0.0,
+        "kurtosis": 3.0,
+    }
+    record = reg.TrialRecord(
+        method_id="L1-PPO",
+        config_digest="a" * 64,
+        seed=0,
+        split="validate",
+        code_commit="b" * 40,
+        metrics=metrics,
+        status="completed",
+    )
+    metrics[name] = bad_value
+    path = tmp_path / "no-registry-created.jsonl"
+    with pytest.raises(ValueError, match=f"{name} must be a finite number"):
+        lab_runner.deflated_for(reg.TrialRegistry(path), record)
+    assert not path.exists()
 
 
 def test_deflated_last_works_for_completed_record_with_real_moments(

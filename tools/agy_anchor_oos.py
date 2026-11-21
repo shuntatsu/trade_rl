@@ -23,8 +23,11 @@ and digest quoted, unedited between two fetches), requires a clean checkout and 
 directory, builds the stage dataset, records a data receipt and writes every cell before the
 result. The run order is enforced: BACKCAST_2020 needs the DEV result, FORWARD final needs the
 BACKCAST_2020 decision of the same digest (whatever its label). ``--final`` is refused before
-2027-05-02T00:00Z; ``--interim`` writes a dated ``INTERIM_NOT_A_DECISION`` report. The driver
-authorizes nothing beyond data reads and the evaluation: no orders, no API keys.
+2027-05-02T00:00Z; ``--interim`` writes a dated ``INTERIM_NOT_A_DECISION`` report. The historical v1 protocol has already executed and its economics were altered
+by subsequent source corrections. Therefore the ordinary `run` and `coverage`
+CLI commands now refuse before any market data, clock, G4 or filesystem read.
+Only in-process test calls with injected synthetic row factories can exercise
+the historical fixtures. The driver never authorizes orders or API keys.
 """
 
 from __future__ import annotations
@@ -1255,6 +1258,17 @@ def main(
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     args = build_parser().parse_args(argv)
+    # This v1 study already ran under the original source/digest. Cash-cap and
+    # fee-credit corrections now change its financial behavior. Synthetic test
+    # factories may exercise the contract, but the ordinary CLI must not read
+    # historical/forward data or publish another v1 economic receipt.
+    if args.command in {"run", "coverage"} and rows_factory is None:
+        err.write(
+            "refused: historical agy_anchor_realistic_v1 is closed for new "
+            "real-data coverage and runs after cash-account corrections; "
+            "a new protocol/window and separate research authorization are required\n"
+        )
+        return EXIT_REFUSED
     moment = now()
     if args.command == "plan":
         try:

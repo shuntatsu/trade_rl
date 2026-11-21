@@ -391,6 +391,9 @@ def protocol_payload() -> dict[str, object]:
             "LowturnPolicy",
             "invalid_on_borrowing": {
                 "reason": REASON_NEGATIVE_CASH,
+                "unexpected_native_borrow_charge": "fail closed: spot-long-only "
+                "interval_borrow_cost must be finite and exactly zero before "
+                "ordered fill reconstruction",
                 "rule": "min(interval cash_after, conservative ordered spot-fill "
                 "cash including all nonnegative interval execution fees charged "
                 "after the first signed fill, and all negative external cashflows "

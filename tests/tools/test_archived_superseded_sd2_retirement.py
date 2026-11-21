@@ -222,4 +222,4 @@ def test_workflow_exact_owner_command_and_valid_token_count() -> None:
     assert "superseded-sd2-ref-retirement:" in workflow
     assert "github.event.action == 'created'" in workflow
     assert mod.COMMAND in workflow
-    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 14
+    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 16

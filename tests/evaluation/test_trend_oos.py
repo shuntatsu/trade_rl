@@ -1398,7 +1398,11 @@ def test_a_small_forward_decision_runs_on_the_authorized_dataset_only(
     window = _small_window(monkeypatch, "FORWARD")
     dataset = _assemble(window, authorization_url=DATA_AUTH)
     result = _run(tmp_path, dataset, window)
-    assert result["stage"] == "FORWARD" and result["label"] in protocol.LABELS
+    assert (
+        result["stage"] == "FORWARD"
+        and result["label"] in protocol.LABELS
+        and result["label"] != "INVALID"
+    )
     assert (tmp_path / "out" / "decision.json").is_file()
     assert result["replay_stop_index"] == window.last_row_index
     # the same arrays without the recorded authorization are refused by the runner
@@ -1648,7 +1652,7 @@ def test_an_authenticated_backcast_run_writes_receipts_then_prints_the_label(
     code, out, err = _tool(
         tmp_path, _backcast_argv(tmp_path), gh=gh, now=NOW, rows=rows
     )
-    assert code in (driver.EXIT_OK, driver.EXIT_INVALID), err
+    assert code == driver.EXIT_OK, err
     printed = json.loads(out)
     out_dir = tmp_path / "out"
     decision = json.loads((out_dir / "decision.json").read_text("utf-8"))
@@ -1872,9 +1876,13 @@ def test_final_is_allowed_from_the_scoring_instant_on_and_reads_the_whole_stage(
         now=datetime(2026, 9, 1, tzinfo=UTC),
         rows=rows,
     )
-    assert code in (driver.EXIT_OK, driver.EXIT_INVALID), err
+    assert code == driver.EXIT_OK, err
     printed = json.loads(out)
-    assert printed["mode"] == "decision" and printed["label"] in protocol.LABELS
+    assert (
+        printed["mode"] == "decision"
+        and printed["label"] in protocol.LABELS
+        and printed["label"] != "INVALID"
+    )
     receipt = json.loads(
         (tmp_path / "fwd" / driver.DATA_RECEIPT_NAME).read_text("utf-8")
     )
@@ -2683,6 +2691,8 @@ def test_the_known_placeholder_covers_the_symbols_seen_in_the_coverage_run() -> 
 _REAL_HALT_TESTS = {
     "test_the_digest_is_canonical_stable_and_pinned",
     "test_the_frozen_declared_halts_are_the_coverage_evidence",
+    # CLI plan must advertise the actual frozen digest, not a synthetic-halt variant.
+    "test_plan_prints_the_protocol_digest_and_both_windows",
 }
 
 

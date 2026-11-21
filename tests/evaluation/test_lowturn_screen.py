@@ -1212,6 +1212,35 @@ def test_run_screen_refuses_wrong_digest_wrong_dataset_and_an_existing_run(
     assert not (tmp_path / "a").exists() and not (tmp_path / "b").exists()
 
 
+def test_run_screen_refuses_existing_partial_cell_before_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = _fixture_dataset()
+    partial = tmp_path / "run" / runner.CELL_DIR / "CASH__DEV__BASE.json"
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(b"prior evidence")
+    monkeypatch.setattr(
+        runner, "_probe_segment", lambda *a, **k: pytest.fail("probe must not run")
+    )
+    with pytest.raises(FileExistsError, match="existing run"):
+        runner.run_screen(
+            ds,
+            output_dir=tmp_path / "run",
+            expected_protocol_digest=protocol.protocol_digest(),
+            expected_dataset_id=ds.dataset_id,
+        )
+    assert partial.read_bytes() == b"prior evidence"
+
+
+def test_lowturn_json_writer_does_not_replace_existing_cell(tmp_path: Path) -> None:
+    target = tmp_path / "cells" / "CASH__DEV__BASE.json"
+    target.parent.mkdir()
+    target.write_bytes(b"prior evidence")
+    with pytest.raises(FileExistsError):
+        runner._write_json(target, {"replacement": True})
+    assert target.read_bytes() == b"prior evidence"
+
+
 def test_run_screen_refuses_a_short_roster_and_the_embargo(tmp_path: Path) -> None:
     short = _make_alternating_dataset(
         n_bars=FIXTURE_BARS, pairs=("BTCUSDT", "ETHUSDT"), start_iso=FIXTURE_START

@@ -1034,6 +1034,19 @@ def coverage_report(
     }
 
 
+def _reconfirm_data_authorization(
+    first: g4.CommentSnapshot | None, gh: g4.GhRunner
+) -> None:
+    """Re-fetch the data-authorization relay; an edit since ``first`` authorizes nothing."""
+    if first is None:
+        return
+    again = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
+    if again.body_sha256 != first.body_sha256 or again.updated_at != first.updated_at:
+        raise g4.G4AuthError(
+            "the data-authorization comment was edited after it was first fetched"
+        )
+
+
 def halts_from_coverage(path: Path) -> dict[str, Any]:
     """The exchange-wide spot ranges of a coverage.json as a declared halt list.
 
@@ -1047,6 +1060,8 @@ def halts_from_coverage(path: Path) -> dict[str, Any]:
         raise ValueError("not an agy_anchor_oos coverage report")
     if document.get("stage") != protocol.STAGE_BACKCAST:
         raise ValueError("declared halts are derived from the BACKCAST_2020 coverage")
+    if document.get("working_tree_clean") is not True:
+        raise ValueError("the coverage report was not produced from a clean tree")
     legs = [
         (name, market, entry)
         for name, markets in document["symbols"].items()
@@ -1086,8 +1101,11 @@ def halts_from_coverage(path: Path) -> dict[str, Any]:
                 moment += timedelta(hours=1)
         if left:
             remaining[f"{name}:{market}"] = _hour_ranges(left)
+    frozen = protocol.COVERAGE_EVIDENCE_SHA256
     return {
         "coverage_json_sha256": _sha256(raw),
+        "frozen_coverage_evidence_sha256": frozen,
+        "matches_frozen_evidence": None if frozen is None else _sha256(raw) == frozen,
         "coverage_protocol_digest": document.get("protocol_digest"),
         "coverage_code_commit": document.get("code_commit"),
         "declared_halts": [
@@ -1160,6 +1178,8 @@ def _coverage_main(
                 close = getattr(source, "close", None)
                 if callable(close):
                     close()
+        # the data authorization must be unedited from before the first read to after the last
+        _reconfirm_data_authorization(data_auth, gh)
         document = {
             "schema_version": COVERAGE_SCHEMA,
             "protocol_id": protocol.PROTOCOL_ID,
@@ -1342,15 +1362,7 @@ def _run_main(
         auth_receipt = g4.confirm_unedited(
             args.authorization_url, first_fetch, gh, protocol_digest=digest
         )
-        if data_auth is not None:
-            again = g4.fetch_comment(protocol.DATA_AUTHORIZATION_URL, gh)
-            if (
-                again.body_sha256 != data_auth.body_sha256
-                or again.updated_at != data_auth.updated_at
-            ):
-                raise g4.G4AuthError(
-                    "the data-authorization comment was edited after it was first fetched"
-                )
+        _reconfirm_data_authorization(data_auth, gh)
         args.output_dir.mkdir(parents=True, exist_ok=False)
         dataset = stage.dataset
         data_receipt: dict[str, object] = {

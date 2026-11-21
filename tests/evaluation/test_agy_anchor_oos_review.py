@@ -371,6 +371,24 @@ def test_backcast_coverage_records_the_relay(
     assert code == driver.EXIT_UNAUTHENTICATED and not (tmp_path / "cov2").exists()
 
 
+def test_coverage_refuses_when_the_relay_is_edited_during_the_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = small_window(monkeypatch, protocol.STAGE_BACKCAST)
+    edited = Gh()
+    edited.data.variants = {2: {"updated_at": "2026-11-21T00:00:00Z"}}
+    code, _, err = tool(
+        tmp_path,
+        ["coverage", "--stage", "BACKCAST_2020", "--output-dir", str(tmp_path / "cov")],
+        gh=edited,
+        now=NOW,
+        rows=Rows(listings(window)),
+        with_rules=False,
+    )
+    assert code == driver.EXIT_UNAUTHENTICATED and "edited" in err
+    assert not (tmp_path / "cov").exists()
+
+
 # ------------------------------------------------------------------ N4: DEV may stop the line
 
 

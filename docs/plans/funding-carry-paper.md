@@ -73,7 +73,11 @@ Status: Active
   attempt 2, the `attempt3` plan/seal/launch gates) and issue the seal-candidate packet
   `report/issue810-carry-attempt3-seal-candidate-research-assurance-20261108.json`
   (UNREVIEWED).
-- [ ] Obtain the extended same-account receipt review of the seal-candidate packet's
+- [x] Add the Linux operating platform (systemd user units, SIGHUP, read-only clock
+  report) and issue the successor packet
+  `report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json`
+  (UNREVIEWED); a launch commit must match its `implementation_head`.
+- [ ] Obtain the extended same-account receipt review of the Linux platform packet's
   exact digest and heads, the result-blind G0 resolution of the preserved attempt-2 root,
   a fresh storage probe and the owner's authorization comment.
 - [ ] Offline seal and launch of attempt 3 (exact procedure in the specification).

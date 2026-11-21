@@ -552,14 +552,21 @@ def install_termination_handlers(
     kernel32: Any = None,
     function_type: Any = None,
 ) -> list[str]:
-    """Route SIGTERM/SIGBREAK to CollectorTerminated and Windows console events to a
-    synchronous failure write. Returns the names installed (for evidence/tests)."""
+    """Route SIGTERM/SIGBREAK (and SIGHUP off Windows) to CollectorTerminated and
+    Windows console events to a synchronous failure write.
+
+    SIGHUP is the terminal hangup and session-end signal of POSIX hosts; it is not
+    installed on Windows, whose console events have their own handler below. A
+    SIGTERM or SIGHUP leaves the same permanent marker as any other termination
+    signal, through the collector context. Returns the names installed (for
+    evidence/tests)."""
 
     def raise_terminated(signum: int, frame: Any) -> None:
         raise CollectorTerminated(f"terminated by signal {signum}")
 
     installed: list[str] = []
-    for name in ("SIGTERM", "SIGBREAK"):
+    names = ("SIGTERM", "SIGBREAK") + (() if platform == "win32" else ("SIGHUP",))
+    for name in names:
         number = getattr(signal_module, name, None)
         if number is not None:
             signal_module.signal(number, raise_terminated)

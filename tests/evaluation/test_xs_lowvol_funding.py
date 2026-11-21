@@ -761,7 +761,7 @@ def test_amendment_1_declares_no_halt_and_pins_its_coverage_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "9a4d9a0d40ffc887100eebdb14ff2432721d9c1db3d9298ca02836b8bf0c3f1e"
+    "d162c50277155c57eb2bb4e83f44d4d065a103ced2814f920ac4a5b1cc29b3d5"
 )
 
 

@@ -1675,6 +1675,39 @@ def test_a_cached_rest_month_is_reused_offline(
     assert after["source"] == "cache" and after["sha256"] == before["sha256"]
 
 
+def test_malformed_cached_rest_funding_is_refused_without_mutation(
+    tmp_path: Path,
+) -> None:
+    month_start = datetime(2021, 2, 1, tzinfo=UTC)
+    next_month = datetime(2021, 3, 1, tzinfo=UTC)
+    stamp = _ms(month_start) + 8 * HOUR_MS
+    cache = (
+        tmp_path
+        / "rest"
+        / "fundingRate"
+        / "AAAUSDT"
+        / "AAAUSDT-fundingRate-2021-02.json"
+    )
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(
+        json.dumps(
+            [
+                {
+                    "symbol": "AAAUSDT",
+                    "fundingTime": stamp + 0.75,
+                    "fundingRate": "0.00010000",
+                }
+            ]
+        ).encode()
+    )
+    before = cache.read_bytes()
+    source = _rest(tmp_path, None)
+    with pytest.raises(driver.RestFundingError, match="malformed"):
+        source.month("AAAUSDT", _ms(month_start), _ms(next_month), _ms(next_month))
+    assert cache.read_bytes() == before
+    assert source.evidence() == []
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -1683,6 +1716,13 @@ def test_a_cached_rest_month_is_reused_offline(
         lambda e: [{**e[0], "fundingTime": 0}, *e[1:]],
         lambda e: [*e[:-1], {**e[-1], "fundingTime": 1_617_235_200_000}],
         lambda e: [{**e[0], "fundingRate": "nan"}, *e[1:]],
+        # Binance REST requires integer millisecond stamps and numeric string rates.
+        lambda e: [{**e[0], "fundingTime": float(e[0]["fundingTime"])}, *e[1:]],
+        lambda e: [{**e[0], "fundingTime": True}, *e[1:]],
+        lambda e: [{**e[0], "fundingTime": str(e[0]["fundingTime"])}, *e[1:]],
+        lambda e: [{**e[0], "fundingTime": float("inf")}, *e[1:]],
+        lambda e: [{**e[0], "fundingRate": True}, *e[1:]],
+        lambda e: [{**e[0], "fundingRate": 10**1000}, *e[1:]],
         lambda e: {"code": -1121},
     ],
 )

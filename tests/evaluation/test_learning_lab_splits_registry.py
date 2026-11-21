@@ -5,6 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 from statistics import NormalDist
 
@@ -166,6 +170,164 @@ def test_the_registry_is_append_only_and_chained(tmp_path: Path) -> None:
     lines = after.split(b"\n")[:-1]
     assert json.loads(lines[0])["prev_sha256"] == reg.GENESIS
     assert json.loads(lines[1])["prev_sha256"] == hashlib.sha256(lines[0]).hexdigest()
+
+
+def _registry_worker(
+    path: Path, ready: Path, *, seed: int | None
+) -> subprocess.Popen[str]:
+    """Independent Python interpreter, not a thread sharing one registry object."""
+    script = """
+import sys
+from pathlib import Path
+from trade_rl.evaluation.learning_lab.registry import TrialRecord, TrialRegistry
+path, ready = Path(sys.argv[1]), Path(sys.argv[2])
+seed = sys.argv[3]
+record = None if seed == 'verify' else TrialRecord(
+    method_id='parallel', config_digest='a' * 64, seed=int(seed),
+    split='validate', code_commit='b' * 40, metrics={}, status='completed',
+)
+ready.write_text('ready')
+registry = TrialRegistry(path)
+print(registry.verify() if record is None else registry.append(record), flush=True)
+"""
+    return subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(path),
+            str(ready),
+            "verify" if seed is None else str(seed),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _ready_all(paths: list[Path]) -> None:
+    deadline = time.monotonic() + 10.0
+    while not all(path.exists() for path in paths):
+        if time.monotonic() > deadline:
+            pytest.fail("the child Python interpreters did not start")
+        time.sleep(0.01)
+
+
+def test_two_registry_writers_wait_for_the_same_exclusive_file_lock(
+    tmp_path: Path,
+) -> None:
+    fcntl = pytest.importorskip("fcntl")
+    path = tmp_path / "trials.jsonl"
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    children: list[subprocess.Popen[str]] = []
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        ready = [tmp_path / f"ready-{i}" for i in range(2)]
+        children = [_registry_worker(path, ready[i], seed=i) for i in range(2)]
+        _ready_all(ready)
+        # Neither writer may read the old chain and append while an external
+        # cooperating process holds the lock, even on independent descriptors.
+        time.sleep(0.2)
+        assert path.read_bytes() == b""
+        assert all(child.poll() is None for child in children)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+        for child in children:
+            if child.poll() is None:
+                try:
+                    child.wait(timeout=10.0)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=5.0)
+    results = [child.communicate(timeout=1.0) for child in children]
+    assert all(child.returncode == 0 for child in children), results
+    assert sorted(int(stdout.strip()) for stdout, _ in results) == [0, 1]
+    assert reg.TrialRegistry(path).verify() == 2
+    assert {record.seed for record in reg.TrialRegistry(path).records()} == {0, 1}
+
+
+def test_registry_reader_waits_for_writer_lock_before_verifying(
+    tmp_path: Path,
+) -> None:
+    fcntl = pytest.importorskip("fcntl")
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(_record())
+    descriptor = os.open(path, os.O_RDONLY)
+    child: subprocess.Popen[str] | None = None
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        ready = tmp_path / "reader-ready"
+        child = _registry_worker(path, ready, seed=None)
+        _ready_all([ready])
+        time.sleep(0.2)
+        assert child.poll() is None
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+        if child is not None and child.poll() is None:
+            try:
+                child.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=5.0)
+    assert child is not None
+    stdout, stderr = child.communicate(timeout=1.0)
+    assert child.returncode == 0, stderr
+    assert stdout.strip() == "1"
+
+
+def test_registry_refuses_symlink_and_special_files_without_mutating_targets(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("fcntl")
+    if not hasattr(os, "mkfifo") or not hasattr(os, "O_NOFOLLOW"):
+        pytest.skip("POSIX no-follow file descriptors required")
+    target = tmp_path / "canonical.jsonl"
+    registry = reg.TrialRegistry(target)
+    registry.append(_record())
+    original = target.read_bytes()
+    link = tmp_path / "shortcut.jsonl"
+    link.symlink_to(target)
+    with pytest.raises(reg.RegistryError, match="safely open"):
+        reg.TrialRegistry(link).append(_record(seed=1))
+    with pytest.raises(reg.RegistryError, match="safely open"):
+        reg.TrialRegistry(link).verify()
+    assert target.read_bytes() == original
+
+    fifo = tmp_path / "not-a-regular-registry.jsonl"
+    os.mkfifo(fifo)
+    with pytest.raises(reg.RegistryError, match="regular file"):
+        reg.TrialRegistry(fifo).verify()
+    with pytest.raises(reg.RegistryError, match="regular file"):
+        reg.TrialRegistry(fifo).append(_record(seed=2))
+    assert registry.verify() == 1
+
+
+def test_read_snapshot_refuses_path_swapped_while_the_inode_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fcntl")
+    path = tmp_path / "trials.jsonl"
+    registry = reg.TrialRegistry(path)
+    registry.append(_record())
+    replacement = tmp_path / "replacement.jsonl"
+    replacement.write_bytes(path.read_bytes())
+    rotated = tmp_path / "old-inode.jsonl"
+    original = reg.TrialRegistry._read_lines
+
+    def swap_after_read(descriptor: int) -> list[bytes]:
+        lines = original(descriptor)
+        path.rename(rotated)
+        replacement.rename(path)
+        return lines
+
+    monkeypatch.setattr(reg.TrialRegistry, "_read_lines", staticmethod(swap_after_read))
+    with pytest.raises(reg.RegistryError, match="locked regular file"):
+        registry.verify()
+    assert rotated.read_bytes() == path.read_bytes()
 
 
 def test_an_edited_removed_or_reordered_line_breaks_the_chain(tmp_path: Path) -> None:

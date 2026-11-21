@@ -11,6 +11,25 @@ Every method is evaluated in one common harness. The harness provides:
 
 A method is shelved with the reason it stopped. Nothing is deleted.
 
+## Local trial registry concurrency (software contract)
+
+`TrialRegistry.append` takes a POSIX advisory **exclusive lock on the registry
+file itself** before reading, verifying and appending a canonical JSONL line.
+`verify` and `records` take a **shared lock** around a single verified snapshot,
+so an ordinary cooperating reader cannot mistake a partial concurrent append
+for a valid result. Both independent processes and threads using this API
+serialize through the same inode. A changed/deleted path or a symlink/nonregular
+file is rejected rather than writing an untracked inode. Newly created files
+have mode `0600`; the record schema, canonical bytes and historical chain remain
+`learning_lab_trial_v1`. Invalid nested numeric metrics fail before any file
+is opened for append.
+
+These are **local POSIX filesystem** guarantees. `fcntl.flock` is advisory (all
+writers must use this API), not a distributed lock or a multi-host coordinator;
+unsupported platforms fail closed. A failed or interrupted write must be
+investigated by verifying the chain, not silently retried or repaired. This
+software safety feature is not economic-run approval or provenance of a trial.
+
 | ID | Method | Role | Why it might help | Status |
 |---|---|---|---|---|
 | L1-PPO | PPO, discrete trade fraction | execution and rebalance timing on the anchor target | the anchor's gross edge is eaten by turnover | drafted |

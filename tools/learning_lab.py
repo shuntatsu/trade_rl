@@ -281,7 +281,7 @@ def main(
                 "records": [r.to_dict() for r in records],
             }
             if args.deflated_for_last and records:
-                document["deflated_sharpe"] = runner.deflated_for(registry, records[-1])
+                document["deflated_sharpe"] = runner.deflated_for(records)
         except ValueError as error:
             err.write(f"refused: {error}\n")
             return EXIT_REFUSED

@@ -34,11 +34,15 @@ The read-only `tools.learning_lab registry --deflated-for-last` view only
 calculates a headline deflated Sharpe if the **literal last** registered trial is
 `completed` and contains all four required moments (`sharpe_per_period`,
 `n_obs`, `skewness`, `kurtosis`), with an integer observation count
-of at least two and finite numeric moments. A failed, invalid, shelved or
-incomplete last trial refuses this view with a clear error: it is **never
-silently omitted** or replaced by a more successful prior trial. The ordinary
+of at least two that is representable as a finite floating-point number and
+finite numeric moments. Numeric overflow from an otherwise canonical trial
+must refuse the read-only view, not crash or mutate the JSONL. A failed,
+invalid, shelved or incomplete last trial refuses this view with a clear error:
+it is **never silently omitted** or replaced by a more successful prior trial. The ordinary
 `registry` read still shows *all* trials, including failures; no record or
-chain field is altered by this reporting guard.
+chain field is altered by this reporting guard. Both the terminal trial and
+`n_trials` come from one verified registry snapshot: an append after the read
+cannot silently change the deflated-Sharpe denominator within the same view.
 
 | ID | Method | Role | Why it might help | Status |
 |---|---|---|---|---|

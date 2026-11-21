@@ -395,8 +395,11 @@ def dev_decision(
     }
 
 
-def deflated_for(registry: TrialRegistry, record: TrialRecord) -> dict[str, float]:
-    """Deflated Sharpe of an eligible completed trial, never a failed tail row."""
+def deflated_for(records: Sequence[TrialRecord]) -> dict[str, float]:
+    """Compute DSR from one snapshot; reject an ineligible terminal trial."""
+    if not records:
+        raise ValueError("deflated Sharpe requires at least one registered trial")
+    record = records[-1]
     if record.status != "completed":
         raise ValueError("deflated Sharpe requires a completed last trial")
     required = ("sharpe_per_period", "n_obs", "skewness", "kurtosis")
@@ -409,6 +412,12 @@ def deflated_for(registry: TrialRegistry, record: TrialRecord) -> dict[str, floa
     count = record.metrics["n_obs"]
     if type(count) is not int or count < 2:
         raise ValueError("n_obs must be an integer of at least two")
+    try:
+        representable_count = float(count)
+    except OverflowError as error:
+        raise ValueError("n_obs is outside the finite numeric range") from error
+    if not math.isfinite(representable_count):
+        raise ValueError("n_obs is outside the finite numeric range")
     moments: dict[str, float] = {}
     for name in ("sharpe_per_period", "skewness", "kurtosis"):
         value = record.metrics[name]
@@ -421,13 +430,18 @@ def deflated_for(registry: TrialRegistry, record: TrialRecord) -> dict[str, floa
         if not math.isfinite(numeric):
             raise ValueError(f"{name} must be a finite number")
         moments[name] = numeric
-    return registry_deflated_sharpe(
-        registry.records(),
-        sharpe=moments["sharpe_per_period"],
-        n_obs=count,
-        skewness=moments["skewness"],
-        kurtosis=moments["kurtosis"],
-    )
+    try:
+        return registry_deflated_sharpe(
+            records,
+            sharpe=moments["sharpe_per_period"],
+            n_obs=count,
+            skewness=moments["skewness"],
+            kurtosis=moments["kurtosis"],
+        )
+    except OverflowError as error:
+        # A canonical JSON number can be finite yet overflow floating-point
+        # Sharpe arithmetic; the CLI must refuse, not raise an uncaught error.
+        raise ValueError("deflated Sharpe numerical overflow") from error
 
 
 __all__ = [

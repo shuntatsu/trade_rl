@@ -1,4 +1,4 @@
-"""Synthetic tests of the out-of-sample test ``trend_long_spot_oos_v1``.
+"""Synthetic tests of the out-of-sample test ``trend_long_spot_oos_v2``.
 
 Nothing here reads market data, the network or an economic result: every dataset is a
 seeded synthetic fixture and every fixture value is hand-computed or derived from a slow
@@ -226,7 +226,7 @@ def test_protocol_values_are_imported_from_lowturn_not_retyped() -> None:
 
 
 def test_frozen_constants_are_the_spec_values() -> None:
-    assert protocol.PROTOCOL_ID == "trend_long_spot_oos_v1"
+    assert protocol.PROTOCOL_ID == "trend_long_spot_oos_v2"
     assert protocol.MAX_DRAWDOWN_LIMIT == 0.20
     assert protocol.MIN_BASE_SHARPE == 0.30
     assert protocol.BOOTSTRAP_BLOCK_BARS == 42
@@ -263,7 +263,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "f965b19c3a76d1487ef5d5a026fa76d7b6180ae94540c12b4eeb00cd4ce1456b"
+    assert digest == "df08d0cdd428776674502aeeaf145feff5bbf01b3075aedf306c68cfa9805bb3"
 
 
 @pytest.mark.parametrize(
@@ -1564,7 +1564,7 @@ def test_plan_prints_the_protocol_digest_and_both_windows() -> None:
         )
         assert code == driver.EXIT_OK, err.getvalue()
         document = json.loads(out.getvalue())
-        assert document["protocol_id"] == "trend_long_spot_oos_v1"
+        assert document["protocol_id"] == "trend_long_spot_oos_v2"
         assert document["protocol_digest"] == protocol.protocol_digest()
         assert document["lowturn_protocol_digest"] == LOWTURN_DIGEST_PIN
         assert document["stage"] == stage
@@ -1581,6 +1581,49 @@ def test_plan_prints_the_protocol_digest_and_both_windows() -> None:
         assert document["protocol"] == json.loads(
             json.dumps(protocol.protocol_payload(), sort_keys=True)
         )
+
+
+@pytest.mark.parametrize("stage", protocol.STAGES)
+@pytest.mark.parametrize("command", ("run", "coverage"))
+def test_v2_default_cli_refuses_consumed_windows_before_any_external_read(
+    tmp_path: Path,
+    command: str,
+    stage: str,
+) -> None:
+    """The real CLI cannot turn old v1 OOS periods into new v2 evidence."""
+    args = [
+        command,
+        "--stage",
+        stage,
+        "--archive-dir",
+        str(tmp_path / "archives"),
+        "--output-dir",
+        str(tmp_path / "out"),
+    ]
+    if command == "run":
+        args += [
+            "--exchange-info-spot",
+            str(tmp_path / "spot.json"),
+            "--exchange-info-perp",
+            str(tmp_path / "perp.json"),
+            "--authorization-url",
+            AUTH,
+        ]
+    out, err = io.StringIO(), io.StringIO()
+    code = driver.main(
+        args,
+        stdout=out,
+        stderr=err,
+        now=lambda: pytest.fail(
+            "must not check clock or open data for consumed v2 stage"
+        ),
+        state=lambda: pytest.fail("must not consult checkout for consumed v2 stage"),
+        gh=lambda *a, **k: pytest.fail("must not fetch an authorization"),
+    )
+    assert code == driver.EXIT_REFUSED
+    assert "software-only" in err.getvalue()
+    assert not out.getvalue()
+    assert not (tmp_path / "out").exists()
 
 
 def test_run_needs_an_authorization_url_a_clean_tree_and_a_new_output_directory(
@@ -1692,7 +1735,7 @@ def test_an_authenticated_backcast_run_writes_receipts_then_prints_the_label(
     ] * 2
 
 
-def test_without_network_a_cache_miss_halts_and_no_fetcher_is_built(
+def test_without_network_v2_refuses_before_cache_lookup_or_fetcher(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _small_window(monkeypatch, "BACKCAST")
@@ -1723,9 +1766,10 @@ def test_without_network_a_cache_miss_halts_and_no_fetcher_is_built(
         now=lambda: NOW,
         gh=_Gh(),
     )
-    assert code == driver.EXIT_HALTED, err.getvalue()
-    assert "not in the offline archive cache" in err.getvalue()
-    assert not built and not (tmp_path / "out" / "decision.json").exists()
+    # The real v2 CLI cannot inspect consumed archives even to discover a cache miss.
+    assert code == driver.EXIT_REFUSED, err.getvalue()
+    assert "software-only" in err.getvalue()
+    assert not built and not (tmp_path / "out").exists()
 
 
 def test_an_invalid_run_is_not_reported_as_success(

@@ -13,6 +13,7 @@ rows).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -71,7 +72,10 @@ MIN_REPLAY_BARS = 2 * protocol.REBALANCE_EVERY_BARS
 DISCLOSURES: tuple[str, ...] = (
     "every arm trades a spot cash account: after the lowturn caps the spot gross is "
     "capped at 1.0 (lowturn v1 allowed 2.0 with zero-cost financing); a cell that "
-    "borrows is INVALID (negative_cash_borrowing)",
+    "borrows at any ordered spot fill or ledger close is INVALID "
+    "(negative_cash_borrowing); later sells cannot prefinance earlier buys; "
+    "the fee-inclusive conservative lower bound can invalidate safe controls "
+    "when native per-fill fee timing is not recorded",
     "the causality probe is per (arm, signal lag) and shared by the cost scenarios",
     "exchange rules (lot size, minimum notional) are one static snapshot applied to "
     "every row, not point-in-time; for BACKCAST this approximates 2018-2020 by the "
@@ -175,19 +179,118 @@ def _cash_extremes(
 ) -> tuple[float | None, float | None]:
     """``(min cash, max borrowing)`` over the ledger intervals.
 
-    Borrowing is the negative cash that is not explained by execution costs: the engine
-    debits costs from cash, so a book fully invested at gross 1.0 sits at minus its
-    cumulative costs, which is not borrowing.
+    The fee-only overdraft diagnostic is tracked only while that overdraft remains
+    outstanding. A prior fee is not new purchasing power after cash recovers. Raw
+    negative cash (even if entirely explained by fees) separately invalidates the
+    v2 spot-cash cell in ``_build_cell``.
     """
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
         return None, None
-    intervals = ledger.intervals.intervals
-    cash = [float(iv.cash_after) for iv in intervals]
-    borrowing = [
-        max(0.0, -float(iv.cash_after) - float(iv.total_cost_after)) for iv in intervals
-    ]
-    return min(cash), max(borrowing)
+    lowest = math.inf
+    greatest_borrow = 0.0
+    unpaid_fee_overdraft = 0.0
+    previous_cost: float | None = None
+    for iv in ledger.intervals.intervals:
+        cash = float(iv.cash_after)
+        before = float(iv.total_cost_before)
+        after = float(iv.total_cost_after)
+        if not all(math.isfinite(value) for value in (cash, before, after)):
+            raise ValueError("nonfinite cash or execution cost in ledger evidence")
+        if before < 0.0 or after < before:
+            raise ValueError("execution cost must be cumulative and nonnegative")
+        if previous_cost is not None and not math.isclose(
+            previous_cost, before, rel_tol=1e-12, abs_tol=1e-9
+        ):
+            raise ValueError("execution cost ledger intervals are discontinuous")
+        interval_cost = after - before
+        unpaid_fee_overdraft = min(
+            max(0.0, -cash), unpaid_fee_overdraft + interval_cost
+        )
+        greatest_borrow = max(greatest_borrow, max(0.0, -cash - unpaid_fee_overdraft))
+        lowest = min(lowest, cash)
+        previous_cost = after
+    return lowest, greatest_borrow
+
+
+def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | None:
+    """Conservative cost-inclusive cash floor over native ordered spot fills.
+
+    OrderEvents carry no per-fill fee. Reserve all negative external flows
+    before any order but deduct the complete verified interval execution cost
+    immediately *after the first native fill's signed cash transfer*. This is
+    still a lower bound at each fill: actual fee costs never exceed their
+    nonnegative whole-interval sum, but sale proceeds cannot arrive before the
+    sale itself. Positive external credits are not anticipated. A first sale
+    with sufficient proceeds must not be invalidated by precharging its fee.
+    The lack of exact per-fill fee timing can still cause false positives.
+    """
+
+    ledger = result.ledger_evidence
+    if ledger is None or not ledger.intervals.intervals:
+        return None
+    lowest = math.inf
+    for iv in ledger.intervals.intervals:
+        credits = tuple(
+            float(value)
+            for value in (
+                iv.interval_funding,
+                iv.interval_dividend,
+                iv.interval_cash_interest,
+            )
+        )
+        if not all(math.isfinite(value) for value in credits):
+            raise ValueError("nonfinite external credit in fill evidence")
+        cost_before = float(iv.total_cost_before)
+        cost_after = float(iv.total_cost_after)
+        interval_cost = float(iv.interval_cost)
+        if (
+            not all(math.isfinite(v) for v in (cost_before, cost_after, interval_cost))
+            or cost_before < 0.0
+            or interval_cost < 0.0
+            or cost_after < cost_before
+            or not math.isclose(
+                cost_after - cost_before, interval_cost, rel_tol=1e-12, abs_tol=1e-9
+            )
+        ):
+            raise ValueError("invalid interval execution cost in fill evidence")
+        cash = float(iv.cash_before) + sum(min(0.0, value) for value in credits)
+        cash_after = float(iv.cash_after)
+        if not math.isfinite(cash) or not math.isfinite(cash_after):
+            raise ValueError("nonfinite cash in fill evidence")
+        lowest = min(lowest, cash, cash_after)
+        fees_charged = False
+        for event in sorted(iv.order_events, key=lambda event: event.sequence):
+            if event.event_type not in ("filled", "partial_fill"):
+                continue
+            # The v2 research policy is spot-only; a perp fill would break
+            # the cash-principal reconstruction and must not be accepted.
+            if event.symbol_index % 2:
+                raise ValueError("unexpected perpetual fill in spot cash account")
+            quantity = float(event.filled_quantity)
+            notional = float(event.filled_notional)
+            if (
+                not math.isfinite(quantity)
+                or quantity == 0.0
+                or not math.isfinite(notional)
+                or notional < 0.0
+            ):
+                raise ValueError("invalid native spot fill in cash evidence")
+            cash += (-1 if quantity > 0 else 1) * notional
+            if not fees_charged:
+                # No native per-fill fee is available. Charging all interval
+                # fees after the first fill underestimates every subsequent
+                # actual cash balance without inventing an earlier fee debit.
+                cash -= interval_cost
+                fees_charged = True
+            if not math.isfinite(cash):
+                raise ValueError("nonfinite running cash in fill evidence")
+            lowest = min(lowest, cash)
+        if not fees_charged:
+            # No fill can be shown to finance a reported interval fee.
+            # Refuse the unallocated cost conservatively at interval start.
+            lowest = min(lowest, cash - interval_cost)
+    return lowest
 
 
 def _build_cell(
@@ -213,8 +316,15 @@ def _build_cell(
     returns = _dust_adjusted(raw_returns, result, summary.terminal_dust)
     reasons = list(summary.invalid_reasons)
     min_cash, max_borrowing = _cash_extremes(result)
+    fill_floor = _spot_fill_cash_floor(result)
+    if min_cash is not None and fill_floor is not None:
+        min_cash = min(min_cash, fill_floor)
     tolerance = protocol.CASH_TOLERANCE_FRACTION * protocol.INITIAL_CAPITAL
-    if max_borrowing is not None and max_borrowing > tolerance:
+    # A real spot cash account cannot finance even execution fees by overdraft.
+    # The net-of-unpaid-fees measure is a separate diagnostic, never credit.
+    if (min_cash is not None and min_cash < -tolerance) or (
+        max_borrowing is not None and max_borrowing > tolerance
+    ):
         reasons.append(protocol.REASON_NEGATIVE_CASH)
     years = _calendar_year_returns(dataset, result, returns)
     if years is None:

@@ -131,8 +131,8 @@ ForwardEmbargoPolicy = agy_tool.AnchorForwardEmbargoPolicy
 def read_symbol_file(path: Path) -> tuple[tuple[str, ...], str]:
     """The FORWARD listing: a JSON list (or newline text) of symbols and its SHA-256.
 
-    Every symbol must pass the spec's exclusions (USDT perps minus 1000x-scaled and
-    stablecoin or gold bases); an excluded or duplicated symbol refuses the file.
+    Every symbol must pass the spec's exclusions (ASCII USDT perps minus
+    stablecoin and gold bases); an excluded or duplicated symbol refuses the file.
     """
     raw = path.read_bytes()
     text = raw.decode("utf-8")

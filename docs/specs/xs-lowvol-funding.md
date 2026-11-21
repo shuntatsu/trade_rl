@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `e69b03b58438a379721633243153ce1737fc121fa83127a53470143690bbcece`
+Protocol digest: `8e4ba3d4429730691aca01ca7be21b9b3a1dd681a278889507bf2fa44012453b`
 
 ## Question
 
@@ -46,11 +46,12 @@ A learning-to-rank diagnostic also attributed most of its test IC to the low-vol
 
 ### Candidate list (frozen)
 
-`trade_rl/evaluation/xs_lowvol_funding/candidates.json`, SHA-256 `302d00166cdf8027624d66d3f7fcbbcf6f6b9502eae4c38a9c349bccded9a161`, holds 442 USDT perpetual symbols. It is the scoping note's 450-pair fetch superset with these removed:
+`trade_rl/evaluation/xs_lowvol_funding/candidates.json`, SHA-256 `fc680208899cd4166c9923f9cf9e8f8ebe829010aae073a935de10d6e6fefdf6`, holds 441 USDT perpetual symbols. It is the scoping note's 450-pair fetch superset with these removed:
 
 - the 16 touched symbols (BTC ETH BNB SOL XRP DOGE ADA AVAX LINK LTC DOT BCH SUI APT ARB OP);
 - TRX (a conservative exclusion);
-- every 1000x price-scaled perp.
+- the six 1000x perps whose spot base differs (a unit mismatch on the spot side, removed by the scoping). 1000CAT, 1000CHEEMS, 1000SATS and 1MBABYDOGE remain: the book is perp-only and returns are scale invariant, so price scaling does not matter;
+- every symbol that is not ASCII `[A-Z0-9]+USDT` (one was removed), because the Vision path handling for such symbols is untested.
 
 The list includes 24 pairs that were later delisted. It was built from archive listings, not from the current exchangeInfo, so delisted pairs are present.
 
@@ -68,9 +69,11 @@ If fewer than 12 symbols are eligible, the month holds no book and the CANDIDATE
 ### Missing bars and delisting while held
 
 - A held name is closed when its perp archive ends or a gap starts that no declared halt explains.
-  - Its target is forced to 0 at the decision bar one 4h bar before its last available bar. This models Binance's advance delisting notice.
-  - The closing fill is charged the scenario cost plus an extra adverse **5%** of the closed notional. The charge is booked as a cash debit at the fill bar.
-- If the close cannot be filled at that bar, because there is no capacity or no bar, the remaining position is written off. It is valued at the last close minus 5% and removed.
+  - Its target is forced to 0 from the decision bar **42** 4h bars (7 days) before its last available bar onward. This models Binance's roughly one-week advance delisting notice.
+  - The 42-bar lead uses knowledge of the archive end. It models the public delisting announcement and is disclosed as such.
+  - Each fill of the forced close is charged the scenario cost plus an extra adverse **5%** of the closed notional. The charge is booked as a cash debit at that fill bar.
+- There is no write-off branch. If any position of such a name is still held at its last available bar (no capacity, below minimum notional), the run refuses, naming the symbol.
+  - This is a disclosed limitation: the shared replay cannot continue past an engine settlement of a held position, and handling it would need an amendment.
 - A name with a gap inside its trailing 90 days is ineligible for that month.
 - It is reported, never gating, how many forced closes occurred, their total charge, and the result without them.
 
@@ -84,7 +87,7 @@ Exchange-wide perp outages are declared result-blind from a coverage report, as 
 |---|---|---|---|---|---|
 | DEV | the 11 Tier D core pairs (known-used) | 2022-01-01 | first Monday on or after 2022-04-04 | 2026-07-27T00:00Z | 2026-08-01T00:00Z |
 | DISJOINT | `candidates.json`, monthly top 30 | 2021-01-01 | 2021-04-05T00:00Z | 2026-07-27T00:00Z | 2026-08-01T00:00Z |
-| FORWARD | all USDT perps in the Vision um listing at run time, minus 1000x-scaled and stablecoin or gold bases, monthly top 30 (touched symbols included) | 2026-04-01 | 2026-08-03T00:00Z | 2027-04-26T00:00Z | 2027-05-01T00:00Z |
+| FORWARD | all USDT perps in the Vision um listing at run time, minus stablecoin and gold bases and non-ASCII symbols, monthly top 30 (touched symbols included) | 2026-04-01 | 2026-08-03T00:00Z | 2027-04-26T00:00Z | 2027-05-01T00:00Z |
 
 - **DEV** checks the harness on known-used data and is not evidence. With 11 names, each leg holds `floor(11/3) = 3` names.
   - DISJOINT is refused unless DEV has no INVALID cell.
@@ -203,7 +206,7 @@ These figures are reported and never gate:
 3. Post a G4 relay that quotes the protocol id, the digest and the code commit. Then run DEV.
 4. If DEV has no INVALID cell, post a G4 relay and run DISJOINT once.
 5. **If the label is `XS_NOT_SUPPORTED`, the line stops.**
-   - No constant is retuned on these 442 names.
+   - No constant is retuned on these 441 names.
    - A variant is a new protocol: it counts as further trials, and it must name a fresh holdout.
 6. **If the label is `XS_SUPPORTED`,** the CANDIDATE goes to FORWARD as a paper book. A paper-trading shadow of the same policy may be built.
    - This is not authorization for orders, API keys or live trading.

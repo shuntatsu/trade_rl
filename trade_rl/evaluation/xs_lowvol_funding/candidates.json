@@ -3,7 +3,11 @@
     "conservative": [
       "TRXUSDT"
     ],
-    "rule": "1000x price-scaled perps excluded",
+    "non_ascii": [
+      "\u5e01\u5b89\u4eba\u751fUSDT"
+    ],
+    "non_ascii_rule": "symbols that are not ASCII [A-Z0-9]+USDT are excluded because the Vision path handling for them is untested",
+    "rule": "six 1000x perps whose spot base differs were removed by the scoping; 1000CAT, 1000CHEEMS, 1000SATS and 1MBABYDOGE remain (perp-only book, returns are scale invariant)",
     "touched": [
       "BTCUSDT",
       "ETHUSDT",
@@ -464,8 +468,7 @@
     "ZKPUSDT",
     "ZKUSDT",
     "ZROUSDT",
-    "ZRXUSDT",
-    "\u5e01\u5b89\u4eba\u751fUSDT"
+    "ZRXUSDT"
   ],
   "schema": "xs_lowvol_funding_candidates_v1",
   "source": "data.binance.vision S3 listing (names and sizes only) and cached exchangeInfo snapshots of 2026-11-07; see docs/specs/xs-lowvol-funding.md"

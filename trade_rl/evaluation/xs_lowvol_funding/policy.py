@@ -12,8 +12,8 @@ ranks them, goes long the ``k = floor(n / 3)`` best and short the ``k`` worst na
 inverse-volatility weights (``sum |w| * sigma = 1`` per leg), scales the book to a 20%
 ex-ante volatility with the 50/50 diagonal-shrunk covariance of the last 360 log returns,
 and then applies, in this order, the per-name cap, the gross cap and the cash account. A
-held name is closed by a forced-close rule one bar before its last available bar (a modelled
-delisting notice: it reads the availability of the next two rows only).
+held name is closed by a forced-close rule from 42 bars before its last available bar (a
+modelled one-week delisting announcement: it uses knowledge of the archive end).
 
 The pure helpers (``zr``, ``select_legs``, ``leg_weights``, ``vol_target_scale``,
 ``cap_weights``, ``cash_factors``) are public so the oracles can test them against
@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.trend_oos.data import StageDataError
 from trade_rl.evaluation.xs_lowvol_funding import protocol
 from trade_rl.strategies.agy_anchor.policy import risk_scale_of
 from trade_rl.strategies.portfolio import (
@@ -197,6 +198,15 @@ def funding_mean(
 # -------------------------------------------------------------------------- inputs
 
 
+class UnsupportedWriteOffError(StageDataError):
+    """A position of a delisted name is still held at its last available bar.
+
+    The spec has no write-off branch: the shared replay cannot continue once the engine
+    settles a position on an asset that has just become unavailable, so the run refuses.
+    This is a disclosed limitation that would need an amendment.
+    """
+
+
 @dataclass(slots=True)
 class XsInputs:
     """The arrays the policy reads (mutable so the causality probe can restore rows)."""
@@ -209,19 +219,32 @@ class XsInputs:
     funding_count: np.ndarray
     member: np.ndarray
     forced: np.ndarray
+    last_bar: np.ndarray
+
+    @staticmethod
+    def last_bar_rows(active: np.ndarray) -> np.ndarray:
+        """Rows ``L`` where a leg is available at ``L`` and not at ``L + 1`` (its last bar).
+
+        A leg that is merely cut off by the end of the dataset is never flagged.
+        """
+        act = np.asarray(active, dtype=np.bool_)
+        last = np.zeros_like(act)
+        if act.shape[0] >= 2:
+            last[:-1] = act[:-1] & ~act[1:]
+        return last
 
     @staticmethod
     def forced_rows(active: np.ndarray) -> np.ndarray:
-        """Decision rows at which a name is closed: one bar before its last available bar.
+        """Decision rows at which a name is closed: from 42 bars before its last bar on.
 
-        Row ``d`` is flagged for a leg when the leg is available at ``d + 1`` and not at
-        ``d + 2`` (its availability ends at ``d + 1``). A leg that is merely cut off by the
-        end of the dataset is never flagged.
+        For a leg whose last available bar is ``L`` the rows ``L - 42 .. L`` are flagged. The
+        lead uses knowledge of the archive end (the public delisting announcement).
         """
-        act = np.asarray(active, dtype=np.bool_)
-        forced = np.zeros_like(act)
-        if act.shape[0] >= 3:
-            forced[:-2] = act[1:-1] & ~act[2:]
+        last = XsInputs.last_bar_rows(active)
+        forced = np.zeros_like(last)
+        lead = protocol.FORCED_CLOSE_LEAD_BARS
+        for row, leg in zip(*np.nonzero(last), strict=True):
+            forced[max(0, int(row) - lead) : int(row) + 1, int(leg)] = True
         return forced
 
     @classmethod
@@ -241,6 +264,7 @@ class XsInputs:
             ),
             member=mask.copy(),
             forced=cls.forced_rows(active),
+            last_bar=cls.last_bar_rows(active),
         )
 
     @property
@@ -257,6 +281,7 @@ class XsInputs:
             funding_count=self.funding_count.copy(),
             member=self.member.copy(),
             forced=self.forced.copy(),
+            last_bar=self.last_bar.copy(),
         )
 
 
@@ -384,6 +409,7 @@ class XsPolicy(PortfolioPolicy):
         start_index: int,
         signal_lag_bars: int = 0,
         rebalance_every_bars: int = protocol.REBALANCE_EVERY_BARS,
+        refuse_unclosed: bool = False,
     ) -> None:
         if arm not in protocol.ARMS:
             raise ValueError(f"unknown arm: {arm!r}")
@@ -391,6 +417,7 @@ class XsPolicy(PortfolioPolicy):
             raise ValueError("invalid start index, signal lag or stride")
         self._arm = arm
         self._inputs = inputs
+        self._refuse_unclosed = refuse_unclosed
         self._start = start_index
         self._lag = signal_lag_bars
         self._every = rebalance_every_bars
@@ -454,6 +481,16 @@ class XsPolicy(PortfolioPolicy):
         if self._arm == protocol.CONTROL_CASH:
             return PortfolioTargetProposal(target_weights=(0.0,) * n_legs)
         t = snapshot.index
+        if self._refuse_unclosed:
+            leftover = self._inputs.last_bar[t] & (
+                np.abs(np.asarray(snapshot.account.quantities)) > _NO_TRADE_ATOL
+            )
+            if leftover.any():
+                names = [self._inputs.legs[i] for i in np.flatnonzero(leftover)]
+                raise UnsupportedWriteOffError(
+                    f"{names} still held at the last available bar; the protocol has "
+                    "no write-off branch (disclosed limitation)"
+                )
         scale = risk_scale_of(snapshot)
         current = np.asarray(snapshot.account.weights, dtype=np.float64)
 
@@ -514,6 +551,7 @@ class XsPolicy(PortfolioPolicy):
 
 __all__ = [
     "PolicyStats",
+    "UnsupportedWriteOffError",
     "XsInputs",
     "XsPolicy",
     "average_ranks",

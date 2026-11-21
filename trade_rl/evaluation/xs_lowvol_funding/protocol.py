@@ -33,9 +33,9 @@ CANDIDATES_RELATIVE_PATH: Final = (
     "trade_rl/evaluation/xs_lowvol_funding/candidates.json"
 )
 CANDIDATES_SHA256: Final = (
-    "302d00166cdf8027624d66d3f7fcbbcf6f6b9502eae4c38a9c349bccded9a161"
+    "fc680208899cd4166c9923f9cf9e8f8ebe829010aae073a935de10d6e6fefdf6"
 )
-CANDIDATES_COUNT: Final = 442
+CANDIDATES_COUNT: Final = 441
 
 #: The reused lowturn/trend bindings (the stationary bootstrap and the cash tooling).
 LOWTURN_PROTOCOL_ID: Final = trend.LOWTURN_PROTOCOL_ID
@@ -79,6 +79,9 @@ MINIMUM_NOTIONAL: Final = 10.0
 MAINTENANCE_MARGIN_RATE: Final = 0.05
 #: Extra adverse charge on a forced close (and on a written-off residual).
 FORCED_CLOSE_ADVERSE: Final = 0.05
+#: A held name is closed from this many 4h bars before its last available bar (about the
+#: one-week public delisting notice); the lead uses knowledge of the archive end.
+FORCED_CLOSE_LEAD_BARS: Final = 42
 #: A cell whose cash net of cumulative execution costs is below minus this fraction of the
 #: initial capital at any interval is invalid.
 CASH_TOLERANCE_FRACTION: Final = 1e-6
@@ -195,8 +198,8 @@ HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
 )
 HARNESS_TOOL_RELATIVE_PATH: Final = "tools/xs_lowvol_funding.py"
 
-#: FORWARD listing exclusions: 1000x price-scaled perps and stablecoin or gold bases.
-_SCALED_PREFIX: Final = re.compile(r"^(1000|1M)")
+#: FORWARD listing exclusions: stablecoin or gold bases and non-ASCII symbols.
+_ASCII_SYMBOL: Final = re.compile(r"[A-Z0-9]+USDT")
 _EXCLUDED_BASES: Final[frozenset[str]] = frozenset(
     {
         "USDC",
@@ -239,7 +242,7 @@ def verify_candidates_binding(path: Path | None = None) -> None:
 
 
 def load_candidates(path: Path | None = None) -> tuple[str, ...]:
-    """The frozen 442 candidate symbols (the SHA-256 is verified first)."""
+    """The frozen 441 candidate symbols (the SHA-256 is verified first)."""
     verify_candidates_binding(path)
     target = candidates_path() if path is None else path
     document = json.loads(target.read_bytes())
@@ -250,18 +253,18 @@ def load_candidates(path: Path | None = None) -> tuple[str, ...]:
         or len(set(symbols)) != CANDIDATES_COUNT
         or not all(isinstance(item, str) for item in symbols)
     ):
-        raise ProtocolBindingError("candidate list is not 442 unique symbols")
+        raise ProtocolBindingError("candidate list is not 441 unique symbols")
     return tuple(symbols)
 
 
 def forward_symbol_allowed(symbol: str) -> bool:
-    """Whether a listed USDT perp may enter the FORWARD universe (spec exclusions)."""
-    if not symbol.endswith("USDT") or len(symbol) <= len("USDT"):
+    """Whether a listed USDT perp may enter the FORWARD universe (spec exclusions).
+
+    Only ASCII ``[A-Z0-9]+USDT`` symbols are admitted, minus stablecoin and gold bases.
+    """
+    if _ASCII_SYMBOL.fullmatch(symbol) is None:
         return False
-    base_asset = symbol[: -len("USDT")]
-    if _SCALED_PREFIX.match(base_asset) or base_asset in _EXCLUDED_BASES:
-        return False
-    return True
+    return symbol[: -len("USDT")] not in _EXCLUDED_BASES
 
 
 def harness_source_digest(
@@ -414,10 +417,10 @@ def protocol_payload() -> dict[str, object]:
             "settled funding events in the 3 days before it",
             "ranking": "perp quote volume over the 30 days strictly before the month "
             "start, ties by symbol name",
-            "forward_listing": "all USDT perps listed at run time minus 1000x-scaled "
-            "and stablecoin or gold bases, supplied to the tool as a recorded file",
+            "forward_listing": "all ASCII USDT perps listed at run time minus stablecoin "
+            "and gold bases, supplied to the tool as a recorded file",
             "forward_excluded_bases": sorted(_EXCLUDED_BASES),
-            "forward_excluded_prefixes": ["1000", "1M"],
+            "forward_ascii_rule": "[A-Z0-9]+USDT",
         },
         "policy": {
             "sigma_bars": SIGMA_BARS,
@@ -454,13 +457,15 @@ def protocol_payload() -> dict[str, object]:
             },
         },
         "forced_close": {
-            "rule": "a held name's target is 0 at the decision bar one 4h bar before "
-            "its last available bar",
+            "rule": "a held name's target is 0 from the decision bar 42 4h bars before "
+            "its last available bar onward (the lead uses knowledge of the archive end, "
+            "modelling the public delisting announcement)",
+            "lead_bars": FORCED_CLOSE_LEAD_BARS,
             "adverse_charge": FORCED_CLOSE_ADVERSE,
-            "booked": "cash debit at the fill bar, applied to the equity path from that "
-            "bar on",
-            "written_off_residual": "settled at the last close; the same adverse "
-            "charge on its notional is booked at the settlement bar",
+            "booked": "cash debit at each fill bar of the forced close, applied to the "
+            "equity path from that bar on",
+            "unclosed_at_last_bar": "the run refuses (no write-off branch; disclosed "
+            "limitation that would need an amendment)",
             "reported": ["count", "total_charge", "result_without_charge"],
         },
         "risk": {
@@ -605,6 +610,7 @@ __all__ = [
     "FALLBACK_MIN_NOTIONAL",
     "FINAL_NOT_BEFORE",
     "FORCED_CLOSE_ADVERSE",
+    "FORCED_CLOSE_LEAD_BARS",
     "FORWARD_SCORING_FROM",
     "FUNDING_EVENTS",
     "FUNDING_LOOKBACK_DAYS",

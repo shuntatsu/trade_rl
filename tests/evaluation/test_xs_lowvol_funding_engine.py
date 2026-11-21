@@ -36,7 +36,7 @@ from trade_rl.strategies.portfolio import (
     PortfolioTargetProposal,
 )
 
-LAST_ROW = 398  # AAA's last available bar when it is delisted in the fixtures
+LAST_ROW = 470  # AAA's last available bar when it is delisted in the fixtures
 
 
 def _delisted(**extra: object) -> data.StageData:
@@ -62,6 +62,7 @@ def _replay(
         inputs=inputs,
         start_index=start,
         lag=protocol.scenario_signal_lag_bars(scenario),
+        refuse_unclosed=True,
     )
     stop = stage_data.dataset.n_bars - 1
     if risk:
@@ -112,41 +113,42 @@ def _interval(result: SharedCashPortfolioReplayResult, next_index: int) -> Any:
 # ========================================================================= forced close
 
 
-def test_the_forced_close_fills_one_bar_before_the_last_bar_and_charges_five_percent() -> (
+def test_the_forced_close_starts_42_bars_before_the_last_bar_and_charges_five_percent() -> (
     None
 ):
     stage_data = _delisted()
     result = _replay(stage_data)
     dataset = stage_data.dataset
     leg = dataset.symbols.index("AAAUSDT")
-    # the name is held long when the notice arrives, then the decision one bar before its
-    # last available bar targets zero and the order fills on the last available bar
-    held = _interval(result, LAST_ROW - 1)
+    start = LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS  # 428
+    # held long (bought at the weekly decision of row 419) until the announcement window
+    held = _interval(result, start)
     assert Fraction(held.exact_quantities_after[leg]) > 0
     by_index = {d.index: d for d in result.decisions}
-    assert by_index[LAST_ROW - 2].proposal_weights[leg] > 0.0
-    assert by_index[LAST_ROW - 1].proposal_weights[leg] == 0.0
-    closing = _interval(result, LAST_ROW)
+    assert by_index[start - 1].proposal_weights[leg] > 0.0
+    assert by_index[start].proposal_weights[leg] == 0.0
+    # the next weekly decision (row 461) lies in the window: the name is not bought again
+    assert by_index[461].proposal_weights[leg] == 0.0
+    closing = _interval(result, start + 1)
     fills = [
         event
         for event in closing.order_events
         if event.symbol_index == leg
-        and event.processing_index == LAST_ROW
+        and event.processing_index == start + 1
         and event.event_type in ("filled", "partial_fill")
     ]
     assert len(fills) == 1
     closed_quantity = abs(Fraction(held.exact_quantities_after[leg]))
     assert float(closed_quantity) == pytest.approx(abs(fills[0].filled_quantity))
     notional = fills[0].filled_notional
-    # no position remains, on the last bar or at the end
-    assert Fraction(closing.exact_quantities_after[leg]) == 0
+    # no position remains afterwards, on the last bar or at the end
+    assert Fraction(_interval(result, LAST_ROW).exact_quantities_after[leg]) == 0
     assert result.book.quantities[leg] == 0.0
     # the engine already charged the scenario cost on that fill; the harness adds exactly 5%
     assert closing.interval_cost > 0.0001 * notional
     events = runner.forced_closes(result, dataset)
     assert [(e.leg, e.last_bar) for e in events] == [("AAAUSDT", LAST_ROW)]
-    assert events[0].fill_notional == pytest.approx(notional)
-    assert events[0].residual_notional == 0.0
+    assert events[0].fills == ((start + 1, pytest.approx(notional)),)
     assert events[0].fill_charge == pytest.approx(0.05 * notional)
 
 
@@ -170,9 +172,10 @@ def test_the_forced_close_charge_is_a_cash_debit_on_the_equity_path_from_the_fil
     raw = protocol.INITIAL_CAPITAL * np.cumprod(
         1.0 + np.asarray(result.returns.values, dtype=np.float64)
     )
-    fill_position = LAST_ROW - fx.WINDOW.first_decision_index - 1
+    fill_bar = LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS + 1
+    fill_position = fill_bar - fx.WINDOW.first_decision_index - 1
     ledger_ends = [iv.next_index for iv in result.ledger_evidence.intervals.intervals]  # type: ignore[union-attr]
-    assert ledger_ends[fill_position] == LAST_ROW
+    assert ledger_ends[fill_position] == fill_bar
     assert np.allclose(path[:fill_position], raw[:fill_position])
     assert path[fill_position] == pytest.approx(raw[fill_position] - charge, rel=1e-9)
     assert path[-1] == pytest.approx(raw[-1] - charge, rel=1e-6)
@@ -180,12 +183,14 @@ def test_the_forced_close_charge_is_a_cash_debit_on_the_equity_path_from_the_fil
     assert cell.valid and cell.max_borrowing is not None and cell.max_borrowing < 0.1
 
 
-def test_an_unfillable_close_fails_closed_instead_of_inventing_a_write_off() -> None:
-    # the last two bars of the name are too thin to fill anything (1% of ~4 USDT), so the
-    # position is still held when the asset becomes unavailable. The spec writes it off at
-    # the last close less 5%, but the shared replay cannot continue past an engine
-    # settlement (its fill tracker diverges), so the harness refuses rather than improvise.
-    thin_from = (LAST_ROW - 1) * protocol.BAR_HOURS
+def test_an_unclosed_position_at_the_last_bar_refuses_the_run_naming_the_symbol() -> (
+    None
+):
+    # from the first forced-close fill bar on the name is too thin to fill anything (1% of
+    # ~4 USDT), so the position is still held at its last available bar. The protocol has no
+    # write-off branch (and the shared replay cannot continue past an engine settlement),
+    # so the run refuses.
+    thin_from = (LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS) * protocol.BAR_HOURS
     stage_data = fx.stage(
         overrides={
             "AAAUSDT": {
@@ -194,13 +199,9 @@ def test_an_unfillable_close_fails_closed_instead_of_inventing_a_write_off() -> 
             }
         }
     )
-    with pytest.raises(runner.UnsupportedWriteOffError, match="cannot write it off"):
+    with pytest.raises(runner.UnsupportedWriteOffError, match="AAAUSDT"):
         _replay(stage_data)
     assert issubclass(runner.UnsupportedWriteOffError, StageDataError)
-    # the dataset still carries the settlement price for the day the branch is supported
-    dataset = stage_data.dataset
-    leg = dataset.symbols.index("AAAUSDT")
-    assert dataset.open[LAST_ROW + 1, leg] == dataset.close[LAST_ROW, leg]
 
 
 def test_the_unavailable_rows_carry_a_sentinel_not_an_invented_price() -> None:

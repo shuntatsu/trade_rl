@@ -201,6 +201,7 @@ def _alternating_inputs(n_rows: int = 400) -> policy.XsInputs:
         funding_count=np.ones((n_rows, 6), dtype=np.int64),
         member=ones.copy(),
         forced=np.zeros((n_rows, 6), dtype=np.bool_),
+        last_bar=np.zeros((n_rows, 6), dtype=np.bool_),
     )
 
 
@@ -265,11 +266,12 @@ def test_a_name_without_nine_funding_events_or_history_is_excluded() -> None:
     assert ranked == 2 and not flat.any()
 
 
-def test_forced_close_rows_flag_the_bar_before_the_last_available_bar() -> None:
-    active = np.ones((10, 2), dtype=np.bool_)
-    active[6:, 0] = False  # leg 0's last available bar is row 5
+def test_forced_close_rows_start_42_bars_before_the_last_available_bar() -> None:
+    active = np.ones((100, 2), dtype=np.bool_)
+    active[61:, 0] = False  # leg 0's last available bar is row 60
     forced = policy.XsInputs.forced_rows(active)
-    assert list(np.flatnonzero(forced[:, 0])) == [4]
+    assert list(np.flatnonzero(forced[:, 0])) == list(range(18, 61))
+    assert list(np.flatnonzero(policy.XsInputs.last_bar_rows(active)[:, 0])) == [60]
     assert not forced[:, 1].any()  # a leg cut off by the dataset end is never flagged
     # a forced name is zeroed after sizing, wherever it ranks
     inputs = _alternating_inputs()
@@ -672,14 +674,14 @@ def test_stage_windows_are_the_spec_table_and_decisions_are_mondays() -> None:
 
 def test_the_frozen_candidate_list_is_bound_by_its_sha256(tmp_path: Path) -> None:
     candidates = protocol.load_candidates()
-    assert len(candidates) == 442 and len(set(candidates)) == 442
+    assert len(candidates) == 441 and len(set(candidates)) == 441
     touched = {
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT",
         "AVAXUSDT", "LINKUSDT", "LTCUSDT", "DOTUSDT", "BCHUSDT", "SUIUSDT", "APTUSDT",
         "ARBUSDT", "OPUSDT", "TRXUSDT",
     }  # fmt: skip
     assert not touched & set(candidates)
-    assert protocol.CANDIDATES_SHA256.startswith("302d0016")
+    assert protocol.CANDIDATES_SHA256.startswith("fc680208")
     edited = tmp_path / "candidates.json"
     edited.write_bytes(protocol.candidates_path().read_bytes() + b" ")
     with pytest.raises(protocol.ProtocolBindingError):
@@ -690,8 +692,12 @@ def test_the_frozen_candidate_list_is_bound_by_its_sha256(tmp_path: Path) -> Non
 
 def test_forward_listing_exclusions() -> None:
     assert protocol.forward_symbol_allowed("BTCUSDT")
-    assert not protocol.forward_symbol_allowed("1000PEPEUSDT")
-    assert not protocol.forward_symbol_allowed("1MBABYDOGEUSDT")
+    assert protocol.forward_symbol_allowed(
+        "1000PEPEUSDT"
+    )  # perp-only: price scale is moot
+    assert protocol.forward_symbol_allowed("1MBABYDOGEUSDT")
+    assert not protocol.forward_symbol_allowed("币安人生USDT")
+    assert not protocol.forward_symbol_allowed("btcUSDT")
     assert not protocol.forward_symbol_allowed("USDCUSDT")
     assert not protocol.forward_symbol_allowed("PAXGUSDT")
     assert not protocol.forward_symbol_allowed("BTCBUSD")
@@ -716,7 +722,7 @@ def test_declared_halts_are_empty_until_the_amendment_and_need_their_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "e69b03b58438a379721633243153ce1737fc121fa83127a53470143690bbcece"
+    "8e4ba3d4429730691aca01ca7be21b9b3a1dd681a278889507bf2fa44012453b"
 )
 
 

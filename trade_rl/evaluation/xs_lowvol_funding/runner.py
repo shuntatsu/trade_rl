@@ -7,11 +7,11 @@ the future-perturbation helpers are the Core7 MTF study's and the trend harness'
 not copied); the summary is called with ``execution_cost=`` so lean-core terminal dust is
 recognised.
 
-Forced closes. A held name whose archive ends (or whose gap starts) is closed by the policy one
-bar before its last available bar. The engine charges the scenario cost on that fill; this
-runner adds the extra adverse 5% of the closed notional as a cash debit at the fill bar,
-applied to the equity path from that bar on, and the same 5% on a residual the engine had to
-settle at the first unavailable bar (written off at the last close). The debits are
+Forced closes. A held name whose archive ends (or whose gap starts) is closed by the policy
+from 42 bars before its last available bar on. The engine charges the scenario cost on each
+fill; this runner adds the extra adverse 5% of the closed notional as a cash debit at each
+fill bar, applied to the equity path from that bar on. A position still held at the last
+available bar refuses the run (no write-off branch). The debits are
 reported (count, total charge, the result without them) and enter the cash check, the
 returns, the drawdown and every metric of the cell.
 
@@ -47,7 +47,11 @@ from trade_rl.evaluation.xs_lowvol_funding.data import (
     validate_stage_dataset,
 )
 from trade_rl.evaluation.xs_lowvol_funding.decision import CellKey, OosCell
-from trade_rl.evaluation.xs_lowvol_funding.policy import XsInputs, XsPolicy
+from trade_rl.evaluation.xs_lowvol_funding.policy import (
+    UnsupportedWriteOffError,
+    XsInputs,
+    XsPolicy,
+)
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.strategies.portfolio import PortfolioPolicy
 
@@ -79,11 +83,12 @@ DISCLOSURES: tuple[str, ...] = (
     "by the tighter of 0.4 x perp gross <= 1.0 and net signed exposure <= 0.97; a cell whose "
     "cash net of cumulative execution costs and forced-close debits falls below -1e-6 x "
     "capital is INVALID (negative_cash_borrowing)",
-    "the forced-close rule reads the availability of the next two rows only (a modelled "
-    "advance delisting notice); the extra adverse 5% is a post-replay cash debit at the "
-    "fill bar, so the engine's risk layer does not see it",
-    "a residual the engine settles at the first unavailable bar is valued at the last close "
-    "and charged the same 5% of its notional (adverse for longs and shorts alike)",
+    "the forced-close rule closes a held name from 42 bars before its last available bar "
+    "(a modelled one-week delisting announcement that uses knowledge of the archive end); "
+    "the extra adverse 5% is a post-replay cash debit at each fill bar, so the engine's "
+    "risk layer does not see it",
+    "a position still held at a name's last available bar refuses the run (no write-off "
+    "branch; a disclosed limitation that would need an amendment)",
     "exchange rules (lot size, minimum notional) are one static snapshot, not point-in-time; "
     "a symbol absent from the snapshot uses the fallback rules",
     "an unavailable row carries a constant sentinel price, never a market price",
@@ -117,17 +122,6 @@ class _Hybrid:
 #: The shared replay's fill tracker raises this when the engine changes a position without a
 #: fill (it settles a position held on an unavailable asset).
 _TRACKER_DIVERGENCE = "execution fill events diverged from book quantities"
-
-
-class UnsupportedWriteOffError(StageDataError):
-    """A forced close left a position that the shared replay cannot write off.
-
-    The spec writes such a residual off at the last close less 5%. The shared replay path
-    (``run_shared_portfolio_replay``) cannot continue once the engine settles a position
-    held on an asset that has just become unavailable: its fill tracker diverges from the
-    book. The harness fails closed instead of inventing an economics for that branch; the
-    branch needs an engine decision before a stage with real delistings is run.
-    """
 
 
 def inputs_of(stage: StageData) -> XsInputs:
@@ -166,11 +160,24 @@ def replay(
 
 
 def make_policy(
-    arm: str, *, inputs: XsInputs, start_index: int, lag: int
+    arm: str,
+    *,
+    inputs: XsInputs,
+    start_index: int,
+    lag: int,
+    refuse_unclosed: bool = False,
 ) -> PortfolioPolicy:
-    """The policy of an arm; ``lag`` is the scenario's extra signal lag in bars."""
+    """The policy of an arm; ``lag`` is the scenario's extra signal lag in bars.
+
+    ``refuse_unclosed`` (the real replays) refuses a position still held at a name's last
+    available bar; the synthetic causality probe leaves it off.
+    """
     return XsPolicy(
-        arm=arm, inputs=inputs, start_index=start_index, signal_lag_bars=lag
+        arm=arm,
+        inputs=inputs,
+        start_index=start_index,
+        signal_lag_bars=lag,
+        refuse_unclosed=refuse_unclosed,
     )
 
 
@@ -256,41 +263,39 @@ def _probe_stage(
 
 @dataclass(frozen=True, slots=True)
 class ForcedClose:
-    """One forced close: the leg, the last available bar, the charged notional."""
+    """One forced close: the leg, its last available bar and every fill bar with its notional."""
 
     leg: str
     last_bar: int
-    fill_notional: float
-    residual_notional: float
+    fills: tuple[tuple[int, float], ...]
+
+    @property
+    def fill_notional(self) -> float:
+        return float(sum(notional for _, notional in self.fills))
 
     @property
     def fill_charge(self) -> float:
         return protocol.FORCED_CLOSE_ADVERSE * self.fill_notional
 
-    @property
-    def residual_charge(self) -> float:
-        return protocol.FORCED_CLOSE_ADVERSE * self.residual_notional
-
     def to_dict(self) -> dict[str, object]:
         return {
             "leg": self.leg,
             "last_bar": self.last_bar,
+            "fills": [[bar, notional] for bar, notional in self.fills],
             "fill_notional": self.fill_notional,
-            "residual_notional": self.residual_notional,
-            "charge": self.fill_charge + self.residual_charge,
+            "charge": self.fill_charge,
         }
 
 
 def forced_closes(
     result: SharedCashPortfolioReplayResult, dataset: MarketDataset
 ) -> list[ForcedClose]:
-    """The forced closes of a replay: legs held when their availability ended.
+    """The forced closes of a replay: legs held when the 42-bar notice window began.
 
-    A leg's last available bar is ``L`` when it is active at ``L`` and not at ``L + 1``. The
-    closing fill is the leg's filled notional at ``L``; whatever is still held after ``L`` would
-    be settled by the engine at the last close on ``L + 1`` (a residual the shared replay
-    cannot continue past, see :class:`UnsupportedWriteOffError`; the residual branch is kept
-    for the day it can).
+    A leg's last available bar is ``L`` when it is active at ``L`` and not at ``L + 1``. Every
+    fill of the leg on the bars ``L - 41 .. L`` is a forced-close fill and carries the extra
+    adverse charge. A position still held after ``L`` refuses the run (the policy raises
+    first; this is the same check on the ledger).
     """
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
@@ -298,34 +303,39 @@ def forced_closes(
     intervals = ledger.intervals.intervals
     by_next = {iv.next_index: iv for iv in intervals}
     active = np.asarray(dataset.resolved_array("asset_active"), dtype=np.bool_)
-    close = np.asarray(dataset.close, dtype=np.float64)
+    lead = protocol.FORCED_CLOSE_LEAD_BARS
     events: list[ForcedClose] = []
     for leg in range(active.shape[1]):
         for last in np.flatnonzero(active[:-1, leg] & ~active[1:, leg]):
             row = int(last)
-            interval = by_next.get(row)
-            if interval is None:
-                continue
-            filled = 0.0
-            for event in interval.order_events:
-                if (
-                    event.symbol_index == leg
-                    and event.processing_index == row
+            tail = by_next.get(row)
+            if (
+                tail is not None
+                and abs(float(Fraction(tail.exact_quantities_after[leg])))
+                > _QUANTITY_ATOL
+            ):
+                raise UnsupportedWriteOffError(
+                    f"{dataset.symbols[leg]} still held at its last available bar {row}; "
+                    "the protocol has no write-off branch (disclosed limitation)"
+                )
+            fills: list[tuple[int, float]] = []
+            for bar in range(row - lead + 1, row + 1):
+                interval = by_next.get(bar)
+                if interval is None:
+                    continue
+                filled = sum(
+                    float(event.filled_notional)
+                    for event in interval.order_events
+                    if event.symbol_index == leg
+                    and event.processing_index == bar
                     and event.event_type in ("filled", "partial_fill")
-                ):
-                    filled += float(event.filled_notional)
-            residual = abs(
-                float(Fraction(interval.exact_quantities_after[leg]))
-            ) * float(close[row, leg])
-            if filled > 0.0 or residual > _QUANTITY_ATOL:
+                )
+                if filled > 0.0:
+                    fills.append((bar, filled))
+            if fills:
                 events.append(
                     ForcedClose(
-                        leg=str(dataset.symbols[leg]),
-                        last_bar=row,
-                        fill_notional=filled,
-                        residual_notional=residual
-                        if residual > _QUANTITY_ATOL
-                        else 0.0,
+                        leg=str(dataset.symbols[leg]), last_bar=row, fills=tuple(fills)
                     )
                 )
     return events
@@ -342,21 +352,18 @@ def _charged_returns(
 ) -> tuple[np.ndarray, np.ndarray]:
     """``(returns after the debits, cumulative debit per interval)``.
 
-    The fill charge is debited at the closing bar ``L`` and the residual charge at ``L + 1``
-    (an interval is identified by the row it ends on); each debit lowers the equity path from
-    that interval on by its full amount.
+    The charge of each forced-close fill is debited at its fill bar (an interval is identified
+    by the row it ends on); each debit lowers the equity path from that interval on by its
+    full amount.
     """
     debit = np.zeros(returns.size, dtype=np.float64)
     if len(intervals) != returns.size:
         return returns, debit
     position = {iv.next_index: k for k, iv in enumerate(intervals)}
     for event in closes:
-        for bar, amount in (
-            (event.last_bar, event.fill_charge),
-            (event.last_bar + 1, event.residual_charge),
-        ):
-            if amount > 0.0 and bar in position:
-                debit[position[bar]] += amount
+        for bar, notional in event.fills:
+            if bar in position:
+                debit[position[bar]] += protocol.FORCED_CLOSE_ADVERSE * notional
     cumulative = np.cumsum(debit)
     if not cumulative.any():
         return returns, cumulative
@@ -459,7 +466,7 @@ def _build_cell(
     if years is None or len(intervals) != returns.size:
         reasons.append("returns_not_aligned_with_ledger_intervals")
         years = {}
-    total_charge = float(sum(e.fill_charge + e.residual_charge for e in closes))
+    total_charge = float(sum(e.fill_charge for e in closes))
     total_return = summary.total_return
     sharpe = summary.annual_sharpe
     drawdown = summary.max_drawdown
@@ -600,7 +607,9 @@ def run_stage(
     for arm in protocol.ARMS:
         for scenario in protocol.SCENARIOS:
             lag = protocol.scenario_signal_lag_bars(scenario)
-            policy = make_policy(arm, inputs=inputs, start_index=start, lag=lag)
+            policy = make_policy(
+                arm, inputs=inputs, start_index=start, lag=lag, refuse_unclosed=True
+            )
             result = replay(
                 dataset,
                 policy,

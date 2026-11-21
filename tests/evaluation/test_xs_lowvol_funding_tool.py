@@ -508,7 +508,7 @@ def test_forward_needs_a_supported_disjoint_decision_of_the_same_digest(
     assert code == driver.EXIT_REFUSED and "the line stops" in err
     # the forward listing must obey the spec's exclusions
     for bad_symbols in (
-        ["1000PEPEUSDT", "BTCUSDT"],
+        ["币安人生USDT", "BTCUSDT"],
         ["USDCUSDT"],
         ["ABCUSDT", "ABCUSDT"],
     ):
@@ -923,7 +923,7 @@ def test_the_stage_symbols_are_the_roster_the_candidates_and_the_forward_listing
 ) -> None:
     assert driver.stage_symbols("DEV", None) == tuple(sorted(protocol.DEV_ROSTER))
     candidates = driver.stage_symbols("DISJOINT", None)
-    assert len(candidates) == 442 and candidates == tuple(sorted(candidates))
+    assert len(candidates) == 441 and candidates == tuple(sorted(candidates))
     with pytest.raises(ValueError, match="--forward-symbols"):
         driver.stage_symbols("FORWARD", None)
     listing = symbol_file(tmp_path, ["ZZZUSDT", "AAAUSDT"])

@@ -75,12 +75,18 @@ pre-images do not incur new orders. Relative `np.allclose` tolerance is forbidde
   cost, then cap the allowance by the current negative cash; any cash recovery
   extinguishes the corresponding allowance. Older paid fees are never recycled.
 - Inspect native ordered `OrderEvent` fills (not merely period-end cash).
-  Reconstruct an **optimistic** running spot cash bound from `cash_before`, signed
-  fill notionals and all positive non-trading credits made available upfront;
-  omitting fees and negative cashflows can only overestimate real cash. A negative
-  path therefore establishes intrabar borrowing even if later sells restore a
-  positive `cash_after`. Unexpected perp fills fail closed.
-- `min(cash_after, optimistic ordered fill cash)` below
+  The current event schema does not carry each fill's execution fee. To ensure a
+  **conservative lower bound**, subtract the full nonnegative interval cost
+  (cross-checked against the cumulative ledger) and all negative non-trade cashflows
+  from `cash_before` **before the first ordered fill**. Omit positive non-trade
+  credits until after the audit. Then apply signed fill notionals in engine
+  sequence. This bound cannot silently treat later sales or credits as funding
+  for earlier purchases. It **can falsely invalidate cash-safe intervals**
+  (for example, a passive control whose exit fee is paid after sale proceeds);
+  such conservative INVALID results must not be promoted as economic findings.
+  Per-fill cost/cash evidence is required before eliminating these false
+  positives. Unexpected perp fills or contradictory fee totals fail closed.
+- `min(cash_after, conservative ordered fill cash)` below
   `-0.000001 × initial_capital` is `negative_cash_borrowing` and INVALID **even
   if the deficit comes solely from fees**. The separately reported maximum
   borrowing *net of unabsorbed fees* remains diagnostic, not financing credit.

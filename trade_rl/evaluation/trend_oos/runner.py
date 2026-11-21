@@ -73,7 +73,9 @@ DISCLOSURES: tuple[str, ...] = (
     "every arm trades a spot cash account: after the lowturn caps the spot gross is "
     "capped at 1.0 (lowturn v1 allowed 2.0 with zero-cost financing); a cell that "
     "borrows at any ordered spot fill or ledger close is INVALID "
-    "(negative_cash_borrowing); later sells cannot prefinance earlier buys",
+    "(negative_cash_borrowing); later sells cannot prefinance earlier buys; "
+    "the fee-inclusive conservative lower bound can invalidate safe controls "
+    "when native per-fill fee timing is not recorded",
     "the causality probe is per (arm, signal lag) and shared by the cost scenarios",
     "exchange rules (lot size, minimum notional) are one static snapshot applied to "
     "every row, not point-in-time; for BACKCAST this approximates 2018-2020 by the "
@@ -212,14 +214,14 @@ def _cash_extremes(
 
 
 def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | None:
-    """Optimistic running cash over native ordered spot fills (not bar closes).
+    """Conservative cost-inclusive cash floor over native ordered spot fills.
 
-    The shared execution engine fills symbols in order and permits buys before
-    sells. Starting with actual cash, add *all* positive non-trade cashflows up
-    front but omit nonnegative costs and negative flows: the reconstruction is an
-    upper bound on available cash, so a negative value proves real borrowing.
-    No replay-book state or historical receipt is modified.
+    OrderEvents carry no per-fill fee. Reserve the complete verified interval
+    cost and negative external flows before the first fill, and exclude any
+    positive external credits. This may reject genuinely cash-safe intervals
+    whose costs occurred after a sale; fail closed until per-fill fees exist.
     """
+
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
         return None
@@ -235,7 +237,24 @@ def _spot_fill_cash_floor(result: SharedCashPortfolioReplayResult) -> float | No
         )
         if not all(math.isfinite(value) for value in credits):
             raise ValueError("nonfinite external credit in fill evidence")
-        cash = float(iv.cash_before) + sum(max(0.0, value) for value in credits)
+        cost_before = float(iv.total_cost_before)
+        cost_after = float(iv.total_cost_after)
+        interval_cost = float(iv.interval_cost)
+        if (
+            not all(math.isfinite(v) for v in (cost_before, cost_after, interval_cost))
+            or cost_before < 0.0
+            or interval_cost < 0.0
+            or cost_after < cost_before
+            or not math.isclose(
+                cost_after - cost_before, interval_cost, rel_tol=1e-12, abs_tol=1e-9
+            )
+        ):
+            raise ValueError("invalid interval execution cost in fill evidence")
+        cash = (
+            float(iv.cash_before)
+            - interval_cost
+            + sum(min(0.0, value) for value in credits)
+        )
         cash_after = float(iv.cash_after)
         if not math.isfinite(cash) or not math.isfinite(cash_after):
             raise ValueError("nonfinite cash in fill evidence")

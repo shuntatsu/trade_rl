@@ -337,6 +337,9 @@ def _spot_fill_probe(
     iv = SimpleNamespace(
         cash_before=5.0,
         cash_after=5.0,
+        total_cost_before=0.0,
+        total_cost_after=0.0,
+        interval_cost=0.0,
         interval_funding=credits[0],
         interval_dividend=credits[1],
         interval_cash_interest=credits[2],
@@ -480,7 +483,7 @@ def test_the_uncapped_rule_reproduces_zero_cost_financing_and_the_cap_removes_it
     assert capped.book.portfolio_value < free.book.portfolio_value
 
 
-def test_every_arm_cell_keeps_the_cash_account_and_the_cost_overdraft_is_not_borrowing(
+def test_every_arm_cell_keeps_the_cash_account_with_conservative_fee_false_positives(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     window, dataset = _low_vol_window(monkeypatch)
@@ -490,17 +493,26 @@ def test_every_arm_cell_keeps_the_cash_account_and_the_cost_overdraft_is_not_bor
         output_dir=tmp_path / "out",
         expected_protocol_digest=protocol.protocol_digest(),
     )
-    assert result["label"] != "INVALID", result["invalid_cells"]
+    # Before per-fill cost evidence exists, reserving every interval's fees
+    # before its first trade is deliberately fail-closed, even when the native
+    # passive EW control actually paid its exit fees *after* cash arrived.
+    assert result["label"] == "INVALID"
+    assert set(result["invalid_cells"]) == {
+        f"EW_HOLD_SPOT__{scenario}" for scenario in protocol.SCENARIOS
+    }
     for key, cell in result["cells"].items():
         assert cell["max_borrowing"] <= TOLERANCE, key
-        assert "negative_cash_borrowing" not in cell["invalid_reasons"], key
+        if cell["arm"] == "EW_HOLD_SPOT":
+            assert protocol.REASON_NEGATIVE_CASH in cell["invalid_reasons"], key
+        else:
+            assert protocol.REASON_NEGATIVE_CASH not in cell["invalid_reasons"], key
         assert cell["causality_probe"]["shared_across_cost_scenarios"] is True
         assert cell["causality_probe"]["key"].startswith(cell["arm"] + "__lag")
         assert cell["returns_series"] == "dust_adjusted"
     # After the fix, even the passive fully invested control reserves sufficient
     # deterministic fill costs instead of financing them with negative cash.
     ew = result["cells"]["EW_HOLD_SPOT__BASE"]
-    assert ew["min_cash"] >= 0.0
+    assert ew["min_cash"] < -TOLERANCE  # conservative false positive
     assert ew["max_borrowing"] <= TOLERANCE
     candidate = result["cells"]["TS_TREND_LONG_SPOT__BASE"]
     assert candidate["cap_statistics"]["cap_bound_fraction"] > 0.9
@@ -966,3 +978,149 @@ def test_real_replay_rotation_has_no_hidden_intra_interval_spot_loan(
     assert min_before_fee_cash(safe) >= -TOLERANCE
     assert runner._spot_fill_cash_floor(safe) >= -TOLERANCE
     assert runner._cash_extremes(safe)[0] >= -TOLERANCE
+
+
+def test_fill_floor_reserves_all_interval_fees_before_ordered_buys() -> None:
+    """Cost-free ordered fills can hide a fee-financed temporary spot loan."""
+    buy = SimpleNamespace(
+        sequence=1,
+        event_type="filled",
+        symbol_index=0,
+        filled_quantity=100.0,
+        filled_notional=10_000.0,
+    )
+    sell = SimpleNamespace(
+        sequence=2,
+        event_type="filled",
+        symbol_index=2,
+        filled_quantity=-100.0,
+        filled_notional=10_000.0,
+    )
+    iv = SimpleNamespace(
+        cash_before=10_000.0,
+        cash_after=9_980.0,
+        total_cost_before=0.0,
+        total_cost_after=20.0,
+        interval_cost=20.0,
+        interval_funding=0.0,
+        interval_dividend=0.0,
+        interval_cash_interest=0.0,
+        order_events=(buy, sell),
+    )
+    result = SimpleNamespace(
+        ledger_evidence=SimpleNamespace(intervals=SimpleNamespace(intervals=(iv,)))
+    )
+    # The native book charges 10 at the first buy (cash=-10). Charging
+    # all 20 upfront conservatively proves a negative fee-inclusive floor.
+    assert runner._cash_extremes(result) == (9_980.0, 0.0)
+    assert runner._spot_fill_cash_floor(result) == pytest.approx(-20.0)
+
+
+def test_synthetic_native_replay_detects_transient_fill_fee_borrowing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real shared replay must fail closed when later sells repay buy fees."""
+    from trade_rl.simulation.accounting import BookState
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+
+    window = base._small_window(monkeypatch, "BACKCAST")
+    spot = {
+        symbol: base._series(window, first_row=0, seed=i + 1, drift=0.0, sigma=0.0)
+        for i, symbol in enumerate(protocol.ROSTER)
+    }
+    dataset = base._assemble(window, spot=spot)
+    start = window.first_decision_index
+    recorded_fills: list[tuple[float, float]] = []
+    original_fill = BookState.execute_fill
+
+    def recorded_fill(self: BookState, **kwargs: Any) -> None:
+        original_fill(self, **kwargs)
+        recorded_fills.append((float(self.cash), float(kwargs["cost_amount"])))
+
+    monkeypatch.setattr(BookState, "execute_fill", recorded_fill)
+
+    class FeeFirstRotate(LowturnPolicy):
+        def decide_portfolio(self, snapshot: Any) -> Any:
+            weights = np.zeros(N_LEGS)
+            if snapshot.index == start:
+                weights[[12, 14, 16]] = 0.2
+                return PortfolioTargetProposal(tuple(weights))
+            if snapshot.index == start + 6:
+                # Native symbol-order fills the new 0/2 buys before the
+                # higher-index 12/14/16 sells. Leave 25 USDT unspent
+                # before fees, but configured buy fees exceed that buffer.
+                available = float(snapshot.account.cash)
+                value = float(snapshot.account.portfolio_value)
+                weights[[0, 2]] = (available - 25.0) / value / 2.0
+                return PortfolioTargetProposal(tuple(weights))
+            return PortfolioTargetProposal(
+                tuple(float(w) for w in snapshot.account.weights),
+                hold_current_quantity_symbols=tuple(range(N_LEGS)),
+            )
+
+    policy = FeeFirstRotate(
+        family="TS_TREND_LONG_SPOT",
+        signals=build_oos_signals(dataset),
+        start_index=start,
+    )
+    result = _replay(dataset, window, policy, scenario="HIGH_COST")
+    assert any(cash < -TOLERANCE and fee > 0.0 for cash, fee in recorded_fills)
+    assert all(
+        float(iv.cash_after) >= -TOLERANCE
+        for iv in result.ledger_evidence.intervals.intervals
+    )
+    assert runner._cash_extremes(result)[0] >= -TOLERANCE
+    assert runner._spot_fill_cash_floor(result) < -TOLERANCE
+    cell = runner._build_cell(
+        arm="TS_TREND_LONG_SPOT",
+        scenario="HIGH_COST",
+        result=result,
+        dataset=dataset,
+        causality_passed=True,
+        probe_key="synthetic",
+        cap_statistics={},
+    )
+    assert protocol.REASON_NEGATIVE_CASH in cell.invalid_reasons
+    assert not cell.valid
+
+
+def test_conservative_fee_floor_may_refuse_a_native_cash_safe_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Document the intended false-positive cost of incomplete per-fill fees."""
+    from trade_rl.simulation.accounting import BookState
+
+    window, dataset = _low_vol_window(monkeypatch)
+    observed_cash: list[float] = []
+    actual_fill = BookState.execute_fill
+
+    def record_cash(self: BookState, **kwargs: Any) -> None:
+        actual_fill(self, **kwargs)
+        observed_cash.append(float(self.cash))
+
+    monkeypatch.setattr(BookState, "execute_fill", record_cash)
+    policy = CashAccountPolicy(
+        LowturnPolicy(
+            family="EW_HOLD_SPOT",
+            signals=build_oos_signals(dataset),
+            start_index=window.first_decision_index,
+        ),
+        start_index=window.first_decision_index,
+    )
+    result = _replay(dataset, window, policy)
+    assert observed_cash and min(observed_cash) > 0.0
+    assert runner._cash_extremes(result)[0] > 0.0
+    # Without per-fill fees, charging all interval costs at the beginning
+    # can over-reserve a later sell and refuse a genuinely cash-safe control.
+    assert runner._spot_fill_cash_floor(result) < -TOLERANCE
+
+
+@pytest.mark.parametrize("bad_cost", (float("nan"), -1.0, 7.0))
+def test_fill_floor_refuses_malformed_fee_evidence(bad_cost: float) -> None:
+    source = _spot_fill_probe()
+    iv = source.ledger_evidence.intervals.intervals[0]
+    source.ledger_evidence.intervals.intervals = (
+        SimpleNamespace(**{**vars(iv), "interval_cost": bad_cost}),
+    )
+    with pytest.raises(ValueError, match="execution cost"):
+        runner._spot_fill_cash_floor(source)

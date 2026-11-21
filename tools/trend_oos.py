@@ -1,4 +1,4 @@
-"""Driver for the out-of-sample test ``trend_long_spot_oos_v1``.
+"""Driver for the out-of-sample test ``trend_long_spot_oos_v2``.
 
 ``python -m tools.trend_oos plan --stage BACKCAST|FORWARD``
 ``python -m tools.trend_oos coverage --stage BACKCAST|FORWARD``

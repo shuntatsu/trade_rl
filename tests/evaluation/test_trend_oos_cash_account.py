@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -77,15 +78,20 @@ def _executes_to(proposal: Any, current: np.ndarray, scale_dd: float) -> np.ndar
     return np.where(held, current, risk)
 
 
-def test_the_frozen_rule_wants_gross_two_and_the_cap_brings_it_to_exactly_one() -> None:
+def test_the_frozen_rule_wants_gross_two_and_the_cash_cap_reserves_fill_costs() -> None:
     pack = _trend_pack()
     uncapped = family_targets("TS_TREND_LONG_SPOT", pack, 0)
     assert _gross(uncapped) == pytest.approx(2.0)
     policy = _wrapped()
     proposal = policy.decide_portfolio(_snapshot(0))
-    assert _gross(proposal.target_weights) == pytest.approx(1.0, abs=1e-12)
+    assert _gross(proposal.target_weights) == pytest.approx(
+        1.0 / (1.0 + protocol.cash_reserve_rate()), abs=1e-12
+    )
     assert proposal.hold_current_quantity_symbols == ()
-    assert np.allclose(np.asarray(proposal.target_weights)[SPOTS], 1 / 11)
+    assert np.allclose(
+        np.asarray(proposal.target_weights)[SPOTS],
+        1 / (11 * (1 + protocol.cash_reserve_rate())),
+    )
     executed = _executes_to(proposal, np.zeros(N_LEGS), 0.0)
     assert _gross(executed) <= 1.0 + 1e-12
     stats = policy.stats.to_dict()
@@ -137,7 +143,7 @@ def test_a_tiny_real_buy_cannot_bypass_the_gross_cap_as_an_approximate_hold() ->
 def test_the_deadband_cannot_let_gross_creep_above_the_limit() -> None:
     """Five legs sit within the deadband of the *uncapped* target (0.1818) and are
     held, six are far from it: the lowturn mixture has gross 1.99. The wrapper drops
-    every hold and re-targets the whole vector to gross exactly 1.0."""
+    every hold and re-targets the vector below 1.0, reserving execution costs."""
     current = np.zeros(N_LEGS)
     current[SPOTS[:5]] = 0.18
     snapshot = _snapshot(0, weights=current)
@@ -155,7 +161,11 @@ def test_the_deadband_cannot_let_gross_creep_above_the_limit() -> None:
     proposal = policy.decide_portfolio(snapshot)
     assert proposal.hold_current_quantity_symbols == ()
     executed = _executes_to(proposal, current, 0.0)
-    assert _gross(executed) == pytest.approx(1.0, abs=1e-12)
+    assert _gross(executed) == pytest.approx(
+        (1.0 - 0.9 * protocol.cash_reserve_rate())
+        / (1.0 + protocol.cash_reserve_rate()),
+        abs=1e-12,
+    )
     assert np.all(executed[SPOTS] > 0.0)  # proportional: every leg keeps a share
 
 
@@ -197,11 +207,13 @@ def test_the_cap_holds_after_risk_scaling_too(max_dd: float, scale: float) -> No
     proposal = policy.decide_portfolio(snapshot)
     executed = _executes_to(proposal, current, max_dd)
     assert _gross(executed) <= 1.0 + 1e-9
-    # the pre-cap effective gross was scale * 2.0: the cap binds only above 1.0
-    binds = scale * 2.0 > 1.0
+    # Even gross 1.0 can bind: a genuine rebalance must reserve the fill fees.
+    rate = protocol.cash_reserve_rate()
+    cash_limit = (1.0 - rate * _gross(current)) / (1.0 + rate)
+    binds = scale * 2.0 > cash_limit + 1e-9
     assert (policy.stats.bound_decisions == 1) is binds
     if binds:
-        assert _gross(executed) == pytest.approx(1.0, abs=1e-9)
+        assert _gross(executed) == pytest.approx(cash_limit, abs=1e-9)
 
 
 def test_a_gross_limit_above_one_or_a_foreign_policy_is_refused() -> None:
@@ -211,6 +223,112 @@ def test_a_gross_limit_above_one_or_a_foreign_policy_is_refused() -> None:
             CashAccountPolicy(inner, start_index=0, gross_limit=limit)
     with pytest.raises(TypeError):
         CashAccountPolicy(object(), start_index=0)  # type: ignore[arg-type]
+
+
+# --------------------------- Issue #1306: source-level cash falsification
+
+
+@pytest.mark.parametrize("current_gross", [0.0, 0.2, 0.999, 1.0, 1.1])
+def test_configured_fee_budget_covers_worst_case_same_mark_turnover(
+    current_gross: float,
+) -> None:
+    current = np.zeros(N_LEGS)
+    current[SPOTS] = current_gross / len(SPOTS)
+    policy = _wrapped()
+    decision = policy.decide_portfolio(_snapshot(0, weights=current))
+    effective = _executes_to(decision, current, 0.0)
+    target_gross = _gross(effective)
+    rate = protocol.cash_reserve_rate()
+    assert target_gross == pytest.approx(
+        (1.0 - rate * current_gross) / (1.0 + rate), abs=1e-12
+    )
+    assert target_gross + rate * (current_gross + target_gross) <= 1.0 + 1e-12
+
+
+def test_nondeterministic_scenario_cost_refuses_a_static_cash_reserve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = protocol.scenario_cost
+    monkeypatch.setattr(
+        protocol,
+        "scenario_cost",
+        lambda name: replace(original(name), slippage_std=0.01),
+    )
+    with pytest.raises(ValueError, match="deterministic"):
+        protocol.protocol_digest()
+    with pytest.raises(ValueError, match="deterministic"):
+        _wrapped().decide_portfolio(_snapshot(0))
+
+
+def _cash_ledger_probe(cash_path: tuple[float, ...], costs: tuple[float, ...]) -> Any:
+    previous = 0.0
+    intervals = []
+    for cash, total_cost in zip(cash_path, costs, strict=True):
+        intervals.append(
+            SimpleNamespace(
+                cash_after=cash,
+                total_cost_before=previous,
+                total_cost_after=total_cost,
+                interval_cost=total_cost - previous,
+            )
+        )
+        previous = total_cost
+    return SimpleNamespace(
+        ledger_evidence=SimpleNamespace(
+            intervals=SimpleNamespace(intervals=tuple(intervals))
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("cash_path", "costs", "expected_borrow"),
+    [
+        ((-3000.0, 500.0, -2500.0), (3000.0, 3000.0, 3000.0), 2500.0),
+        ((-3000.0, -100.0, -2500.0), (3000.0, 3000.0, 3000.0), 2400.0),
+        ((-3000.0, 500.0, -2500.0), (3000.0, 3000.0, 3050.0), 2450.0),
+        ((-3000.0, -100.0, -2500.0), (3000.0, 3100.0, 3200.0), 2300.0),
+        ((-3000.0, 0.0), (3000.0, 3000.0), 0.0),
+    ],
+)
+def test_cash_borrowing_recovery_does_not_reuse_lifetime_fees(
+    cash_path: tuple[float, ...],
+    costs: tuple[float, ...],
+    expected_borrow: float,
+) -> None:
+    _, borrowing = runner._cash_extremes(_cash_ledger_probe(cash_path, costs))
+    assert borrowing == pytest.approx(expected_borrow)
+
+
+@pytest.mark.parametrize(
+    ("cash_path", "costs"),
+    [
+        ((float("nan"),), (10.0,)),
+        ((float("inf"),), (10.0,)),
+        ((-1.0,), (float("nan"),)),
+        ((-1.0,), (float("inf"),)),
+        ((-1.0, -2.0), (10.0, 9.0)),
+    ],
+)
+def test_malformed_cash_borrowing_evidence_fails_closed(
+    cash_path: tuple[float, ...], costs: tuple[float, ...]
+) -> None:
+    with pytest.raises(ValueError, match="cash|cost"):
+        runner._cash_extremes(_cash_ledger_probe(cash_path, costs))
+
+
+def test_cash_ledger_rejects_discontinuous_total_cost_boundaries() -> None:
+    source = _cash_ledger_probe((-5.0, -7.0), (10.0, 11.0))
+    first, second = source.ledger_evidence.intervals.intervals
+    source.ledger_evidence.intervals.intervals = (
+        first,
+        SimpleNamespace(
+            cash_after=second.cash_after,
+            total_cost_before=9.0,
+            total_cost_after=11.0,
+        ),
+    )
+    with pytest.raises(ValueError, match="discontinuous"):
+        runner._cash_extremes(source)
 
 
 # ----------------------------------------------- the replay: free leverage and the fix
@@ -309,10 +427,10 @@ def test_every_arm_cell_keeps_the_cash_account_and_the_cost_overdraft_is_not_bor
         assert cell["causality_probe"]["shared_across_cost_scenarios"] is True
         assert cell["causality_probe"]["key"].startswith(cell["arm"] + "__lag")
         assert cell["returns_series"] == "dust_adjusted"
-    # EW_HOLD_SPOT is fully invested at 1.0: its cash is minus the costs it paid, which
-    # is exactly what is not counted as borrowing (the literal cash would be invalid)
+    # After the fix, even the passive fully invested control reserves sufficient
+    # deterministic fill costs instead of financing them with negative cash.
     ew = result["cells"]["EW_HOLD_SPOT__BASE"]
-    assert ew["min_cash"] < -TOLERANCE
+    assert ew["min_cash"] >= 0.0
     assert ew["max_borrowing"] <= TOLERANCE
     candidate = result["cells"]["TS_TREND_LONG_SPOT__BASE"]
     assert candidate["cap_statistics"]["cap_bound_fraction"] > 0.9
@@ -328,6 +446,37 @@ def test_every_arm_cell_keeps_the_cash_account_and_the_cost_overdraft_is_not_bor
     }
     base_cell = result["cells"]["TS_TREND_LONG_SPOT__HIGH_COST"]["causality_probe"]
     assert base_cell["key"] == "TS_TREND_LONG_SPOT__lag0"
+
+
+def test_fee_only_negative_cash_is_invalid_even_when_net_borrow_is_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cash-financed trading must pay its fees, not classify a loan as fees."""
+    window, dataset = _low_vol_window(monkeypatch)
+    signals = build_oos_signals(dataset)
+    result = _replay(
+        dataset,
+        window,
+        LowturnPolicy(
+            family="EW_HOLD_SPOT",
+            signals=signals,
+            start_index=window.first_decision_index,
+        ),
+    )
+    min_cash, borrowing = runner._cash_extremes(result)
+    assert min_cash is not None and min_cash < -TOLERANCE
+    assert borrowing is not None and borrowing <= TOLERANCE
+    cell = runner._build_cell(
+        arm="EW_HOLD_SPOT",
+        scenario="BASE",
+        result=result,
+        dataset=dataset,
+        causality_passed=True,
+        probe_key="EW_HOLD_SPOT__lag0",
+        cap_statistics={},
+    )
+    assert protocol.REASON_NEGATIVE_CASH in cell.invalid_reasons
+    assert not cell.valid
 
 
 def test_a_cell_that_borrows_is_invalid_and_makes_the_label_invalid(
@@ -378,7 +527,12 @@ def test_a_cell_that_borrows_is_invalid_and_makes_the_label_invalid(
         "negative_cash_borrowing"
         in result["cells"]["TS_TREND_LONG_SPOT__BASE"]["invalid_reasons"]
     )
-    assert "EW_HOLD_SPOT__BASE" not in result["invalid_cells"]  # gross 1.0 stays valid
+    # The unwrapped fully invested control also finances its fees by overdraft.
+    assert "EW_HOLD_SPOT__BASE" in result["invalid_cells"]
+    assert (
+        protocol.REASON_NEGATIVE_CASH
+        in result["cells"]["EW_HOLD_SPOT__BASE"]["invalid_reasons"]
+    )
 
 
 def test_the_cap_holds_through_a_drawdown_with_risk_scaling(

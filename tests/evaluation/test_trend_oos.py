@@ -1,4 +1,4 @@
-"""Synthetic tests of the out-of-sample test ``trend_long_spot_oos_v1``.
+"""Synthetic tests of the out-of-sample test ``trend_long_spot_oos_v2``.
 
 Nothing here reads market data, the network or an economic result: every dataset is a
 seeded synthetic fixture and every fixture value is hand-computed or derived from a slow
@@ -226,7 +226,7 @@ def test_protocol_values_are_imported_from_lowturn_not_retyped() -> None:
 
 
 def test_frozen_constants_are_the_spec_values() -> None:
-    assert protocol.PROTOCOL_ID == "trend_long_spot_oos_v1"
+    assert protocol.PROTOCOL_ID == "trend_long_spot_oos_v2"
     assert protocol.MAX_DRAWDOWN_LIMIT == 0.20
     assert protocol.MIN_BASE_SHARPE == 0.30
     assert protocol.BOOTSTRAP_BLOCK_BARS == 42
@@ -263,7 +263,7 @@ def test_the_digest_is_canonical_stable_and_pinned() -> None:
     assert json.loads(json.dumps(protocol.protocol_payload())) == json.loads(
         json.dumps(protocol.protocol_payload(), sort_keys=True)
     )
-    assert digest == "f965b19c3a76d1487ef5d5a026fa76d7b6180ae94540c12b4eeb00cd4ce1456b"
+    assert digest == "50b53b23bbcf68eab4e03f9fcd2b21292c31934e9bcaf3dcc3c9835271b1ad51"
 
 
 @pytest.mark.parametrize(
@@ -1564,7 +1564,7 @@ def test_plan_prints_the_protocol_digest_and_both_windows() -> None:
         )
         assert code == driver.EXIT_OK, err.getvalue()
         document = json.loads(out.getvalue())
-        assert document["protocol_id"] == "trend_long_spot_oos_v1"
+        assert document["protocol_id"] == "trend_long_spot_oos_v2"
         assert document["protocol_digest"] == protocol.protocol_digest()
         assert document["lowturn_protocol_digest"] == LOWTURN_DIGEST_PIN
         assert document["stage"] == stage

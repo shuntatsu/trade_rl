@@ -13,6 +13,7 @@ rows).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -175,19 +176,38 @@ def _cash_extremes(
 ) -> tuple[float | None, float | None]:
     """``(min cash, max borrowing)`` over the ledger intervals.
 
-    Borrowing is the negative cash that is not explained by execution costs: the engine
-    debits costs from cash, so a book fully invested at gross 1.0 sits at minus its
-    cumulative costs, which is not borrowing.
+    The fee-only overdraft diagnostic is tracked only while that overdraft remains
+    outstanding. A prior fee is not new purchasing power after cash recovers. Raw
+    negative cash (even if entirely explained by fees) separately invalidates the
+    v2 spot-cash cell in ``_build_cell``.
     """
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
         return None, None
-    intervals = ledger.intervals.intervals
-    cash = [float(iv.cash_after) for iv in intervals]
-    borrowing = [
-        max(0.0, -float(iv.cash_after) - float(iv.total_cost_after)) for iv in intervals
-    ]
-    return min(cash), max(borrowing)
+    lowest = math.inf
+    greatest_borrow = 0.0
+    unpaid_fee_overdraft = 0.0
+    previous_cost: float | None = None
+    for iv in ledger.intervals.intervals:
+        cash = float(iv.cash_after)
+        before = float(iv.total_cost_before)
+        after = float(iv.total_cost_after)
+        if not all(math.isfinite(value) for value in (cash, before, after)):
+            raise ValueError("nonfinite cash or execution cost in ledger evidence")
+        if before < 0.0 or after < before:
+            raise ValueError("execution cost must be cumulative and nonnegative")
+        if previous_cost is not None and not math.isclose(
+            previous_cost, before, rel_tol=1e-12, abs_tol=1e-9
+        ):
+            raise ValueError("execution cost ledger intervals are discontinuous")
+        interval_cost = after - before
+        unpaid_fee_overdraft = min(
+            max(0.0, -cash), unpaid_fee_overdraft + interval_cost
+        )
+        greatest_borrow = max(greatest_borrow, max(0.0, -cash - unpaid_fee_overdraft))
+        lowest = min(lowest, cash)
+        previous_cost = after
+    return lowest, greatest_borrow
 
 
 def _build_cell(
@@ -214,7 +234,11 @@ def _build_cell(
     reasons = list(summary.invalid_reasons)
     min_cash, max_borrowing = _cash_extremes(result)
     tolerance = protocol.CASH_TOLERANCE_FRACTION * protocol.INITIAL_CAPITAL
-    if max_borrowing is not None and max_borrowing > tolerance:
+    # A real spot cash account cannot finance even execution fees by overdraft.
+    # The net-of-unpaid-fees measure is a separate diagnostic, never credit.
+    if (min_cash is not None and min_cash < -tolerance) or (
+        max_borrowing is not None and max_borrowing > tolerance
+    ):
         reasons.append(protocol.REASON_NEGATIVE_CASH)
     years = _calendar_year_returns(dataset, result, returns)
     if years is None:

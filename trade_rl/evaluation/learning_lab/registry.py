@@ -202,14 +202,25 @@ class TrialRegistry:
         for number, line in enumerate(lines):
             try:
                 body = json.loads(line)
-            except ValueError as error:
+            except (ValueError, RecursionError) as error:
                 raise RegistryError(f"line {number} is not JSON") from error
+            if not isinstance(body, dict):
+                raise RegistryError(f"line {number} is not a JSON object")
             if body.get("schema") != SCHEMA or body.get("index") != number:
                 raise RegistryError(f"line {number} has a wrong schema or index")
             if body.get("prev_sha256") != prev:
                 raise RegistryError(f"line {number} breaks the hash chain")
-            record = TrialRecord.from_dict(body["record"])
-            if _line(number, prev, record) != line:
+            record_payload = body.get("record")
+            if not isinstance(record_payload, dict):
+                raise RegistryError(f"line {number} has a malformed trial record")
+            try:
+                record = TrialRecord.from_dict(record_payload)
+                canonical = _line(number, prev, record)
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise RegistryError(
+                    f"line {number} has a malformed trial record"
+                ) from error
+            if canonical != line:
                 raise RegistryError(f"line {number} is not in canonical form")
             prev = hashlib.sha256(line).hexdigest()
         return len(lines)

@@ -369,6 +369,60 @@ def test_deflated_last_works_for_completed_record_with_real_moments(
     assert 0.0 <= result["deflated_sharpe"]["deflated_sharpe"] <= 1.0
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    (
+        "null_root",
+        "array_root",
+        "null_record",
+        "missing_seed",
+        "null_metrics",
+        "numeric_config_digest",
+        "invalid_metrics_entries",
+    ),
+)
+def test_malformed_registry_json_fails_closed_for_cli_verify_and_append(
+    tmp_path: Path, malformed: str
+) -> None:
+    """Corrupt JSON must not escape with TypeError/AttributeError or mutate trials."""
+    valid = _record(seed=0).to_dict()
+    body: object = {
+        "schema": reg.SCHEMA,
+        "index": 0,
+        "prev_sha256": reg.GENESIS,
+        "record": valid,
+    }
+    if malformed == "null_root":
+        body = None
+    elif malformed == "array_root":
+        body = []
+    elif malformed == "null_record":
+        body["record"] = None  # type: ignore[index]
+    elif malformed == "missing_seed":
+        del valid["seed"]
+    elif malformed == "null_metrics":
+        valid["metrics"] = None
+    elif malformed == "numeric_config_digest":
+        valid["config_digest"] = 17
+    else:
+        valid["metrics"] = [1, 2]
+    path = tmp_path / "trials.jsonl"
+    payload = (json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    path.write_bytes(payload)
+    registry = reg.TrialRegistry(path)
+    with pytest.raises(reg.RegistryError, match="line 0"):
+        registry.verify()
+    with pytest.raises(reg.RegistryError, match="line 0"):
+        registry.append(_record(seed=2))
+    out, err = io.StringIO(), io.StringIO()
+    assert (
+        lab_tool.main(["registry", "--registry", str(path)], stdout=out, stderr=err)
+        == lab_tool.EXIT_REFUSED
+    )
+    assert not out.getvalue() and "refused" in err.getvalue()
+    assert path.read_bytes() == payload
+
+
 def test_the_registry_is_append_only_and_chained(tmp_path: Path) -> None:
     registry = reg.TrialRegistry(tmp_path / "trials.jsonl")
     assert registry.records() == []

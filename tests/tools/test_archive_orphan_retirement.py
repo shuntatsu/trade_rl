@@ -246,4 +246,4 @@ def test_workflow_gate_has_exact_created_comment() -> None:
     assert "github.event.action == 'created'" in workflow
     assert module.COMMAND in workflow
     token = "$" + "{{ github.token }}"
-    assert workflow.count("GH_TOKEN: " + token) == 10
+    assert workflow.count("GH_TOKEN: " + token) == 12

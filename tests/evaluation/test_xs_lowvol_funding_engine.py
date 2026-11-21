@@ -792,3 +792,96 @@ def _with_residual(result: SharedCashPortfolioReplayResult) -> Any:
     quantities[0] = "1000"
     intervals = replace(ledger.intervals, terminal_exact_quantities=tuple(quantities))
     return replace(result, ledger_evidence=replace(ledger, intervals=intervals))
+
+
+# ===================================================================== terminal unwind
+
+
+def _thin_tail_stage() -> data.StageData:
+    """Every leg is thin from the last weekly decision on (1% of ~1M per 4h bar)."""
+    start = fx.WINDOW.first_decision_index
+    unwind_row = runner.last_weekly_row(start, fx.WINDOW.last_row_index)
+    thin_from = (unwind_row - 1) * protocol.BAR_HOURS
+    return fx.stage(
+        overrides={s: {"volume_from": (thin_from, 250_000.0)} for s in fx.SYMBOLS}
+    )
+
+
+def _terminal_cell(
+    stage_data: data.StageData, arm: str, *, unwind: bool
+) -> tuple[Any, SharedCashPortfolioReplayResult]:
+    start = fx.WINDOW.first_decision_index
+    stop = stage_data.dataset.n_bars - 1
+    pol = runner.make_policy(
+        arm,
+        inputs=runner.inputs_of(stage_data),
+        start_index=start,
+        lag=0,
+        refuse_unclosed=True,
+        last_weekly_row=runner.last_weekly_row(start, stop) if unwind else None,
+    )
+    result = runner.replay(
+        stage_data.dataset,
+        pol,
+        scenario=protocol.BASE_SCENARIO,
+        start_index=start,
+        stop_index=stop,
+        risk=PreTradeRisk(protocol.risk_config()),
+    )
+    return _cell(stage_data, result, arm), result
+
+
+def test_the_last_weekly_decision_is_the_last_monday_before_the_last_engine_decision() -> (
+    None
+):
+    start = fx.WINDOW.first_decision_index
+    assert runner.last_weekly_row(start, fx.WINDOW.last_row_index) == 461
+    # the frozen stages: the last Monday decision bar is the last weekly row
+    for name in protocol.STAGES:
+        window = data.frozen_window(name)
+        row = runner.last_weekly_row(window.first_decision_index, window.last_row_index)
+        assert row == window.row_index(window.last_decision_bar)
+
+
+def test_a_one_bar_terminal_close_of_a_thin_book_leaves_a_residual_and_the_unwind_clears_it() -> (
+    None
+):
+    stage_data = _thin_tail_stage()
+    for arm in (protocol.CANDIDATE, protocol.ARM_EW_LONG):
+        without, _ = _terminal_cell(stage_data, arm, unwind=False)
+        assert not without.terminal_flat
+        assert "terminal_position_not_flat" in without.invalid_reasons
+        assert not without.valid
+        with_unwind, result = _terminal_cell(stage_data, arm, unwind=True)
+        assert with_unwind.terminal_flat and with_unwind.valid, (
+            with_unwind.invalid_reasons
+        )
+        # the book is flat before the end: the unwind completed over the last week
+        assert all(float(Fraction(q)) == 0.0 for q in result.book.exact_quantities)
+        by_index = {d.index: d for d in result.decisions}
+        assert not any(by_index[461].proposal_weights)
+        assert not any(by_index[470].proposal_weights)
+
+
+def test_every_stage_policy_holds_no_book_after_the_last_weekly_decision() -> None:
+    stage_data = fx.stage()
+    start = fx.WINDOW.first_decision_index
+    stop = stage_data.dataset.n_bars - 1
+    for arm in protocol.ARMS:
+        pol = runner.make_policy(
+            arm,
+            inputs=runner.inputs_of(stage_data),
+            start_index=start,
+            lag=0,
+            last_weekly_row=runner.last_weekly_row(start, stop),
+        )
+        result = runner.replay(
+            stage_data.dataset,
+            pol,
+            scenario=protocol.BASE_SCENARIO,
+            start_index=start,
+            stop_index=stop,
+            risk=PreTradeRisk(protocol.risk_config()),
+        )
+        late = [d for d in result.decisions if d.index >= 461]
+        assert late and all(not any(d.proposal_weights) for d in late)

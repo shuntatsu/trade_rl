@@ -124,6 +124,15 @@ class _Hybrid:
 _TRACKER_DIVERGENCE = "execution fill events diverged from book quantities"
 
 
+def last_weekly_row(start_index: int, stop_index: int) -> int:
+    """The last weekly decision row of a replay: the terminal unwind starts there.
+
+    It is the last Monday decision at or before the last engine decision row (``stop - 2``).
+    """
+    every = protocol.REBALANCE_EVERY_BARS
+    return start_index + every * ((stop_index - 2 - start_index) // every)
+
+
 def inputs_of(stage: StageData) -> XsInputs:
     return XsInputs.from_dataset(stage.dataset, stage.member)
 
@@ -166,6 +175,7 @@ def make_policy(
     start_index: int,
     lag: int,
     refuse_unclosed: bool = False,
+    last_weekly_row: int | None = None,
 ) -> PortfolioPolicy:
     """The policy of an arm; ``lag`` is the scenario's extra signal lag in bars.
 
@@ -178,6 +188,7 @@ def make_policy(
         start_index=start_index,
         signal_lag_bars=lag,
         refuse_unclosed=refuse_unclosed,
+        last_weekly_row=last_weekly_row,
     )
 
 
@@ -227,20 +238,37 @@ def _probe_stage(
     )
     n_cut = sum(1 for snap in snapshots if snap.index <= cut)
     out: dict[tuple[str, int], Any] = {}
+    unwind = last_weekly_row(start_index, stop_index)
     for arm in protocol.ARMS:
         for lag in _arm_lags():
             reference = _run_decisions(
-                make_policy(arm, inputs=base, start_index=start_index, lag=lag),
+                make_policy(
+                    arm,
+                    inputs=base,
+                    start_index=start_index,
+                    lag=lag,
+                    last_weekly_row=unwind,
+                ),
                 snapshots,
             )
             at_cut = _run_decisions(
-                make_policy(arm, inputs=cut_inputs, start_index=start_index, lag=lag),
+                make_policy(
+                    arm,
+                    inputs=cut_inputs,
+                    start_index=start_index,
+                    lag=lag,
+                    last_weekly_row=unwind,
+                ),
                 snapshots[:n_cut],
             )
             hybrid = _Hybrid(base, future_inputs.copy())
             every = _run_decisions(
                 make_policy(
-                    arm, inputs=hybrid.inputs, start_index=start_index, lag=lag
+                    arm,
+                    inputs=hybrid.inputs,
+                    start_index=start_index,
+                    lag=lag,
+                    last_weekly_row=unwind,
                 ),
                 snapshots,
                 before_step=hybrid.restore_through,
@@ -608,7 +636,12 @@ def run_stage(
         for scenario in protocol.SCENARIOS:
             lag = protocol.scenario_signal_lag_bars(scenario)
             policy = make_policy(
-                arm, inputs=inputs, start_index=start, lag=lag, refuse_unclosed=True
+                arm,
+                inputs=inputs,
+                start_index=start,
+                lag=lag,
+                refuse_unclosed=True,
+                last_weekly_row=last_weekly_row(start, stop),
             )
             result = replay(
                 dataset,
@@ -699,6 +732,7 @@ __all__ = [
     "ProbeResult",
     "UnsupportedWriteOffError",
     "forced_closes",
+    "last_weekly_row",
     "inputs_of",
     "make_policy",
     "replay",

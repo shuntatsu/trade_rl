@@ -410,6 +410,7 @@ class XsPolicy(PortfolioPolicy):
         signal_lag_bars: int = 0,
         rebalance_every_bars: int = protocol.REBALANCE_EVERY_BARS,
         refuse_unclosed: bool = False,
+        last_weekly_row: int | None = None,
     ) -> None:
         if arm not in protocol.ARMS:
             raise ValueError(f"unknown arm: {arm!r}")
@@ -418,6 +419,7 @@ class XsPolicy(PortfolioPolicy):
         self._arm = arm
         self._inputs = inputs
         self._refuse_unclosed = refuse_unclosed
+        self._last_weekly = last_weekly_row
         self._start = start_index
         self._lag = signal_lag_bars
         self._every = rebalance_every_bars
@@ -494,6 +496,12 @@ class XsPolicy(PortfolioPolicy):
         scale = risk_scale_of(snapshot)
         current = np.asarray(snapshot.account.weights, dtype=np.float64)
 
+        if self._last_weekly is not None and t > self._last_weekly:
+            # terminal unwind: the flat target is re-issued on every bar after the last
+            # weekly decision, so partial fills complete before the terminal settlement
+            self._intended = np.zeros(n_legs, dtype=np.float64)
+            return PortfolioTargetProposal(target_weights=(0.0,) * n_legs)
+
         if (t - self._start) % self._every != 0:
             if self._intended is None:
                 raise ValueError("the first decision must be a rebalance bar")
@@ -510,12 +518,15 @@ class XsPolicy(PortfolioPolicy):
 
         stats = self.stats
         stats.weekly_decisions += 1
-        target, ranked, zeroed = book_target(
-            self._inputs,
-            arm=self._arm,
-            decision_row=t,
-            signal_row=max(0, t - self._lag),
-        )
+        if self._last_weekly is not None and t == self._last_weekly:
+            target, ranked, zeroed = np.zeros(n_legs, dtype=np.float64), 0, 0
+        else:
+            target, ranked, zeroed = book_target(
+                self._inputs,
+                arm=self._arm,
+                decision_row=t,
+                signal_row=max(0, t - self._lag),
+            )
         stats.forced_zeroed += zeroed
         stats.names_ranked.append(ranked)
         if np.any(target):

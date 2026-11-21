@@ -164,9 +164,9 @@ def stage_symbols(stage: str, forward_symbols: Path | None) -> tuple[str, ...]:
             "FORWARD is refused: FORWARD_SYMBOLS_SHA256 is not pinned (the symbol file "
             "is pinned by a result-blind amendment before any FORWARD read)"
         )
-    if forward_symbols is None:
-        raise ValueError("FORWARD needs --forward-symbols (the listing at run time)")
-    symbols, digest = read_symbol_file(forward_symbols)
+    symbols, digest = read_symbol_file(
+        protocol.forward_symbols_path() if forward_symbols is None else forward_symbols
+    )
     if digest != protocol.FORWARD_SYMBOLS_SHA256:
         raise ValueError(
             f"the FORWARD symbol file sha256 {digest} differs from the pinned "
@@ -765,8 +765,6 @@ def _check_mode(args: argparse.Namespace, now: datetime) -> str:
         raise ValueError("--dev-result belongs to DISJOINT")
     if args.confirm_single_use:
         raise ValueError("--confirm-single-use belongs to DISJOINT")
-    if args.forward_symbols is None:
-        raise ValueError("FORWARD needs --forward-symbols (the listing at run time)")
     if args.final == args.interim:
         raise ValueError("FORWARD needs exactly one of --final and --interim")
     if args.disjoint_decision is None:
@@ -1399,8 +1397,12 @@ def _run_main(
         else:
             detect, reader = _sources(args, plan, policy)
         listing_sha = (
-            read_symbol_file(args.forward_symbols)[1]
-            if args.forward_symbols is not None
+            read_symbol_file(
+                protocol.forward_symbols_path()
+                if args.forward_symbols is None
+                else args.forward_symbols
+            )[1]
+            if args.stage == protocol.STAGE_FORWARD
             else None
         )
         try:

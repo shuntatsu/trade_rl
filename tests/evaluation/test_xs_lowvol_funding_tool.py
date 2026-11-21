@@ -497,8 +497,6 @@ def test_forward_needs_a_supported_disjoint_decision_of_the_same_digest(
     assert code == driver.EXIT_REFUSED and "exactly one of --final and --interim" in err
     code, err = go("--final", "--forward-symbols", str(forward))
     assert code == driver.EXIT_REFUSED and "needs --disjoint-decision" in err
-    code, err = go("--final", "--disjoint-decision", str(disjoint_decision(tmp_path)))
-    assert code == driver.EXIT_REFUSED and "needs --forward-symbols" in err
     good = disjoint_decision(tmp_path)
     flags = ("--forward-symbols", str(forward), "--disjoint-decision", str(good))
     code, err = go("--final", *flags, "--through", "2026-09-10T00:00:00Z")
@@ -952,8 +950,9 @@ def test_the_stage_symbols_are_the_roster_the_candidates_and_the_forward_listing
     assert driver.stage_symbols("DEV", None) == tuple(sorted(protocol.DEV_ROSTER))
     candidates = driver.stage_symbols("DISJOINT", None)
     assert len(candidates) == 441 and candidates == tuple(sorted(candidates))
-    with pytest.raises(ValueError, match="not pinned"):
-        driver.stage_symbols("FORWARD", None)
+    assert (
+        len(driver.stage_symbols("FORWARD", None)) == 684
+    )  # the packaged, pinned file
     listing = symbol_file(tmp_path, ["ZZZUSDT", "AAAUSDT"])
     assert driver.stage_symbols("FORWARD", listing) == ("AAAUSDT", "ZZZUSDT")
     text = tmp_path / "listing.txt"
@@ -1306,3 +1305,25 @@ def test_disjoint_needs_the_single_use_confirmation_and_records_the_run_name(
     assert result["output_dir_name"] == "first-disjoint-run"
     assert result["single_use_stage"] is True
     assert result["protocol_digest"] == protocol.protocol_digest()
+
+
+def test_forward_defaults_to_the_packaged_pinned_symbol_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packaged = protocol.forward_symbols_path()
+    assert packaged.is_file()
+    assert hashlib.sha256(packaged.read_bytes()).hexdigest() == (
+        "48656a5dfb73491dacd2234490ba7c34c79b5692fcc91812a15095434900ba66"
+    )
+    real_pin = protocol.FORWARD_SYMBOLS_SHA256
+    assert real_pin == hashlib.sha256(packaged.read_bytes()).hexdigest()
+    symbols = driver.stage_symbols("FORWARD", None)
+    assert len(symbols) == 684 and symbols == tuple(sorted(symbols))
+    assert all(protocol.forward_symbol_allowed(sym) for sym in symbols)
+    # an explicit path must hash-match the pin
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(["AAAUSDT", "BBBUSDT"]), encoding="utf-8")
+    monkeypatch.setattr(protocol, "FORWARD_SYMBOLS_SHA256", real_pin)
+    with pytest.raises(ValueError, match="differs from the pinned"):
+        driver.stage_symbols("FORWARD", other)
+    assert driver.stage_symbols("FORWARD", packaged) == symbols

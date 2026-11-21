@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any perp kline or funding data of its DISJOINT or FORWARD universe has been fetched or read. Freezing happens when the protocol digest is pinned and an independent review approves the exact head.
 
-Protocol digest: `4d055eea65aaf706c5b167783a859cd2f52c20350dfaf55f9549b5ef513d4f09`
+Protocol digest: `1fae7b85192d7b8a6ccd6f2e8195c2828478f30bc60ec6a67c5c282c5af4f65a`
 
 ## Question
 
@@ -95,7 +95,9 @@ Exchange-wide perp outages are declared result-blind from a coverage report, as 
 - **DISJOINT** is the primary falsifier. Its reads stop strictly before 2026-08-01 (the Pre-FS1 embargo).
 - **FORWARD**
   - Decisions before 2026-08-01 are warm-up only.
-  - The symbol file is built once from the Vision um listing, before any FORWARD read, by a result-blind amendment that pins its SHA-256 (`FORWARD_SYMBOLS_SHA256`, part of the protocol digest). It is identical for every interim and the final run and is never edited afterwards. FORWARD coverage and runs refuse while the pin is unset or when the file differs.
+  - The symbol file is `trade_rl/evaluation/xs_lowvol_funding/forward_symbols.json` (684 symbols), SHA-256 `48656a5dfb73491dacd2234490ba7c34c79b5692fcc91812a15095434900ba66`, pinned as `FORWARD_SYMBOLS_SHA256` (part of the protocol digest) before DISJOINT runs. It was generated result-blind from the Vision S3 listing (names only) on 2026-11-21: the union of um monthly and daily kline prefixes, USDT, ASCII `[A-Z0-9]+USDT`, not a stablecoin or gold base; symbols present in the cached USD-M exchangeInfo snapshot with `contractType != PERPETUAL` or `underlyingType != COIN` are excluded (237 TradFi, index and premarket perps; delisted names absent from the snapshot are kept).
+  - The tool defaults `--forward-symbols` to this packaged file; an explicit path must hash-match. The file is identical for every interim and the final run and is never edited afterwards. FORWARD coverage and runs refuse when the pin is unset or the file differs.
+  - Disclosed: perps listed after 2026-11-21 are not in the FORWARD universe. They could only become eligible after 90 days, that is from about 2027-02.
   - Interim reports are allowed monthly. They report the running numbers and are never a decision.
   - The final run happens at or after 2027-05-08T00:00Z, after the 2027-04 funding archive is published.
   - Its reads go through the exact data-authorization relay above.
@@ -124,7 +126,11 @@ Decisions are made weekly, at the 4h bar closing Monday 00:00 UTC. Orders fill a
 6. **Risk.**
    - `PreTradeRiskConfig(max_gross=2.0, max_abs_weight=0.25, max_turnover=2.5, drawdown_start=0.125, drawdown_stop=0.25, emergency_turnover_override=True)`.
    - The risk layer can only shrink the book.
-7. **Accounting.**
+7. **Terminal unwind.**
+   - At the last weekly decision of every stage window (DEV, DISJOINT, FORWARD final and every FORWARD interim cut: the last Monday decision on or before the stage's last decision bar), every arm's target is 0.
+   - The flat target is re-issued on every later bar, so partial fills under the 1% participation cap complete over the remaining days before terminal settlement.
+   - Disclosed: the last week or so of every stage holds no book. Terminal settlement is unchanged.
+8. **Accounting.**
    - Replay runs only through `run_shared_portfolio_replay`, with `settle_terminal_position=True` and `capture_ledger_evidence=True`.
    - Funding is booked on perp legs.
    - Terminal dust is recognised as in lean-core.
@@ -164,7 +170,7 @@ Every arm runs under every scenario. Only `CANDIDATE` is gated. The other arms e
 A cell is **INVALID** if any of these hold:
 
 - at any ledger interval, the borrowing `max(0, −cash_after − total_cost_after)` exceeds 1e-6 × capital (the `agy_anchor_oos` check reused unchanged, with the cumulative forced-close debits also taken out of `cash_after`);
-- a non-dust residual remains after terminal settlement;
+- a non-dust residual remains after terminal settlement (the terminal unwind above makes this a failure of the engine path, not of a one-bar close; only lean-core terminal dust is excepted);
 - the run reads a row outside its stage window or authorization.
 
 **DISJOINT label** for `CANDIDATE`, computed on 4h net returns annualised with `sqrt(2190)`:

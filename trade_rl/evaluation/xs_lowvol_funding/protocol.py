@@ -188,7 +188,12 @@ DECLARED_HALTS: Final[tuple[tuple[str, str], ...]] = ()
 COVERAGE_EVIDENCE_SHA256: Final[str | None] = None
 #: SHA-256 of the FORWARD symbol file, pinned by a result-blind amendment before any FORWARD
 #: read; FORWARD is refused while it is None.
-FORWARD_SYMBOLS_SHA256: Final[str | None] = None
+FORWARD_SYMBOLS_SHA256: Final[str | None] = (
+    "48656a5dfb73491dacd2234490ba7c34c79b5692fcc91812a15095434900ba66"
+)
+FORWARD_SYMBOLS_RELATIVE_PATH: Final = (
+    "trade_rl/evaluation/xs_lowvol_funding/forward_symbols.json"
+)
 
 #: The harness files whose bytes enter the digest (a change to any of them is a new digest).
 HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
@@ -242,6 +247,10 @@ def verify_candidates_binding(path: Path | None = None) -> None:
         raise ProtocolBindingError(
             f"candidate list sha256 {actual} differs from the pinned {CANDIDATES_SHA256}"
         )
+
+
+def forward_symbols_path() -> Path:
+    return Path(__file__).resolve().parents[3] / FORWARD_SYMBOLS_RELATIVE_PATH
 
 
 def load_candidates(path: Path | None = None) -> tuple[str, ...]:
@@ -423,6 +432,7 @@ def protocol_payload() -> dict[str, object]:
             "forward_listing": "all ASCII USDT perps listed at run time minus stablecoin "
             "and gold bases, supplied to the tool as a recorded file",
             "forward_symbols_sha256": FORWARD_SYMBOLS_SHA256,
+            "forward_symbols_path": FORWARD_SYMBOLS_RELATIVE_PATH,
             "forward_excluded_bases": sorted(_EXCLUDED_BASES),
             "forward_ascii_rule": "[A-Z0-9]+USDT",
         },
@@ -447,6 +457,7 @@ def protocol_payload() -> dict[str, object]:
                 "cash_account_margin_and_net_exposure",
             ],
             "forced_close_zeroing": "after the vol target and before the caps",
+            "terminal_unwind": "every arm targets 0 at the last weekly decision of the stage window (the last Monday decision on or before the last decision bar) and re-issues the flat target on every later bar",
             "ex_ante_vol_basis": "raw leg weights",
         },
         "cash_account": {
@@ -617,6 +628,7 @@ __all__ = [
     "FORCED_CLOSE_ADVERSE",
     "FORCED_CLOSE_LEAD_BARS",
     "FORWARD_SCORING_FROM",
+    "FORWARD_SYMBOLS_RELATIVE_PATH",
     "FORWARD_SYMBOLS_SHA256",
     "FUNDING_EVENTS",
     "FUNDING_LOOKBACK_DAYS",
@@ -671,6 +683,7 @@ __all__ = [
     "candidates_path",
     "declared_halt_intervals",
     "forward_symbol_allowed",
+    "forward_symbols_path",
     "harness_source_digest",
     "load_candidates",
     "protocol_digest",

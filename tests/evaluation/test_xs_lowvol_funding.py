@@ -722,7 +722,7 @@ def test_declared_halts_are_empty_until_the_amendment_and_need_their_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "4d055eea65aaf706c5b167783a859cd2f52c20350dfaf55f9549b5ef513d4f09"
+    "1fae7b85192d7b8a6ccd6f2e8195c2828478f30bc60ec6a67c5c282c5af4f65a"
 )
 
 

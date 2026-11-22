@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tools.tier_d_nonrl import historical_dependency_audit as audit
 from tools.tier_d_nonrl.historical_dependency_audit import analyze_sources
 
@@ -167,8 +169,6 @@ def test_tree_reads_only_the_selected_immutable_commit(tmp_path) -> None:
 def test_tree_refuses_untrusted_revision_and_noncommit_object(tmp_path) -> None:
     import subprocess
 
-    import pytest
-
     with pytest.raises(ValueError, match="literal 40-digit"):
         audit._tree(tmp_path, "HEAD")
     with pytest.raises(ValueError, match="literal 40-digit"):
@@ -213,8 +213,6 @@ def test_cli_code_two_for_unresolved_seed(monkeypatch, capsys) -> None:
 
 
 def test_cli_refuses_unavailable_source(monkeypatch, capsys) -> None:
-    import pytest
-
     def fail(repo, sha):
         raise OSError("redacted private reason")
 
@@ -226,3 +224,70 @@ def test_cli_refuses_unavailable_source(monkeypatch, capsys) -> None:
     assert error.value.code == 2
     result = capsys.readouterr()
     assert not result.out and "redacted private reason" not in result.err
+
+
+@pytest.mark.parametrize(
+    ("module", "source_path", "invalid_import"),
+    (
+        ("pkg.sub.runner", "pkg/sub/runner.py", "from ...victim import secret"),
+        ("pkg.sub", "pkg/sub/__init__.py", "from ...victim import secret"),
+        ("pkg", "pkg/__init__.py", "from ..victim import secret"),
+        ("runner", "runner.py", "from .victim import secret"),
+    ),
+)
+def test_invalid_parent_relative_import_cannot_escape_python_package(
+    module: str, source_path: str, invalid_import: str
+) -> None:
+    historical = {
+        source_path: invalid_import + "\n",
+        "victim.py": "secret = 1\n",
+    }
+    maintained = {source_path: historical[source_path]}
+    result = analyze_sources(historical, maintained, seeds=(module,))
+    assert result["analysis_complete"] is False
+    assert result["invalid_relative_imports"] == [f"{source_path}:1"]
+    assert result["reachable_module_count"] == 1
+    assert result["missing_files"] == []
+    assert result["recovery_ready"] is False
+
+
+def test_valid_parent_relative_import_remains_in_static_dependency_graph() -> None:
+    historical = {
+        "pkg/sub/runner.py": "from ..shared import token\n",
+        "pkg/shared.py": "token = 1\n",
+    }
+    result = analyze_sources(historical, {}, seeds=("pkg.sub.runner",))
+    assert result["analysis_complete"] is True
+    assert result["invalid_relative_imports"] == []
+    assert result["reachable_module_count"] == 2
+    assert result["missing_files"] == sorted(historical)
+    assert result["recovery_ready"] is False
+
+
+def test_cli_refuses_invalid_relative_import_even_with_no_missing_paths(
+    monkeypatch, capsys
+) -> None:
+    source = {
+        "tools/tier_d_nonrl/tier_d_runner.py": "from ....victim import secret\n",
+        "tools/tier_d_nonrl/resume.py": "pass\n",
+        "tools/tier_d_nonrl/tier_d_supervisor.py": "pass\n",
+    }
+    monkeypatch.setattr(audit, "_tree", lambda repo, sha: source)
+    exit_code = audit.main(
+        [
+            "--repo",
+            ".",
+            "--historical-sha",
+            "a" * 40,
+            "--maintained-sha",
+            "b" * 40,
+        ]
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert report["missing_files"] == []
+    assert report["invalid_relative_imports"] == [
+        "tools/tier_d_nonrl/tier_d_runner.py:1"
+    ]
+    assert report["analysis_complete"] is False
+    assert report["recovery_ready"] is False

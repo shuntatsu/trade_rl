@@ -1,10 +1,10 @@
 """Causal delisting-notice evidence of ``xs_lowvol_funding_v1`` (Amendment 5).
 
 A perpetual's archive end (or the start of a relisting gap) is an *event*. The policy may close
-a name early only from public knowledge: the latest published notice of that symbol released
+a name early only from public knowledge: the EARLIEST published notice of that symbol released
 at or before the event and at most ``NOTICE_LOOKBACK_DAYS`` before it. The target is 0 from the
-first 4h decision bar whose **open** time is at or after the notice's release (strictly after
-publication) through the event. An event without such a notice is refused before any replay.
+first 4h decision bar whose **open** time is at or after the notice's release through the event
+(a later postponement notice never delays the start). An event without such a notice is refused before any replay.
 
 The notice file is a recorded document pinned by ``protocol.DELISTING_NOTICES_SHA256`` and its
 bytes are verified before they are parsed. Nothing here reads a network, a store or a result.
@@ -89,14 +89,18 @@ class NoticeBook:
     sha256: str | None = None
 
     def causal(self, symbol: str, event_ms: int) -> Notice | None:
-        """The latest notice of ``symbol`` with ``event - 90 days <= release <= event``."""
+        """The EARLIEST notice of ``symbol`` with ``event - 90 days <= release <= event``.
+
+        Earliest, not latest: once a notice is public the name stays closed, so a later
+        postponement notice must not delay the start of the forced window.
+        """
         floor = event_ms - protocol.NOTICE_LOOKBACK_DAYS * _DAY_MS
         found = [
             n
             for n in self.notices
             if n.symbol == symbol and floor <= n.release_ms <= event_ms
         ]
-        return max(found, key=lambda n: (n.release_ms, n.article_code), default=None)
+        return min(found, key=lambda n: (n.release_ms, n.article_code), default=None)
 
 
 def _entry(raw: object, *, allowed: frozenset[str], override: bool) -> Notice:

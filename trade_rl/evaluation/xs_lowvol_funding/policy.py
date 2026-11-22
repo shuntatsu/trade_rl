@@ -12,7 +12,7 @@ ranks them, goes long the ``k = floor(n / 3)`` best and short the ``k`` worst na
 inverse-volatility weights (``sum |w| * sigma = 1`` per leg), scales the book to a 20%
 ex-ante volatility with the 50/50 diagonal-shrunk covariance of the last 360 log returns,
 and then applies, in this order, the per-name cap, the gross cap and the cash account. A
-held name is closed from the first 4h bar opening at or after the latest public notice of its
+held name is closed from the first 4h bar opening at or after the earliest public notice of its
 archive end (or relisting-gap start) through its last available bar (Amendment 5: causal
 notices only, see :mod:`.notices`; the archive end is the close of the last 1h bar with volume
 once trailing zero-volume "zombie" bars are dropped).

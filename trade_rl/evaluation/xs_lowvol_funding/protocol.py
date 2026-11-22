@@ -80,7 +80,7 @@ MAINTENANCE_MARGIN_RATE: Final = 0.05
 #: Extra adverse charge on a forced close (and on a written-off residual).
 FORCED_CLOSE_ADVERSE: Final = 0.05
 #: Amendment 5: a perpetual event (archive end or relisting-gap start) is closed only from the
-#: latest public notice released at or before it and at most this many days before it.
+#: earliest public notice released at or before it and at most this many days before it.
 NOTICE_LOOKBACK_DAYS: Final = 90
 #: Amendment 2: the effective listing end of a perp is the close of its last bar with volume
 #: (trailing zero-volume "zombie" bars are dropped); the event time of a forced close.
@@ -505,13 +505,13 @@ def protocol_payload() -> dict[str, object]:
             "notices_sha256": DELISTING_NOTICES_SHA256,
             "notices_path": DELISTING_NOTICES_RELATIVE_PATH,
             "notice_rule": "the notice of a leg event (effective end, relisting-gap start "
-            "or any archive end inside the stage) is the latest recorded notice of that "
-            "symbol with release_utc <= event and >= event - 90 days; an event of a leg "
+            "or any archive end inside the stage) is the earliest recorded notice of that "
+            "symbol with release_utc <= event and >= event - 90 days (a later postponement notice does not delay the start); an event of a leg "
             "that was a universe member at or before it without such a notice refuses the "
             "run before any replay, naming the symbols",
             "notice_lookback_days": NOTICE_LOOKBACK_DAYS,
             "rule": "a held name's target is 0 from the first 4h decision bar whose open "
-            "time is at or after the notice release (strictly after publication) through "
+            "time is at or after the notice release through "
             "the event (the close of the leg's last available 4h bar); the effective end "
             "is the close of the last 1h bar with volume (Amendment 2)",
             "adverse_charge": FORCED_CLOSE_ADVERSE,

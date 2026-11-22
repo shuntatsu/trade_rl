@@ -41,20 +41,34 @@ def _entry(symbol: str, release: int, code: str = "c1") -> notices.Notice:
 # ================================================================== matching window
 
 
-def test_the_causal_notice_is_the_latest_inside_the_90_day_window() -> None:
+def test_a_later_postponement_notice_never_delays_the_forced_window() -> None:
+    """Regression: the earliest notice in the window starts it (AKRO, ANT, OMG cases)."""
     event = 1_800_000_000_000
     book = notices.NoticeBook(
         notices=(
-            _entry("AUSDT", event - 91 * DAY_MS, "old"),
-            _entry("AUSDT", event - 60 * DAY_MS, "mid"),
-            _entry("AUSDT", event - 10 * DAY_MS, "late"),
+            _entry("AUSDT", event - 91 * DAY_MS, "too-old"),
+            _entry("AUSDT", event - 60 * DAY_MS, "first"),
+            _entry("AUSDT", event - 10 * DAY_MS, "postponement"),
             _entry("AUSDT", event + 1, "after"),
             _entry("BUSDT", event - 5 * DAY_MS, "other"),
         )
     )
     found = book.causal("AUSDT", event)
-    assert found is not None and found.article_code == "late"
+    assert found is not None and found.article_code == "first"
     assert book.causal("CUSDT", event) is None
+    # through the schedule: forced from the bar after the first notice, not the postponement
+    active = np.ones((100, 1), dtype=np.bool_)
+    active[61:, 0] = False
+    close_ms = (np.arange(100, dtype=np.int64) + 1) * BAR_MS
+    early, late = 20 * BAR_MS, 50 * BAR_MS
+    both = notices.NoticeBook(
+        notices=(_entry("AUSDT", early, "first"), _entry("AUSDT", late, "postponement"))
+    )
+    forced, evidence, _ = notices.forced_schedule(
+        active, np.ones_like(active), close_ms, ("AUSDT",), both
+    )
+    assert list(np.flatnonzero(forced[:, 0])) == list(range(20, 61))
+    assert evidence[0]["notice_code"] == "first"
 
 
 def test_the_window_is_inclusive_at_90_days_and_at_the_event() -> None:

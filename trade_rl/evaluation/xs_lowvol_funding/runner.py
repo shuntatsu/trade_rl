@@ -8,7 +8,7 @@ not copied); the summary is called with ``execution_cost=`` so lean-core termina
 recognised.
 
 Forced closes. A held name whose archive ends (or whose gap starts) is closed by the policy
-from the first 4h bar opening at or after the latest public notice of that event (Amendment 5,
+from the first 4h bar opening at or after the earliest public notice of that event (Amendment 5,
 see ``notices``) through its last available bar. The engine charges the scenario cost on each
 fill; this runner adds the extra adverse 5% of the closed notional as a cash debit at each
 fill bar, applied to the equity path from that bar on. A position still held at the last
@@ -86,7 +86,7 @@ DISCLOSURES: tuple[str, ...] = (
     "debits below -1e-6 x capital is INVALID (negative_cash_borrowing); "
     "lifetime historical fees are not reusable borrowing credit",
     "the forced-close rule closes a held name from the first 4h bar opening at or after "
-    "the latest recorded public notice of its archive end or gap start (released at most "
+    "the earliest recorded public notice of its archive end or gap start (released at most "
     "90 days before the event) through its last available bar; "
     "the extra adverse 5% is a post-replay cash debit at each fill bar, so the engine's "
     "risk layer does not see it",

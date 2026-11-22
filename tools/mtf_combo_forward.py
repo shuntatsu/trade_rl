@@ -1546,6 +1546,10 @@ def check_cross_digest(root: Path, stage: Stage, name: str) -> None:
     """Single-use and stop rules are keyed by protocol id + stage (+ interim month), across ALL
     digest namespaces under ``root``: a harness commit changes the digest but never reopens a
     consumed stage or a stopped line. Refuses before any claim, fetch or fit."""
+    if (root / f"{name}.claim").exists():
+        raise SystemExit(
+            f"stage {name} was already claimed at the protocol root: single use applies across digests"
+        )
     for ns in _namespaces(root):
         results = ledger_results(ns)
         for led in results:
@@ -1679,6 +1683,9 @@ def run_stage(
     ledger_dir = ledger_root / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
+    # The protocol-root claim is the atomic single-use lock across digests (exclusive create);
+    # the per-digest copy only records provenance.
+    claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir
     )
@@ -1750,12 +1757,16 @@ def run_stage(
         result["model"] = model_receipt
         if not model_receipt["deterministic"]:
             problems.append("direction model is not deterministic on identical data")
-        for led in ledger_results(ledger_dir):
-            prior = led.get("model_prob_sha256")
-            if prior and prior != model_hash:
-                problems.append(
-                    f"model probabilities differ from {led.get('stage')}: model drift"
-                )
+        for ns in _namespaces(
+            ledger_root
+        ):  # model drift is checked across every digest
+            for led in ledger_results(ns):
+                prior = led.get("model_prob_sha256")
+                if prior and prior != model_hash:
+                    problems.append(
+                        f"model probabilities differ from {led.get('stage')} "
+                        f"(digest {ns.name}): model drift"
+                    )
         fund: dict[str, np.ndarray] = {}
         fallbacks: dict[str, int] = {}
         for sym in symbols:

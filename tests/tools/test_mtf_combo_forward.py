@@ -19,7 +19,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "f4d3d6d4c2a22dee8e4c21bdb0c8d91f5b579f4ccb572c0d006901a337a50701"
+DIGEST_PIN = "8a6973b5706b2732bc9b0f5b8db7efa05eb818b23bf0c03277146b4fdc83e3c1"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -1619,6 +1619,42 @@ def test_model_drift_between_stages_is_invalid(env: dict[str, Any]) -> None:
     assert res["label"] == "INVALID" and any(
         "model drift" in p for p in res["problems"]
     )
+
+
+def test_model_drift_is_detected_across_digests(env: dict[str, Any]) -> None:
+    """An interim ledgered under an OLD digest with a different model hash makes a run under the
+    current digest INVALID: drift detection is keyed by protocol id, not by digest."""
+    old = env["ledger"] / m.PROTOCOL_ID / ("0" * 64)
+    old.mkdir(parents=True, exist_ok=True)
+    m.write_ledger_result(
+        "FORWARD_INTERIM_2026-12",
+        "0" * 64,
+        "INTERIM_NOT_A_DECISION",
+        False,
+        "s",
+        old,
+        "e" * 64,
+    )
+    res = _run(env, "FORWARD_INTERIM", datetime(2027, 1, 20, 9, tzinfo=UTC))
+    assert res["label"] == "INVALID" and any(
+        "model drift" in p and ("0" * 64) in p for p in res["problems"]
+    )
+
+
+def test_protocol_root_claim_blocks_a_new_digest(env: dict[str, Any]) -> None:
+    """The atomic single-use lock is the protocol-root claim: a root claim with no per-digest
+    trace still refuses the same stage under any digest."""
+    root = env["ledger"] / m.PROTOCOL_ID
+    m.claim_stage(
+        "FORWARD_INTERIM_2027-01",
+        "1" * 64,
+        COMMIT,
+        1,
+        datetime(2027, 1, 20, tzinfo=UTC),
+        root,
+    )
+    with pytest.raises(SystemExit, match="protocol root"):
+        _run(env, "FORWARD_INTERIM", datetime(2027, 1, 20, 9, tzinfo=UTC))
 
 
 def test_missing_stage_hour_gives_invalid_result_and_burns_the_claim(

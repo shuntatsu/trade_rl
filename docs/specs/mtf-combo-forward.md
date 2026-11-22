@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it.
 
-Protocol digest: `f4d3d6d4c2a22dee8e4c21bdb0c8d91f5b579f4ccb572c0d006901a337a50701`
+Protocol digest: `8a6973b5706b2732bc9b0f5b8db7efa05eb818b23bf0c03277146b4fdc83e3c1`
 
 ## Question
 
@@ -48,7 +48,7 @@ They are computed in numpy with the same rolling and EWM rules as the explorator
 - `HistGradientBoostingClassifier(max_depth=3, max_iter=300, learning_rate=0.03, l2_regularization=2.0, min_samples_leaf=300, random_state=0)` with the library defaults for everything else (including early stopping `auto`), pooled over the 11 coins on the raw (unaligned) 42 features.
 - Label: `close[t+30] / close[t] − 1 > 0` (30 4h bars).
 - Training set: every 4h bar from 2021-01-01 with a finite close, a finite regime and a finite label whose label bar `t+30` OPENS before 2026-12-01 00:00. Every hourly bar behind a training row is therefore dated before 2026-12-01.
-- The model is trained once at the start of each stage run and never retrained during FORWARD. Because the training set is the same every time, every run of the stage trains the same model. The harness fits twice on the same data and records `deterministic` (exactly equal training probabilities); the receipt carries a sha256 of those probabilities, and a later run whose hash differs from an earlier ledgered run of the same digest is INVALID (model drift).
+- The model is trained once at the start of each stage run and never retrained during FORWARD. Because the training set is the same every time, every run of the stage trains the same model. The harness fits twice on the same data and records `deterministic` (exactly equal training probabilities); the receipt carries a sha256 of those probabilities, and a later run whose hash differs from any earlier ledgered run under the protocol id, in any digest namespace, is INVALID (model drift).
 - Bands: the 0.4 and 0.6 quantiles of the training probabilities. `mlb = +1` if `p > q0.6`, `−1` if `p < q0.4`, else 0.
 
 **Sleeve A: BTC rule long.** BTCUSDT direction is `max(rule, 0)`. Size `min(1, 0.5/vol_ann)` is fixed at entry while the direction is unchanged (no re-sizing).
@@ -115,7 +115,7 @@ The book holds actual contracts and cash. It follows the precedent of `btc_trend
 | `MTF_COMBO_NOT_SUPPORTED` | the final, with all cells valid, fails any of 2–5 |
 | `INVALID` | any cell invalid, a data problem, a non-deterministic or drifting model |
 
-Interim labels are `INTERIM_NOT_A_DECISION`, `STOPPED_EARLY` and `INVALID`. No interim result is a decision.
+Interim labels are `INTERIM_NOT_A_DECISION`, `STOPPED_EARLY` and `INVALID`. No interim result is a decision, except that `STOPPED_EARLY` is terminal: it ends the line with the same meaning as `MTF_COMBO_NOT_SUPPORTED` (the final can no longer be run, and its drawdown gate could not pass).
 
 ## Mechanism chain (G1)
 
@@ -150,7 +150,7 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 - The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
 - The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.
 - Outputs are write-once. A local ledger claim must be created exclusively before any data is fetched: once per UTC month for interims and once for the final, keyed by protocol id and stage as described below.
-- Single use and the stop state are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The per-digest subfolders (`<ledger>/mtf_combo_v1/<digest>/`) keep provenance only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
+- Single use and the stop state are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The atomic single-use lock is an exclusive-create claim at the protocol root (`<ledger>/mtf_combo_v1/<stage name>.claim`); the per-digest subfolders (`<ledger>/mtf_combo_v1/<digest>/`) keep a provenance copy only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
 - Run with the locked environment: `uv run --locked --extra forecast-gbm python -m tools.mtf_combo_forward run ...`. The receipt records the numpy and scikit-learn versions.
 
 ## Stop rule

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
@@ -141,8 +142,43 @@ def execute_stateful_orders(
     bars: int,
     reconciliation_cancellations: Sequence[tuple[PendingOrder, PendingOrder]] = (),
 ) -> StatefulExecutionResult:
-    """Execute persistent orders over one or more processing bars."""
+    """Execute an invocation without consuming RNG on failed book transitions."""
 
+    # BookState and OrderBookState are invocation-local, but the slippage RNG
+    # belongs to the reusable executor. Roll it back on an aborted invocation,
+    # so a retry of the same explicit inputs cannot price from a later draw.
+    rng = executor._rng
+    rng_state = (
+        deepcopy(rng.bit_generator.state)
+        if isinstance(rng, np.random.Generator)
+        else None
+    )
+    try:
+        return _execute_stateful_orders_impl(
+            executor,
+            book,
+            order_book,
+            intents,
+            start_index=start_index,
+            bars=bars,
+            reconciliation_cancellations=reconciliation_cancellations,
+        )
+    except BaseException:
+        if rng_state is not None:
+            rng.bit_generator.state = rng_state
+        raise
+
+
+def _execute_stateful_orders_impl(
+    executor: MarketExecutor,
+    book: BookState,
+    order_book: OrderBookState,
+    intents: Sequence[OrderIntent],
+    *,
+    start_index: int,
+    bars: int,
+    reconciliation_cancellations: Sequence[tuple[PendingOrder, PendingOrder]] = (),
+) -> StatefulExecutionResult:
     dataset = executor.dataset
     if bars <= 0:
         raise ValueError("bars must be positive")

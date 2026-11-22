@@ -41,7 +41,7 @@ artifacts / evidence
 | 市場データの共通契約 | `trade_rl.data.market.MarketDataset` |
 | 検証済みDataset identityとデータの同時読み込み | `trade_rl.data.load_published_market_dataset_artifact` |
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
-| hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
+| hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk`（turnoverと緊急マスクの型も検査） |
 | 新しいStudyのfinancial objective / capital / clock contract | `trade_rl.simulation.objectives.ObjectiveContract` / `CapitalContract` / `BoundObjectiveClock` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
 | 数値portfolio状態を一native barずつ継続する所有者 | `trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession` |

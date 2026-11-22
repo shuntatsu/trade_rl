@@ -495,3 +495,75 @@ def test_successfully_closed_windows_job_is_idempotent() -> None:
     assert api.calls == 1
     assert job._closed
     assert not job._close_failed
+
+
+def test_contained_process_fallback_close_does_not_rewrite_failed_cleanup_as_success() -> (
+    None
+):
+    class TerminationFailureJob:
+        termination_calls = 0
+        close_calls = 0
+
+        def terminate_members(self, timeout: float) -> None:
+            self.termination_calls += 1
+            raise ProcessContainmentError("job termination cannot be confirmed")
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    class ReapedProcess:
+        returncode = 17
+        wait_calls = 0
+
+        def wait(self, timeout: float) -> int:
+            self.wait_calls += 1
+            return 17
+
+    job, process = TerminationFailureJob(), ReapedProcess()
+    owned = containment.ContainedProcess(process, job)  # type: ignore[arg-type]
+    with pytest.raises(
+        ProcessContainmentError, match="job termination cannot be confirmed"
+    ):
+        owned.close()
+    with pytest.raises(ProcessContainmentError, match="cleanup previously failed"):
+        owned.close()
+    with pytest.raises(ProcessContainmentError, match="cleanup previously failed"):
+        owned.terminate_and_wait()
+    with pytest.raises(ProcessContainmentError, match="cleanup previously failed"):
+        owned.sample()
+    with pytest.raises(ProcessContainmentError, match="cleanup previously failed"):
+        owned.__enter__()
+    assert job.termination_calls == job.close_calls == process.wait_calls == 1
+
+
+def test_contained_process_verified_close_is_idempotent() -> None:
+    class VerifiedJob:
+        termination_calls = 0
+        close_calls = 0
+        empty_calls = 0
+
+        def terminate_members(self, timeout: float) -> None:
+            self.termination_calls += 1
+
+        def wait_empty(self, deadline: float) -> None:
+            self.empty_calls += 1
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    class ReapedProcess:
+        returncode = 0
+        wait_calls = 0
+
+        def wait(self, timeout: float) -> int:
+            self.wait_calls += 1
+            return 0
+
+    job, process = VerifiedJob(), ReapedProcess()
+    owned = containment.ContainedProcess(process, job)  # type: ignore[arg-type]
+    owned.close()
+    owned.close()
+    assert owned.terminate_and_wait() == 0
+    assert (job.termination_calls, job.empty_calls, job.close_calls) == (1, 1, 1)
+    assert process.wait_calls == 1
+    assert owned._closed and not owned._cleanup_failed

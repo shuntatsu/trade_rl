@@ -92,15 +92,20 @@ class ContainedProcess:
         self._job = job
         self._closed = False
         self._job_close_failed = False
+        self._cleanup_failed = False
 
-    def _require_no_failed_job_close(self) -> None:
+    def _require_no_failed_cleanup(self) -> None:
         if self._job_close_failed:
             raise ProcessContainmentError(
                 "Job Object close previously failed; native handle status unknown"
             )
+        if self._cleanup_failed:
+            raise ProcessContainmentError(
+                "process-tree cleanup previously failed; no verified success exists"
+            )
 
     def sample(self) -> ContainedProcessSample:
-        self._require_no_failed_job_close()
+        self._require_no_failed_cleanup()
         if self._closed:
             raise ProcessContainmentError("process containment is already closed")
         sample = self._job.sample()
@@ -114,7 +119,7 @@ class ContainedProcess:
         return sample
 
     def terminate_and_wait(self, timeout: float = 10.0) -> int:
-        self._require_no_failed_job_close()
+        self._require_no_failed_cleanup()
         if self._closed:
             return (
                 self.process.returncode if self.process.returncode is not None else -1
@@ -131,12 +136,15 @@ class ContainedProcess:
             raise
 
     def close(self, timeout: float = 10.0) -> None:
-        self._require_no_failed_job_close()
+        self._require_no_failed_cleanup()
         if self._closed:
             return
         try:
             self.terminate_and_wait(timeout)
         except BaseException:
+            # Closing a Job may kill descendants, but it cannot prove a
+            # failed strict membership/termination/empty-job verification.
+            self._cleanup_failed = True
             try:
                 self._job.close()
             except BaseException as close_error:
@@ -161,7 +169,7 @@ class ContainedProcess:
             self._closed = True
 
     def __enter__(self) -> ContainedProcess:
-        self._require_no_failed_job_close()
+        self._require_no_failed_cleanup()
         if self._closed:
             raise ProcessContainmentError("process containment is already closed")
         return self

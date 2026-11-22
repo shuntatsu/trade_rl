@@ -19,7 +19,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "6bcfdd95ad83e223989224096f21673579cabfe0e5b55dc6ef9897ae05df92b3"
+DIGEST_PIN = "ecd91aa1d1ba94bdcf6c4d8b6666bdf55ab5e7f6b801797690eb7c240589f815"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())

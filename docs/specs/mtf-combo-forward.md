@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it.
 
-Protocol digest: `6bcfdd95ad83e223989224096f21673579cabfe0e5b55dc6ef9897ae05df92b3`
+Protocol digest: `ecd91aa1d1ba94bdcf6c4d8b6666bdf55ab5e7f6b801797690eb7c240589f815`
 
 ## Question
 
@@ -67,7 +67,7 @@ A bar whose `vol_ann` is not finite makes no decision for that coin (it holds), 
 
 ## Accounting (actual units; corrects the screens)
 
-The book holds actual contracts and cash. It follows the precedent [btc-trend-ensemble Amendment 2](btc-trend-ensemble.md): quantities are held between accepted changes and there is no free re-weighting.
+The book holds actual contracts and cash. It follows the precedent of `btc_trend_ensemble_v1` Amendment 2 (PR #1331): quantities are held between accepted changes and there is no free re-weighting.
 
 - **Components.** Sleeve A on BTC and each sleeve-B coin are separate components with their own signed units. A component's units are set only when its nominal weight changes (entry, exit or flip) or when the leverage changes, in which case every component's units are scaled by `L_new / L_old`.
 - **Sizing.** A changed component is set to `units = L · nominal · E / price`, where `E` is the equity marked at the fill price just before the fill (after funding, before that fill's fee). Cash may be negative (margin).

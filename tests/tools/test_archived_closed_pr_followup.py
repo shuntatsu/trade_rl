@@ -230,7 +230,7 @@ def test_workflow_exact_owner_followup_command_and_tokens() -> None:
     assert "frozen-closed-pr-followup:" in workflow
     assert mod.FOLLOWUP_COMMAND in workflow
     assert "github.event.action == 'created'" in workflow
-    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 12
+    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 16
     assert (
         "python3 -m tools.archived_closed_pr_retirement --followup --apply" in workflow
     )

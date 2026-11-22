@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
+PACKET_V11_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
 PACKET_V10_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v10.json"
 PACKET_V9_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v9.json"
 PACKET_V8_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v8.json"
@@ -54,7 +55,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b"
+    "76d0644bc61f4cbf22526d000ea8cac9fa9e8f18159679e41a0f3a2c36e9b2e7"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -667,7 +668,7 @@ def test_prior_v10_packet_is_immutable_history_and_unreviewed() -> None:
 def test_v11_packet_changes_only_source_binding_not_economic_semantics() -> None:
     """Filesystem read-hardening cannot change Core7's frozen economic contract."""
     old: dict[str, Any] = json.loads(PACKET_V10_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V11_PATH.read_text(encoding="utf-8"))
     assert new["schema_version"] == old["schema_version"]
     assert new["mechanism"] == old["mechanism"]
     assert new["evidence"] == old["evidence"]
@@ -687,6 +688,49 @@ def test_v11_packet_changes_only_source_binding_not_economic_semantics() -> None
     verdict = evaluate_assurance(new)
     assert verdict.status == "UNREVIEWED"
     assert not verdict.economic_execution_authorized
+
+
+def test_prior_v11_packet_remains_immutable_and_unreviewed() -> None:
+    """The initial read-hardening packet is history, never silently re-pinned."""
+    old: dict[str, Any] = json.loads(PACKET_V11_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b"
+    )
+    prior = "a5224b86253e90a12bf23cbb7e8be732f82d4475"
+    assert old["identity"] == {
+        "implementation_head": prior,
+        "protocol_head": prior,
+    }
+    review = evaluate_assurance(old)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
+
+
+def test_v12_packet_changes_only_source_binding_not_economic_semantics() -> None:
+    """Both reviewer fixes are code-only; archived Core7 economics remain frozen."""
+    old: dict[str, Any] = json.loads(PACKET_V11_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "553f8828cfe00627edc721e1e5195e37dcdcddcc",
+        "protocol_head": "553f8828cfe00627edc721e1e5195e37dcdcddcc",
+    }
+    assert "independent G0-G2" in new["claims"]["next_authorized_action"]
+    assert "not permitted" in new["claims"]["next_authorized_action"]
+    review = evaluate_assurance(new)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
 
 
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:

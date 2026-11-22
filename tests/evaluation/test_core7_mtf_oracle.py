@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v10.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
+PACKET_V10_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v10.json"
 PACKET_V9_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v9.json"
 PACKET_V8_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v8.json"
 PACKET_V7_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v7.json"
@@ -53,7 +54,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede"
+    "3a09017843b7c9f5a3944bffb9a8b0a8bb6a04c692e81e30246c29fd2bb892ca"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -628,9 +629,36 @@ def test_prior_v9_packet_is_immutable_history_and_unreviewed() -> None:
     }.issubset(set(changed.stdout.splitlines()))
 
 
-def test_v10_packet_changes_only_source_binding_not_economic_semantics() -> None:
+def test_prior_v10_packet_is_immutable_history_and_unreviewed() -> None:
+    """Keep the merged M1 source pin, never disguise it as current xs-aware code."""
+    record: dict[str, Any] = json.loads(PACKET_V10_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(record) == (
+        "8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede"
+    )
+    old = "aa9282c74ffdf866831d0f0b423401a7e7e3ca29"
+    assert record["identity"] == {"protocol_head": old, "implementation_head": old}
+    verified = evaluate_assurance(record)
+    assert verified.status == "UNREVIEWED"
+    assert verified.errors == ()
+    assert not verified.economic_execution_authorized
+    changed = _git(
+        "diff",
+        "--name-only",
+        old,
+        "c313e1cc46715110f6b77e7a60f76fa5a1adba56",
+        "--",
+        *_bound_code_paths(old),
+    )
+    assert changed.returncode == 0, changed.stderr
+    assert {
+        "trade_rl/evaluation/core7_mtf_study/runner.py",
+        "trade_rl/evaluation/replay.py",
+    }.issubset(set(changed.stdout.splitlines()))
+
+
+def test_v11_packet_changes_only_source_binding_not_economic_semantics() -> None:
     """A new software pin cannot rewrite the old mechanism, evidence or approvals."""
-    old: dict[str, Any] = json.loads(PACKET_V9_PATH.read_text(encoding="utf-8"))
+    old: dict[str, Any] = json.loads(PACKET_V10_PATH.read_text(encoding="utf-8"))
     new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
     assert new["schema_version"] == old["schema_version"]
     assert new["mechanism"] == old["mechanism"]

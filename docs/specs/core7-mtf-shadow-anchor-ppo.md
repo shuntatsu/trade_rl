@@ -71,9 +71,9 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v10.json`（v1〜v9は不変のUNREVIEWED履歴。新しいソース修正のたびに旧パケットを黙って再利用しない）。
-- Pinned Implementation Head: `aa9282c74ffdf866831d0f0b423401a7e7e3ca29`
-- Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v11.json`（v1〜v10は不変のUNREVIEWED履歴。新しいソース修正のたびに旧パケットを黙って再利用しない）。
+- Pinned Implementation Head: `c313e1cc46715110f6b77e7a60f76fa5a1adba56`
+- Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。v10のM1監査ソース固定（digest `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede`、実装HEAD `aa9282c74ffdf866831d0f0b423401a7e7e3ca29`）は変更せず歴史として保持する。v11はxs Amendment 6の決済サポート（runnerのopt-in `engine_settlement` 引数とreplay fill trackerの非稼働資産ゼロbook受理）を含む公開ソース `c313e1cc46715110f6b77e7a60f76fa5a1adba56` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケットで、Core7の経済ルール・試行結果・ラベルは変更しない。G0–G2独立レビュー前は **UNREVIEWED / economic_execution_authorized=false** を維持する。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede`
+- Pinned Packet Digest: `3a09017843b7c9f5a3944bffb9a8b0a8bb6a04c692e81e30246c29fd2bb892ca`

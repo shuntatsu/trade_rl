@@ -356,6 +356,7 @@ class _WindowsJob:
         self._root_identity: ProcessIdentity | None = None
         self._assigned = False
         self._closed = False
+        self._close_failed = False
 
     @property
     def assigned(self) -> bool:
@@ -442,10 +443,20 @@ class _WindowsJob:
             time.sleep(min(0.01, remaining))
 
     def close(self) -> None:
+        if self._close_failed:
+            raise ProcessContainmentError(
+                "Job Object close previously failed; cannot verify native handle closure"
+            )
         if self._closed:
             return
+        try:
+            self._api.close_handle(self._handle)
+        except BaseException:
+            # CloseHandle failure leaves ownership uncertain. Never return a
+            # second, apparently successful close or reuse an uncertain handle.
+            self._close_failed = True
+            raise
         self._closed = True
-        self._api.close_handle(self._handle)
 
 
 class _WindowsApi:

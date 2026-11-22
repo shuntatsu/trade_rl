@@ -362,3 +362,86 @@ def test_windows_open_member_accepts_native_ctypes_handle() -> None:
     api._wintypes = wintypes
     api._kernel32 = Kernel()
     assert api._open_member(999, pid) == raw_handle
+
+
+def test_failed_windows_job_close_cannot_be_retried_as_success() -> None:
+    class CloseErrorApi:
+        calls = 0
+
+        def close_handle(self, handle: int) -> None:
+            assert handle == 999
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("close status unknown")
+
+    api = CloseErrorApi()
+    job = object.__new__(containment._WindowsJob)
+    job._handle = 999
+    job._api = api
+    job._closed = False
+    job._close_failed = False
+    with pytest.raises(OSError, match="close status unknown"):
+        job.close()
+    with pytest.raises(ProcessContainmentError, match="previously failed"):
+        job.close()
+    assert api.calls == 1
+    assert not job._closed
+
+
+def test_contained_process_close_after_failed_native_close_never_claims_success() -> (
+    None
+):
+    class CloseErrorApi:
+        calls = 0
+
+        def query_member_pids(self, handle: int) -> tuple[int, ...]:
+            return ()
+
+        def query_active_process_count(self, handle: int) -> int:
+            return 0
+
+        def close_handle(self, handle: int) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("cannot prove job handle closed")
+
+    class FinishedProcess:
+        returncode = 0
+
+        def wait(self, timeout: float) -> int:
+            return 0
+
+    job = object.__new__(containment._WindowsJob)
+    api = CloseErrorApi()
+    job._handle = 999
+    job._api = api
+    job._closed = False
+    job._close_failed = False
+    owned = containment.ContainedProcess(FinishedProcess(), job)  # type: ignore[arg-type]
+    with pytest.raises(OSError, match="cannot prove"):
+        owned.close()
+    with pytest.raises(ProcessContainmentError, match="previously failed"):
+        owned.close()
+    assert not owned._closed
+    assert api.calls == 1
+
+
+def test_successfully_closed_windows_job_is_idempotent() -> None:
+    class CloseOkApi:
+        calls = 0
+
+        def close_handle(self, handle: int) -> None:
+            assert handle == 999
+            self.calls += 1
+
+    api = CloseOkApi()
+    job = object.__new__(containment._WindowsJob)
+    job._handle = 999
+    job._api = api
+    job._closed = False
+    job._close_failed = False
+    job.close()
+    job.close()
+    assert api.calls == 1
+    assert job._closed
+    assert not job._close_failed

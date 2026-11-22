@@ -60,6 +60,47 @@ def test_strict_receipt_reader_never_uses_unbounded_file_read(
     assert all(0 < size <= 64 * 1024 * 1024 + 1 for size in requested_sizes)
 
 
+@pytest.mark.parametrize("budget_mib", (64, 512))
+def test_strict_reader_sizes_buffer_to_real_file_not_the_large_allowed_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budget_mib: int
+) -> None:
+    """A tiny signed receipt must not allocate 64/512 MiB up front at read()."""
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row())
+    size = (root / "incomplete-pairs.json").stat().st_size
+    assert 1 < size < 1024 * 1024
+    actual_open = study.open_regular_binary
+    reads: list[int] = []
+
+    class ReadProbe:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, request: int = -1) -> bytes:
+            reads.append(request)
+            assert 0 < request <= size + 1, (
+                "read request must be bounded by stat size, not budget"
+            )
+            return self.handle.read(request)
+
+    @contextmanager
+    def checked_open(path: Path, *, field: str) -> Iterator[ReadProbe]:
+        with actual_open(path, field=field) as handle:
+            yield ReadProbe(handle)
+
+    monkeypatch.setattr(study, "open_regular_binary", checked_open)
+    result = study.load_incomplete_pair_attempt(
+        root,
+        expected_receipt_digest=digest,
+        max_receipt_bytes=budget_mib * 1024 * 1024,
+    )
+    assert result["ineligible_pairs"] == 1
+    assert len(reads) >= 2 and all(request > 0 for request in reads)
+
+
 def test_oversized_sparse_receipt_is_rejected_before_json_decode(
     tmp_path: Path,
 ) -> None:

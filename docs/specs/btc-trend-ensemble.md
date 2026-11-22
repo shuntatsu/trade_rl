@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any Bitstamp BTC/USD bar of its BACKCAST window has been read, and before any FORWARD bar exists.
 
-Protocol digest: `e0912608069eaa07115c1cdfb7bf37b51b7f581d03b187b16124b3069755e751`
+Protocol digest: `9691bd342684bed3d079c03ea98341c7d3af47da1526180da2eef703638e323c`
 
 ## Question
 
@@ -99,3 +99,24 @@ A BACKCAST `TREND_NOT_SUPPORTED` stops this version.
 - A refusal for a defect outside the economics needs a result-blind amendment before any rerun.
 - Higher exposure is a new protocol.
 - No label authorizes orders, paper trading or live trading.
+
+## Amendment 1 (result-blind, after a refused BACKCAST attempt that produced no result)
+
+Status: Active.
+
+**The refused attempt.**
+- The BACKCAST run authorized by [Issue #810 comment 7078446921](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078446921), at code `220bd96b` and digest `e0912608`, refused during data validation with `missing UTC day 2014-06-01 (491 missing)`.
+- No exposure, return or label was computed. Its ledger claim and its raw page `bitstamp_000.json` are kept.
+
+**Cause.** When a Bitstamp `ohlc` request passes both `start` and `end`, the API returns the last `limit` bars at or before `end`, not the first bars after `start`.
+- The one page returned covered 2015-10-05 to 2018-06-30.
+- The adapter treated it as complete because it reached the last day.
+
+**Change.**
+- Every page request now spans at most `PAGE_LIMIT` days, `end = min(stage end, start + PAGE_LIMIT·86400 − 1)`. Each page is therefore complete whichever end the API anchors to. The same window applies to Binance.
+- The test fake now reproduces Bitstamp's last-`limit`-before-`end` behaviour. The old adapter fails that test; the new one passes.
+
+**Unchanged.** The rule, cells, costs, windows, decision rule and authorization are unchanged.
+
+**Consequence.** This is a new digest. It needs a new independent review and a new G4 relay.
+- **Ledger namespace:** the ledger is now keyed by protocol digest, `<ledger>/<digest>/<stage>.claim`. Each digest gets exactly one claim per stage, and a new digest exists only after a reviewed and relayed amendment. The refused claim of digest `e0912608` stays at the ledger root.

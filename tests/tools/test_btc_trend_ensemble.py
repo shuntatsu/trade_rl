@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "e0912608069eaa07115c1cdfb7bf37b51b7f581d03b187b16124b3069755e751"
+DIGEST_PIN = "9691bd342684bed3d079c03ea98341c7d3af47da1526180da2eef703638e323c"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -400,7 +400,9 @@ def fake_market(url: str) -> bytes:
     }
     if "bitstamp" in u.netloc:
         lo, hi, lim = q["start"], q["end"], q["limit"]
-        ts = [t for t in range((lo + 86399) // 86400 * 86400, hi + 1, 86400)][:lim]
+        # Real Bitstamp semantics (observed 2026-11-22): with start and end both given, the
+        # API returns the LAST ``limit`` bars at or before ``end`` (Amendment 1).
+        ts = [t for t in range((lo + 86399) // 86400 * 86400, hi + 1, 86400)][-lim:]
         days = [m.EPOCH.fromordinal(m.EPOCH.toordinal() + t // 86400) for t in ts]
         items = [
             {
@@ -676,7 +678,9 @@ def test_backcast_end_to_end_and_write_once(env: dict[str, Any]) -> None:
     assert set(res["cells"]) == set(m.CELLS)
     assert res["data"]["days"] == 1491 and len(res["data"]["pages"]) == 2
     out = env["tmp"] / "out_BACKCAST_x" / "result.json"
-    led = json.loads((env["ledger"] / "BACKCAST.result.json").read_text())
+    led = json.loads(
+        (env["ledger"] / env["digest"] / "BACKCAST.result.json").read_text()
+    )
     assert led["result_sha256"] == m.sha256_file(out) and led["label"] == res["label"]
     assert json.loads(out.read_text())["protocol_digest"] == env["digest"]
     with pytest.raises(SystemExit, match="already claimed"):
@@ -698,9 +702,11 @@ def test_forward_stages_require_backcast_ledger(env: dict[str, Any]) -> None:
     with pytest.raises(SystemExit, match="no BACKCAST ledger claim"):
         _run(env, "FORWARD_INTERIM", NOW)
     assert not (
-        env["ledger"] / "FORWARD_INTERIM_2026-12.claim"
+        env["ledger"] / env["digest"] / "FORWARD_INTERIM_2026-12.claim"
     ).exists()  # refused before claiming
-    m.claim_stage("BACKCAST", env["digest"], COMMIT, 1, NOW, env["ledger"])
+    m.claim_stage(
+        "BACKCAST", env["digest"], COMMIT, 1, NOW, env["ledger"] / env["digest"]
+    )
     with pytest.raises(SystemExit, match="no BACKCAST ledger result"):
         _run(env, "FORWARD_INTERIM", NOW)
 
@@ -708,7 +714,7 @@ def test_forward_stages_require_backcast_ledger(env: dict[str, Any]) -> None:
 def test_forward_requires_same_digest_and_supported_backcast(
     env: dict[str, Any],
 ) -> None:
-    led = env["ledger"]
+    led = env["ledger"] / env["digest"]
     m.claim_stage("BACKCAST", "other", COMMIT, 1, NOW, led)
     with pytest.raises(SystemExit, match="another protocol digest"):
         m.check_backcast_ledger(env["digest"], led)

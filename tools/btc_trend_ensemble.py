@@ -502,7 +502,10 @@ def fetch_daily(
     pages: list[dict[str, Any]] = []
     cursor = start_s
     for page_no in range(MAX_PAGES):
-        url = _page_url(source, cursor, end_s)
+        # Each request spans at most PAGE_LIMIT days, so the page is complete whichever end the
+        # API anchors to (Bitstamp returns the last ``limit`` bars before ``end``; Amendment 1).
+        page_end = min(end_s, cursor + PAGE_LIMIT * DAY_S - 1)
+        url = _page_url(source, cursor, page_end)
         body = fetch(url)
         path = raw_dir / f"{source}_{page_no:03d}.json"
         with path.open("xb") as f:
@@ -789,6 +792,9 @@ def run_stage(
     if work.exists() and any(work.iterdir()):
         raise SystemExit(f"work directory is not empty: {work}")
     digest = protocol_digest()
+    # One ledger namespace per protocol digest (Amendment 1): each digest gets exactly one claim
+    # per stage, and a new digest exists only after a reviewed, relayed amendment.
+    ledger_dir = ledger_dir / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
     backcast = (

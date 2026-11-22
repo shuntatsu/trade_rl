@@ -138,6 +138,53 @@ def test_owner_apply_atomic_13_and_second_run_idempotent(
 
 
 @pytest.mark.parametrize(
+    "ineligible", ["missing", "protected", "active", "open-pr", "unproven-closed-pr"]
+)
+def test_owner_apply_refuses_partial_13_ref_batch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ineligible: str
+) -> None:
+    api = _scenario(monkeypatch)
+    _created_event(monkeypatch, tmp_path)
+    target = next(iter(mod.PR_SOURCE))
+    if ineligible == "missing":
+        api.refs = [item for item in api.refs if item.name != target]
+    elif ineligible == "protected":
+        api.refs = [
+            _tip(item.name, item.sha, True) if item.name == target else item
+            for item in api.refs
+        ]
+    elif ineligible == "active":
+        api.active = frozenset({target})
+    elif ineligible == "open-pr":
+        api.open_refs = (
+            OpenPullRequestRefs(target, mod.PR_SOURCE[target][0], "main", "e" * 40),
+        )
+    else:
+        original = mod._closed_pr_proof
+        monkeypatch.setattr(
+            mod,
+            "_closed_pr_proof",
+            lambda instance, branch, number: (
+                branch.name != target and original(instance, branch, number)
+            ),
+        )
+    with pytest.raises(RuntimeError, match="all 13"):
+        mod.retire(api, apply=True)
+    assert api.deleted == []
+
+
+def test_owner_apply_refuses_all_ineligible_not_silent_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    api = _scenario(monkeypatch)
+    _created_event(monkeypatch, tmp_path)
+    api.active = frozenset(mod.PR_SOURCE) | frozenset(mod.REVIEW_BASES)
+    with pytest.raises(RuntimeError, match="all 13"):
+        mod.retire(api, apply=True)
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize(
     "reason", ["owner-id", "wrong-command", "edited", "wrong-issue"]
 )
 def test_owner_scope_is_exact_created_comment_only(

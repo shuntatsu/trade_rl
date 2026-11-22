@@ -173,6 +173,23 @@ def _select(
     return tuple(out)
 
 
+def _require_complete_one_shot(
+    branches: Sequence[BranchInfo], selected: Sequence[BranchInfo]
+) -> bool:
+    """Require all 13 eligible or all 13 already absent before any mutation.
+
+    The owner command is issued once. A partial live/eligible batch must never
+    silently consume it and make recovery depend on a second owner command.
+    """
+    expected = frozenset(PR_SOURCE) | frozenset(REVIEW_BASES)
+    present = expected & {item.name for item in branches}
+    if not present:
+        return False  # Verified complete previous retirement: idempotent readback.
+    if present != expected or {item.name for item in selected} != expected:
+        raise RuntimeError("all 13 archived SD2 refs must be live and eligible")
+    return True
+
+
 def retire(
     api: GitHubApi, *, apply: bool
 ) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
@@ -186,7 +203,9 @@ def retire(
         active=api.active_workflow_branch_names(),
     )
     planned = tuple(item.name for item in selected)
-    if not apply or not selected:
+    if not apply:
+        return len(before), planned, ()
+    if not _require_complete_one_shot(before, selected):
         return len(before), planned, ()
     _owner_command_event()
     require_retirement_origin()
@@ -207,8 +226,8 @@ def retire(
         open_pr=open_pull_request_branch_names(api.open_pull_request_refs()),
         active=api.active_workflow_branch_names(),
     )
-    if not set(selected).issubset(repeated):
-        raise RuntimeError("review PR/workflow/protected eligibility drifted")
+    if not _require_complete_one_shot(current, repeated) or repeated != selected:
+        raise RuntimeError("all 13 review refs must remain eligible before delete")
     api.delete_branches_with_leases(selected)
     for item in selected:
         first.pop(item.name)

@@ -576,6 +576,7 @@ def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(
         np.array(["false", "true"]),
         np.array([None, True], dtype=object),
         np.array([[True, False]]),
+        np.ma.array([True, False], mask=[True, False]),
     ],
 )
 def test_settle_positions_refuses_non_boolean_or_non_vector_mask_atomically(

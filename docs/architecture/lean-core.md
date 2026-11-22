@@ -541,7 +541,8 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 
 `BookState.settle_positions` の上場廃止・非アクティブ銘柄の精算maskも、
 一次元bool配列のみ受理する。整数・浮動小数点（NaNを含む）・文字列や
-二次元maskをtruthinessで清算対象へ変換せず、口座を変更する前に拒否する。
+二次元maskに加え、欠損フラグを隠したmasked arrayも、清算対象へ
+変換せず、口座を変更する前に拒否する。
 正しいbool maskの既存の精算金額・保有数量・回復率は維持する。
 
 Stateful `execute_orders` の処理途中で例外が発生した場合、呼出元の

@@ -1,8 +1,8 @@
 # Vol-targeted BTC trend ensemble on a spot cash account (`btc_trend_ensemble_v1`)
 
-Status: Active (not frozen until an independent review approves the exact head). This protocol was frozen before any FORWARD bar existed. BACKCAST-window bars were first fetched by the refused attempt of Amendment 1, which computed no exposure, return or label.
+Status: **HOLD / unreviewed accounting correction (2026-11-22)**. This source has not been independently approved for economic execution. The original BACKCAST attempt fetched some raw closes but refused before any exposure, return, drawdown or label. No FORWARD result exists.
 
-Protocol digest: `7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937`
+Protocol digest: `196d6a4b4e1bead0524de25430553ef26ecbee18f68c3e35cb779261c84697c8`
 
 ## Question
 
@@ -15,7 +15,7 @@ Exploratory screens on known-used Binance BTCUSDT spot daily data (2018-11 to 20
 
 **Counter-hypothesis:** the known-data result is a 2019–2024 regime effect, and the lookback set and the vol target were fitted to it.
 
-**Cheapest falsifier:** BACKCAST on 2015-01 to 2018-06 Bitstamp BTC/USD daily bars, which have never been read for this rule.
+**Cheapest originally proposed falsifier:** BACKCAST on 2015-01 to 2018-06 Bitstamp BTC/USD daily bars. Part of that window was subsequently fetched and inspected in the refused Amendment 1 attempt (no strategy returns computed); it must not be represented as wholly unseen now.
 
 **Prior exposure, disclosed:**
 - The six lookbacks, the 20% target, the 0.05 deadband and the 30-day vol window were chosen after seeing known-used 2018-11 to 2026-10 results. On that data: CAGR about 21%, max DD 19–22%, Sharpe about 1.2.
@@ -30,11 +30,11 @@ All quantities are computed at the close of UTC day t from closes up to and incl
 - **Trend score:** s_t = (1/6) · Σ_{N ∈ {30, 50, 75, 100, 150, 200}} 1[close_t > SMA_N(close)_t], so s_t ∈ [0, 1].
 - **Volatility:** σ_t = standard deviation of the last 30 daily log returns × √365. Use population standard deviation (ddof 0).
 - **Target exposure:** e_t = s_t · min(1, 0.20 / σ_t), in [0, 1]. It is the fraction of equity in BTC; the rest is cash. There is no leverage and no shorting.
-- **Deadband:** the held exposure changes only if |e_t − held| > 0.05, and then it moves to e_t.
+- **Deadband:** the held **target** changes only if |e_t − previous target| > 0.05, then it becomes e_t. A stale unchanged target is **not** permission to rebalance BTC units for free. The actual BTC fraction drifts with prices until the next accepted target change.
 - **Execution:**
-  - BASE: the exposure decided at the close of day t is held over day t+1, earning close_{t+1}/close_t − 1, with the trade cost charged at the close of t.
-  - DELAY: the exposure is first held over day t+2.
-- **Cost:** one-way cost × |change in exposure| × equity, charged at each trade.
+  - BASE: a changed target decided at close t is executed at close t using post-fee equity; exact BTC units and cash then remain unchanged until another accepted decision, accruing day t+1 price P&L. No daily percentage-weight reset occurs on HOLD days.
+  - DELAY: a changed target decided at close t is first executed at close t+1 and held over day t+2, with the same quantity-HOLD and cost rules.
+- **Cost:** one-way cost rate c × actual traded BTC notional |new BTC units − old BTC units| × execution close. After-fee equity E1 solves E1 + c × |target × E1 − old BTC notional| = pre-trade equity E0. The target is the fraction of E1. A changed signal causing no actual fill incurs no cost. Turnover is actual fill notional / E0, summed over fills; a held target never triggers a hidden trade.
 - **Warm-up:** no position until 200 closes exist.
 
 ## Cells (frozen)
@@ -80,7 +80,8 @@ For S being BACKCAST or FORWARD, `SUPPORTED(S)` holds iff all of the following h
 A cell is invalid if, at any day:
 - equity is not positive;
 - exposure is outside [0, 1];
-- the accounting identity fails by more than 1e-9.
+- the post-fee cash/filled-unit and mark-to-market accounting identity fails by more than 1e-9;
+- the fee rate is nonfinite, negative, or at least 100%.
 
 A BACKCAST `TREND_NOT_SUPPORTED` stops this version.
 
@@ -122,3 +123,15 @@ Status: Active.
 **Consequence.** This is a new digest. It needs a new independent review and a new G4 relay.
 - **Ledger namespace:** the ledger is now keyed by protocol digest, `<ledger>/<digest>/<claim name>.claim`. Each digest gets one claim per claim name: one for BACKCAST, one per month for FORWARD_INTERIM, one for FORWARD_FINAL. A new digest exists only after a reviewed and relayed amendment. The refused claim of digest `e0912608` stays at the ledger root.
 - **Cross-digest single use:** BACKCAST refuses before claiming if any digest namespace already holds a `BACKCAST.result.json`. A refusal that wrote no result does not block a reviewed amendment; a result of any label does.
+
+## Amendment 2 (result-blind accounting correction; no real economic result)
+
+Status: HOLD pending a new review and G4.
+
+**Exposure and result-blind scope.** Amendment 1 refused during missing-day validation and did not compute a return, exposure or label. It nevertheless fetched and disclosed BACKCAST raw closes (2015-10-05 to 2018-06-30). Preserve that claim, raw page, historical digest `7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937` and all earlier review evidence. The window is no longer wholly unseen. This correction uses only synthetic data; no additional market prices, measured performance or stage decision were inspected.
+
+**Reproduced software defect.** The old `_account` reset BTC units to a constant target weight after every daily price change, even when the accepted target did not change; it counted no trade, turnover or fee. Synthetic prices `[100, 200, 100]` and targets `[0, 0.5, 0.5]` produced equity 1.125, while an actual one-entry quantity-HOLD cash book returns exactly 1.0. These are synthetic oracle values, not market performance results.
+
+**Correction.** Change accepted target at the preceding close only; otherwise keep BTC units and cash fixed while the actual marked weight drifts. At a real rebalance, solve the post-fee target fraction by charging the frozen one-way fee rate on actual BTC fill notional. Turnover and fill count measure executed notional/units instead of only target-weight deltas. Independent high-precision Decimal cash/quantity/fee tests cover both buys and sells. Values outside the admissible fee-rate domain are invalid.
+
+**Immutable parameters and authorization.** Keep the six lookbacks, volatility window/target, 0.05 decision deadband, 10/20 bp rates, daily timing, universe, study windows, drawdown/Sharpe rules and all previous G4/ledger records. Previously published known-used exploratory scores cannot be adopted as corrected-accounting performance. The protocol digest must change; earlier G4 relays and reviews do not authorize that new digest. Require fresh result-blind external G0–G3/source review and per-stage owner G4 before any new data read. No scientific rescue, FS1/unused/final data permission or live trading is authorized.

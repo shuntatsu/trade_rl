@@ -251,34 +251,54 @@ def apply_deadband(targets: Any, held0: float = 0.0) -> np.ndarray:
 def _account(
     closes: np.ndarray, pos: np.ndarray, cost: float, start: int
 ) -> dict[str, Any]:
-    """Replay a position path. ``pos[d]`` is the exposure held over day d (d > start); the
-    trade into it executes at the close of d-1 and costs ``cost * |change| * equity``.
+    """Self-financing spot cash and BTC-quantity ledger on a decision-target path.
 
-    Equity is tracked twice: as cash + BTC units, and as a running product. The accounting
-    identity is the maximum absolute gap between the two."""
+    ``pos[d]`` is a target decided before interval d, not a promise to restore
+    the same percentage every day. Unchanged targets keep exact BTC units and
+    cash. At target changes, actual BTC fill notional at ``closes[d-1]`` bears
+    ``cost``; the after-fee target is solved without borrowing. The independent
+    cash-flow and mark-to-market equations are reconciled on each interval.
+    """
     n = len(closes)
-    cash, units, prev = 1.0, 0.0, 0.0
-    mult = 1.0
+    cash, units, previous_target = 1.0, 0.0, 0.0
     equity = [1.0]
     turnover, trades, err = 0.0, 0, 0.0
     reasons: list[str] = []
+    if not math.isfinite(cost) or not 0.0 <= cost < 1.0:
+        reasons.append("fee rate must be finite and within [0, 1)")
     for d in range(start + 1, n):
-        p0, p1, w = float(closes[d - 1]), float(closes[d]), float(pos[d])
-        if not 0.0 <= w <= 1.0:
-            reasons.append(f"exposure {w!r} outside [0, 1] on day index {d}")
-        delta = abs(w - prev)
-        if delta > TRADE_EPS:
-            trades += 1
-        turnover += delta
+        if reasons:
+            break
+        p0, p1, target = float(closes[d - 1]), float(closes[d]), float(pos[d])
+        if not 0.0 <= target <= 1.0:
+            reasons.append(f"exposure {target!r} outside [0, 1] on day index {d}")
+            break
         e0 = cash + units * p0
-        e1 = e0 - cost * delta * e0
-        units = w * e1 / p0
-        cash = e1 - units * p0
+        if not math.isfinite(e0) or e0 <= 0.0:
+            reasons.append(f"equity {e0!r} not positive on day index {d}")
+            break
+        charged = 0.0
+        if abs(target - previous_target) > TRADE_EPS:
+            # An unchanged decision target is an exact BTC-quantity HOLD, not
+            # a free daily weight rebalance. Charge only the actual fill.
+            old_notional = units * p0
+            if target * e0 >= old_notional:
+                after = (e0 + cost * old_notional) / (1.0 + cost * target)
+            else:
+                after = (e0 - cost * old_notional) / (1.0 - cost * target)
+            next_units = target * after / p0
+            fill_notional = abs(next_units - units) * p0
+            charged = cost * fill_notional
+            next_cash = after - next_units * p0
+            # Independently reconcile cash debits to the same executed fill.
+            expected_cash = cash - (next_units - units) * p0 - charged
+            err = max(err, abs(next_cash - expected_cash))
+            turnover += fill_notional / e0
+            trades += int(fill_notional > 0.0)
+            cash, units, previous_target = next_cash, next_units, target
         eq = cash + units * p1
-        mult = mult * (1.0 - cost * delta) * (1.0 + w * (p1 / p0 - 1.0))
-        err = max(err, abs(eq - mult))
+        err = max(err, abs(eq - (e0 - charged + units * (p1 - p0))))
         equity.append(eq)
-        prev = w
         if not eq > 0.0 or not math.isfinite(eq):
             reasons.append(f"equity {eq!r} not positive on day index {d}")
             break

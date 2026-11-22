@@ -45,7 +45,7 @@ python -m tools.markdown_links --check
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
-- Vol-targeted BTC trend ensemble on a spot cash account (pre-registered; BACKCAST on Bitstamp 2015-01..2018-06 reported, prospective FORWARD from 2026-11-23 pending, nothing authorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
+- BTC vol-targeted trend ensemble (HOLD: aborted BACKCAST raw page exposed, no economic result; cash/quantity accounting correction awaits review/G4; prospective FORWARD unauthorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
 
 ## 情報の所有先と更新
 

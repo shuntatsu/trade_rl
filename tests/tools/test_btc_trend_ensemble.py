@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937"
+DIGEST_PIN = "196d6a4b4e1bead0524de25430553ef26ecbee18f68c3e35cb779261c84697c8"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -156,10 +156,8 @@ def test_replay_charges_cost_on_exposure_change() -> None:
     c = _rising()
     c[200:] *= 1.5
     cell = m.replay_cell(c, 0.01, 1)
-    # entry trade of |1.0 - 0| at close 199, charged before day 200's return
-    assert cell["daily_returns"][199] == pytest.approx(
-        (1 - 0.01) * (c[200] / c[199]) - 1
-    )
+    # Full post-fee BTC entry: E_after + rate * E_after = E_before.
+    assert cell["daily_returns"][199] == pytest.approx(c[200] / c[199] / (1 + 0.01) - 1)
     free = m.replay_cell(c, 0.0, 1)
     assert cell["total_return"] < free["total_return"]
     assert cell["trades"] == free["trades"]
@@ -179,8 +177,8 @@ def test_replay_start_and_argument_checks() -> None:
 def test_hold_cell_cost_at_entry_only() -> None:
     c = _rising(50)
     cell = m.hold_cell(c, 0.001, start=10)
-    assert cell["trades"] == 1 and cell["turnover"] == 1.0
-    assert cell["equity"][-1] == pytest.approx((1 - 0.001) * c[-1] / c[10])
+    assert cell["trades"] == 1 and cell["turnover"] == pytest.approx(1 / 1.001)
+    assert cell["equity"][-1] == pytest.approx(c[-1] / c[10] / 1.001)
     assert cell["valid"]
 
 
@@ -832,3 +830,84 @@ def test_backcast_allowed_after_a_refusal_without_result(env: dict[str, Any]) ->
     m.claim_stage("BACKCAST", "old-digest", COMMIT, 1, NOW, env["ledger"])
     res = _run(env, "BACKCAST", NOW)
     assert res["label"] in {"TREND_BACKCAST_ONLY", "TREND_NOT_SUPPORTED"}
+
+
+def test_unchanged_target_never_rebalances_btc_quantity_for_free() -> None:
+    """One purchase at 100 and no more trades must return to parity at 100."""
+    c = np.array([100.0, 200.0, 100.0])
+    w = np.array([0.0, 0.5, 0.5])
+    result = m._account(c, w, 0.0, 0)
+    assert result["valid"]
+    assert result["trades"] == 1
+    assert result["turnover"] == pytest.approx(0.5)
+    np.testing.assert_allclose(result["equity"], [1.0, 1.5, 1.0], rtol=0, atol=1e-12)
+
+
+def test_actual_fill_notional_is_charged_without_hidden_second_sale() -> None:
+    """Independent exact rational accounting of a half-weight entry at 10 bp."""
+    from decimal import Decimal
+
+    c = np.array([100.0, 200.0, 200.0])
+    w = np.array([0.0, 0.5, 0.5])
+    result = m._account(c, w, 0.001, 0)
+    # When buying 50% of post-cost equity at 100, both BTC notional and fee
+    # depend on after-fee wealth, so the independent cash equation is:
+    # after = 1 - 0.001 * (0.5 * after).
+    after = Decimal(1) / (Decimal(1) + Decimal("0.001") * Decimal("0.5"))
+    expected = float(after * Decimal("1.5"))
+    assert result["valid"]
+    assert result["trades"] == 1
+    assert result["turnover"] == pytest.approx(float(after * Decimal("0.5")), abs=1e-12)
+    assert result["equity"][-1] == pytest.approx(expected, abs=1e-12, rel=0)
+
+
+def test_buy_and_sell_costs_match_independent_decimal_bisection_ledger() -> None:
+    """A separate Decimal cash/quantity solver reconstructs each actual fill."""
+    from decimal import Decimal, localcontext
+
+    closes = [100.0, 200.0, 100.0, 130.0, 70.0]
+    targets = [0.0, 0.4, 0.4, 0.8, 0.2]
+    fee_rate = 0.002
+    actual = m._account(np.array(closes), np.array(targets), fee_rate, 0)
+    with localcontext() as ctx:
+        ctx.prec = 70
+        cash, units, previous = Decimal(1), Decimal(0), Decimal(0)
+        rate = Decimal(str(fee_rate))
+        reference = [1.0]
+        turnover = Decimal(0)
+        fills = 0
+        for d in range(1, len(closes)):
+            p0, p1 = Decimal(str(closes[d - 1])), Decimal(str(closes[d]))
+            target = Decimal(str(targets[d]))
+            if target != previous:
+                wealth = cash + units * p0
+                low, high = Decimal(0), wealth
+                for _ in range(240):
+                    mid = (low + high) / 2
+                    if mid + rate * abs(target * mid - units * p0) > wealth:
+                        high = mid
+                    else:
+                        low = mid
+                after_fee = (low + high) / 2
+                new_units = target * after_fee / p0
+                notional = abs(new_units - units) * p0
+                cash -= (new_units - units) * p0 + rate * notional
+                units = new_units
+                turnover += notional / wealth
+                fills += int(notional > 0)
+                previous = target
+            reference.append(float(cash + units * p1))
+    np.testing.assert_allclose(actual["equity"], reference, rtol=1e-12, atol=1e-12)
+    assert actual["turnover"] == pytest.approx(float(turnover), rel=1e-12)
+    assert actual["trades"] == fills
+    assert actual["max_identity_err"] < m.IDENTITY_TOL
+
+
+def test_every_representable_executed_btc_fill_is_counted() -> None:
+    """A sub-epsilon notional is still a filled trade, not a hidden rebalance."""
+    prices = np.array([100.0, 100.0000000006, 100.0000000006])
+    targets = np.array([0.0, 0.5, 0.50000000000175])
+    result = m._account(prices, targets, 0.0, 0)
+    assert result["valid"]
+    assert result["trades"] == 2
+    assert result["turnover"] > 0.5

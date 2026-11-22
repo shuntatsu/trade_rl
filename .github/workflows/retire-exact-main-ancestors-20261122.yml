@@ -1,0 +1,71 @@
+name: One-shot retirement of 16 exact main-merged branches (2026-11-22)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/retire-exact-main-ancestors-20261122.yml
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: retire-exact-main-ancestors-20261122
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.head_commit.message == 'chore(branch): execute exact 16-merged cleanup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact main with full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refresh refs
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Retire only SHA-matched already-merged inactive refs and verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          from tools.branch_hygiene import BranchInfo, GitHubApi, open_pull_request_branch_names
+          expected = json.loads(r'''{"fix/artifacts-verified-expected-size-bound-20261112":"0b077f6e593a5e9134f43920cd0da87d57127212","fix/m1-carry-underflow-isolated-20261119":"674b12d6f085d40fb10a4c0d19d4a72961b8f176","fix/m1-liquidity-zero-notional-20261106":"072d69e7b76cf2725a3436b3ddcc27366bca7f2a","fix/m1-nonzero-execution-cost-underflow-20261119":"eee9561283395209ef29d816e930fc2950bfff13","fix/m1-order-intent-notional-underflow-20261106":"168d0039066aa7c9f40a2ff26bba854d7abf906c","fix/m1-set-margin-atomic-20261119":"09e51ffe8c12d52f21cfdabf5884346cb25c84c5","fix/m1-source-branch-preservation-20261107":"91e973935ab9d783393cf3d64fda897541b0e723","fix/m1-subnormal-valuation-isolated-20261118":"38e94a1f59052da198fb995f3d281eb20a3c68e6","infra/ppo-gemini-review-authority-v2":"1b08d1be50de316789a014062be950814f4074d2","ops/retire-13-sd2-review-refs-20261121":"2aeed2f08e54806434e61ab2d32bc6d16567ab2e","research/funding-carry-attempt3-collection-policy-impl-20261108":"cebfe8ffe56eee8759ec284a8bc3835842351355","research/funding-carry-attempt3-prereg-20261108":"b92fa6d1ac3a0b3cf3750cf42396d434e39b70cf","research/funding-carry-attempt3-seal-ready-20261108":"2c9c7a525e0f0a6d54d9f43bcc72c5a752dba944","research/issue1025-tiny-native-value-smoke-20261028":"7416c55a8ea2735d754339fcee5682b42b2c3df5","research/trend-stops-20261110":"8a29983698e53b61990fef20047723f9d83d63ed","research/trend-stops-v2-20261113":"b541e7e121d3b3d3a528af71ed0d6502c63af5b8"}''')
+          assert len(expected) == 16
+          api = GitHubApi(repository='shuntatsu/trade_rl', token=os.environ['GH_TOKEN'], api_url='https://api.github.com')
+          roster = {b.name: b for b in api.branches()}
+          main = roster['main']
+          assert main.sha == os.environ['GITHUB_SHA'], 'main moved after dispatch; aborting'
+          assert subprocess.check_output(['git','rev-parse','origin/main'],text=True).strip() == main.sha
+          open_names = open_pull_request_branch_names(api.open_pull_request_refs())
+          active_names = api.active_workflow_branch_names()
+          targets = []
+          for name, sha in sorted(expected.items()):
+              current = roster.get(name)
+              if current is None:
+                  print('already absent:', name)
+                  continue
+              assert current.sha == sha, f'ref moved: {name}'
+              assert not current.protected and name not in open_names and name not in active_names, f'protected or active: {name}'
+              assert subprocess.run(['git','merge-base','--is-ancestor',sha,'origin/main'],check=False).returncode == 0, f'not merged: {name}'
+              targets.append(current)
+          print('exact main-ancestor refs eligible:', len(targets), 'of',len(expected))
+          if targets:
+              api.delete_branches_with_leases(targets)
+          after = {b.name:b for b in api.branches()}
+          assert not (set(expected) & set(after)), 'not all selected refs were retired'
+          assert set(after) == set(roster) - set(expected), 'unexpected branch roster change'
+          print('VERIFIED: 16 already-merged refs absent, remaining branch count:',len(after))
+          PY

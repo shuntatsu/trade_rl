@@ -2573,9 +2573,20 @@ def _pinned_receipt_directory(directory: Path) -> Iterator[int | None]:
         yield None
         return
     descriptor = _open_directory_descriptor_nofollow(directory)
+    readable = -1
     try:
-        yield descriptor
+        # The shared no-follow walker intentionally returns an O_PATH fd;
+        # scandir needs a readable directory FD. Reopen "." relative to the
+        # held inode, not via the mutable directory pathname.
+        readable = os.open(
+            ".",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=descriptor,
+        )
+        yield readable
     finally:
+        if readable >= 0:
+            os.close(readable)
         os.close(descriptor)
 
 
@@ -2659,7 +2670,9 @@ def load_incomplete_pair_attempt(
         raise ValueError("failure receipt root must be a real directory")
     with _pinned_receipt_directory(directory) as directory_fd:
         # Verify the single-file root without Path.iterdir()'s eager full scan.
-        with os.scandir(directory) as entries:
+        with os.scandir(
+            directory_fd if directory_fd is not None else directory
+        ) as entries:
             first = next(entries, None)
             if (
                 first is None

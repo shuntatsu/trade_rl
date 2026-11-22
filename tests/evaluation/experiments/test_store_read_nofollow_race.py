@@ -123,3 +123,45 @@ def test_study_read_rejects_in_place_mutation_during_read(
 
     assert raced
     assert target.read_bytes() == b'{"trusted":false}'
+
+
+@pytest.mark.skipif(os.name != "posix", reason="unlink race is POSIX specific")
+def test_study_read_maps_unlinked_leaf_during_read_to_integrity_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late unlink is an integrity failure, not a malformed JSON verdict."""
+    from trade_rl.evaluation.experiments import store as store_module
+
+    store = StudyStore(tmp_path / "study")
+    target = store.publish_json_once("plan.json", {"trusted": True})
+    real_open = store_module.open_regular_binary
+    removed = False
+
+    class UnlinkDuringRead:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, size: int = -1) -> bytes:
+            nonlocal removed
+            raw = self.handle.read(size)
+            if not removed:
+                target.unlink()
+                removed = True
+            return raw
+
+    @contextmanager
+    def changing_open(path: Path, *, field: str) -> Iterator[UnlinkDuringRead]:
+        with real_open(path, field=field) as handle:
+            yield UnlinkDuringRead(handle)
+
+    monkeypatch.setattr(store_module, "open_regular_binary", changing_open)
+    with pytest.raises(
+        ArtifactIntegrityError, match="Study artifact changed during read"
+    ):
+        store.read_json("plan.json")
+
+    assert removed
+    assert not target.exists()

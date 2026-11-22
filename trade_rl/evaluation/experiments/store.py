@@ -808,7 +808,12 @@ class StudyStore:
                     raise ArtifactIntegrityError("Study artifact changed during read")
                 encoded = handle.read()
                 finished = os.fstat(handle.fileno())
-                visible = os.stat(target, follow_symlinks=False)
+                try:
+                    visible = os.stat(target, follow_symlinks=False)
+                except OSError as error:
+                    raise ArtifactIntegrityError(
+                        "Study artifact changed during read"
+                    ) from error
                 for current in (finished, visible):
                     if (
                         not stat.S_ISREG(current.st_mode)

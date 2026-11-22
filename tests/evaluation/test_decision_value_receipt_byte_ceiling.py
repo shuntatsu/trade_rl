@@ -342,6 +342,67 @@ def test_receipt_leaf_swap_after_read_is_rejected_before_json_decode(
     assert receipt.read_bytes() == new_bytes
 
 
+@pytest.mark.skipif(os.name != "posix", reason="directory-fd inventory is POSIX")
+def test_ab_a_directory_swap_during_root_inventory_must_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspect the pinned inode, never a temporary clean pathname alias."""
+    root = tmp_path / "attempt"
+    clean_foreign = tmp_path / "foreign"
+    detached = tmp_path / "detached"
+    original_digest = _persist(root, _row())
+    foreign_digest = _persist(clean_foreign, _row(action=(-1, 0)))
+    assert original_digest != foreign_digest
+    (root / "extra.json").write_bytes(b"should-refuse")
+    original_bytes = (root / "incomplete-pairs.json").read_bytes()
+    foreign_bytes = (clean_foreign / "incomplete-pairs.json").read_bytes()
+    real_scandir = study.os.scandir
+    real_loads = study.json.loads
+    swapped = False
+    decoder_calls = 0
+
+    @contextmanager
+    def swap_only_while_inventory_open(path: object) -> Iterator[object]:
+        nonlocal swapped
+        pinned_inode = (
+            isinstance(path, int) and os.fstat(path).st_ino == root.stat().st_ino
+        )
+        if path == root or pinned_inode:
+            assert not swapped
+            root.rename(detached)
+            clean_foreign.rename(root)
+            swapped = True
+            try:
+                # Old code sees B's single entry; corrected descriptor scan
+                # still sees both entries of pinned A.
+                with real_scandir(path) as entries:  # type: ignore[arg-type]
+                    yield entries
+            finally:
+                root.rename(clean_foreign)
+                detached.rename(root)
+        else:
+            with real_scandir(path) as entries:  # type: ignore[arg-type]
+                yield entries
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoder_calls
+        decoder_calls += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.os, "scandir", swap_only_while_inventory_open)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+    with pytest.raises(ValueError, match="failure receipt root contents are malformed"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=original_digest
+        )
+
+    assert swapped
+    assert decoder_calls == 0
+    assert (root / "extra.json").read_bytes() == b"should-refuse"
+    assert (root / "incomplete-pairs.json").read_bytes() == original_bytes
+    assert (clean_foreign / "incomplete-pairs.json").read_bytes() == foreign_bytes
+
+
 def test_root_enumeration_is_bounded_before_receipt_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -378,7 +439,11 @@ def test_root_enumeration_is_bounded_before_receipt_read(
             raise AssertionError("unbounded root directory enumeration")
 
     def checked_scandir(path: object):  # type: ignore[no-untyped-def]
-        if Path(path) == root:  # type: ignore[arg-type]
+        same_root_fd = isinstance(path, int) and (
+            os.fstat(path).st_dev,
+            os.fstat(path).st_ino,
+        ) == (root.stat().st_dev, root.stat().st_ino)
+        if path == root or same_root_fd:
             return FloodedScandir()
         return real_scandir(path)  # type: ignore[arg-type]
 

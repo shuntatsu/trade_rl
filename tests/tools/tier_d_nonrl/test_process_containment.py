@@ -393,8 +393,10 @@ def test_contained_process_close_after_failed_native_close_never_claims_success(
 ):
     class CloseErrorApi:
         calls = 0
+        member_queries = 0
 
         def query_member_pids(self, handle: int) -> tuple[int, ...]:
+            self.member_queries += 1
             return ()
 
         def query_active_process_count(self, handle: int) -> int:
@@ -420,10 +422,58 @@ def test_contained_process_close_after_failed_native_close_never_claims_success(
     owned = containment.ContainedProcess(FinishedProcess(), job)  # type: ignore[arg-type]
     with pytest.raises(OSError, match="cannot prove"):
         owned.close()
+    queries_after_failure = api.member_queries
     with pytest.raises(ProcessContainmentError, match="previously failed"):
         owned.close()
+    for operation in (owned.sample, owned.terminate_and_wait, owned.__enter__):
+        with pytest.raises(ProcessContainmentError, match="previously failed"):
+            operation()
+    assert api.member_queries == queries_after_failure
     assert not owned._closed
     assert api.calls == 1
+
+
+def test_failed_windows_job_close_refuses_all_followup_native_job_uses() -> None:
+    class UnknownCloseApi:
+        def __init__(self) -> None:
+            self.unsafe_native_calls: list[str] = []
+
+        def close_handle(self, handle: int) -> None:
+            assert handle == 999
+            raise OSError("Job handle status unknown")
+
+        def __getattr__(self, name: str):
+            def untrusted_call(*args: object, **kwargs: object) -> None:
+                self.unsafe_native_calls.append(name)
+                raise AssertionError("native operation attempted after failed close")
+
+            return untrusted_call
+
+    api = UnknownCloseApi()
+    job = object.__new__(containment._WindowsJob)
+    job._handle = 999
+    job._api = api
+    job._root_identity = ProcessIdentity(pid=100, creation_time=1000)
+    job._assigned = True
+    job._closed = False
+    job._close_failed = False
+
+    with pytest.raises(OSError, match="status unknown"):
+        job.close()
+
+    operations = (
+        lambda: job.assign(888),
+        lambda: job.identity_from_handle(888, 100),
+        lambda: job.resume(888),
+        job.sample,
+        job.terminate_members,
+        lambda: job.wait_empty(time.monotonic() + 1),
+        lambda: job.terminate_process_handle(888),
+    )
+    for operation in operations:
+        with pytest.raises(ProcessContainmentError, match="previously failed"):
+            operation()
+    assert api.unsafe_native_calls == []
 
 
 def test_successfully_closed_windows_job_is_idempotent() -> None:

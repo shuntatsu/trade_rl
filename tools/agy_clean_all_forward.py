@@ -25,6 +25,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -32,16 +33,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 PROTOCOL_ID = "agy_clean_all_forward_v1"
 
 # Snapshot of agy session 7e52c53c scratch/rl_lab, taken 2026-11-22 (47 top-level .py files).
 LAB_MANIFEST_SHA256 = "c4457c8693ba64980f7735c54cc71b4a1058735f27ab35d46be2c4d9a09b1683"
 # agy's own pre-2026-08 round10/round17 pack caches: the parity oracle.
 FROZEN_CACHE_MANIFEST_SHA256 = (
-    "60aaea5e3243dbea7917e08d6fd53504802afb54c3edff5563d26454fb53305a"
+    "d07130ae24bd744b95f21a68d92f07950c5b68af7dd4df3cf81622d306749ef7"
 )
 FROZEN_PACK10 = "round10_mtf6_pack_pre20260801.npz"
 FROZEN_PACK17 = "round17_clean_mtf_pack_pre20260801.npz"
+# agy's original Binance metrics cache (Binance Vision republished some pre-embargo days).
+FROZEN_METRICS = "binance_metrics_4h_pre20260801.npz"
 
 OOS_START = datetime(2026, 8, 1, tzinfo=UTC)
 LAB_EMBARGO = datetime(2026, 8, 1, tzinfo=UTC)
@@ -84,6 +89,30 @@ CELLS: dict[str, tuple[str, float, int, bool]] = {
     "CANDIDATE__NO_DELAY": (ARM_CANDIDATE, 0.0006, 0, False),
     "CONTROL_ANC__BASE": (ARM_CONTROL, 0.0006, 1, False),
 }
+
+# Local single-use ledger: one exclusive-create claim file per stage (see ``claim_stage``).
+LEDGER_DIR = Path(r"C:\trade_rl_runs\agy_clean_all_forward_ledger")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SPEC_RELPATH = "docs/specs/agy-clean-all-forward.md"
+# Imported by the lab (run_round17_breakthrough_gpu.py) but unused by this arm; hash recorded only.
+PRETRADE_PATH = Path(r"C:\dev\trade_rl-core7-mtf-ppo\trade_rl\risk\pretrade.py")
+
+ORACLE_START = datetime(2023, 1, 1, tzinfo=UTC)
+ORACLE_RTOL = 1e-9
+REQUIRED_PACK10 = (
+    "spot_valid",
+    "perp_valid",
+    "perp_mask",
+    "carry_mask",
+    "spot_next_ret",
+    "perp_next_ret",
+    "funding_realized",
+    "vol_cushion_tail",
+    "c_weekly_iv",
+    "w_aw_bidir_75_25",
+)
+REQUIRED_PACK17 = ("w_clean_anc", "w_clean_all", "perp_mask")
+REQUIRED_ECON = ("eff_deadband", "eff_freeze_thr", "a_mult", "c_mult")
 
 BARS_PER_YEAR = 2190.0
 FINAL_MIN_SHARPE = 0.5
@@ -142,7 +171,19 @@ def _constants() -> dict[str, Any]:
         "early_stop_return": EARLY_STOP_RETURN,
         "parity_atol": PARITY_ATOL,
         "data_scope_comment": DATA_SCOPE_COMMENT_ID,
+        "oracle_start": ORACLE_START.isoformat(),
+        "oracle_rtol": ORACLE_RTOL,
+        "required_pack10": list(REQUIRED_PACK10),
+        "required_pack17": list(REQUIRED_PACK17),
+        "required_econ": list(REQUIRED_ECON),
     }
+
+
+def spec_sha256() -> str:
+    """sha256 of the spec with CRLF normalized and the ``Protocol digest:`` line removed."""
+    text = (REPO_ROOT / SPEC_RELPATH).read_bytes().replace(b"\r\n", b"\n")
+    kept = [ln for ln in text.split(b"\n") if not ln.startswith(b"Protocol digest:")]
+    return hashlib.sha256(b"\n".join(kept)).hexdigest()
 
 
 def protocol_digest() -> str:
@@ -151,6 +192,8 @@ def protocol_digest() -> str:
         {
             "constants": _constants(),
             "harness_sha256": hashlib.sha256(source).hexdigest(),
+            "spec_path": SPEC_RELPATH,
+            "spec_sha256": spec_sha256(),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -245,16 +288,44 @@ def _gh_comment(comment_id: int) -> dict[str, Any]:
     return json.loads(out.stdout)
 
 
+_COMMENT_URL = re.compile(
+    r"https://github\.com/shuntatsu/trade_rl/issues/810#issuecomment-(\d+)"
+)
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+
+
 def comment_id_from_url(url: str) -> int:
-    marker = "#issuecomment-"
-    if not url.startswith(f"https://github.com/{REPO}/issues/810") or marker not in url:
+    m = _COMMENT_URL.fullmatch(url)
+    if m is None:
         raise SystemExit("authorization URL must be an Issue #810 comment")
-    return int(url.split(marker, 1)[1])
+    return int(m.group(1))
+
+
+def _git(*args: str) -> str:
+    out = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return out.stdout
+
+
+def harness_commit() -> str:
+    """Exact HEAD of the repository holding this file; refuses on tracked modifications."""
+    if _git("status", "--porcelain", "--untracked-files=no").strip():
+        raise SystemExit("harness repository has tracked modifications; commit first")
+    commit = _git("rev-parse", "HEAD").strip()
+    if not _COMMIT_RE.fullmatch(commit):
+        raise SystemExit(f"unexpected HEAD from git: {commit!r}")
+    return commit
 
 
 def authorization_receipt(
-    url: str, digest: str, fetch: Any = _gh_comment
+    url: str, digest: str, commit: str, fetch: Any = _gh_comment
 ) -> dict[str, Any]:
+    if not _COMMIT_RE.fullmatch(commit):
+        raise SystemExit("commit must be a full 40-hex SHA")
     out: dict[str, Any] = {}
     for role, cid in (
         ("g4_relay", comment_id_from_url(url)),
@@ -263,15 +334,19 @@ def authorization_receipt(
         first, second = fetch(cid), fetch(cid)
         if first["user"]["login"] != OWNER_LOGIN:
             raise SystemExit(f"{role} comment {cid} is not owner-authored")
+        if not str(first.get("issue_url", "")).endswith("/issues/810"):
+            raise SystemExit(f"{role} comment {cid} is not on Issue #810")
         if (
             first["body"] != second["body"]
             or first["updated_at"] != second["updated_at"]
         ):
             raise SystemExit(f"{role} comment {cid} changed between fetches")
-        if role == "g4_relay" and (
-            digest not in first["body"] or PROTOCOL_ID not in first["body"]
+        if role == "g4_relay" and not all(
+            token in first["body"] for token in (PROTOCOL_ID, digest, commit)
         ):
-            raise SystemExit("G4 relay does not quote this protocol id and digest")
+            raise SystemExit(
+                "G4 relay does not quote this protocol id, digest and exact commit"
+            )
         out[role] = {
             "comment_id": cid,
             "author": first["user"]["login"],
@@ -279,6 +354,53 @@ def authorization_receipt(
             "body_sha256": hashlib.sha256(first["body"].encode("utf-8")).hexdigest(),
         }
     return out
+
+
+def claim_stage(
+    stage: str, digest: str, commit: str, auth_comment_id: int, now: datetime
+) -> Path:
+    """Local single-use enforcement: exclusive-create ``<LEDGER_DIR>/<stage>.claim``."""
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    path = LEDGER_DIR / f"{stage}.claim"
+    try:
+        f = path.open("x", encoding="utf-8")
+    except FileExistsError:
+        raise SystemExit(f"stage {stage} was already claimed: {path}") from None
+    with f:
+        f.write(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "protocol_digest": digest,
+                    "commit": commit,
+                    "authorization_comment_id": auth_comment_id,
+                    "claimed_at": now.isoformat(),
+                },
+                indent=1,
+                sort_keys=True,
+            )
+        )
+    return path
+
+
+def check_interim_result(path: Path, digest: str) -> dict[str, Any]:
+    """FINAL needs an INTERIM_A result of this protocol whose label is INTERIM_NOT_A_DECISION."""
+    obj = json.loads(path.read_text(encoding="utf-8"))
+    if obj.get("protocol_digest") != digest:
+        raise SystemExit("interim result has another protocol digest")
+    if obj.get("stage") != "INTERIM_A":
+        raise SystemExit("interim result is not stage INTERIM_A")
+    if obj.get("label") != "INTERIM_NOT_A_DECISION":
+        raise SystemExit(
+            f"interim label {obj.get('label')!r} does not allow FINAL "
+            "(STOPPED_EARLY ends the line; INVALID needs an amendment)"
+        )
+    return {"path": str(path), "sha256": sha256_file(path), "label": obj["label"]}
+
+
+def verify_work_lab(work: Path, prep: dict[str, Any]) -> None:
+    if manifest(work / "lab", "*.py") != prep["lab_files"]:
+        raise SystemExit("work/lab differs from the prepare receipt")
 
 
 # ----------------------------------------------------------------------------- decision rule
@@ -342,6 +464,195 @@ def cap_gross(ws: Any, wp: Any, cap: float = GROSS_CAP) -> tuple[Any, Any, bool]
     return ws, wp, False
 
 
+def replay_cell(
+    *,
+    he: Any,
+    r3c: Any,
+    r15g: Any,
+    r17: Any,
+    p10: Any,
+    p17: Any,
+    econ: Any,
+    arm: str,
+    cost: float,
+    start: int,
+    stop: int,
+    cap: float | None,
+    econ_mode: str = ECON_MODE,
+) -> dict[str, Any]:
+    """Replay one cell over bars ``[start, stop)``; pure given the lab objects.
+
+    Decisions are taken every ``DECISION_STRIDE`` bars from ``start``. A decision target is
+    scaled to ``cap`` (``None`` = uncapped, used only by the loop oracle). Held bars pass the
+    current weights through as the target with deadband 0. Executed gross is reported only:
+    held weights drift and halted legs keep their weight, so it may exceed the cap legitimately.
+    """
+    n = len(p10.symbols)
+    ws, wp, eq = np.zeros(n), np.zeros(n), 1.0
+    lrs: list[float] = []
+    valid, reasons = True, []
+    max_err = turn = cost_sum = max_exec_gross = 0.0
+    capped = decisions = 0
+    for i in range(stop - start):
+        k = start + i
+        if i % DECISION_STRIDE == 0:
+            db, _f, a_m, c_m = r15g._econ_scalars(econ, k, econ_mode)
+            alpha, scale = r17.nonrl_alpha_and_scale_np(p10, p17, arm, k)
+            ws_t, wp_t = r17.synthesize_r17_np(p10, k, alpha, scale, a_m, c_m)
+            if cap is not None:
+                ws_t, wp_t, was = cap_gross(ws_t, wp_t, cap)
+                capped += int(was)
+                gross_t = float(np.abs(ws_t).sum() + np.abs(wp_t).sum())
+                if gross_t > cap + 1e-9:
+                    valid = False
+                    reasons.append(f"target_gross_above_cap@{k}")
+            decisions += 1
+            if not (np.all(np.isfinite(ws_t)) and np.all(np.isfinite(wp_t))):
+                valid = False
+                reasons.append(f"non_finite_target@{k}")
+        else:
+            ws_t, wp_t, db = ws, wp, 0.0
+        ws_e, wp_e, eq_n, ws_n, wp_n, t, c, px, fr = he.execute_hybrid_step(
+            w_spot_cur=ws,
+            w_perp_cur=wp,
+            w_spot_target=ws_t,
+            w_perp_target=wp_t,
+            equity_before=eq,
+            spot_valid=p10.spot_valid[k],
+            perp_valid=p10.perp_valid[k],
+            spot_next_ret=p10.spot_next_ret[k],
+            perp_next_ret=p10.perp_next_ret[k],
+            funding_realized=p10.funding_realized[k],
+            one_way_cost=cost,
+            impact_quad=r3c.IMPACT_QUAD,
+            deadband=db,
+        )
+        err = abs((eq_n - eq) - (px + fr - c))
+        max_err = max(max_err, err)
+        if err > CONSERVATION_TOL or not math.isfinite(eq_n) or eq_n <= 0.0:
+            valid = False
+            reasons.append(f"accounting@{k}")
+        max_exec_gross = max(
+            max_exec_gross, float(np.abs(ws_e).sum() + np.abs(wp_e).sum())
+        )
+        lrs.append(math.log(max(eq_n, 1e-12) / eq))
+        turn += float(t)
+        cost_sum += float(c)
+        eq, ws, wp = float(eq_n), ws_n, wp_n
+    st: dict[str, Any] = dict(cell_stats(lrs))
+    st.update(
+        {
+            "valid": valid,
+            "invalid_reasons": reasons[:20],
+            "max_conservation_error": max_err,
+            "turnover": turn,
+            "trading_cost": cost_sum,
+            "cap_bound_decisions": capped,
+            "decisions": decisions,
+            "max_executed_gross": max_exec_gross,
+            "final_equity": eq,
+            "arm": arm,
+            "one_way_cost": cost,
+        }
+    )
+    return st
+
+
+def array_diff(a: Any, b: Any) -> float:
+    """Max abs difference (floats, NaN-aware) or count of unequal entries (other dtypes)."""
+    a, b = np.asarray(a), np.asarray(b)
+    if a.shape != b.shape:
+        raise SystemExit(f"parity shape mismatch: {a.shape} vs {b.shape}")
+    if b.dtype.kind in "fc":
+        both_nan = np.isnan(a) & np.isnan(b)
+        return float(np.max(np.where(both_nan, 0.0, np.abs(a - b)), initial=0.0))
+    return float(np.sum(a != b))
+
+
+def pack_parity(
+    tag: str, new: Any, old: Any, required: tuple[str, ...], n_pre: int, n_cmp: int
+) -> dict[str, float]:
+    """Compare ``new`` with the frozen ``old`` over rows ``[:n_cmp]``; refuse on a missed field."""
+    parity: dict[str, float] = {}
+    for field in old.__dataclass_fields__:
+        b = getattr(old, field)
+        if not isinstance(b, np.ndarray) or b.ndim == 0 or b.shape[0] != n_pre:
+            continue
+        parity[f"{tag}.{field}"] = array_diff(
+            np.asarray(getattr(new, field))[:n_cmp], b[:n_cmp]
+        )
+    missed = [f for f in required if f"{tag}.{f}" not in parity]
+    if missed:
+        raise SystemExit(f"parity did not compare required fields of {tag}: {missed}")
+    return parity
+
+
+def econ_parity(new: Any, old: Any, n_cmp: int) -> dict[str, float]:
+    if set(new) != set(old) or not set(REQUIRED_ECON) <= set(new):
+        raise SystemExit(
+            f"econ key mismatch: {sorted(new)} vs {sorted(old)} "
+            f"(required {sorted(REQUIRED_ECON)})"
+        )
+    return {
+        f"econ.{key}": array_diff(
+            np.asarray(new[key])[:n_cmp], np.asarray(old[key])[:n_cmp]
+        )
+        for key in sorted(new)
+    }
+
+
+def _ns(dt: datetime) -> int:
+    return int(dt.timestamp() * 1e9)
+
+
+def splice_frozen_metrics(
+    fresh_path: Path, frozen_path: Path, base_path: Path, embargo_ns: int
+) -> dict[str, Any]:
+    """Overwrite the pre-embargo rows of the fresh metrics cache with agy's frozen rows.
+
+    Binance Vision republished some archived daily files after agy's fetch, so the fresh
+    pre-embargo rows differ slightly from the frozen ones. Rows at or after the embargo stay
+    as fetched. Row alignment is checked against the base 4h cache's ``open_ns``.
+    """
+    sha_before = sha256_file(fresh_path)
+    with np.load(base_path, allow_pickle=False) as b:
+        open_ns = np.asarray(b["open_ns"])
+    n_pre = int(np.searchsorted(open_ns, embargo_ns, side="left"))
+    with np.load(fresh_path, allow_pickle=False) as f:
+        fresh = {k: np.asarray(f[k]) for k in f.files}
+    with np.load(frozen_path, allow_pickle=False) as z:
+        frozen = {k: np.asarray(z[k]) for k in z.files}
+    if set(fresh) != set(frozen) or "symbols" not in fresh:
+        raise SystemExit("metrics cache field sets differ from the frozen cache")
+    if not np.array_equal(fresh["symbols"], frozen["symbols"]):
+        raise SystemExit("metrics cache symbols differ from the frozen cache")
+    if len(fresh["symbols"]) == 0 or any(
+        len(frozen[k]) != n_pre for k in frozen if k != "symbols"
+    ):
+        raise SystemExit("frozen metrics row count differs from pre-embargo bars")
+    for k in fresh:
+        if k == "symbols":
+            continue
+        if len(fresh[k]) < n_pre or fresh[k].shape[1:] != frozen[k].shape[1:]:
+            raise SystemExit(f"fresh metrics array {k} does not cover the frozen rows")
+        if fresh[k].dtype != frozen[k].dtype:
+            raise SystemExit(f"metrics array {k} dtype differs from the frozen cache")
+        fresh[k] = np.concatenate([frozen[k], fresh[k][n_pre:]])
+    np.savez_compressed(fresh_path, **fresh)
+    return {
+        "spliced_rows": n_pre,
+        "sha256_before": sha_before,
+        "sha256_after": sha256_file(fresh_path),
+    }
+
+
+def _only(directory: Path, pattern: str) -> Path:
+    found = sorted(directory.glob(pattern))
+    if len(found) != 1:
+        raise SystemExit(f"expected exactly one {pattern} in {directory}: {found}")
+    return found[0]
+
+
 # ----------------------------------------------------------------------------- lab-backed steps
 
 
@@ -374,6 +685,7 @@ def cmd_prepare(args: argparse.Namespace) -> None:
         "stage": stage.name,
         "snapshot": pins,
         "patch_counts": counts,
+        "lab_files": manifest(work / "lab", "*.py"),
         "data_end": stage.data_end.isoformat(),
     }
     _write_once(work / "prepare-receipt.json", receipt)
@@ -387,8 +699,38 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_build(args: argparse.Namespace) -> None:
-    work = Path(args.work)
+def _preflight(args: argparse.Namespace) -> dict[str, Any]:
+    """Shared gate of ``build`` and ``run``: runs before any data is fetched or read."""
+    stage = STAGES[args.stage]
+    now = datetime.now(tz=UTC)
+    if now < stage.not_before:
+        raise SystemExit(
+            f"stage {stage.name} may not run before {stage.not_before.isoformat()}"
+        )
+    work, snapshot = Path(args.work), Path(args.snapshot)
+    pins = verify_snapshot(snapshot)
+    digest = protocol_digest()
+    prep = json.loads((work / "prepare-receipt.json").read_text(encoding="utf-8"))
+    if prep["protocol_digest"] != digest or prep["stage"] != stage.name:
+        raise SystemExit("work directory was prepared under another digest or stage")
+    verify_work_lab(work, prep)
+    commit = harness_commit()
+    auth = authorization_receipt(args.authorization_url, digest, commit)
+    return {
+        "stage": stage,
+        "now": now,
+        "pins": pins,
+        "digest": digest,
+        "commit": commit,
+        "auth": auth,
+    }
+
+
+def cmd_build(
+    args: argparse.Namespace,
+) -> None:  # pragma: no cover - needs the lab and network
+    pre = _preflight(args)
+    work, snapshot = Path(args.work), Path(args.snapshot)
     for script in BUILD_SCRIPTS:
         print(f"[build] {script}", flush=True)
         subprocess.run(
@@ -397,8 +739,23 @@ def cmd_build(args: argparse.Namespace) -> None:
             env=_lab_env(work),
             check=True,
         )
-    caches = manifest(work / "lab" / "cache", "*.npz")
-    _write_once(work / "build-receipt.json", {"raw_caches": caches})
+    cache = work / "lab" / "cache"
+    splice = splice_frozen_metrics(
+        _only(cache, "binance_metrics_4h_fwd*.npz"),
+        snapshot / "frozen_cache" / FROZEN_METRICS,
+        _only(cache, "real_dev_4h_fwd*.npz"),
+        _ns(LAB_EMBARGO),
+    )
+    caches = manifest(cache, "*.npz")
+    _write_once(
+        work / "build-receipt.json",
+        {
+            "raw_caches": caches,
+            "metrics_splice": splice,
+            "commit": pre["commit"],
+            "authorization": pre["auth"],
+        },
+    )
     print(json.dumps(caches, indent=1))
 
 
@@ -412,26 +769,23 @@ def cmd_run(
     args: argparse.Namespace,
 ) -> None:  # pragma: no cover - needs the lab and its data
     stage = STAGES[args.stage]
-    now = datetime.now(tz=UTC)
-    if now < stage.not_before:
-        raise SystemExit(
-            f"stage {stage.name} may not run before {stage.not_before.isoformat()}"
-        )
-    work, snapshot, out_dir = (
-        Path(args.work),
-        Path(args.snapshot),
-        Path(args.output_dir),
-    )
+    out_dir = Path(args.output_dir)
     if out_dir.exists():
         raise SystemExit(f"output directory exists: {out_dir}")
-    pins = verify_snapshot(snapshot)
-    digest = protocol_digest()
-    prep = json.loads((work / "prepare-receipt.json").read_text(encoding="utf-8"))
-    if prep["protocol_digest"] != digest or prep["stage"] != stage.name:
-        raise SystemExit("work directory was prepared under another digest or stage")
-    auth = authorization_receipt(args.authorization_url, digest)
+    if stage.final == (args.interim_result is None):
+        raise SystemExit(
+            "FINAL requires --interim-result; INTERIM stages must not pass it"
+        )
+    pre = _preflight(args)
+    digest, commit, auth, now = pre["digest"], pre["commit"], pre["auth"], pre["now"]
+    interim = (
+        check_interim_result(Path(args.interim_result), digest) if stage.final else None
+    )
+    work, snapshot = Path(args.work), Path(args.snapshot)
+    claim = claim_stage(stage.name, digest, commit, auth["g4_relay"]["comment_id"], now)
+
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(work / "lab"))
-    import numpy as np
     import run_round17_breakthrough_gpu as r17  # type: ignore[import-not-found]
 
     he, r3c, r10f, r17f, r15g, r12g = (
@@ -444,7 +798,7 @@ def cmd_run(
     )
     data = he.load_hybrid_data()
     m1h, m15m = r17.r4f.load_micro_data(), r17.r5f.load_15m_micro_data()
-    end_ns = int(stage.data_end.timestamp() * 1e9)
+    end_ns = _ns(stage.data_end)
     if int(data.close_ns[-1]) != end_ns:
         raise SystemExit(f"dataset does not end at {stage.data_end.isoformat()}")
     p4 = r17.r4f.build_round4_pack(data, m1h)
@@ -455,42 +809,30 @@ def cmd_run(
     pack10 = r10f.build_round10_mtf6_pack(data, m1h, m15m, p4, p5, p6, p7, p8)
     pack17 = r17f.build_round17_clean_pack(data, m1h, m15m, p4, p5, p6, p7, p8, pack10)
 
-    # ---- parity oracle: every pre-2026-08 row equals agy's frozen packs. The last frozen row is
-    # excluded: its next-bar return and funding belong to the first out-of-sample bar.
-    n_pre = int(
-        np.searchsorted(data.close_ns, int(LAB_EMBARGO.timestamp() * 1e9), side="right")
-    )
+    # ---- parity oracle: every pre-2026-08 row equals agy's frozen packs and econ controls. The
+    # last frozen row is excluded: its next-bar return and funding belong to the first OOS bar.
+    n_pre = int(np.searchsorted(data.close_ns, _ns(LAB_EMBARGO), side="right"))
     n_cmp = n_pre - 1
     frozen10 = r10f.load_r10_pack(snapshot / "frozen_cache" / FROZEN_PACK10)
     frozen17 = r17f.load_r17_pack(snapshot / "frozen_cache" / FROZEN_PACK17)
-    parity: dict[str, float] = {}
-    for tag, new, old in (("pack10", pack10, frozen10), ("pack17", pack17, frozen17)):
-        for field in old.__dataclass_fields__:
-            a, b = getattr(new, field), getattr(old, field)
-            if not isinstance(b, np.ndarray) or b.ndim == 0 or b.shape[0] != n_pre:
-                continue
-            a, b = np.asarray(a)[:n_cmp], b[:n_cmp]
-            if a.shape != b.shape:
-                raise SystemExit(
-                    f"parity shape mismatch {tag}.{field}: {a.shape} vs {b.shape}"
-                )
-            if b.dtype.kind in "fc":
-                both_nan = np.isnan(a) & np.isnan(b)
-                diff = float(
-                    np.max(np.where(both_nan, 0.0, np.abs(a - b)), initial=0.0)
-                )
-            else:
-                diff = float(np.sum(a != b))
-            parity[f"{tag}.{field}"] = diff
+
+    def _econ(pack: Any) -> Any:
+        return r15g.compute_r15_econ_controls(r12g.compute_r12_opp_feats(pack))
+
+    econ0 = _econ(pack10)
+    parity = {
+        **pack_parity("pack10", pack10, frozen10, REQUIRED_PACK10, n_pre, n_cmp),
+        **pack_parity("pack17", pack17, frozen17, REQUIRED_PACK17, n_pre, n_cmp),
+        **econ_parity(econ0, _econ(frozen10), n_cmp),
+    }
     worst = max(parity.values(), default=math.inf)
-    if not parity or worst > PARITY_ATOL:
+    if worst > PARITY_ATOL:
         bad = {k: v for k, v in parity.items() if v > PARITY_ATOL}
         _write_once(work / "parity-refusal.json", {"parity": parity, "n_pre": n_pre})
         raise SystemExit(
             f"parity oracle failed before any return was computed: {sorted(bad)[:10]}"
         )
 
-    econ0 = r15g.compute_r15_econ_controls(r12g.compute_r12_opp_feats(pack10))
     packs = {
         0: (pack10, pack17, econ0),
         1: (
@@ -499,98 +841,100 @@ def cmd_run(
             r15g.lag_r15_econ(econ0, 1),
         ),
     }
-    start = int(
-        np.searchsorted(data.open_ns, int(OOS_START.timestamp() * 1e9), side="left")
-    )
+    lab_kw = {"he": he, "r3c": r3c, "r15g": r15g, "r17": r17}
+
+    # ---- loop oracle: the uncapped replay on the known-used window equals the lab's evaluator.
+    o_start = int(np.searchsorted(data.open_ns, _ns(ORACLE_START), side="left"))
+    o_stop = n_cmp
+    zeros = np.zeros(len(data.open_ns))
+    loop_oracle: dict[str, dict[str, float]] = {}
+    for arm in (ARM_CANDIDATE, ARM_CONTROL):
+        p10, p17, econ = packs[1]
+        mine = replay_cell(
+            **lab_kw,
+            p10=p10,
+            p17=p17,
+            econ=econ,
+            arm=arm,
+            cost=0.0006,
+            start=o_start,
+            stop=o_stop,
+            cap=None,
+        )["final_equity"]
+        lab = float(
+            r17.eval_r17_4h(
+                arm=arm,
+                pack10=p10,
+                pack14=None,
+                pack16=None,
+                pack17=p17,
+                econ=econ,
+                econ_mode=ECON_MODE,
+                comps=[],
+                mods=None,
+                om44=None,
+                os44=None,
+                cm10=None,
+                cs10=None,
+                dm14=None,
+                ds14=None,
+                dm16=None,
+                ds16=None,
+                start_idx=o_start,
+                stop_idx=o_stop,
+                one_way_cost=0.0006,
+                years_all=zeros,
+                mkt_all=zeros,
+            )["final_equity"]
+        )
+        rel = abs(mine - lab) / max(abs(lab), 1e-12)
+        loop_oracle[arm] = {"harness": mine, "lab": lab, "rel_diff": rel}
+        if not rel <= ORACLE_RTOL:
+            _write_once(work / "oracle-refusal.json", {"loop_oracle": loop_oracle})
+            raise SystemExit(
+                f"loop oracle failed for {arm}: harness {mine!r} vs lab {lab!r}"
+            )
+
+    start = int(np.searchsorted(data.open_ns, _ns(OOS_START), side="left"))
     stop = len(data.open_ns)
-    if int(data.open_ns[start]) != int(OOS_START.timestamp() * 1e9):
+    if int(data.open_ns[start]) != _ns(OOS_START):
         raise SystemExit("no bar opens exactly at the OOS start")
 
     cells: dict[str, dict[str, Any]] = {}
     for name, (arm, cost, lag, _gate) in CELLS.items():
         p10, p17, econ = packs[lag]
-        n = len(p10.symbols)
-        ws, wp, eq = np.zeros(n), np.zeros(n), 1.0
-        lrs: list[float] = []
-        valid, reasons, max_err, turn, cost_sum, capped, decisions = (
-            True,
-            [],
-            0.0,
-            0.0,
-            0.0,
-            0,
-            0,
+        st = replay_cell(
+            **lab_kw,
+            p10=p10,
+            p17=p17,
+            econ=econ,
+            arm=arm,
+            cost=cost,
+            start=start,
+            stop=stop,
+            cap=GROSS_CAP,
         )
-        for i in range(stop - start):
-            k = start + i
-            if i % DECISION_STRIDE == 0:
-                db, _f, a_m, c_m = r15g._econ_scalars(econ, k, ECON_MODE)
-                alpha, scale = r17.nonrl_alpha_and_scale_np(p10, p17, arm, k)
-                ws_t, wp_t = r17.synthesize_r17_np(p10, k, alpha, scale, a_m, c_m)
-                ws_t, wp_t, was = cap_gross(ws_t, wp_t)
-                capped += int(was)
-                decisions += 1
-                if not (np.all(np.isfinite(ws_t)) and np.all(np.isfinite(wp_t))):
-                    valid = False
-                    reasons.append(f"non_finite_target@{k}")
-            else:
-                ws_t, wp_t, db = ws, wp, 0.0
-            ws_e, wp_e, eq_n, ws_n, wp_n, t, c, px, fr = he.execute_hybrid_step(
-                w_spot_cur=ws,
-                w_perp_cur=wp,
-                w_spot_target=ws_t,
-                w_perp_target=wp_t,
-                equity_before=eq,
-                spot_valid=p10.spot_valid[k],
-                perp_valid=p10.perp_valid[k],
-                spot_next_ret=p10.spot_next_ret[k],
-                perp_next_ret=p10.perp_next_ret[k],
-                funding_realized=p10.funding_realized[k],
-                one_way_cost=cost,
-                impact_quad=r3c.IMPACT_QUAD,
-                deadband=db,
-            )
-            err = abs((eq_n - eq) - (px + fr - c))
-            max_err = max(max_err, err)
-            gross_e = float(np.abs(ws_e).sum() + np.abs(wp_e).sum())
-            if err > CONSERVATION_TOL or not math.isfinite(eq_n) or eq_n <= 0.0:
-                valid = False
-                reasons.append(f"accounting@{k}")
-            if gross_e > GROSS_CAP + 1e-9:
-                valid = False
-                reasons.append(f"gross_above_cap@{k}")
-            lrs.append(math.log(max(eq_n, 1e-12) / eq))
-            turn += float(t)
-            cost_sum += float(c)
-            eq, ws, wp = float(eq_n), ws_n, wp_n
-        st: dict[str, Any] = dict(cell_stats(lrs))
-        st.update(
-            {
-                "valid": valid,
-                "invalid_reasons": reasons[:20],
-                "max_conservation_error": max_err,
-                "turnover": turn,
-                "trading_cost": cost_sum,
-                "cap_bound_decisions": capped,
-                "decisions": decisions,
-                "arm": arm,
-                "one_way_cost": cost,
-                "lag": lag,
-            }
-        )
+        st["lag"] = lag
         cells[name] = st
 
     decision = decide(stage, cells)
     result = {
         "protocol_id": PROTOCOL_ID,
         "protocol_digest": digest,
+        "commit": commit,
         "stage": stage.name,
-        "snapshot": pins,
+        "snapshot": pre["pins"],
         "authorization": auth,
+        "interim_result": interim,
+        "claim": str(claim),
+        "pretrade_py_sha256": (
+            sha256_file(PRETRADE_PATH) if PRETRADE_PATH.is_file() else None
+        ),
         "window": [OOS_START.isoformat(), stage.data_end.isoformat()],
         "bars": stop - start,
         "parity_worst": worst,
         "parity_fields": len(parity),
+        "loop_oracle": loop_oracle,
         "cells": cells,
         "cash_return": 0.0,
         **decision,
@@ -642,12 +986,13 @@ def main(argv: list[str] | None = None) -> None:
     for name, fn in (("prepare", cmd_prepare), ("build", cmd_build), ("run", cmd_run)):
         p = sub.add_parser(name)
         p.add_argument("--work", required=True)
-        if name != "build":
-            p.add_argument("--stage", required=True, choices=sorted(STAGES))
-            p.add_argument("--snapshot", required=True)
-        if name == "run":
+        p.add_argument("--stage", required=True, choices=sorted(STAGES))
+        p.add_argument("--snapshot", required=True)
+        if name != "prepare":
             p.add_argument("--authorization-url", required=True)
+        if name == "run":
             p.add_argument("--output-dir", required=True)
+            p.add_argument("--interim-result", default=None)
         p.set_defaults(fn=fn)
     args = ap.parse_args(argv)
     args.fn(args)

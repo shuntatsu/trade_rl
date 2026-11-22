@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol was written before any bar, funding event or metric at or after 2026-08-01 was read for this signal.
 
-Protocol digest: `9d55aade760c93084b6420ca9a183885e2aa892ab60ce30a49590bee532c67d5`
+Protocol digest: `8d559a2aaa2831001daa0930191e47b9301ae4d7e1e9623a308cd8bfe6fe2b49`
 
 ## Question
 
@@ -35,16 +35,16 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 
 ## Signal (frozen)
 
-- **Code:** agy's lab, session 7e52c53c `scratch/rl_lab`, snapshot taken 2026-11-22 to `C:\trade_rl_runs\agy-lab-snapshot-20261122`. It holds 47 `.py` files, with manifest digest `c4457c86…1683`. The frozen pre-2026-08 `round10`/`round17` pack caches have manifest digest `60aaea5e…305a`. Both digests are constants of `tools/agy_clean_all_forward.py` and part of the protocol digest.
+- **Code:** agy's lab, session 7e52c53c `scratch/rl_lab`, snapshot taken 2026-11-22 to `C:\trade_rl_runs\agy-lab-snapshot-20261122`. It holds 47 `.py` files, with manifest digest `c4457c86…1683`. The frozen pre-2026-08 `round10`/`round17` pack caches and the Binance metrics cache have manifest digest `d07130ae…749ef7`. Both digests are constants of `tools/agy_clean_all_forward.py` and part of the protocol digest.
 - **Arm:** `nonrl_alpha_and_scale_np(…, "R17_NONRL_CLEAN_ALL_175", k)` → `synthesize_r17_np` with the `ECON_BRAKE_CAP` scalars (`run_round15_econ_compact_gpu._econ_scalars`).
   - Decisions are made every 6 bars (24 h) from 2026-08-01T00:00Z.
   - Between decisions the book is held.
   - The lab's deadband applies.
-- **Gross cap:** after synthesis, the target is scaled proportionally so that spot gross plus perp gross is at most 1.0.
+- **Gross cap:** after synthesis, the decision target is scaled proportionally so that spot gross plus perp gross is at most 1.0. The cap applies to decision targets only. Between decisions the held weights drift with prices and a halted leg keeps its weight, so the executed gross may exceed 1.0 without any trade. The executed gross is recorded per cell as `max_executed_gross`, as reported data only.
 - **Execution:** the lab's `execute_hybrid_step` (two legs, exact conservation, linear cost plus `IMPACT_QUAD = 0.002` on weight changes, realized funding).
   - The lab has no participation cap.
   - The universe is 11 majors and the intended capital is small (≤ $100k), so the cap is disclosed and not modelled.
-  - With gross ≤ 1.0, spot long gross plus perp margin never exceeds equity, so no financing arises.
+  - A decision target with gross ≤ 1.0 needs no financing. Drift between decisions is small and is not modelled as financing.
 - No constant of the lab changes.
 
 ## Data
@@ -61,7 +61,14 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - the `pre20260801` cache names.
 
   The harness refuses if any literal never matches, or if any survives. The snapshot itself is never edited.
-- **Parity oracle:** before any return is computed, every `pack10` and `pack17` array row before 2026-08-01 must equal agy's frozen packs to within 1e-12. The last frozen row is excluded, because its next-bar return and funding belong to the first out-of-sample bar. A mismatch refuses the run and writes `parity-refusal.json`. A refusal is not a result.
+- **Frozen metrics splice:** after the four build scripts, `build` replaces the rows of the fresh `binance_metrics_4h_fwd*.npz` whose bar opens before 2026-08-01 with the rows of agy's original `binance_metrics_4h_pre20260801.npz` (kept in the snapshot's `frozen_cache`). It requires equal `symbols`, a frozen row count equal to the number of pre-embargo bars of the base 4h cache, and exactly one matching file. Rows at or after 2026-08-01 stay as fetched. The build receipt records the splice row count and the sha256 of the file before and after. See Amendment 1 for the reason.
+- **Parity oracle:** before any return is computed, `pack10`, `pack17` and the econ controls (`compute_r15_econ_controls(compute_r12_opp_feats(pack10))`, every array) built from the new data must equal the frozen ones over every row before 2026-08-01 to within 1e-12. The last frozen row is excluded, because its next-bar return and funding belong to the first out-of-sample bar. A fixed list of required fields must have been compared, or the run refuses:
+  - `pack10`: `spot_valid`, `perp_valid`, `perp_mask`, `carry_mask`, `spot_next_ret`, `perp_next_ret`, `funding_realized`, `vol_cushion_tail`, `c_weekly_iv`, `w_aw_bidir_75_25`;
+  - `pack17`: `w_clean_anc`, `w_clean_all`, `perp_mask`.
+
+  A mismatch refuses the run and writes `parity-refusal.json`. A refusal is not a result.
+- **Loop oracle:** before the out-of-sample replay, both arms at lag 1 and 6 bp are replayed uncapped over the known-used window from 2023-01-01 to the last pre-embargo row by the harness loop (`replay_cell`) and by the lab's own `eval_r17_4h`. The final equities must agree to a relative 1e-9, or the run refuses. Both values are recorded.
+- **Unused lab import:** the lab imports `trade_rl/risk/pretrade.py` from `C:\dev\trade_rl-core7-mtf-ppo`. This arm does not use it. `result.json` records its sha256, or `null` if it is absent.
 - **Market store coverage:** funding in the market store currently ends at 2026-09-30T16:00Z, so INTERIM_A ends at 2026-09-30T00:00Z. Later stages need the store to be extended first, by its own ingestion and not by this protocol.
 
 ## Stages
@@ -70,6 +77,9 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 |---|---|---|---|
 | INTERIM_A | 2026-09-30T00:00Z | 2026-11-22 | interim with early stop; never a decision |
 | FINAL | 2027-05-01T00:00Z | 2027-05-02 | decisive, once |
+
+- FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment.
+- Each stage can be claimed once: before computing anything, `run` creates `C:\trade_rl_runs\agy_clean_all_forward_ledger\<stage>.claim` by exclusive create, holding the digest, commit, G4 comment id and time. It refuses if the file exists. This is local single-use enforcement on this host, not a remote lock. A refusal after the claim also consumes it, and needs an amendment.
 
 - Each stage starts flat at 2026-08-01T00:00Z.
 - Warm-up comes from known-used rows before that date.
@@ -91,7 +101,9 @@ A cell is invalid if, at any bar, any of the following holds:
 - a target is not finite;
 - the conservation error exceeds 1e-9;
 - equity is not positive;
-- the executed gross exceeds 1.0.
+- a capped decision target has gross above 1.0 + 1e-9.
+
+Executed gross never invalidates a cell.
 
 ## Decision rule (frozen)
 
@@ -109,13 +121,16 @@ If either holds, the label is `STOPPED_EARLY`, and the line stops: FINAL is not 
 
 If all cells are valid but a condition fails, the label is `CLEAN_ALL_FORWARD_NOT_SUPPORTED`. Any invalid cell gives `INVALID`.
 
-Reported cells never gate.
+- Gating is defined by the Cells table (the `Gates` column). The early-stop and final drawdown conditions use only the gating cells, `CANDIDATE__BASE` and `CANDIDATE__HIGH_COST`.
+- Reported cells never gate.
+- Sharpe uses the population variance (ddof 0) of the 4h log returns, no risk-free rate, and is scaled by √2190.
 
 ## Authorization
 
 - Reads of post-2026-08 data are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247).
-- Each stage also needs its own G4 relay on Issue #810 quoting this protocol id and digest.
-- `run` fetches both comments twice, requires them to be owner-authored and unedited between the fetches, and records their body hashes in `result.json`.
+- Each stage also needs its own G4 relay on Issue #810 quoting this protocol id, the digest and the exact 40-hex code commit.
+- The commit is `git rev-parse HEAD` of the harness repository. `build` and `run` refuse if tracked files are modified.
+- `build` and `run` first enforce `not_before`, verify the snapshot, the prepare receipt (digest, stage) and the per-file sha256 of the patched `work/lab`, then fetch both comments twice. The comment URL must be exactly an Issue #810 comment, and the fetched comments must belong to Issue #810, be owner-authored and be unedited between the fetches. Only then is data fetched or read. Body hashes and the commit go into `result.json`.
 - Outputs are write-once.
 
 ## Stop rule
@@ -125,3 +140,14 @@ Reported cells never gate.
 - An INVALID or a refusal for a defect outside the economics needs a result-blind amendment before any rerun.
 - Higher leverage is a new protocol.
 - No label authorizes orders, paper trading or live trading.
+
+## Amendment 1 (result-blind, before any run)
+
+This protocol was revised after independent review 6011046246 (BLOCKED), before any stage ran and before any data at or after 2026-08-01 was read. Changes:
+- Invalidity now tests the capped decision target, not the executed gross, which legitimately drifts. `max_executed_gross` is reported.
+- FINAL requires an INTERIM_A `INTERIM_NOT_A_DECISION` result. Each stage is claimed once in a local ledger.
+- The G4 relay must quote the exact code commit. `build` is gated like `run`, and the patched lab is hash-verified.
+- Parity has a fixed required-field list and covers the econ controls. A loop oracle against the lab's `eval_r17_4h` was added.
+- The protocol digest binds this spec text (the `Protocol digest:` line excluded).
+- Stated: Sharpe convention, the gating cells for the drawdown conditions, the unused `pretrade.py` import.
+- Frozen metrics splice: a result-blind dry run on known-used pre-2026-08 data rebuilt the lab caches from today's sources. The 4h base, Hyperliquid, 1h micro, 1h bars and 15m micro caches were identical to agy's. `binance_metrics_4h` was not: for all 11 symbols, rows 7182 to 7349 (bars 2024-04-12T00Z to 2024-05-09T20Z) differ slightly in `oi_value`, `top_ls_pos`, `top_ls_cnt`, `global_ls_cnt` and `taker_ls_vol`. `metrics_valid` and `ls_valid` and the neighbouring rows are identical, so the differences are row-local. Binance Vision appears to have republished those daily files after agy fetched them on 2026-11-19. Agy's original cache joined the snapshot (frozen cache manifest digest `d07130ae…749ef7`), and `build` splices its pre-embargo rows in. This was found on known-used data only.

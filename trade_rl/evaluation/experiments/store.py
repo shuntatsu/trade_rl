@@ -772,13 +772,67 @@ class StudyStore:
 
     def _read_json_locked(self, relative: Path) -> dict[str, object]:
         target = self._checked_target(relative)
-        if target.is_symlink() or not target.is_file():
+        # A link-free open is not enough: a competing writer can replace one
+        # ordinary file inode with another after the initial is_file check.
+        # Pin the prechecked inode and compare both the opened descriptor and
+        # final pathname before JSON decoding.
+        try:
+            inspected = os.stat(target, follow_symlinks=False)
+        except OSError as error:
+            raise ArtifactIntegrityError(
+                "Study artifact must be a regular file"
+            ) from error
+        if (
+            not stat.S_ISREG(inspected.st_mode)
+            or target.is_symlink()
+            or not target.is_file()
+        ):
             raise ArtifactIntegrityError("Study artifact must be a regular file")
-        # Open the verified file descriptor before reading: a later symlink
-        # substitution must not redirect this read to a different artifact.
+        inspected_identity = (
+            inspected.st_dev,
+            inspected.st_ino,
+            inspected.st_size,
+            inspected.st_mtime_ns,
+            inspected.st_ctime_ns,
+        )
         try:
             with open_regular_binary(target, field="Study artifact") as handle:
+                opened = os.fstat(handle.fileno())
+                if (
+                    opened.st_dev,
+                    opened.st_ino,
+                    opened.st_size,
+                    opened.st_mtime_ns,
+                    opened.st_ctime_ns,
+                ) != inspected_identity:
+                    raise ArtifactIntegrityError("Study artifact changed during read")
                 encoded = handle.read()
+                finished = os.fstat(handle.fileno())
+                try:
+                    visible = os.stat(target, follow_symlinks=False)
+                except OSError as error:
+                    raise ArtifactIntegrityError(
+                        "Study artifact changed during read"
+                    ) from error
+                for current in (finished, visible):
+                    if (
+                        not stat.S_ISREG(current.st_mode)
+                        or (
+                            current.st_dev,
+                            current.st_ino,
+                            current.st_size,
+                            current.st_mtime_ns,
+                            current.st_ctime_ns,
+                        )
+                        != inspected_identity
+                    ):
+                        raise ArtifactIntegrityError(
+                            "Study artifact changed during read"
+                        )
+        except ArtifactIntegrityError:
+            # ArtifactIntegrityError also inherits ValueError. Do not remap a
+            # precise identity-race failure to a misleading file-type error.
+            raise
         except ValueError as error:
             raise ArtifactIntegrityError(
                 "Study artifact must be a regular file"

@@ -16,9 +16,11 @@ import math
 import os
 import re
 import shutil
+import stat
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from fractions import Fraction
 from pathlib import Path
@@ -28,7 +30,10 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
+from trade_rl.artifacts.verified_file import (
+    _open_directory_descriptor_nofollow,
+    open_regular_binary,
+)
 from trade_rl.data.artifacts.publication import (
     load_published_market_dataset_artifact,
 )
@@ -2559,6 +2564,58 @@ def _decode_incomplete_receipt(
     return dict(loaded)
 
 
+@contextmanager
+def _pinned_receipt_directory(directory: Path) -> Iterator[int | None]:
+    """Keep the inspected directory inode alive across enumeration and read."""
+    if os.name != "posix":
+        # The portable fallback retains the prior static no-follow checks;
+        # pathname replacement cannot be atomically excluded without dir_fd.
+        yield None
+        return
+    descriptor = _open_directory_descriptor_nofollow(directory)
+    readable = -1
+    try:
+        # The shared no-follow walker intentionally returns an O_PATH fd;
+        # scandir needs a readable directory FD. Reopen "." relative to the
+        # held inode, not via the mutable directory pathname.
+        readable = os.open(
+            ".",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=descriptor,
+        )
+        yield readable
+    finally:
+        if readable >= 0:
+            os.close(readable)
+        os.close(descriptor)
+
+
+def _require_receipt_path_identity(
+    directory: Path, directory_fd: int, file_fd: int
+) -> None:
+    """Reject replacing the scanned root or redirecting its receipt leaf."""
+    try:
+        current_root = os.stat(directory, follow_symlinks=False)
+        pinned_root = os.fstat(directory_fd)
+        pinned_leaf = os.stat(
+            _INCOMPLETE_RECEIPT_FILE,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        opened_leaf = os.fstat(file_fd)
+    except OSError as error:
+        raise ValueError("failure receipt root changed during read") from error
+    if (
+        not stat.S_ISDIR(current_root.st_mode)
+        or (current_root.st_dev, current_root.st_ino)
+        != (pinned_root.st_dev, pinned_root.st_ino)
+        or not stat.S_ISREG(pinned_leaf.st_mode)
+        or (pinned_leaf.st_dev, pinned_leaf.st_ino)
+        != (opened_leaf.st_dev, opened_leaf.st_ino)
+    ):
+        raise ValueError("failure receipt root changed during read")
+
+
 def load_incomplete_pair_attempt(
     root: str | Path,
     *,
@@ -2611,47 +2668,54 @@ def load_incomplete_pair_attempt(
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
-    # Verify the single-file root without Path.iterdir()'s eager full scan.
-    with os.scandir(directory) as entries:
-        first = next(entries, None)
-        if (
-            first is None
-            or first.name != _INCOMPLETE_RECEIPT_FILE
-            or next(entries, None) is not None
-        ):
-            raise ValueError("failure receipt root contents are malformed")
-    with open_regular_binary(
-        directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
-    ) as handle:
-        before = os.fstat(handle.fileno())
-        if before.st_size > max_receipt_bytes:
-            raise ValueError("failure receipt exceeds configured byte budget")
-        # The byte budget bounds st_size above. Read one byte beyond the
-        # observed file length, not beyond the much larger allowed budget:
-        # buffered read(n) can allocate n bytes even for a tiny file.
-        # The extra byte and the following EOF/stat checks detect growth.
-        raw = handle.read(before.st_size + 1)
-        if len(raw) > max_receipt_bytes:
-            raise ValueError("failure receipt exceeds configured byte budget")
-        if handle.read(1):
-            raise ValueError("failure receipt changed during read")
-        after = os.fstat(handle.fileno())
-        before_identity = (
-            before.st_dev,
-            before.st_ino,
-            before.st_size,
-            before.st_mtime_ns,
-            before.st_ctime_ns,
-        )
-        after_identity = (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        )
-        if len(raw) != before.st_size or before_identity != after_identity:
-            raise ValueError("failure receipt changed during read")
+    with _pinned_receipt_directory(directory) as directory_fd:
+        # Verify the single-file root without Path.iterdir()'s eager full scan.
+        with os.scandir(
+            directory_fd if directory_fd is not None else directory
+        ) as entries:
+            first = next(entries, None)
+            if (
+                first is None
+                or first.name != _INCOMPLETE_RECEIPT_FILE
+                or next(entries, None) is not None
+            ):
+                raise ValueError("failure receipt root contents are malformed")
+        with open_regular_binary(
+            directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
+        ) as handle:
+            if directory_fd is not None:
+                _require_receipt_path_identity(directory, directory_fd, handle.fileno())
+            before = os.fstat(handle.fileno())
+            if before.st_size > max_receipt_bytes:
+                raise ValueError("failure receipt exceeds configured byte budget")
+            # The byte budget bounds st_size above. Read one byte beyond the
+            # observed file length, not beyond the much larger allowed budget:
+            # buffered read(n) can allocate n bytes even for a tiny file.
+            # The extra byte and the following EOF/stat checks detect growth.
+            raw = handle.read(before.st_size + 1)
+            if len(raw) > max_receipt_bytes:
+                raise ValueError("failure receipt exceeds configured byte budget")
+            if handle.read(1):
+                raise ValueError("failure receipt changed during read")
+            after = os.fstat(handle.fileno())
+            before_identity = (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            after_identity = (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            if len(raw) != before.st_size or before_identity != after_identity:
+                raise ValueError("failure receipt changed during read")
+            if directory_fd is not None:
+                _require_receipt_path_identity(directory, directory_fd, handle.fileno())
     return _decode_incomplete_receipt(
         raw,
         expected_receipt_digest=expected_receipt_digest,

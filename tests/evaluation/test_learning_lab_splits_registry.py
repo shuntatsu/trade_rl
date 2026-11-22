@@ -590,6 +590,24 @@ def test_the_registry_is_append_only_and_chained(tmp_path: Path) -> None:
     assert json.loads(lines[1])["prev_sha256"] == hashlib.sha256(lines[0]).hexdigest()
 
 
+def test_hash_chain_without_externally_pinned_head_cannot_detect_suffix_truncation(
+    tmp_path: Path,
+) -> None:
+    """A complete valid prefix has no proof that later trials ever existed."""
+    registry = reg.TrialRegistry(tmp_path / "trials.jsonl")
+    for seed in range(3):
+        registry.append(_record(seed=seed))
+    original_lines = registry.path.read_bytes().splitlines(keepends=True)
+    assert len(original_lines) == 3
+    assert registry.verify() == 3
+
+    registry.path.write_bytes(b"".join(original_lines[:-1]))
+    assert registry.verify() == 2
+    assert [record.seed for record in registry.records()] == [0, 1]
+    # This is a limitation, NOT permission to delete trials: absent a
+    # separately sealed head/count, the verifier sees a canonical prefix.
+
+
 def _registry_worker(
     path: Path, ready: Path, *, seed: int | None
 ) -> subprocess.Popen[str]:

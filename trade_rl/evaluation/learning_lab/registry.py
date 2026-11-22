@@ -1,10 +1,12 @@
 """Append-only JSONL trial registry and the deflated Sharpe ratio over all trials.
 
 Every run of every method is one line: method id, config digest, seed, split, code commit,
-metrics, status and a stop reason. Nothing is deleted: the file is only ever opened for
-append, and every line carries the SHA-256 of the previous line, so :meth:`TrialRegistry.verify`
-detects an edited, removed or reordered line. A method that stops is shelved with the reason
-it stopped; its trials still count toward the deflated Sharpe.
+metrics, status and a stop reason. This API never deletes existing lines: it only
+appends, and each line includes the SHA-256 of its predecessor. :meth:`TrialRegistry.verify`
+checks internal chain integrity, rejecting modified, reordered or missing middle lines.
+It cannot detect deletion of a complete terminal suffix: without an independently pinned
+head hash/count, the remaining prefix is still a valid registry. A stopped method is
+shelved with the reason it stopped; its recorded trials still count toward deflated Sharpe.
 
 The deflated Sharpe ratio is Bailey and Lopez de Prado (2014): the probability that the best
 observed Sharpe exceeds the expected maximum of ``n_trials`` independent skill-less trials,

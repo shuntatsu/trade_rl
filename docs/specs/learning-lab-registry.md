@@ -9,7 +9,7 @@ Every method is evaluated in one common harness. The harness provides:
 - 5 seeds;
 - a trial registry in which every run counts toward a deflated Sharpe.
 
-A method is shelved with the reason it stopped. Nothing is deleted.
+A method is shelved with the reason it stopped. The registry API only appends; it does not delete trial records.
 
 Software safety (not economic approval): the per-run configuration digest binds
 actual initial capital as well as the dataset, signal lag, costs and risk. The
@@ -41,6 +41,13 @@ writers must use this API), not a distributed lock or a multi-host coordinator;
 unsupported platforms fail closed. A failed or interrupted write must be
 investigated by verifying the chain, not silently retried or repaired. This
 software safety feature is not economic-run approval or provenance of a trial.
+The hash chain proves only the integrity of the **observed prefix**. If an entire
+terminal line (or several final lines) is removed outside this API, the surviving
+prefix still verifies; the software cannot infer that the removed trials existed.
+A complete trial inventory therefore requires an independently retained, authenticated
+terminal line digest and record count. This draft does not provide that external
+anchor, so a passing `verify` or deflated-Sharpe view is **not** proof that every
+attempt has been retained.
 
 The read-only `tools.learning_lab registry --deflated-for-last` view only
 calculates a headline deflated Sharpe if the **literal last** registered trial is

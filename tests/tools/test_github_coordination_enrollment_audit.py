@@ -322,4 +322,3 @@ def test_invalid_task_mode_or_time_is_not_enrollment() -> None:
             ),
         )
     assert all(method == "GET" for method, _ in api.calls)
-

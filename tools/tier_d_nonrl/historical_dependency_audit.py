@@ -52,7 +52,9 @@ def _target(module: str, path: str, node: ast.ImportFrom) -> str:
         module.split(".") if path.endswith("/__init__.py") else module.split(".")[:-1]
     )
     depth = node.level - 1
-    if depth > len(package):
+    # Crossing the outermost package is invalid even at exactly this depth.
+    # Returning a top-level name here invents a historical dependency.
+    if depth >= len(package):
         return ""
     prefix = package[:-depth] if depth else package
     return ".".join([*prefix, *(node.module.split(".") if node.module else [])])
@@ -70,6 +72,7 @@ def analyze_sources(
     missing: set[str] = set()
     missing_seeds = sorted(s for s in seeds if _path(s, historical) is None)
     errors: set[str] = set()
+    invalid_relatives: set[str] = set()
     drift: set[tuple[str, str, str]] = set()
     while pending:
         module = pending.pop(0)
@@ -94,6 +97,9 @@ def analyze_sources(
             if not isinstance(node, ast.ImportFrom):
                 continue
             target = _target(module, path, node)
+            if node.level and not target:
+                invalid_relatives.add(f"{path}:{node.lineno}")
+                continue
             target_path = _path(target, historical)
             if target_path is not None:
                 pending.append(target)
@@ -116,7 +122,7 @@ def analyze_sources(
                     drift.add((module, target, alias.name))
     return {
         "schema": "task18_historical_static_dependency_audit_v1",
-        "analysis_complete": not missing_seeds and not errors,
+        "analysis_complete": not missing_seeds and not errors and not invalid_relatives,
         "recovery_ready": False,
         "reachable_module_count": len(seen),
         "missing_module_count": len(missing),
@@ -127,6 +133,7 @@ def analyze_sources(
             for consumer, target, symbol in sorted(drift)
         ],
         "parse_errors": sorted(errors),
+        "invalid_relative_imports": sorted(invalid_relatives),
         "limits": "Static literal imports and top-level symbols only; no dynamic imports, package initializers, Windows, native execution, ownership, economic evidence or authorization",
     }
 

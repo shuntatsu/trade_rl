@@ -44,8 +44,8 @@ python -m tools.markdown_links --check
 - Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
-- Realistic out-of-sample test of the ported agy anchor (pre-registered, DEV, BACKCAST_2020 then FORWARD, not yet run): [specs/agy-anchor-realistic.md](specs/agy-anchor-realistic.md)
-- Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered, INTERIM_A then FINAL, not yet run): [specs/agy-clean-all-forward.md](specs/agy-clean-all-forward.md)
+- Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
+- Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered; INTERIM_A reported as not a decision, FINAL at or after 2027-05-02): [specs/agy-clean-all-forward.md](specs/agy-clean-all-forward.md)
 
 ## 情報の所有先と更新
 

@@ -187,7 +187,7 @@
       "id": "pretrade-risk",
       "symbol": "trade_rl.risk.pretrade.PreTradeRisk",
       "kind": "class",
-      "source_sha256": "6081540380140aae60131db03cc9bc64bf68c10033a844e4b395ff4223656856",
+      "source_sha256": "e48dd6af91aaf43be3fa62a82d0ffe477205f017618c3f3476900a4244fed7f6",
       "label_ja": "hard riskの所有者",
       "description_ja": "strategyが提案したtargetへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用します。",
       "variables": [],

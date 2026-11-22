@@ -555,6 +555,7 @@ def replay_cell(
     cap: float | None,
     econ_mode: str = ECON_MODE,
     p10_select: Any = None,
+    fill_lag: int = 0,
 ) -> dict[str, Any]:
     """Replay one cell over bars ``[start, stop)``; pure given the lab objects.
 
@@ -563,8 +564,12 @@ def replay_cell(
     current weights through as the target with deadband 0. Executed gross is reported only:
     held weights drift and halted legs keep their weight, so it may exceed the cap legitimately.
     """
-    # ``p10_select`` (masks lagged) is used only to choose symbols for the decision target;
-    # execution keeps the current bar's validity, since a halted bar cannot trade.
+    # ``p10_select`` (masks lagged) is used only to choose symbols for the decision target.
+    # ``fill_lag`` picks the bar whose completeness flags decide whether a leg can trade:
+    # 1 (the frozen cells) uses bar k-1's flags, known at bar k's open; 0 is the lab's own
+    # rule (bar k's flags, known only at its close) and is used only by the loop oracle.
+    if fill_lag not in (0, 1) or start - fill_lag < 0:
+        raise ValueError("fill_lag must be 0 or 1 with a preceding bar")
     sel = p10 if p10_select is None else p10_select
     n = len(p10.symbols)
     ws, wp, eq = np.zeros(n), np.zeros(n), 1.0
@@ -605,8 +610,8 @@ def replay_cell(
             w_spot_target=ws_t,
             w_perp_target=wp_t,
             equity_before=eq,
-            spot_valid=p10.spot_valid[k],
-            perp_valid=p10.perp_valid[k],
+            spot_valid=p10.spot_valid[k - fill_lag],
+            perp_valid=p10.perp_valid[k - fill_lag],
             spot_next_ret=p10.spot_next_ret[k],
             perp_next_ret=p10.perp_next_ret[k],
             funding_realized=p10.funding_realized[k],
@@ -1036,6 +1041,7 @@ def cmd_run(
             start=start,
             stop=stop,
             cap=GROSS_CAP,
+            fill_lag=mask_lag,
         )
         st["lag"] = lag
         st["mask_lag"] = mask_lag

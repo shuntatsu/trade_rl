@@ -14,7 +14,7 @@ import pytest
 
 from tools import agy_clean_all_forward as fwd
 
-PINNED_DIGEST = "4dd8b811520924171831eee4d22ea467f7e1baa89eb29bf559942736c370ba21"
+PINNED_DIGEST = "812485fd2274d0cd50b60906475eaffda5be25da1843e04823178ee68fad7970"
 
 
 def test_protocol_digest_is_pinned() -> None:
@@ -850,3 +850,25 @@ def test_replay_reports_incomplete_decision_legs_without_gating() -> None:
     assert st["incomplete_decision_legs"] == 1
     assert st["incomplete_decision_bar_cells"] == 2
     assert st["valid"]
+
+
+def test_replay_cell_fill_flags_use_previous_bar_when_fill_lag_is_one() -> None:
+    lab, log = _fake_lab(target=0.5)
+    pack = _Pack(30, 2, 0.0)
+    pack.spot_valid[:, 1] = np.arange(30) % 2 == 0  # flag pattern encodes the bar index
+    pack.perp_valid[:, 1] = np.arange(30) % 3 == 0
+    kw: dict[str, Any] = {"p17": None, "econ": None, "arm": "X", "cost": 0.0006}
+    fwd.replay_cell(**lab, p10=pack, start=3, stop=17, cap=1.0, fill_lag=1, **kw)
+    for i, call in enumerate(log["calls"]):
+        k = 3 + i
+        assert np.array_equal(call["spot_valid"], pack.spot_valid[k - 1])
+        assert np.array_equal(call["perp_valid"], pack.perp_valid[k - 1])
+        assert np.array_equal(call["spot_next_ret"], pack.spot_next_ret[k])
+    log["calls"].clear()
+    fwd.replay_cell(**lab, p10=pack, start=3, stop=17, cap=1.0, fill_lag=0, **kw)
+    for i, call in enumerate(log["calls"]):
+        assert np.array_equal(call["spot_valid"], pack.spot_valid[3 + i])
+    with pytest.raises(ValueError):
+        fwd.replay_cell(**lab, p10=pack, start=0, stop=5, cap=1.0, fill_lag=1, **kw)
+    with pytest.raises(ValueError):
+        fwd.replay_cell(**lab, p10=pack, start=3, stop=5, cap=1.0, fill_lag=2, **kw)

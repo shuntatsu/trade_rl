@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol was written before any bar, funding event or metric at or after 2026-08-01 was read for this signal.
 
-Protocol digest: `4dd8b811520924171831eee4d22ea467f7e1baa89eb29bf559942736c370ba21`
+Protocol digest: `812485fd2274d0cd50b60906475eaffda5be25da1843e04823178ee68fad7970`
 
 ## Question
 
@@ -42,13 +42,13 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - The lab's deadband applies.
 - **Gross cap:** after synthesis, the decision target is scaled proportionally so that spot gross plus perp gross is at most 1.0. The cap applies to decision targets only. Between decisions the held weights drift with prices and a halted leg keeps its weight, so the executed gross may exceed 1.0 without any trade (about 1.18 at most on known-used data). The executed gross is recorded per cell as `max_executed_gross`, as reported data only.
 - **Execution:** the lab's `execute_hybrid_step` (two legs, exact conservation, linear cost plus `IMPACT_QUAD = 0.002` on weight changes, realized funding).
-  - The fill model treats a leg whose 4h bar is flagged incomplete as not tradable on that bar: its weight is held. This uses the bar's realized completeness as the fill outcome, an execution-model approximation. It carries no information into any decision target, because targets use only lagged signals, lagged econ scalars and lagged masks. It can misstate fills on bars where trading continued for part of the bar. On known-used data, no decision-bar cell had an incomplete flag (0 of 14,388).
+  - **Causal fill flags.** Whether a leg can trade at bar k is decided by its completeness flags of bar k−1, which are known at bar k's open (`fill_lag = 1`, tied to each cell's mask lag). A leg flagged incomplete on bar k−1 holds its weight at bar k. Returns, funding and costs are still those of bar k. The lab's own rule, bar k's flags (known only at its close), is kept only in the reported `CANDIDATE__LAB_MASK` cell and in the loop oracle. On known-used data no decision-bar cell had an incomplete flag (0 of 14,388), so the two rules coincide there.
   - Every stage reports, per cell, the count of decision-bar legs with an incomplete flag whose target differs from the current weight (`incomplete_decision_legs`) and the count of decision-bar leg cells with an incomplete flag (`incomplete_decision_bar_cells`). The counts do not gate.
   - The lab has no participation cap.
   - The universe is 11 majors and the intended capital is small (≤ $100k), so the cap is disclosed and not modelled.
   - Financing is excluded by an enforced check, not assumed: a cell is INVALID if the cash-account need exceeds equity. The need is spot long notional plus `CASH_IM_RATE` × perp gross, with `CASH_IM_RATE = 0.4` (the engine's 1 / max_leverage, as in `agy_anchor_realistic_v1` Amendment 1). Its measured maximum on known-used data (2023-01 to 2026-07, lag 1, 6 bp, capped) is 0.65 for both arms. A halted leg keeps its weight and counts toward the need, so a real infeasibility makes the cell INVALID. That is intended and is not a rescue case.
 - No constant of the lab changes.
-- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` are bar-completeness flags (bucket k holds all four hourly bars), known only at the close of bar k. The lab uses `mask[k]` for the decision at bar k and its lag helper does not shift them. In every cell except `CANDIDATE__LAB_MASK`, the harness selects symbols for the decision at bar k with `mask[k-1]` (`with_lagged_masks`; row 0 is False; nothing else changes). Execution keeps the current bar's `spot_valid`/`perp_valid` as a fill-model approximation (see Execution), not as a selection. The parity and loop oracles stay lab-faithful (unshifted masks). On pre-2026-08 data `perp_valid` is False on about 0.067% of cells and `spot_valid` on about 0.074% (independent reviewer's measurement), so the effect is small.
+- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` are bar-completeness flags (bucket k holds all four hourly bars), known only at the close of bar k. The lab uses `mask[k]` for the decision at bar k and its lag helper does not shift them. In every cell except `CANDIDATE__LAB_MASK`, the harness selects symbols for the decision at bar k with `mask[k-1]` (`with_lagged_masks`; row 0 is False; nothing else changes). Fills use bar k−1's `spot_valid`/`perp_valid` in the same cells (see Execution, Amendment 5). The parity and loop oracles stay lab-faithful (unshifted masks). On pre-2026-08 data `perp_valid` is False on about 0.067% of cells and `spot_valid` on about 0.074% (independent reviewer's measurement), so the effect is small.
 
 ## Data
 
@@ -70,7 +70,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - `pack17`: `w_clean_anc`, `w_clean_all`, `perp_mask`.
 
   A mismatch refuses the run and writes `parity-refusal.json`. A refusal is not a result.
-- **Loop oracle:** before the out-of-sample replay, both arms at lag 1 and 6 bp are replayed uncapped over the known-used window from 2023-01-01 to the last pre-embargo row by the harness loop (`replay_cell`) and by the lab's own `eval_r17_4h`. The final equities must agree to a relative 1e-9, or the run refuses. Both values are recorded.
+- **Loop oracle:** before the out-of-sample replay, both arms at lag 1 and 6 bp are replayed uncapped over the known-used window from 2023-01-01 to one row before the last frozen pre-embargo row (the code's `n_cmp`) by the harness loop (`replay_cell`) and by the lab's own `eval_r17_4h`. The final equities must agree to a relative 1e-9, or the run refuses. Both values are recorded.
 - **Unused lab import:** the lab imports `trade_rl.risk.pretrade`, which this arm does not use. `result.json` records the path and sha256 of the module as importable under the run interpreter (`importlib.util.find_spec`), or `null` if it is absent.
 - **Market store coverage:** funding in the market store currently ends at 2026-09-30T16:00Z, so INTERIM_A ends at 2026-09-30T00:00Z. Later stages need the store to be extended first, by its own ingestion and not by this protocol.
 
@@ -191,3 +191,11 @@ This protocol was revised a fourth time after independent review 6011129726 (BLO
 - **N11:** `CANDIDATE__NO_DELAY` is labelled a look-ahead diagnostic, never evidence.
 - **N10:** the ledger is local, the claim precedes computation, and a crash after the claim consumes the stage.
 - **N9:** `CANDIDATE__LAB_MASK` equals `CANDIDATE__BASE` exactly on known data.
+
+## Amendment 5 (result-blind, before any run)
+
+This protocol was revised a fifth time after independent review 6011148833 (BLOCKED) at e5c38ad9, before any stage ran and before any data at or after 2026-08-01 was read.
+
+- **B6(b), causal fills:** Amendment 4 disclosed same-bar fill flags as an approximation without making them causal. Fills are now decided by bar k−1's completeness flags (`replay_cell(fill_lag=1)`), known at bar k's open, for every cell whose mask lag is 1, including both gating cells. `CANDIDATE__LAB_MASK` keeps the lab's same-bar flags (mask lag 0, fill lag 0) and stays reported only. The loop oracle keeps the lab's rule.
+- A test checks that `fill_lag = 1` passes bar k−1's flags with bar k's returns, that `fill_lag = 0` passes bar k's flags, and that other values or a missing preceding bar refuse.
+- The loop-oracle window ends one row before the last frozen pre-embargo row, as the code does.

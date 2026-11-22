@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "9691bd342684bed3d079c03ea98341c7d3af47da1526180da2eef703638e323c"
+DIGEST_PIN = "7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -400,9 +400,11 @@ def fake_market(url: str) -> bytes:
     }
     if "bitstamp" in u.netloc:
         lo, hi, lim = q["start"], q["end"], q["limit"]
-        # Real Bitstamp semantics (observed 2026-11-22): with start and end both given, the
-        # API returns the LAST ``limit`` bars at or before ``end`` (Amendment 1).
-        ts = [t for t in range((lo + 86399) // 86400 * 86400, hi + 1, 86400)][-lim:]
+        # Real Bitstamp semantics (observed 2026-11-22): ``start`` is ignored and the API
+        # returns the LAST ``limit`` bars at or before ``end`` (Amendment 1).
+        del lo
+        top = hi // 86400 * 86400
+        ts = list(range(top - (lim - 1) * 86400, top + 1, 86400))
         days = [m.EPOCH.fromordinal(m.EPOCH.toordinal() + t // 86400) for t in ts]
         items = [
             {
@@ -455,7 +457,9 @@ def test_fetch_daily_refuses_short_and_nonprogress(tmp_path: Path) -> None:
     pages = iter([json.dumps(_bitstamp(D[:3])).encode(), b'{"data": {"ohlc": []}}'])
     with pytest.raises(SystemExit, match="ends before"):
         m.fetch_daily("bitstamp", D[0], D[4], tmp_path / "a", lambda u: next(pages))
-    with pytest.raises(SystemExit, match="no progress"):
+    # A server that keeps returning the same stale bars: out-of-window rows are dropped, the
+    # next page is empty, and the run refuses loudly on the short series (Amendment 1).
+    with pytest.raises(SystemExit, match="ends before|missing"):
         m.fetch_daily(
             "bitstamp",
             D[0],
@@ -683,7 +687,7 @@ def test_backcast_end_to_end_and_write_once(env: dict[str, Any]) -> None:
     )
     assert led["result_sha256"] == m.sha256_file(out) and led["label"] == res["label"]
     assert json.loads(out.read_text())["protocol_digest"] == env["digest"]
-    with pytest.raises(SystemExit, match="already claimed"):
+    with pytest.raises(SystemExit, match="BACKCAST result already exists"):
         _run(env, "BACKCAST", NOW, tag="again")
     with pytest.raises(SystemExit, match="output directory exists"):
         m.run_stage(
@@ -805,3 +809,26 @@ def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
                 "o",
             ]
         )
+
+
+def test_backcast_is_single_use_across_digests(env: dict[str, Any]) -> None:
+    # A BACKCAST result under any earlier digest blocks BACKCAST for every later digest.
+    (env["ledger"] / "old-digest").mkdir(parents=True)
+    m.write_ledger_result(
+        "BACKCAST",
+        "old-digest",
+        "TREND_NOT_SUPPORTED",
+        False,
+        "s",
+        env["ledger"] / "old-digest",
+    )
+    with pytest.raises(SystemExit, match="BACKCAST result already exists"):
+        _run(env, "BACKCAST", NOW)
+    assert not (env["ledger"] / env["digest"] / "BACKCAST.claim").exists()
+
+
+def test_backcast_allowed_after_a_refusal_without_result(env: dict[str, Any]) -> None:
+    # A refused attempt leaves a claim but no result; a reviewed amendment may run once.
+    m.claim_stage("BACKCAST", "old-digest", COMMIT, 1, NOW, env["ledger"])
+    res = _run(env, "BACKCAST", NOW)
+    assert res["label"] in {"TREND_BACKCAST_ONLY", "TREND_NOT_SUPPORTED"}

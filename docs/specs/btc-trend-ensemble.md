@@ -1,8 +1,8 @@
 # Vol-targeted BTC trend ensemble on a spot cash account (`btc_trend_ensemble_v1`)
 
-Status: Active (not frozen until an independent review approves the exact head). This protocol is frozen before any Bitstamp BTC/USD bar of its BACKCAST window has been read, and before any FORWARD bar exists.
+Status: Active (not frozen until an independent review approves the exact head). This protocol was frozen before any FORWARD bar existed. BACKCAST-window bars were first fetched by the refused attempt of Amendment 1, which computed no exposure, return or label.
 
-Protocol digest: `9691bd342684bed3d079c03ea98341c7d3af47da1526180da2eef703638e323c`
+Protocol digest: `7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937`
 
 ## Question
 
@@ -108,15 +108,17 @@ Status: Active.
 - The BACKCAST run authorized by [Issue #810 comment 7078446921](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078446921), at code `220bd96b` and digest `e0912608`, refused during data validation with `missing UTC day 2014-06-01 (491 missing)`.
 - No exposure, return or label was computed. Its ledger claim and its raw page `bitstamp_000.json` are kept.
 
-**Cause.** When a Bitstamp `ohlc` request passes both `start` and `end`, the API returns the last `limit` bars at or before `end`, not the first bars after `start`.
+**Cause.** Bitstamp's `ohlc` endpoint ignores `start` and returns the last `limit` bars at or before `end`. A probe on known-used 2025 data confirmed this: a 2025-01-01..01-10 request returned 1,000 bars from 2022-04-16 to 2025-01-09.
 - The one page returned covered 2015-10-05 to 2018-06-30.
 - The adapter treated it as complete because it reached the last day.
 
 **Change.**
-- Every page request now spans at most `PAGE_LIMIT` days, `end = min(stage end, start + PAGE_LIMIT·86400 − 1)`. Each page is therefore complete whichever end the API anchors to. The same window applies to Binance.
-- The test fake now reproduces Bitstamp's last-`limit`-before-`end` behaviour. The old adapter fails that test; the new one passes.
+- Every page request spans at most `PAGE_LIMIT` days, `end = min(stage end, start + PAGE_LIMIT·86400 − 1)`, and rows outside `[start, end]` are dropped. The paging is therefore correct whether or not the API honours `start`. The same rule applies to Binance.
+- The test fake now ignores `start` and returns the last `limit` bars before `end`, as Bitstamp does. The old adapter fails that test; the new one passes.
+- **Disclosure:** the refused attempt fetched and parsed BACKCAST-window bars (page `bitstamp_000.json`, 2015-10-05..2018-06-30). The independent reviewer printed two raw closes from it while checking the anchoring. No exposure, return, drawdown or label was computed by anyone.
 
 **Unchanged.** The rule, cells, costs, windows, decision rule and authorization are unchanged.
 
 **Consequence.** This is a new digest. It needs a new independent review and a new G4 relay.
-- **Ledger namespace:** the ledger is now keyed by protocol digest, `<ledger>/<digest>/<stage>.claim`. Each digest gets exactly one claim per stage, and a new digest exists only after a reviewed and relayed amendment. The refused claim of digest `e0912608` stays at the ledger root.
+- **Ledger namespace:** the ledger is now keyed by protocol digest, `<ledger>/<digest>/<claim name>.claim`. Each digest gets one claim per claim name: one for BACKCAST, one per month for FORWARD_INTERIM, one for FORWARD_FINAL. A new digest exists only after a reviewed and relayed amendment. The refused claim of digest `e0912608` stays at the ledger root.
+- **Cross-digest single use:** BACKCAST refuses before claiming if any digest namespace already holds a `BACKCAST.result.json`. A refusal that wrote no result does not block a reviewed amendment; a result of any label does.

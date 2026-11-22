@@ -514,7 +514,9 @@ def fetch_daily(
             payload = json.loads(body)
         except ValueError:
             raise SystemExit(f"{source} page {page_no} is not JSON") from None
-        page = parse(payload)
+        # Keep only rows inside the requested window: Bitstamp ignores ``start`` and returns
+        # the last ``limit`` bars at or before ``end`` (observed on 2025 data; Amendment 1).
+        page = [(ts, c) for ts, c in parse(payload) if cursor <= ts <= page_end]
         pages.append(
             {
                 "file": path.name,
@@ -794,6 +796,16 @@ def run_stage(
     digest = protocol_digest()
     # One ledger namespace per protocol digest (Amendment 1): each digest gets exactly one claim
     # per stage, and a new digest exists only after a reviewed, relayed amendment.
+    if stage.name == "BACKCAST":
+        # The BACKCAST window is single-use across all digests: once any version has a
+        # BACKCAST result, no amendment can run it again (Amendment 1).
+        prior = (
+            sorted(ledger_dir.glob("**/BACKCAST.result.json"))
+            if ledger_dir.exists()
+            else []
+        )
+        if prior:
+            raise SystemExit(f"a BACKCAST result already exists: {prior[0]}")
     ledger_dir = ledger_dir / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)

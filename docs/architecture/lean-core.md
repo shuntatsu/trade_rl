@@ -530,6 +530,23 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+`PreTradeRisk.constrain` は、有限なtarget/currentからの差分でもL1合計が
+float overflowし得るため、requested / ordinary / constrained / emergency
+turnoverとproposalからのprojection L1を有限値として検査する。非有限は
+risk予算や診断値へ渡さず失敗とする。公開`RiskConstrainedTarget`にも
+requested / constrained turnover・projection L1の有限非負とrisk scaleの
+[0, 1]を課す。`emergency_flatten_mask`と`reduce_only_mask`は真偽配列だけ
+受理し、整数・実数・文字列のtruthinessを暗黙の緊急指示として扱わない。
+正常域の投影・閾値・理由と、既存研究結果は変更しない。
+
+Stateful `execute_orders` の処理途中で例外が発生した場合、呼出元の
+`BookState`と`OrderBookState`は書き換えず、同一`MarketExecutor`の
+確率的slippage RNGも呼出開始時へ戻す。これにより同じ注文入力の再試行で
+失敗した試行分の乱数が費用へ混入しない。これは**失敗したcallの
+決定的再試行**の保証であり、外部side effectや監査observerのtransaction、
+同時並行で共有されたexecutorのthread safetyを保証するものではない。
+成功したcallの乱数列・fee・order identityは変えない。
+
 Legacy target/強制清算、stateful order fill、recorded-depth paper fillの約定コストは、BookStateを書き換える前に料金計算の浮動小数点表現を検査する。実際に正の金額で約定し費用率が非ゼロなら、unit rateや費用額がunderflowでfloat0になることを無償約定として扱わず、明示的に拒否する。途中または最終値の非有限も費用として計上しない。recorded-depth paper fillでは、非ゼロ数量・価格・契約倍率から計算した約定notional自体が0へunderflowする場合も、料金計算に到達する前に拒否する。一方、約定なし・真のゼロ料率・明示的ゼロmultiplierはゼロ費用として扱い、非対象symbolの不正な中間値が他の有効な約定を壊さない。流動性capacityが正でも、実約定notionalが非ゼロなのにparticipation比がfloat0へ潰れる場合は、legacy target・stateful symbol allocatorの両経路で、非ゼロimpact率と非ゼロcost multiplierの約定を費用ゼロとして続けず、帳簿更新前に明示拒否する。影響額がゼロの設定・no-fillは従来どおり受理し、表現可能な正のsubnormal participationを一律拒否しない。スリッページは従来の乱数列を維持しつつ、非ゼロdrawがfloat0へ潰れたまま課金対象のfillに使われることを拒否する。tail倍率適用で表現可能になる場合だけ計算順を変えて回収する。通常の表現可能な費用・真のゼロ・過去の証拠は再分類しない。このfail-closed境界は真の取引所費用の精度保証や利益証明ではない。
 
 `simulation.native_transition.execute_native_target_transition` owns the shared

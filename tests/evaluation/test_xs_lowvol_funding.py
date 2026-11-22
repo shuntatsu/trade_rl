@@ -301,13 +301,14 @@ def test_a_name_without_nine_funding_events_or_history_is_excluded() -> None:
     assert ranked == 2 and not flat.any()
 
 
-def test_forced_close_rows_start_42_bars_before_the_last_available_bar() -> None:
+def test_a_forced_name_is_zeroed_after_sizing_and_only_a_real_last_bar_is_an_event() -> (
+    None
+):
     active = np.ones((100, 2), dtype=np.bool_)
     active[61:, 0] = False  # leg 0's last available bar is row 60
-    forced = policy.XsInputs.forced_rows(active)
-    assert list(np.flatnonzero(forced[:, 0])) == list(range(18, 61))
     assert list(np.flatnonzero(policy.XsInputs.last_bar_rows(active)[:, 0])) == [60]
-    assert not forced[:, 1].any()  # a leg cut off by the dataset end is never flagged
+    # a leg cut off by the dataset end is never flagged
+    assert not policy.XsInputs.last_bar_rows(active)[:, 1].any()
     # a forced name is zeroed after sizing, wherever it ranks
     inputs = _alternating_inputs()
     inputs.forced[399, 1] = True
@@ -761,7 +762,7 @@ def test_amendment_1_declares_no_halt_and_pins_its_coverage_evidence(
 # The pinned protocol digest (a change to the constants or to any harness source is a new
 # protocol and must be re-pinned here and in the spec).
 PINNED_PROTOCOL_DIGEST = (
-    "e9193110264427104e63bbe17f40dca35255ab25240394834a8916a9b5057487"
+    "cf5b417e1b875373b571e146242a697e3ae0c485fc44e754e3c8692c54bac0e9"
 )
 
 

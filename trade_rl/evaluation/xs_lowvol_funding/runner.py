@@ -8,7 +8,8 @@ not copied); the summary is called with ``execution_cost=`` so lean-core termina
 recognised.
 
 Forced closes. A held name whose archive ends (or whose gap starts) is closed by the policy
-from 42 bars before its last available bar on. The engine charges the scenario cost on each
+from the first 4h bar opening at or after the latest public notice of that event (Amendment 5,
+see ``notices``) through its last available bar. The engine charges the scenario cost on each
 fill; this runner adds the extra adverse 5% of the closed notional as a cash debit at each
 fill bar, applied to the equity path from that bar on. A position still held at the last
 available bar refuses the run (no write-off branch). The debits are
@@ -84,8 +85,9 @@ DISCLOSURES: tuple[str, ...] = (
     "cash net of still-unpaid interval execution fee overdrafts and forced-close "
     "debits below -1e-6 x capital is INVALID (negative_cash_borrowing); "
     "lifetime historical fees are not reusable borrowing credit",
-    "the forced-close rule closes a held name from 42 bars before its last available bar "
-    "(a modelled one-week delisting announcement that uses knowledge of the archive end); "
+    "the forced-close rule closes a held name from the first 4h bar opening at or after "
+    "the latest recorded public notice of its archive end or gap start (released at most "
+    "90 days before the event) through its last available bar; "
     "the extra adverse 5% is a post-replay cash debit at each fill bar, so the engine's "
     "risk layer does not see it",
     "a position still held at a name's last available bar refuses the run (no write-off "
@@ -97,7 +99,9 @@ DISCLOSURES: tuple[str, ...] = (
     "holds at most one event)",
     "the causality probe is per (arm, signal lag), shared by the cost scenarios; the "
     "forced-close schedule is the declared exception to 'future rows never change a "
-    "decision' (an availability notice, not a price)",
+    "decision': it pairs each recorded public notice with the archive event it announced "
+    "(the 90-day pairing window uses the event time); a notice is used only from its "
+    "release",
 )
 
 
@@ -135,7 +139,7 @@ def last_weekly_row(start_index: int, stop_index: int) -> int:
 
 
 def inputs_of(stage: StageData) -> XsInputs:
-    return XsInputs.from_dataset(stage.dataset, stage.member)
+    return XsInputs.from_dataset(stage.dataset, stage.member, stage.forced)
 
 
 def replay(
@@ -223,12 +227,14 @@ def _probe_stage(
     cut_inputs = XsInputs.from_dataset(
         _perturb_future_market_rows(dataset, cut_index=cut, seed=_PROBE_SEED_CUT),
         stage.member,
+        stage.forced,
     )
     future_inputs = XsInputs.from_dataset(
         _perturb_future_market_rows(
             dataset, cut_index=start_index, seed=_PROBE_SEED_FUTURE
         ),
         stage.member,
+        stage.forced,
     )
     input_diff = max(
         _prefix_diff(base, cut_inputs, cut_index=cut),
@@ -317,13 +323,15 @@ class ForcedClose:
 
 
 def forced_closes(
-    result: SharedCashPortfolioReplayResult, dataset: MarketDataset
+    result: SharedCashPortfolioReplayResult,
+    dataset: MarketDataset,
+    forced: np.ndarray,
 ) -> list[ForcedClose]:
-    """The forced closes of a replay: legs held when the 42-bar notice window began.
+    """The forced closes of a replay: legs held when their notice window began.
 
-    A leg's last available bar is ``L`` when it is active at ``L`` and not at ``L + 1``. Every
-    fill of the leg on the bars ``L - 41 .. L`` is a forced-close fill and carries the extra
-    adverse charge. A position still held after ``L`` refuses the run (the policy raises
+    A leg's last available bar is ``L`` when it is active at ``L`` and not at ``L + 1``. The
+    forced rows of the leg are the run ``s .. L`` of ``forced``; every fill of the leg on the
+    bars ``s + 1 .. L`` is a forced-close fill and carries the extra adverse charge. A position still held after ``L`` refuses the run (the policy raises
     first; this is the same check on the ledger).
     """
     ledger = result.ledger_evidence
@@ -332,7 +340,7 @@ def forced_closes(
     intervals = ledger.intervals.intervals
     by_next = {iv.next_index: iv for iv in intervals}
     active = np.asarray(dataset.resolved_array("asset_active"), dtype=np.bool_)
-    lead = protocol.FORCED_CLOSE_LEAD_BARS
+    schedule = np.asarray(forced, dtype=np.bool_)
     events: list[ForcedClose] = []
     for leg in range(active.shape[1]):
         for last in np.flatnonzero(active[:-1, leg] & ~active[1:, leg]):
@@ -348,7 +356,12 @@ def forced_closes(
                     "the protocol has no write-off branch (disclosed limitation)"
                 )
             fills: list[tuple[int, float]] = []
-            for bar in range(row - lead + 1, row + 1):
+            first = row + 1
+            if schedule[row, leg]:
+                first = row
+                while first > 0 and schedule[first - 1, leg]:
+                    first -= 1
+            for bar in range(first + 1, row + 1):
                 interval = by_next.get(bar)
                 if interval is None:
                     continue
@@ -497,6 +510,7 @@ def _build_cell(
     scenario: str,
     result: SharedCashPortfolioReplayResult,
     dataset: MarketDataset,
+    forced: np.ndarray,
     causality_passed: bool,
     probe_key: str,
     policy_statistics: Mapping[str, Any],
@@ -523,7 +537,7 @@ def _build_cell(
     reasons = list(summary.invalid_reasons)
     ledger = result.ledger_evidence
     intervals = ledger.intervals.intervals if ledger is not None else ()
-    closes = forced_closes(result, dataset)
+    closes = forced_closes(result, dataset, forced)
     charged, cumulative = _charged_returns(returns, intervals, closes)
     years = _calendar_year_returns(dataset, result, charged)
     if years is None or len(intervals) != returns.size:
@@ -691,6 +705,7 @@ def run_stage(
                 scenario=scenario,
                 result=result,
                 dataset=dataset,
+                forced=stage.forced,
                 causality_passed=probes[(arm, lag)].passed,
                 probe_key=f"{arm}__lag{lag}",
                 policy_statistics=_stats_of(policy),
@@ -724,6 +739,8 @@ def run_stage(
         "replay_stop_index": stop,
         "dataset_id": dataset.dataset_id,
         "membership_sha256": stage.member_sha256(),
+        "delisting_notices_sha256": protocol.DELISTING_NOTICES_SHA256,
+        "notice_evidence": [dict(item) for item in stage.notice_evidence],
         "harness_source_digest": protocol.harness_source_digest(),
         "code_commit": code_commit,
         "run_date": when.isoformat(),

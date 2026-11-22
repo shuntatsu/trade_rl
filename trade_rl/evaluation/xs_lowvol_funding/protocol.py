@@ -79,11 +79,11 @@ MINIMUM_NOTIONAL: Final = 10.0
 MAINTENANCE_MARGIN_RATE: Final = 0.05
 #: Extra adverse charge on a forced close (and on a written-off residual).
 FORCED_CLOSE_ADVERSE: Final = 0.05
-#: A held name is closed from this many 4h bars before its last available bar (about the
-#: one-week public delisting notice); the lead uses knowledge of the archive end.
-FORCED_CLOSE_LEAD_BARS: Final = 42
+#: Amendment 5: a perpetual event (archive end or relisting-gap start) is closed only from the
+#: latest public notice released at or before it and at most this many days before it.
+NOTICE_LOOKBACK_DAYS: Final = 90
 #: Amendment 2: the effective listing end of a perp is the close of its last bar with volume
-#: (trailing zero-volume "zombie" bars are dropped); the forced-close lead counts back from it.
+#: (trailing zero-volume "zombie" bars are dropped); the event time of a forced close.
 #: An unpublished monthly funding archive in a traded month is filled from the REST endpoint;
 #: if that returns no event, the merged series must have no gap longer than this many hours there.
 #: The same span is the minimum length of an interior zero-volume run turned into missing hours.
@@ -203,11 +203,20 @@ FORWARD_SYMBOLS_SHA256: Final[str | None] = (
 FORWARD_SYMBOLS_RELATIVE_PATH: Final = (
     "trade_rl/evaluation/xs_lowvol_funding/forward_symbols.json"
 )
+#: SHA-256 of the recorded public delisting-notice file (Amendment 5), verified before any
+#: read; real runs are refused while it is None or does not match.
+DELISTING_NOTICES_SHA256: Final[str | None] = (
+    "52b0245a754bf381861d7fe892f34d52c129c4cd911c2113dd098287f89bbcc0"
+)
+DELISTING_NOTICES_RELATIVE_PATH: Final = (
+    "trade_rl/evaluation/xs_lowvol_funding/delisting_notices.json"
+)
 
 #: The harness files whose bytes enter the digest (a change to any of them is a new digest).
 HARNESS_PACKAGE_FILES: Final[tuple[str, ...]] = (
     "protocol.py",
     "universe.py",
+    "notices.py",
     "policy.py",
     "data.py",
     "decision.py",
@@ -260,6 +269,10 @@ def verify_candidates_binding(path: Path | None = None) -> None:
 
 def forward_symbols_path() -> Path:
     return Path(__file__).resolve().parents[3] / FORWARD_SYMBOLS_RELATIVE_PATH
+
+
+def delisting_notices_path() -> Path:
+    return Path(__file__).resolve().parents[3] / DELISTING_NOTICES_RELATIVE_PATH
 
 
 def load_candidates(path: Path | None = None) -> tuple[str, ...]:
@@ -486,14 +499,21 @@ def protocol_payload() -> dict[str, object]:
             },
         },
         "forced_close": {
-            "real_run_authority": "refused before external IO until exact, timestamped "
-            "public notice evidence is causally available at each decision; "
-            "archive-end lookahead is synthetic/hindsight-model only",
-            "rule": "a held name's target is 0 from the decision bar 42 4h bars before "
-            "its last available bar onward (the lead uses knowledge of the archive end, "
-            "modelling the public delisting announcement); the end is the effective "
-            "end: the close of the last 1h bar with volume (Amendment 2)",
-            "lead_bars": FORCED_CLOSE_LEAD_BARS,
+            "real_run_authority": "allowed only when the delisting-notice file verifies "
+            "against its pin and every stage event has a causal notice (Amendment 5); "
+            "otherwise refused before external IO",
+            "notices_sha256": DELISTING_NOTICES_SHA256,
+            "notices_path": DELISTING_NOTICES_RELATIVE_PATH,
+            "notice_rule": "the notice of a leg event (effective end, relisting-gap start "
+            "or any archive end inside the stage) is the latest recorded notice of that "
+            "symbol with release_utc <= event and >= event - 90 days; an event of a leg "
+            "that was a universe member at or before it without such a notice refuses the "
+            "run before any replay, naming the symbols",
+            "notice_lookback_days": NOTICE_LOOKBACK_DAYS,
+            "rule": "a held name's target is 0 from the first 4h decision bar whose open "
+            "time is at or after the notice release (strictly after publication) through "
+            "the event (the close of the leg's last available 4h bar); the effective end "
+            "is the close of the last 1h bar with volume (Amendment 2)",
             "adverse_charge": FORCED_CLOSE_ADVERSE,
             "booked": "cash debit at each fill bar of the forced close, applied to the "
             "equity path from that bar on",
@@ -540,12 +560,13 @@ def protocol_payload() -> dict[str, object]:
             "inside it are dropped, before eligibility, forced close, "
             "funding admissibility and gap checks (Amendment 2; the gap then follows the "
             "existing unexplained-gap rules; a held name is force-closed when the gap "
-            "starts, the same archive-knowledge exception as the delisting forced close); "
+            "starts, closed from a causal public notice like any delisting, Amendment 5); "
             "shorter runs are kept",
             "zombie_tail": "the trailing run of zero-volume 1h bars after a perp's last "
             "bar with volume is dropped as not listed before universe, forced-close, "
-            "funding and gap rules (Amendment 2; uses archive-end knowledge like the "
-            "forced-close exception); interior zero-volume bars are kept",
+            "funding and gap rules (Amendment 2; the forced close of such a leg uses "
+            "only a causal public notice, Amendment 5); interior zero-volume bars "
+            "are kept",
             "rest_funding": {
                 "when": "a monthly funding archive is unpublished in a month with a bar "
                 "of positive volume",
@@ -663,11 +684,13 @@ __all__ = [
     "FALLBACK_MIN_NOTIONAL",
     "FINAL_NOT_BEFORE",
     "FORCED_CLOSE_ADVERSE",
-    "FORCED_CLOSE_LEAD_BARS",
     "FUNDING_MAX_GAP_HOURS",
     "FORWARD_SCORING_FROM",
     "FORWARD_SYMBOLS_RELATIVE_PATH",
     "FORWARD_SYMBOLS_SHA256",
+    "DELISTING_NOTICES_SHA256",
+    "DELISTING_NOTICES_RELATIVE_PATH",
+    "NOTICE_LOOKBACK_DAYS",
     "FUNDING_EVENTS",
     "FUNDING_LOOKBACK_DAYS",
     "GROSS_CAP",
@@ -720,6 +743,7 @@ __all__ = [
     "ProtocolBindingError",
     "candidates_path",
     "declared_halt_intervals",
+    "delisting_notices_path",
     "forward_symbol_allowed",
     "forward_symbols_path",
     "harness_source_digest",

@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 
 from trade_rl.evaluation.core7_mtf_study.tierd import LegRules
-from trade_rl.evaluation.xs_lowvol_funding import data, protocol
+from trade_rl.evaluation.xs_lowvol_funding import data, notices, protocol
 
 HOUR_MS = 3_600_000
 LOAD_START = datetime(2022, 1, 3, tzinfo=UTC)  # a Monday
@@ -117,6 +117,7 @@ def stage(
     overrides: dict[str, dict[str, object]] | None = None,
     symbols: tuple[str, ...] = SYMBOLS,
     data_authorization_url: str | None = None,
+    notice_book: notices.NoticeBook | None = None,
 ) -> data.StageData:
     hourly = legs(window, symbols=symbols, overrides=overrides)
     names = tuple(sorted(hourly))
@@ -131,6 +132,24 @@ def stage(
         rules={name: LegRules(0.001, 5.0) for name in names},
         limit_close=window.last_row_close,
         data_authorization_url=data_authorization_url,
+        notices=notice_book,
+    )
+
+
+def book(*entries: tuple[str, datetime], code: str = "fixture") -> notices.NoticeBook:
+    """A synthetic notice book: ``(symbol, release)`` pairs (never read from a file)."""
+    return notices.NoticeBook(
+        notices=tuple(
+            notices.Notice(
+                symbol=symbol,
+                release_ms=int(release.timestamp() * 1_000),
+                article_code=f"{code}-{index}",
+                title=f"Binance Futures Will Delist {symbol} Perpetual Contract",
+                kind="delist",
+            )
+            for index, (symbol, release) in enumerate(entries)
+        ),
+        sha256="0" * 64,
     )
 
 

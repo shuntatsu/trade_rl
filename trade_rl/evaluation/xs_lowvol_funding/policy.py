@@ -12,9 +12,10 @@ ranks them, goes long the ``k = floor(n / 3)`` best and short the ``k`` worst na
 inverse-volatility weights (``sum |w| * sigma = 1`` per leg), scales the book to a 20%
 ex-ante volatility with the 50/50 diagonal-shrunk covariance of the last 360 log returns,
 and then applies, in this order, the per-name cap, the gross cap and the cash account. A
-held name is closed by a forced-close rule from 42 bars before its last available bar (a
-modelled one-week delisting announcement: it uses knowledge of the archive end, which is the
-close of the last 1h bar with volume once trailing zero-volume "zombie" bars are dropped).
+held name is closed from the first 4h bar opening at or after the latest public notice of its
+archive end (or relisting-gap start) through its last available bar (Amendment 5: causal
+notices only, see :mod:`.notices`; the archive end is the close of the last 1h bar with volume
+once trailing zero-volume "zombie" bars are dropped).
 
 The pure helpers (``zr``, ``select_legs``, ``leg_weights``, ``vol_target_scale``,
 ``cap_weights``, ``cash_factors``) are public so the oracles can test them against
@@ -30,7 +31,7 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.trend_oos.data import StageDataError
-from trade_rl.evaluation.xs_lowvol_funding import protocol
+from trade_rl.evaluation.xs_lowvol_funding import notices, protocol
 from trade_rl.strategies.agy_anchor.policy import risk_scale_of
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
@@ -228,32 +229,19 @@ class XsInputs:
 
         A leg that is merely cut off by the end of the dataset is never flagged.
         """
-        act = np.asarray(active, dtype=np.bool_)
-        last = np.zeros_like(act)
-        if act.shape[0] >= 2:
-            last[:-1] = act[:-1] & ~act[1:]
-        return last
-
-    @staticmethod
-    def forced_rows(active: np.ndarray) -> np.ndarray:
-        """Decision rows at which a name is closed: from 42 bars before its last bar on.
-
-        For a leg whose last available bar is ``L`` the rows ``L - 42 .. L`` are flagged. The
-        lead uses knowledge of the archive end (the public delisting announcement).
-        """
-        last = XsInputs.last_bar_rows(active)
-        forced = np.zeros_like(last)
-        lead = protocol.FORCED_CLOSE_LEAD_BARS
-        for row, leg in zip(*np.nonzero(last), strict=True):
-            forced[max(0, int(row) - lead) : int(row) + 1, int(leg)] = True
-        return forced
+        return notices.last_bar_rows(active)
 
     @classmethod
-    def from_dataset(cls, dataset: MarketDataset, member: np.ndarray) -> XsInputs:
+    def from_dataset(
+        cls, dataset: MarketDataset, member: np.ndarray, forced: np.ndarray
+    ) -> XsInputs:
         active = np.asarray(dataset.resolved_array("asset_active"), dtype=np.bool_)
         mask = np.asarray(member, dtype=np.bool_)
         if mask.shape != active.shape:
             raise ValueError("membership must match the dataset (rows, legs)")
+        schedule = np.asarray(forced, dtype=np.bool_)
+        if schedule.shape != active.shape:
+            raise ValueError("the forced-close schedule must match the dataset")
         return cls(
             legs=tuple(dataset.symbols),
             close=np.array(dataset.close, dtype=np.float64, copy=True),
@@ -264,7 +252,7 @@ class XsInputs:
                 dataset.funding_event_count, dtype=np.int64, copy=True
             ),
             member=mask.copy(),
-            forced=cls.forced_rows(active),
+            forced=schedule.copy(),
             last_bar=cls.last_bar_rows(active),
         )
 

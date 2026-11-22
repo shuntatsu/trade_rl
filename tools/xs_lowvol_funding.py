@@ -3,6 +3,7 @@
 ``python -m tools.xs_lowvol_funding plan --stage DEV|DISJOINT|FORWARD``
 ``python -m tools.xs_lowvol_funding coverage --stage DISJOINT ...``
 ``python -m tools.xs_lowvol_funding halts-from-coverage --coverage coverage.json``
+``python -m tools.xs_lowvol_funding notices --output delisting_notices.json --allow-network``
 ``python -m tools.xs_lowvol_funding run --stage DEV``
 ``python -m tools.xs_lowvol_funding run --stage DISJOINT --dev-result DEV/dev-result.json``
 ``python -m tools.xs_lowvol_funding run --stage FORWARD --interim | --final``
@@ -12,6 +13,12 @@ source, and :mod:`tools.trend_oos`' fetchers, it imports) with USD-M perpetual 1
 and funding only: no spot data is read.
 
 ``plan`` prints the frozen protocol, its digest and the windows; it loads no data.
+
+``notices`` (Amendment 5) records the public Binance futures delisting / migration / swap
+notices (symbol, release time, article code) from the public CMS API into the file whose
+SHA-256 is pinned as ``protocol.DELISTING_NOTICES_SHA256``. It is result-blind (no market
+data), write-once, and uses the network only with ``--allow-network``. ``run`` verifies that
+pin before any other access and closes a delisted name only from those notices.
 
 ``coverage`` is the result-blind data step before any run: it acquires the stage's archives
 through the same source path and writes ``coverage.json`` (listing start, missing hour
@@ -37,6 +44,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -57,7 +65,13 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.core7_mtf_study import protocol as core7_protocol
 from trade_rl.evaluation.core7_mtf_study.tierd import LegRules
 from trade_rl.evaluation.trend_oos.data import StageEmbargoError
-from trade_rl.evaluation.xs_lowvol_funding import data, protocol, runner, universe
+from trade_rl.evaluation.xs_lowvol_funding import (
+    data,
+    notices,
+    protocol,
+    runner,
+    universe,
+)
 from trade_rl.integrations.binance import vision_funding_url
 from trade_rl.integrations.binance.carry import (
     CarryCoverageError,
@@ -856,6 +870,7 @@ def build_stage(
     rules: dict[str, LegRules],
     data_authorization_url: str | None,
     listing: dict[str, object] | None = None,
+    notice_book: notices.NoticeBook | None = None,
 ) -> data.StageData:
     """The universe (static for DEV, monthly top 30 otherwise) and the stage dataset."""
     if window.stage == protocol.STAGE_DEV:
@@ -901,6 +916,7 @@ def build_stage(
         limit_close=limit_close,
         data_authorization_url=data_authorization_url,
         listing=listing,
+        notices=notice_book,
     )
 
 
@@ -984,6 +1000,21 @@ def build_parser() -> argparse.ArgumentParser:
         "from a DISJOINT coverage.json; reads no market data",
     )
     halts.add_argument("--coverage", type=Path, required=True)
+    notice_cmd = commands.add_parser(
+        "notices",
+        help="record the public delisting-notice file from the Binance CMS API "
+        "(result-blind; reads no market data; network needs --allow-network)",
+    )
+    notice_cmd.add_argument("--output", type=Path, required=True)
+    notice_cmd.add_argument("--since", type=_parse_instant, default=NOTICE_SINCE)
+    notice_cmd.add_argument(
+        "--overrides",
+        type=Path,
+        default=None,
+        help="JSON list of {symbol, article_code, kind, evidence}; each is verified "
+        "against the real article fetched from the API",
+    )
+    notice_cmd.add_argument("--allow-network", action="store_true")
     run = commands.add_parser(
         "run", help="run one stage (needs the G4 relay and the owner authorization)"
     )
@@ -1005,6 +1036,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="FORWARD: the DISJOINT decision.json of the same digest (XS_SUPPORTED)",
     )
     run.add_argument("--forward-symbols", type=Path, default=None)
+    run.add_argument(
+        "--delisting-notices",
+        type=Path,
+        default=None,
+        help="the recorded notice file (default: the repository file; its SHA-256 "
+        "must equal protocol.DELISTING_NOTICES_SHA256)",
+    )
     run.add_argument(
         "--confirm-single-use",
         action="store_true",
@@ -1706,6 +1744,428 @@ def _coverage_main(
     return EXIT_HALTED if errored else EXIT_OK
 
 
+# ----------------------------------------------------------- public delisting notices
+
+CMS_ROOT = "https://www.binance.com/bapi/composite/v1/public/cms/article"
+NOTICE_CATALOGS: tuple[int, ...] = (161, 49, 48, 157)
+NOTICE_PAGE_SIZE = 20
+NOTICE_SINCE = datetime(2020, 10, 1, tzinfo=UTC)
+NOTICE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+_NOTICE_THROTTLE_SECONDS = 0.8
+NoticeFetch = Callable[[str], bytes]
+
+_USDT_TOKEN = re.compile(r"(?<![A-Z0-9])([A-Z0-9]{2,30}USDT)(?![A-Z0-9])")
+_BASE_WORD = re.compile(r"[A-Za-z0-9]+")
+_TITLE_STOP = frozenset(
+    {"USDT", "USDC", "BUSD", "USD", "USDS", "COIN", "AND", "FUTURES", "BINANCE"}
+)
+_FUTURES_TITLE = re.compile(r"futures|perpetual|usdⓈ-m|usds-m|usdt-margined", re.I)
+_USDM_TITLE = re.compile(r"usdt-margined|usdⓈ-m|usds-m|perpetual", re.I)
+_DELIST_TITLE = re.compile(r"delist", re.I)
+_OTHER_PRODUCT_DELIST = re.compile(
+    r"margin|alpha|loan|savings|earn|options|card|convert|flexible|lending|vip", re.I
+)
+_SWAP_TITLE = re.compile(r"(token|mainnet|coin) swap", re.I)
+_MIGRATION_TITLE = re.compile(r"migrat|token merge", re.I)
+_REBRAND_TITLE = re.compile(r"rebrand|redenominat|renam", re.I)
+_TOKEN_EVENT_EXCLUDE = re.compile(
+    r"system|account|wallet|bep2|convert|margin|loan|earn|has completed", re.I
+)
+_COMPLETED_TITLE = re.compile(r"has completed|completes|completed", re.I)
+_COIN_MARGINED = re.compile(r"coin-?m(argined)?", re.I)
+_SYMBOL_OK = re.compile(r"[A-Z0-9]+USDT")
+_CONTRACT_LINE = re.compile(r"perpetual contract", re.I)
+_FUTURES_ACTION = re.compile(
+    r"close all|automatic settlement|suspend trading|will delist|delist this contract",
+    re.I,
+)
+_USDT_MARGINED_BASE = re.compile(
+    r"USDT-Margined\s+((?-i:[A-Z0-9]{2,15}))\s+Perpetual", re.I
+)
+_SLASH_PAIR_BASE = re.compile(
+    r"(?<![A-Za-z0-9])((?-i:[A-Z0-9]{2,15}))\s*/\s*USDT\s+futures", re.I
+)
+_TITLE_BASE_STOP = frozenset(
+    {"ON", "AND", "MORE", "USDT", "USD", "BUSD", "USDC", "FDUSD"}
+)
+
+
+def binance_cms_fetch(url: str) -> bytes:
+    """One GET of the public Binance CMS API (no key): a browser User-Agent, bounded retries."""
+    request = urllib.request.Request(
+        url, headers={"User-Agent": NOTICE_USER_AGENT, "Accept": "application/json"}
+    )
+    last: Exception | None = None
+    wait = 5.0
+    for _ in range(8):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = bytes(response.read())
+            time.sleep(_NOTICE_THROTTLE_SECONDS)
+            return payload
+        except urllib.error.HTTPError as error:
+            last = error
+            if error.code not in (418, 429) and error.code < 500:
+                break
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = error
+        time.sleep(wait)
+        wait = min(wait * 2.0, 120.0)
+    raise ValueError(f"the Binance CMS request failed: {url}: {last}")
+
+
+def _cms_json(fetch: NoticeFetch, url: str) -> dict[str, Any]:
+    try:
+        document = json.loads(fetch(url))
+    except ValueError as error:
+        raise ValueError(f"the Binance CMS response is not JSON: {url}") from error
+    if not isinstance(document, dict) or not document.get("success", True):
+        raise ValueError(f"the Binance CMS response is not a success: {url}")
+    payload = document.get("data")
+    if not isinstance(payload, dict):
+        raise ValueError(f"the Binance CMS response has no data: {url}")
+    return payload
+
+
+def list_catalog(
+    fetch: NoticeFetch, catalog: int, *, since_ms: int
+) -> list[dict[str, Any]]:
+    """Every article of a catalog released at or after ``since_ms`` (newest first)."""
+    found: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        url = (
+            f"{CMS_ROOT}/list/query?type=1&catalogId={catalog}"
+            f"&pageNo={page}&pageSize={NOTICE_PAGE_SIZE}"
+        )
+        catalogs = _cms_json(fetch, url).get("catalogs")
+        if not isinstance(catalogs, list) or not catalogs:
+            raise ValueError(f"catalog {catalog} page {page} has no catalog entry")
+        articles = catalogs[0].get("articles")
+        if not isinstance(articles, list):
+            raise ValueError(f"catalog {catalog} page {page} has no article list")
+        if not articles:
+            break
+        for item in articles:
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get("code"), str)
+                and isinstance(item.get("title"), str)
+                and isinstance(item.get("releaseDate"), int)
+            ):
+                raise ValueError(
+                    f"catalog {catalog} page {page} holds a malformed article"
+                )
+            found.append(item)
+        if min(int(a["releaseDate"]) for a in articles) < since_ms:
+            break
+        total = catalogs[0].get("total")
+        if isinstance(total, int) and page * NOTICE_PAGE_SIZE >= total:
+            break
+        page += 1
+    return [a for a in found if int(a["releaseDate"]) >= since_ms]
+
+
+def notice_kind(title: str) -> str | None:
+    """The kind of a notice title that may announce a perpetual's end, or ``None``.
+
+    ``delist``: a futures delisting, or a spot delisting whose body may carry the futures
+    settlement (a postponement concerns the same event); ``swap`` / ``migration`` /
+    ``rebrand``: a token swap, migration, redenomination or rename. Completion notices follow
+    the event and are skipped. Margin-, loan-, Alpha- and earn-only titles are not notices.
+    """
+    if _COMPLETED_TITLE.search(title):
+        return None
+    futures_title = bool(_FUTURES_TITLE.search(title))
+    if _DELIST_TITLE.search(title):
+        if futures_title or not _OTHER_PRODUCT_DELIST.search(title):
+            return "delist"
+        return None
+    if futures_title or not _TOKEN_EVENT_EXCLUDE.search(title):
+        if _SWAP_TITLE.search(title):
+            return "swap"
+        if _MIGRATION_TITLE.search(title):
+            return "migration"
+        if _REBRAND_TITLE.search(title):
+            return "rebrand"
+    return None
+
+
+def symbols_from_title(title: str, *, kind: str = "delist") -> list[str]:
+    """USDⓈ-M perpetual symbols named by a title (explicit ``XUSDT`` tokens first).
+
+    For a swap, migration or rename ``A to B`` only the old contract ``A`` (before the first
+    standalone ``to``) is the symbol whose archive ends.
+    """
+    if not _FUTURES_TITLE.search(title):
+        return []
+    if kind != "delist":
+        title = re.split(r"\bto\b", title, maxsplit=1, flags=re.I)[0]
+    explicit = sorted(set(_USDT_TOKEN.findall(title)))
+    if explicit:
+        return explicit
+    if _COIN_MARGINED.search(title) or not _USDM_TITLE.search(title):
+        return []
+    tail = re.split(r"delist|swap|migrat", title, maxsplit=1, flags=re.I)
+    if len(tail) < 2:
+        return []
+    words = [
+        w
+        for w in _BASE_WORD.findall(tail[1])
+        if len(w) >= 2
+        and w == w.upper()
+        and any(c.isalpha() for c in w)
+        and w not in _TITLE_STOP
+        and not w.endswith(("USD", "USDC", "USDT", "BUSD"))
+    ]
+    return [f"{base}USDT" for base in sorted(set(words))]
+
+
+def _body_lines(node: Any) -> list[str]:
+    """The text of each block of a CMS article body (a JSON tree of elements)."""
+    blocks: list[str] = []
+
+    def text(n: Any) -> str:
+        if not isinstance(n, dict):
+            return ""
+        if n.get("node") == "text":
+            return str(n.get("text", ""))
+        return "".join(text(child) for child in n.get("child", []))
+
+    def walk(n: Any) -> None:
+        if not isinstance(n, dict):
+            return
+        if n.get("tag") in ("p", "li", "td", "h1", "h2", "h3", "h4"):
+            blocks.append(text(n))
+            return
+        for child in n.get("child", []):
+            walk(child)
+
+    walk(node)
+    return blocks
+
+
+def _body_lines_of(body: str) -> list[str]:
+    try:
+        return _body_lines(json.loads(body))
+    except ValueError:
+        return []
+
+
+def title_bases(title: str) -> list[str]:
+    """Upper-case tokens of a ``Will Delist A, B and C on <date>`` title."""
+    tail = re.split(r"will delist", title, maxsplit=1, flags=re.I)[-1]
+    tail = tail.split(" on ", 1)[0]
+    words = [
+        w
+        for w in _BASE_WORD.findall(tail)
+        if w == w.upper() and any(c.isalpha() for c in w) and w not in _TITLE_BASE_STOP
+    ]
+    return sorted(set(words))
+
+
+def title_tickers(title: str) -> list[str]:
+    """Parenthesised tickers of a swap title before its first standalone ``to``."""
+    head = re.split(r"\bto\b", title, maxsplit=1, flags=re.I)[0]
+    return re.findall(r"\(([A-Z0-9]{1,15})\)", head)
+
+
+def symbols_from_body(body: str, *, title: str = "") -> list[str]:
+    """``XUSDT`` symbols a body announces for a futures delisting, suspension or settlement.
+
+    Three sources: ``Perpetual Contract`` lines naming ``XUSDT`` symbols; a ``Binance Futures
+    will close all positions / suspend trading / delist`` statement naming ``XUSDT``,
+    ``USDT-Margined X Perpetual`` or ``X/USDT futures``; and the statement about the
+    ``aforementioned token(s)`` / ``contract(s)``, which stands for the tokens of a spot
+    delisting title or the old ticker of a token-swap title.
+    """
+    found: set[str] = set()
+    for line in _body_lines_of(body):
+        if _CONTRACT_LINE.search(line):
+            found.update(_USDT_TOKEN.findall(line))
+        if re.search(r"futures", line, re.I) and _FUTURES_ACTION.search(line):
+            found.update(_USDT_TOKEN.findall(line))
+            found.update(
+                f"{base.upper()}USDT" for base in _USDT_MARGINED_BASE.findall(line)
+            )
+            found.update(
+                f"{base.upper()}USDT" for base in _SLASH_PAIR_BASE.findall(line)
+            )
+            if re.search(r"aforementioned (token|contract)", line, re.I):
+                bases = (
+                    title_bases(title)
+                    if _DELIST_TITLE.search(title)
+                    else title_tickers(title)[:1]
+                )
+                found.update(f"{base}USDT" for base in bases)
+    return sorted(s for s in found if _SYMBOL_OK.fullmatch(s))
+
+
+def fetch_article(fetch: NoticeFetch, code: str) -> dict[str, Any]:
+    payload = _cms_json(fetch, f"{CMS_ROOT}/detail/query?articleCode={code}")
+    if payload.get("code") != code or not isinstance(payload.get("title"), str):
+        raise ValueError(f"article {code}: the detail response does not match the code")
+    if not isinstance(payload.get("publishDate"), int) or not isinstance(
+        payload.get("body"), str
+    ):
+        raise ValueError(f"article {code}: the detail response is malformed")
+    return payload
+
+
+def build_notice_document(
+    fetch: NoticeFetch,
+    *,
+    catalogs: Sequence[int] = NOTICE_CATALOGS,
+    since: datetime = NOTICE_SINCE,
+    overrides: Sequence[dict[str, Any]] = (),
+    progress: Callable[[str], None] = lambda _: None,
+) -> dict[str, Any]:
+    """The canonical notice document: matched articles plus verified overrides.
+
+    Result-blind: it reads only public announcements, never a market series or a result.
+    """
+    since_ms = int(since.timestamp()) * 1000
+    entries: dict[tuple[str, str], notices.Notice] = {}
+    scanned = fetched = 0
+    seen: set[str] = set()
+    for catalog in catalogs:
+        articles = list_catalog(fetch, catalog, since_ms=since_ms)
+        progress(f"catalog {catalog}: {len(articles)} articles")
+        for article in articles:
+            code = str(article["code"])
+            if code in seen:
+                continue
+            seen.add(code)
+            scanned += 1
+            title = str(article["title"])
+            kind = notice_kind(title)
+            if kind is None:
+                continue
+            symbols = symbols_from_title(title, kind=kind)
+            if not symbols:
+                detail = fetch_article(fetch, code)
+                fetched += 1
+                symbols = symbols_from_body(str(detail["body"]), title=title)
+            for symbol in symbols:
+                entries[(symbol, code)] = notices.Notice(
+                    symbol=symbol,
+                    release_ms=int(article["releaseDate"]),
+                    article_code=code,
+                    title=title,
+                    kind=kind,
+                )
+    override_entries: list[dict[str, object]] = []
+    for item in overrides:
+        override_entries.append(_verified_override(fetch, item))
+        fetched += 1
+    ordered = sorted(
+        entries.values(), key=lambda n: (n.symbol, n.release_ms, n.article_code)
+    )
+    return {
+        "schema_version": notices.SCHEMA_VERSION,
+        "source": "binance_cms_public_article_api",
+        "catalogs": list(catalogs),
+        "since_utc": since.isoformat(),
+        "articles_scanned": scanned,
+        "details_fetched": fetched,
+        "entries": [n.to_dict() for n in ordered],
+        "overrides": sorted(
+            override_entries,
+            key=lambda o: (
+                str(o["symbol"]),
+                str(o["release_utc"]),
+                str(o["article_code"]),
+            ),
+        ),
+    }
+
+
+def _verified_override(fetch: NoticeFetch, item: dict[str, Any]) -> dict[str, object]:
+    """An override entry whose code, title and release time come from the real article."""
+    if set(item) != {"symbol", "article_code", "kind", "evidence"} or not all(
+        isinstance(v, str) and v for v in item.values()
+    ):
+        raise ValueError(
+            "an override needs exactly symbol, article_code, kind and evidence strings"
+        )
+    detail = fetch_article(fetch, item["article_code"])
+    base = item["symbol"].removesuffix("USDT")
+    haystack = str(detail["title"]) + " " + " ".join(_body_lines_of(detail["body"]))
+    if not re.search(rf"(?<![A-Za-z0-9]){re.escape(base)}(?![A-Za-z0-9])", haystack):
+        raise ValueError(
+            f"override {item['symbol']}: the article {item['article_code']} does not name it"
+        )
+    entry = notices.Notice(
+        symbol=item["symbol"],
+        release_ms=int(detail["publishDate"]),
+        article_code=item["article_code"],
+        title=str(detail["title"]),
+        kind=item["kind"],
+        override=True,
+    ).to_dict()
+    entry["evidence"] = item["evidence"]
+    return entry
+
+
+def notice_document_bytes(document: dict[str, Any]) -> bytes:
+    """Deterministic UTF-8, LF, sorted-key bytes (the recorded file the digest pins)."""
+    text = json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True)
+    return (text + "\n").encode("utf-8")
+
+
+def _notices_main(
+    args: argparse.Namespace,
+    *,
+    out: TextIO,
+    err: TextIO,
+    notice_fetch: NoticeFetch | None,
+) -> int:
+    """``notices``: record the public notice file (result-blind; network needs a flag)."""
+    try:
+        if notice_fetch is None and not args.allow_network:
+            raise ValueError("notices needs --allow-network (public CMS API, no key)")
+        if args.output.exists():
+            raise FileExistsError(f"{args.output} exists; the file is write-once")
+        overrides: list[dict[str, Any]] = []
+        if args.overrides is not None:
+            loaded = json.loads(args.overrides.read_text(encoding="utf-8"))
+            if not isinstance(loaded, list):
+                raise ValueError("--overrides must hold a JSON list")
+            overrides = loaded
+        document = build_notice_document(
+            binance_cms_fetch if notice_fetch is None else notice_fetch,
+            since=args.since,
+            overrides=overrides,
+            progress=lambda line: print(line, file=err),
+        )
+        raw = notice_document_bytes(document)
+        notices.parse_notices(
+            raw
+        )  # the reader must accept the file before it is written
+        args.output.write_bytes(raw)
+    except (ValueError, OSError) as error:
+        err.write(f"refused: {error}\n")
+        return EXIT_REFUSED
+    out.write(
+        json.dumps(
+            {
+                "output": str(args.output),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "entries": len(document["entries"]),
+                "overrides": len(document["overrides"]),
+                "articles_scanned": document["articles_scanned"],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    return EXIT_OK
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -1716,21 +2176,28 @@ def main(
     now: Clock = lambda: datetime.now(UTC),
     gh: g4.GhRunner = g4.default_gh,
     rest_fetch: RestFetch | None = None,
+    notice_fetch: NoticeFetch | None = None,
+    notice_book: notices.NoticeBook | None = None,
 ) -> int:
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     args = build_parser().parse_args(argv)
-    # This proposed study models a 42-bar public delisting notice by inspecting
-    # the eventual archive end. Without timestamped notice data that was
-    # actually available at each decision, a real OOS replay would be hindsight.
-    # Refuse all real run commands before a clock, G4, file, row or output touch;
-    # injected synthetic row factories remain available for contract tests.
+    if args.command == "notices":
+        return _notices_main(args, out=out, err=err, notice_fetch=notice_fetch)
+    # Amendment 5: a real run closes a delisted name only from recorded public notices. The
+    # notice file must verify against its pin before any clock, G4, file, row or output
+    # access; otherwise the real run is refused. Injected synthetic row factories pass their
+    # own (fake) notice book and never read a real archive.
+    book = notice_book
     if args.command == "run" and rows_factory is None:
-        err.write(
-            "refused: hindsight delisting notices have no verified point-in-time "
-            "publication evidence; no real economic run is authorized\n"
-        )
-        return EXIT_REFUSED
+        try:
+            book = notices.load_notices(args.delisting_notices)
+        except (ValueError, OSError) as error:
+            err.write(
+                "refused: hindsight delisting forced closes are not authorized without "
+                f"the pinned public notice file ({error}); no real economic run\n"
+            )
+            return EXIT_REFUSED
     moment = now()
     if args.command == "plan":
         try:
@@ -1768,6 +2235,7 @@ def main(
         moment=moment,
         gh=gh,
         rest_fetch=rest_fetch,
+        book=book,
     )
 
 
@@ -1787,6 +2255,7 @@ def _run_main(
     moment: datetime,
     gh: g4.GhRunner,
     rest_fetch: RestFetch | None = None,
+    book: notices.NoticeBook | None = None,
 ) -> int:
     try:
         mode = _check_mode(args, moment)
@@ -1864,6 +2333,7 @@ def _run_main(
                 if listing_sha is None
                 else {"symbol_file_sha256": listing_sha, "symbols": len(symbols)}
             ),
+            notice_book=book,
         )
         data.validate_stage_dataset(stage, window)
         # re-fetch immediately before the run: an edited comment authorizes nothing
@@ -1942,6 +2412,10 @@ def _run_main(
                 "forward_fill": False,
                 "rest_fallback": False,
                 "unusable_daily_archives": unusable,
+            },
+            "delisting_notices": {
+                "sha256": protocol.DELISTING_NOTICES_SHA256,
+                "events": [dict(item) for item in stage.notice_evidence],
             },
             "declared_halts": {
                 "intervals": [list(pair) for pair in protocol.DECLARED_HALTS],

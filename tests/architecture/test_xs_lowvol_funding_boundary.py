@@ -17,6 +17,7 @@ MODULES = {
     "__init__.py",
     "protocol.py",
     "universe.py",
+    "notices.py",
     "policy.py",
     "data.py",
     "decision.py",

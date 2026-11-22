@@ -104,13 +104,21 @@ def test_xs_cash_fee_accounting_checks_interval_cost_continuity() -> None:
 
 
 LAST_ROW = 470  # AAA's last available bar when it is delisted in the fixtures
+NOTICE_LEAD = 42  # bars between the notice's first forced row and the last bar
+NOTICE_ROW = LAST_ROW - NOTICE_LEAD  # 428: the first forced decision row
+
+
+def _notice_book(row: int = NOTICE_ROW) -> Any:
+    """A notice released exactly at the open of ``row`` (that row is the first forced)."""
+    return fx.book(("AAAUSDT", fx.close_of(row - 1)))
 
 
 def _delisted(**extra: object) -> data.StageData:
     return fx.stage(
         overrides={
             "AAAUSDT": {"last_hour": fx.last_hour_of_row(fx.WINDOW, LAST_ROW), **extra}
-        }
+        },
+        notice_book=_notice_book(),
     )
 
 
@@ -162,6 +170,7 @@ def _cell(
         scenario=protocol.BASE_SCENARIO,
         result=result,
         dataset=stage_data.dataset,
+        forced=stage_data.forced,
         causality_passed=True,
         probe_key="probe",
         policy_statistics={},
@@ -180,14 +189,12 @@ def _interval(result: SharedCashPortfolioReplayResult, next_index: int) -> Any:
 # ========================================================================= forced close
 
 
-def test_the_forced_close_starts_42_bars_before_the_last_bar_and_charges_five_percent() -> (
-    None
-):
+def test_the_forced_close_starts_at_the_notice_bar_and_charges_five_percent() -> None:
     stage_data = _delisted()
     result = _replay(stage_data)
     dataset = stage_data.dataset
     leg = dataset.symbols.index("AAAUSDT")
-    start = LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS  # 428
+    start = NOTICE_ROW  # 428
     # held long (bought at the weekly decision of row 419) until the announcement window
     held = _interval(result, start)
     assert Fraction(held.exact_quantities_after[leg]) > 0
@@ -213,7 +220,7 @@ def test_the_forced_close_starts_42_bars_before_the_last_bar_and_charges_five_pe
     assert result.book.quantities[leg] == 0.0
     # the engine already charged the scenario cost on that fill; the harness adds exactly 5%
     assert closing.interval_cost > 0.0001 * notional
-    events = runner.forced_closes(result, dataset)
+    events = runner.forced_closes(result, dataset, stage_data.forced)
     assert [(e.leg, e.last_bar) for e in events] == [("AAAUSDT", LAST_ROW)]
     assert events[0].fills == ((start + 1, pytest.approx(notional)),)
     assert events[0].fill_charge == pytest.approx(0.05 * notional)
@@ -239,7 +246,7 @@ def test_the_forced_close_charge_is_a_cash_debit_on_the_equity_path_from_the_fil
     raw = protocol.INITIAL_CAPITAL * np.cumprod(
         1.0 + np.asarray(result.returns.values, dtype=np.float64)
     )
-    fill_bar = LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS + 1
+    fill_bar = NOTICE_ROW + 1
     fill_position = fill_bar - fx.WINDOW.first_decision_index - 1
     ledger_ends = [iv.next_index for iv in result.ledger_evidence.intervals.intervals]  # type: ignore[union-attr]
     assert ledger_ends[fill_position] == fill_bar
@@ -257,14 +264,15 @@ def test_an_unclosed_position_at_the_last_bar_refuses_the_run_naming_the_symbol(
     # ~4 USDT), so the position is still held at its last available bar. The protocol has no
     # write-off branch (and the shared replay cannot continue past an engine settlement),
     # so the run refuses.
-    thin_from = (LAST_ROW - protocol.FORCED_CLOSE_LEAD_BARS) * protocol.BAR_HOURS
+    thin_from = NOTICE_ROW * protocol.BAR_HOURS
     stage_data = fx.stage(
         overrides={
             "AAAUSDT": {
                 "last_hour": fx.last_hour_of_row(fx.WINDOW, LAST_ROW),
                 "volume_from": (thin_from, 1.0),
             }
-        }
+        },
+        notice_book=_notice_book(),
     )
     with pytest.raises(runner.UnsupportedWriteOffError, match="AAAUSDT"):
         _replay(stage_data)
@@ -771,6 +779,8 @@ def test_an_unexplained_hourly_gap_makes_the_bar_unavailable_and_a_declared_halt
             static_universe=True,
             rules={"AAAUSDT": fx.LegRules(0.001, 5.0)},
             limit_close=fx.WINDOW.last_row_close,
+            # the gap that no halt explains is an event (a member leg): it needs a notice
+            notices=fx.book(("AAAUSDT", fx.close_of(98))),
         )
         active = built.dataset.resolved_array("asset_active")[100, 0]
         tradable = np.asarray(built.dataset.tradable)[100, 0]

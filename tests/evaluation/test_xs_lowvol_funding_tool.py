@@ -19,8 +19,14 @@ import numpy as np
 import pytest
 
 from tests.evaluation import test_core7_mtf_tierd as tierd_tests
+from tests.evaluation import xs_fixtures as fx
 from tools import xs_lowvol_funding as driver
-from trade_rl.evaluation.xs_lowvol_funding import data, policy, protocol, runner
+from trade_rl.evaluation.xs_lowvol_funding import (
+    data,
+    notices,
+    protocol,
+    runner,
+)
 from trade_rl.integrations.binance.carry import CarryCoverageError
 from trade_rl.integrations.market_store.contracts import (
     FundingRow,
@@ -375,10 +381,11 @@ def no_run(monkeypatch: pytest.MonkeyPatch) -> NoRun:
 
 
 @pytest.mark.parametrize("stage", protocol.STAGES)
-def test_real_economic_run_refuses_hindsight_delisting_before_any_io(
-    tmp_path: Path, stage: str
+def test_real_economic_run_refuses_unverified_notices_before_any_io(
+    tmp_path: Path, stage: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No real OOS label can be produced without point-in-time notice evidence."""
+    """No real OOS label can be produced unless the pinned notice file verifies."""
+    monkeypatch.setattr(protocol, "DELISTING_NOTICES_SHA256", "0" * 64)
     calls: list[str] = []
 
     def forbidden(name: str) -> Any:
@@ -1474,9 +1481,19 @@ def test_a_zombie_tail_is_dropped_and_the_forced_close_keys_on_the_effective_end
     active = data._aggregate_4h(leg, clock_ms=clock, grid_ms=data.BAR_MS).active
     last = int(np.flatnonzero(active)[-1])
     assert last == slot // protocol.BAR_HOURS - 1
-    forced = policy.XsInputs.forced_rows(active[:, None])[:, 0]
+    # a notice released at the open of row ``last - 42`` forces rows ``last - 42 .. last``
+    release = datetime.fromtimestamp((int(clock[last - 43]) / 1_000), tz=UTC)
+    forced_all, evidence, missing = notices.forced_schedule(
+        active[:, None],
+        np.ones_like(active[:, None]),
+        clock,
+        ("AAAUSDT",),
+        fx.book(("AAAUSDT", release)),
+    )
+    forced = forced_all[:, 0]
+    assert not missing and evidence[0]["event_row"] == last
     assert int(np.flatnonzero(forced)[-1]) == last
-    assert int(forced.sum()) == protocol.FORCED_CLOSE_LEAD_BARS + 1
+    assert int(forced.sum()) == 43
 
 
 def test_interior_zero_volume_bars_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1585,9 +1602,18 @@ def test_a_held_name_is_force_closed_at_the_start_of_a_relisting_gap(
     active = data._aggregate_4h(leg, clock_ms=clock, grid_ms=data.BAR_MS).active
     first_gap = 60 * 24 // protocol.BAR_HOURS
     assert active[first_gap - 1] and not active[first_gap]
-    forced = policy.XsInputs.forced_rows(active[:, None])[:, 0]
+    release = datetime.fromtimestamp(int(clock[first_gap - 44]) / 1_000, tz=UTC)
+    forced_all, _, missing = notices.forced_schedule(
+        active[:, None],
+        np.ones_like(active[:, None]),
+        clock,
+        ("AAAUSDT",),
+        fx.book(("AAAUSDT", release)),
+    )
+    forced = forced_all[:, 0]
+    assert not missing
     assert forced[first_gap - 1] and not forced[first_gap]
-    assert forced[first_gap - 1 - protocol.FORCED_CLOSE_LEAD_BARS]
+    assert forced[first_gap - 1 - 42] and not forced[first_gap - 2 - 42]
 
 
 def test_short_zero_volume_runs_are_kept_and_long_runs_with_funding_are_converted(

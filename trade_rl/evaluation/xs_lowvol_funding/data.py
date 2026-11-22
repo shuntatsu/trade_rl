@@ -47,6 +47,7 @@ from trade_rl.evaluation.trend_oos.data import (
     StageEmbargoError,
     latest_closed_bar,
 )
+from trade_rl.evaluation.xs_lowvol_funding import notices as notices_mod
 from trade_rl.evaluation.xs_lowvol_funding import protocol
 from trade_rl.evaluation.xs_lowvol_funding.universe import (
     MonthUniverse,
@@ -476,6 +477,11 @@ class StageData:
     member: np.ndarray
     universe: Mapping[datetime, MonthUniverse]
     static_universe: bool
+    #: ``(rows, legs)``: rows at which the leg is closed because its public notice has been
+    #: published (Amendment 5); derived once from the verified notice book
+    forced: np.ndarray
+    #: one record per perpetual event: the causal notice used and the first forced row
+    notice_evidence: tuple[Mapping[str, object], ...]
 
     def member_sha256(self) -> str:
         return hashlib.sha256(
@@ -494,12 +500,15 @@ def assemble_stage_dataset(
     limit_close: datetime,
     data_authorization_url: str | None = None,
     listing: Mapping[str, object] | None = None,
+    notices: notices_mod.NoticeBook | None = None,
 ) -> StageData:
     """Assemble the 4h, perp-only dataset of a stage from complete hourly series.
 
     ``legs`` maps each leg symbol (sorted into the dataset order) to its hourly series on
     the grid ``[load_start, limit_close)``. ``member`` is the ``(rows, legs)`` universe
     mask in the same sorted order, ``rules`` the per-symbol lot size and minimum notional.
+    ``notices`` is the verified public-notice book (none: empty); an event of a leg that was a
+    member without a causal notice refuses the assembly before any replay (Amendment 5).
     """
     names = tuple(sorted(legs))
     if not names or len(set(names)) != len(names):
@@ -570,6 +579,11 @@ def assemble_stage_dataset(
             "first_active_row": first,
             "ended_rows": [int(i) for i in ended],
         }
+    book = notices_mod.NoticeBook() if notices is None else notices
+    forced, notice_evidence, missing = notices_mod.forced_schedule(
+        active, mask, clock_ms, names, book
+    )
+    notices_mod.require_notices(missing)
     zero = np.zeros(shape)
     dataset = MarketDataset(
         dataset_id="0" * 64,
@@ -635,6 +649,8 @@ def assemble_stage_dataset(
         "mark_price_limitation": "bar_close_proxy",
         "production_eligible": False,
     }
+    if book.sha256 is not None:
+        identity["delisting_notices_sha256"] = book.sha256
     if listing is not None:
         identity["listing"] = dict(listing)
     if needs_authorization:
@@ -644,6 +660,8 @@ def assemble_stage_dataset(
         member=mask,
         universe=dict(universe),
         static_universe=static_universe,
+        forced=forced,
+        notice_evidence=tuple(notice_evidence),
     )
 
 

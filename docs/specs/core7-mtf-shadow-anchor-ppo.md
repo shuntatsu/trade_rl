@@ -71,9 +71,9 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v8.json`（v1〜v7は不変のUNREVIEWED履歴。v7はTrack Dのxa_出所保護を固定した既統合記録。v8はCore7のStudyStore書込保護・SHA証拠付き日次フォールバック・M2 FD解放を最新mainに統合したソースにのみ再ピンし、経済ルールや研究結果は変更しない）
-- Pinned Implementation Head: `b5729860453f034a421a3ede915d6547042d1661`
-- Pin lineage: v8は実在する2親GitHubソースコミット `b5729860453f034a421a3ede915d6547042d1661` を実装・プロトコルの両HEADとして固定する。従来v7 digest `bee9290269dbc1e7cdeae44aae481ae78a34532d380547ed201a346ec7b6d3df` は改変しない。Phase 0の合成ソフトウェア証拠のみで、 **UNREVIEWED / economic_execution_authorized=false**、因果性・終端ダスト・手数料・STOP・G0〜G5/G4・Pre-FS1/FS1禁輸を維持する。
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v9.json`（v1〜v8は不変のUNREVIEWED履歴。v8はStudyStoreのwrite-once保護・SHA証拠付き日次フォールバック・M2 FD解放をまとめたソース版として保持する。v9はTD8の共有失敗レシートreaderのメモリ割当だけを縮小するsource-only後継版）。
+- Pinned Implementation Head: `97cd1fd4e79a1398b25402b4283d773143b1fc6a`
+- Pin lineage: v9は公開済み[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)の正確なソースコミット `97cd1fd4e79a1398b25402b4283d773143b1fc6a` を実装・プロトコルの両HEADに固定する。直前v8のJSONとdigest `49e3743875ddb61bec595e84b36df2a132d93a35572a323645872cc9806a22ca`、さらにv1〜v7履歴を**変更しない**。v9は現在の共有ソース閉包に含まれるTD8 readerの `read(before.st_size + 1)`（既存64/512MiB budget、追記/切詰め検知、厳密digestは維持）を固定するだけで、**Core7 v4の経済ルール・試行結果・判断ラベルは変更しない**。G0–G2独立レビューの未実施状態を `UNREVIEWED / economic_execution_authorized=false` として維持し、実市場データ研究・G4・Pre-FS1/FS1禁輸・G5・実注文を解禁しない。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `49e3743875ddb61bec595e84b36df2a132d93a35572a323645872cc9806a22ca`
+- Pinned Packet Digest: `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`

@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol was written before any bar, funding event or metric at or after 2026-08-01 was read for this signal.
 
-Protocol digest: `8d559a2aaa2831001daa0930191e47b9301ae4d7e1e9623a308cd8bfe6fe2b49`
+Protocol digest: `dacd5039d7cd7271a98467e0f27e5fd62d0303b7eee43aa51687b48a75851204`
 
 ## Question
 
@@ -40,12 +40,13 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - Decisions are made every 6 bars (24 h) from 2026-08-01T00:00Z.
   - Between decisions the book is held.
   - The lab's deadband applies.
-- **Gross cap:** after synthesis, the decision target is scaled proportionally so that spot gross plus perp gross is at most 1.0. The cap applies to decision targets only. Between decisions the held weights drift with prices and a halted leg keeps its weight, so the executed gross may exceed 1.0 without any trade. The executed gross is recorded per cell as `max_executed_gross`, as reported data only.
+- **Gross cap:** after synthesis, the decision target is scaled proportionally so that spot gross plus perp gross is at most 1.0. The cap applies to decision targets only. Between decisions the held weights drift with prices and a halted leg keeps its weight, so the executed gross may exceed 1.0 without any trade (about 1.18 at most on known-used data). The executed gross is recorded per cell as `max_executed_gross`, as reported data only.
 - **Execution:** the lab's `execute_hybrid_step` (two legs, exact conservation, linear cost plus `IMPACT_QUAD = 0.002` on weight changes, realized funding).
   - The lab has no participation cap.
   - The universe is 11 majors and the intended capital is small (≤ $100k), so the cap is disclosed and not modelled.
-  - A decision target with gross ≤ 1.0 needs no financing. Drift between decisions is small and is not modelled as financing.
+  - No financing arises because the cash-account need stays at or below equity. The need is spot long notional plus `CASH_IM_RATE` × perp gross, with `CASH_IM_RATE = 0.4` (the engine's 1 / max_leverage, as in `agy_anchor_realistic_v1` Amendment 1). Its measured maximum on known-used data (2023-01 to 2026-07, lag 1, 6 bp, capped) is 0.65, with a maximum spot long of 0.32 and a maximum absolute net of 0.054. This is enforced as an invalidity rule, not assumed.
 - No constant of the lab changes.
+- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` stay unshifted, as in the lab. They are listing and eligibility masks known at the bar open.
 
 ## Data
 
@@ -53,7 +54,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - the local market store (`trade-rl-market-store-postgres-1`) for 1h/15m klines and funding;
   - Binance Vision daily `metrics` archives;
   - Hyperliquid `fundingHistory`.
-- **Window extension:** the only change to the lab is its embargo. For a stage, the harness copies the snapshot and replaces five literal forms of the 2026-08-01 embargo with the stage's data end:
+- **Window extension:** the only change to the lab code is its embargo; the only data substitution is the frozen metrics splice below. For a stage, the harness copies the snapshot and replaces five literal forms of the 2026-08-01 embargo with the stage's data end:
   - the SQL bound;
   - the two `datetime(2026, 8, 1, …)` constants;
   - the metrics last day;
@@ -68,7 +69,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 
   A mismatch refuses the run and writes `parity-refusal.json`. A refusal is not a result.
 - **Loop oracle:** before the out-of-sample replay, both arms at lag 1 and 6 bp are replayed uncapped over the known-used window from 2023-01-01 to the last pre-embargo row by the harness loop (`replay_cell`) and by the lab's own `eval_r17_4h`. The final equities must agree to a relative 1e-9, or the run refuses. Both values are recorded.
-- **Unused lab import:** the lab imports `trade_rl/risk/pretrade.py` from `C:\dev\trade_rl-core7-mtf-ppo`. This arm does not use it. `result.json` records its sha256, or `null` if it is absent.
+- **Unused lab import:** the lab imports `trade_rl.risk.pretrade`, which this arm does not use. `result.json` records the path and sha256 of the module as importable under the run interpreter (`importlib.util.find_spec`), or `null` if it is absent.
 - **Market store coverage:** funding in the market store currently ends at 2026-09-30T16:00Z, so INTERIM_A ends at 2026-09-30T00:00Z. Later stages need the store to be extended first, by its own ingestion and not by this protocol.
 
 ## Stages
@@ -78,7 +79,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 | INTERIM_A | 2026-09-30T00:00Z | 2026-11-22 | interim with early stop; never a decision |
 | FINAL | 2027-05-01T00:00Z | 2027-05-02 | decisive, once |
 
-- FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment.
+- FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment. It also requires `<ledger>/INTERIM_A.claim` to exist and to record the same digest.
 - Each stage can be claimed once: before computing anything, `run` creates `C:\trade_rl_runs\agy_clean_all_forward_ledger\<stage>.claim` by exclusive create, holding the digest, commit, G4 comment id and time. It refuses if the file exists. This is local single-use enforcement on this host, not a remote lock. A refusal after the claim also consumes it, and needs an amendment.
 
 - Each stage starts flat at 2026-08-01T00:00Z.
@@ -101,9 +102,10 @@ A cell is invalid if, at any bar, any of the following holds:
 - a target is not finite;
 - the conservation error exceeds 1e-9;
 - equity is not positive;
-- a capped decision target has gross above 1.0 + 1e-9.
+- a capped decision target has gross above 1.0 + 1e-9 (a defensive guard: proportional scaling cannot violate it, so its test injects the value);
+- `cash_account_need_above_equity`: the executed vector (`ws_e`, `wp_e`) or the post-return vector (`ws_n`, `wp_n`) has `sum(max(ws, 0)) + CASH_IM_RATE × sum(|wp|)` above 1.0 + 1e-9.
 
-Executed gross never invalidates a cell.
+Executed gross itself never invalidates a cell. `max_executed_gross`, `max_cash_need` and `max_abs_net` are recorded per cell.
 
 ## Decision rule (frozen)
 
@@ -131,6 +133,7 @@ If all cells are valid but a condition fails, the label is `CLEAN_ALL_FORWARD_NO
 - Each stage also needs its own G4 relay on Issue #810 quoting this protocol id, the digest and the exact 40-hex code commit.
 - The commit is `git rev-parse HEAD` of the harness repository. `build` and `run` refuse if tracked files are modified.
 - `build` and `run` first enforce `not_before`, verify the snapshot, the prepare receipt (digest, stage) and the per-file sha256 of the patched `work/lab`, then fetch both comments twice. The comment URL must be exactly an Issue #810 comment, and the fetched comments must belong to Issue #810, be owner-authored and be unedited between the fetches. Only then is data fetched or read. Body hashes and the commit go into `result.json`.
+- `build` is once-only: it refuses if `build-receipt.json` exists, before running any script. `run` requires the build receipt and the same sha256 for every `work/lab/cache/*.npz`, and records the cache digests in `result.json`.
 - Outputs are write-once.
 
 ## Stop rule
@@ -151,3 +154,15 @@ This protocol was revised after independent review 6011046246 (BLOCKED), before 
 - The protocol digest binds this spec text (the `Protocol digest:` line excluded).
 - Stated: Sharpe convention, the gating cells for the drawdown conditions, the unused `pretrade.py` import.
 - Frozen metrics splice: a result-blind dry run on known-used pre-2026-08 data rebuilt the lab caches from today's sources. The 4h base, Hyperliquid, 1h micro, 1h bars and 15m micro caches were identical to agy's. `binance_metrics_4h` was not: for all 11 symbols, rows 7182 to 7349 (bars 2024-04-12T00Z to 2024-05-09T20Z) differ slightly in `oi_value`, `top_ls_pos`, `top_ls_cnt`, `global_ls_cnt` and `taker_ls_vol`. `metrics_valid` and `ls_valid` and the neighbouring rows are identical, so the differences are row-local. Binance Vision appears to have republished those daily files after agy fetched them on 2026-11-19. Agy's original cache joined the snapshot (frozen cache manifest digest `d07130ae…749ef7`), and `build` splices its pre-embargo rows in. This was found on known-used data only.
+
+## Amendment 2 (result-blind, before any run)
+
+This protocol was revised again after independent review 6011084200 (BLOCKED) at d300c7ec, before any stage ran and before any data at or after 2026-08-01 was read.
+
+- **B4, cash-account rule:** the capped arm drifts to an executed gross of about 1.18 on known-used data, so the premise "no financing" is now a pre-registered hard check. `CASH_IM_RATE = 0.4`. A cell is INVALID with reason `cash_account_need_above_equity` if, at any bar, the executed or the post-return vector needs more than equity (see Cells). The measured need on known-used data is 0.65 (CLEAN_ALL_175 0.652, ANC_BIDIR 0.650), so no borrowing arises there. `max_cash_need` and `max_abs_net` are reported per cell.
+- The Data section now says the only code change is the embargo and the only data substitution is the metrics splice.
+- `build` is once-only. `run` verifies the cache hashes against the build receipt and records them.
+- `result.json` records the `trade_rl.risk.pretrade` module actually importable under the run interpreter.
+- FINAL also requires the local INTERIM_A ledger claim with the same digest.
+- The lag note on `perp_mask` and `carry_mask` was added to the Signal section.
+- The post-cap target-gross check is kept as a defensive guard and described as such.

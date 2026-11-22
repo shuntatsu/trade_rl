@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -94,8 +95,6 @@ CELLS: dict[str, tuple[str, float, int, bool]] = {
 LEDGER_DIR = Path(r"C:\trade_rl_runs\agy_clean_all_forward_ledger")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_RELPATH = "docs/specs/agy-clean-all-forward.md"
-# Imported by the lab (run_round17_breakthrough_gpu.py) but unused by this arm; hash recorded only.
-PRETRADE_PATH = Path(r"C:\dev\trade_rl-core7-mtf-ppo\trade_rl\risk\pretrade.py")
 
 ORACLE_START = datetime(2023, 1, 1, tzinfo=UTC)
 ORACLE_RTOL = 1e-9
@@ -120,6 +119,8 @@ MAX_DD_LIMIT = 0.20
 EARLY_STOP_RETURN = -0.08
 PARITY_ATOL = 1e-12
 CONSERVATION_TOL = 1e-9
+# Initial-margin rate of the engine (1 / max_leverage), as in agy_anchor_realistic_v1 Amendment 1.
+CASH_IM_RATE = 0.4
 
 OWNER_LOGIN = "shuntatsu"
 REPO = "shuntatsu/trade_rl"
@@ -173,6 +174,7 @@ def _constants() -> dict[str, Any]:
         "data_scope_comment": DATA_SCOPE_COMMENT_ID,
         "oracle_start": ORACLE_START.isoformat(),
         "oracle_rtol": ORACLE_RTOL,
+        "cash_im_rate": CASH_IM_RATE,
         "required_pack10": list(REQUIRED_PACK10),
         "required_pack17": list(REQUIRED_PACK17),
         "required_econ": list(REQUIRED_ECON),
@@ -384,7 +386,16 @@ def claim_stage(
 
 
 def check_interim_result(path: Path, digest: str) -> dict[str, Any]:
-    """FINAL needs an INTERIM_A result of this protocol whose label is INTERIM_NOT_A_DECISION."""
+    """FINAL needs an INTERIM_A result of this protocol whose label is INTERIM_NOT_A_DECISION
+    and a local INTERIM_A ledger claim recording the same digest."""
+    claim_path = LEDGER_DIR / "INTERIM_A.claim"
+    if not claim_path.is_file():
+        raise SystemExit(f"no INTERIM_A ledger claim: {claim_path}")
+    if (
+        json.loads(claim_path.read_text(encoding="utf-8")).get("protocol_digest")
+        != digest
+    ):
+        raise SystemExit("INTERIM_A ledger claim has another protocol digest")
     obj = json.loads(path.read_text(encoding="utf-8"))
     if obj.get("protocol_digest") != digest:
         raise SystemExit("interim result has another protocol digest")
@@ -464,6 +475,11 @@ def cap_gross(ws: Any, wp: Any, cap: float = GROSS_CAP) -> tuple[Any, Any, bool]
     return ws, wp, False
 
 
+def cash_need(ws: Any, wp: Any) -> float:
+    """Cash-account need as a fraction of equity: spot long notional + IM rate x perp gross."""
+    return float(np.maximum(ws, 0.0).sum() + CASH_IM_RATE * np.abs(wp).sum())
+
+
 def replay_cell(
     *,
     he: Any,
@@ -491,7 +507,7 @@ def replay_cell(
     ws, wp, eq = np.zeros(n), np.zeros(n), 1.0
     lrs: list[float] = []
     valid, reasons = True, []
-    max_err = turn = cost_sum = max_exec_gross = 0.0
+    max_err = turn = cost_sum = max_exec_gross = max_cash = max_net = 0.0
     capped = decisions = 0
     for i in range(stop - start):
         k = start + i
@@ -535,6 +551,15 @@ def replay_cell(
         max_exec_gross = max(
             max_exec_gross, float(np.abs(ws_e).sum() + np.abs(wp_e).sum())
         )
+        for sv, pv in ((ws_e, wp_e), (ws_n, wp_n)):
+            need = cash_need(sv, pv)
+            max_cash = max(max_cash, need)
+            max_net = max(max_net, abs(float(np.sum(sv) + np.sum(pv))))
+            if need > 1.0 + 1e-9 and not any(
+                r.startswith("cash_account_need_above_equity") for r in reasons
+            ):
+                valid = False
+                reasons.append(f"cash_account_need_above_equity@{k}")
         lrs.append(math.log(max(eq_n, 1e-12) / eq))
         turn += float(t)
         cost_sum += float(c)
@@ -550,6 +575,8 @@ def replay_cell(
             "cap_bound_decisions": capped,
             "decisions": decisions,
             "max_executed_gross": max_exec_gross,
+            "max_cash_need": max_cash,
+            "max_abs_net": max_net,
             "final_equity": eq,
             "arm": arm,
             "one_way_cost": cost,
@@ -729,8 +756,10 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
 def cmd_build(
     args: argparse.Namespace,
 ) -> None:  # pragma: no cover - needs the lab and network
-    pre = _preflight(args)
     work, snapshot = Path(args.work), Path(args.snapshot)
+    if (work / "build-receipt.json").exists():
+        raise SystemExit("build is once-only: build-receipt.json already exists")
+    pre = _preflight(args)
     for script in BUILD_SCRIPTS:
         print(f"[build] {script}", flush=True)
         subprocess.run(
@@ -765,6 +794,17 @@ def _write_once(path: Path, obj: dict[str, Any]) -> None:
     path.write_text(json.dumps(obj, indent=1, sort_keys=True), encoding="utf-8")
 
 
+def _importable_pretrade() -> tuple[str | None, str | None]:
+    """Path and sha256 of ``trade_rl.risk.pretrade`` as importable under this interpreter."""
+    try:
+        spec = importlib.util.find_spec("trade_rl.risk.pretrade")
+    except (ImportError, ValueError):
+        return None, None
+    if spec is None or not spec.origin or not Path(spec.origin).is_file():
+        return None, None
+    return spec.origin, sha256_file(Path(spec.origin))
+
+
 def cmd_run(
     args: argparse.Namespace,
 ) -> None:  # pragma: no cover - needs the lab and its data
@@ -782,11 +822,20 @@ def cmd_run(
         check_interim_result(Path(args.interim_result), digest) if stage.final else None
     )
     work, snapshot = Path(args.work), Path(args.snapshot)
+    build_receipt_path = work / "build-receipt.json"
+    if not build_receipt_path.is_file():
+        raise SystemExit("build-receipt.json is missing; run build first")
+    build_receipt = json.loads(build_receipt_path.read_text(encoding="utf-8"))
+    cache_files = manifest(work / "lab" / "cache", "*.npz")
+    if cache_files != build_receipt["raw_caches"]:
+        raise SystemExit("work/lab/cache differs from the build receipt")
     claim = claim_stage(stage.name, digest, commit, auth["g4_relay"]["comment_id"], now)
 
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(work / "lab"))
     import run_round17_breakthrough_gpu as r17  # type: ignore[import-not-found]
+
+    pretrade = _importable_pretrade()
 
     he, r3c, r10f, r17f, r15g, r12g = (
         r17.he,
@@ -927,9 +976,11 @@ def cmd_run(
         "authorization": auth,
         "interim_result": interim,
         "claim": str(claim),
-        "pretrade_py_sha256": (
-            sha256_file(PRETRADE_PATH) if PRETRADE_PATH.is_file() else None
-        ),
+        "pretrade_py_path": pretrade[0],
+        "pretrade_py_sha256": pretrade[1],
+        "build_receipt_sha256": sha256_file(build_receipt_path),
+        "cache_files": cache_files,
+        "cache_manifest_digest": manifest_digest(cache_files),
         "window": [OOS_START.isoformat(), stage.data_end.isoformat()],
         "bars": stop - start,
         "parity_worst": worst,

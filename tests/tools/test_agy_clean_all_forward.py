@@ -14,7 +14,7 @@ import pytest
 
 from tools import agy_clean_all_forward as fwd
 
-PINNED_DIGEST = "8d559a2aaa2831001daa0930191e47b9301ae4d7e1e9623a308cd8bfe6fe2b49"
+PINNED_DIGEST = "dacd5039d7cd7271a98467e0f27e5fd62d0303b7eee43aa51687b48a75851204"
 
 
 def test_protocol_digest_is_pinned() -> None:
@@ -331,7 +331,14 @@ def _interim(tmp_path: Path, **over: Any) -> Path:
     return path
 
 
-def test_check_interim_result(tmp_path: Path) -> None:
+def test_check_interim_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fwd, "LEDGER_DIR", tmp_path / "ledger")
+    with pytest.raises(SystemExit, match="no INTERIM_A ledger claim"):
+        fwd.check_interim_result(_interim(tmp_path), "dig")
+    fwd.claim_stage("INTERIM_A", "other", COMMIT, 1, datetime(2026, 11, 22, tzinfo=UTC))
+    with pytest.raises(SystemExit, match="ledger claim has another"):
+        fwd.check_interim_result(_interim(tmp_path), "dig")
+    (tmp_path / "ledger" / "INTERIM_A.claim").write_text('{"protocol_digest": "dig"}')
     rec = fwd.check_interim_result(_interim(tmp_path), "dig")
     assert rec["label"] == "INTERIM_NOT_A_DECISION" and len(rec["sha256"]) == 64
     for over, match in (
@@ -381,7 +388,9 @@ class _Pack:
         self.funding_realized = np.zeros((t, n))
 
 
-def _fake_lab(target: float, db: float = 0.05) -> tuple[dict[str, Any], dict[str, Any]]:
+def _fake_lab(
+    target: float, db: float = 0.05, perp: float = 0.0
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Fake lab: target spot weight ``target`` on symbol 0, no costs, drifting books."""
     log: dict[str, Any] = {"synth_k": [], "calls": []}
 
@@ -397,7 +406,9 @@ def _fake_lab(target: float, db: float = 0.05) -> tuple[dict[str, Any], dict[str
         log["synth_k"].append(k)
         ws = np.zeros(len(p10.symbols))
         ws[0] = target
-        return ws, np.zeros(len(p10.symbols))
+        wp = np.zeros(len(p10.symbols))
+        wp[0] = perp
+        return ws, wp
 
     he = types.SimpleNamespace(execute_hybrid_step=execute_hybrid_step)
     r3c = types.SimpleNamespace(IMPACT_QUAD=0.002)
@@ -430,7 +441,7 @@ def _replay(
 
 def test_replay_cell_stride_hold_and_cap() -> None:
     lab, log = _fake_lab(target=3.0)
-    st = _replay(lab, cap=1.0)
+    st = _replay(lab, cap=1.0, ret=0.0)
     assert log["synth_k"] == [3, 9, 15]
     assert st["decisions"] == 3 and st["cap_bound_decisions"] == 3
     calls = log["calls"]
@@ -449,11 +460,12 @@ def test_replay_cell_uncapped_keeps_target() -> None:
     lab, log = _fake_lab(target=3.0)
     st = _replay(lab, cap=None)
     assert np.isclose(log["calls"][0]["w_spot_target"][0], 3.0)
-    assert st["cap_bound_decisions"] == 0 and st["valid"]
+    assert st["cap_bound_decisions"] == 0
+    assert not any(r.startswith("target_gross") for r in st["invalid_reasons"])
 
 
 def test_replay_cell_reports_executed_gross_drift_without_invalidating() -> None:
-    lab, _ = _fake_lab(target=1.0)
+    lab, _ = _fake_lab(target=0.5, perp=-0.5)  # gross 1.0, cash need 0.7
     st = _replay(lab, cap=1.0, ret=0.02)
     assert st["max_executed_gross"] > 1.0 + 1e-6
     assert st["valid"] and st["invalid_reasons"] == []
@@ -612,3 +624,81 @@ def test_final_requires_interim_result_and_interim_refuses_it(tmp_path: Path) ->
 def test_build_requires_gate_arguments() -> None:
     with pytest.raises(SystemExit):
         fwd.main(["build", "--work", "w"])
+
+
+def test_cash_need_formula() -> None:
+    ws, wp = np.array([0.3, -0.2]), np.array([-0.5, 0.25])
+    assert np.isclose(fwd.cash_need(ws, wp), 0.3 + 0.4 * 0.75)
+    assert fwd.CASH_IM_RATE == 0.4
+
+
+def test_replay_cell_reports_cash_need_and_net() -> None:
+    lab, _ = _fake_lab(target=0.5)
+    st = _replay(lab, cap=1.0)
+    assert 0.5 <= st["max_cash_need"] <= 1.0
+    assert st["max_abs_net"] >= 0.5
+    assert st["valid"]
+
+
+def test_replay_cell_cash_need_above_equity_is_invalid_on_executed_book() -> None:
+    lab, _ = _fake_lab(target=1.2)  # spot long 1.2 > equity, uncapped fake target
+    st = _replay(lab, cap=None)
+    assert not st["valid"]
+    assert any(
+        r.startswith("cash_account_need_above_equity@") for r in st["invalid_reasons"]
+    )
+    assert st["max_cash_need"] > 1.0
+
+
+def test_replay_cell_cash_need_checks_post_return_book() -> None:
+    # executed book 0.99 passes; the post-return book 0.99 * 1.05 > 1 must invalidate.
+    lab, _ = _fake_lab(target=0.99)
+    st = _replay(lab, cap=1.0, ret=0.05)
+    assert not st["valid"]
+    assert st["max_cash_need"] > 1.0 + 1e-9
+
+
+def test_replay_cell_perp_gross_is_charged_at_im_rate() -> None:
+    lab, log = _fake_lab(target=0.0)
+    orig = lab["r17"].synthesize_r17_np
+
+    def synth(p10: Any, k: int, *a: Any) -> Any:
+        ws, wp = orig(p10, k, *a)
+        wp = wp.copy()
+        wp[0], wp[1] = 1.2, -1.2  # perp gross 2.4 -> need 0.96 <= 1
+        return ws, wp
+
+    lab["r17"].synthesize_r17_np = synth
+    st = _replay(lab, cap=None, ret=0.0)
+    assert np.isclose(st["max_cash_need"], 0.96)
+    assert st["valid"]
+
+
+def test_build_is_once_only(tmp_path: Path) -> None:
+    (tmp_path / "build-receipt.json").write_text("{}")
+    with pytest.raises(SystemExit, match="once-only"):
+        fwd.main(
+            ["build", "--work", str(tmp_path), "--stage", "INTERIM_A"]
+            + ["--snapshot", str(tmp_path), "--authorization-url", "u"]
+        )
+
+
+def test_importable_pretrade_provenance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    f = tmp_path / "pretrade.py"
+    f.write_text("x = 1\n")
+    monkeypatch.setattr(
+        fwd.importlib.util,
+        "find_spec",
+        lambda name: types.SimpleNamespace(origin=str(f)),
+    )
+    assert fwd._importable_pretrade() == (str(f), fwd.sha256_file(f))
+    monkeypatch.setattr(fwd.importlib.util, "find_spec", lambda name: None)
+    assert fwd._importable_pretrade() == (None, None)
+
+    def boom(name: str) -> Any:
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr(fwd.importlib.util, "find_spec", boom)
+    assert fwd._importable_pretrade() == (None, None)

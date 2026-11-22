@@ -49,6 +49,48 @@ terminal line digest and record count. This draft does not provide that external
 anchor, so a passing `verify` or deflated-Sharpe view is **not** proof that every
 attempt has been retained.
 
+## Externally pinned trial-ledger checkpoint (software verification only)
+
+The registry can **export** a terminal hash and line count from one fully
+verified, locked JSONL snapshot. Export is read-only; it does not write a
+sidecar or authenticate the exported claim:
+
+```bash
+python -m tools.learning_lab checkpoint --registry /path/to/trials.jsonl
+```
+
+The output is a JSON object with schema `learning_lab_registry_checkpoint_v1`,
+native integer `trial_count`, and lowercase SHA-256 `head_sha256` of the complete
+canonical final JSONL line (or the zero genesis hash for an empty registry).
+An authorized operator must preserve and authenticate this count/hash
+**outside the registry's writable trust domain** before relying on it.
+A manifest alongside the mutable JSONL, or one regenerated after suspected
+tampering, is not an independent source of evidence.
+
+An externally retained and independently authenticated count/hash can be
+supplied back to the read-only registry CLI:
+
+```bash
+python -m tools.learning_lab registry --registry /path/to/trials.jsonl --expected-trial-count N --expected-head-sha256 H
+```
+
+The check verifies the full canonical chain, then matches the exact count
+and final line hash **under one shared POSIX inode lock**. A missing terminal
+line, rewritten final record, or unapproved additional trial refuses without
+repairing or modifying the file. The returned records and optional
+deflated-Sharpe view come from that very same checked snapshot.
+
+To allow new trials after a pinned checkpoint, explicitly add
+`--allow-checkpoint-extensions`. It verifies the pinned hash at the saved
+index, validates the entire later chain, and includes **all** observed trials
+in the reported trial count and DSR. An empty/genesis pin cannot establish
+historical completeness. A missing, invalid or partial pair of count/hash
+parameters, or extension mode without a pin, refuses before a success view.
+
+This verifies only consistency with **a genuinely trusted external pin**.
+It cannot establish that every attempt was ever recorded, authenticate the
+person who stored the pin, prove prior PIT data, or authorize research G0–G5,
+unused/final evaluation, economic selection or live orders.
 The read-only `tools.learning_lab registry --deflated-for-last` view only
 calculates a headline deflated Sharpe if the **literal last** registered trial is
 `completed` and contains all four required moments (`sharpe_per_period`,

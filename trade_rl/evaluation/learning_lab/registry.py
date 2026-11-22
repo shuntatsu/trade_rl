@@ -35,6 +35,7 @@ except ImportError:  # Windows cannot silently bypass POSIX registry locking.
     fcntl = None  # type: ignore[assignment]
 
 SCHEMA: Final = "learning_lab_trial_v1"
+CHECKPOINT_SCHEMA: Final = "learning_lab_registry_checkpoint_v1"
 GENESIS: Final = "0" * 64
 STATUSES: Final = ("completed", "shelved", "invalid", "failed")
 SHARPE_KEY: Final = "sharpe_per_period"
@@ -45,6 +46,39 @@ _NORMAL = NormalDist()
 
 class RegistryError(ValueError):
     """The registry file or a record is inconsistent."""
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryCheckpoint:
+    """An externally retainable *claim* about one fully verified registry prefix.
+
+    The caller must authenticate and retain this tuple independently from the
+    registry. Merely producing it or storing it alongside the mutable JSONL
+    file does not prove that historical attempts are complete.
+    """
+
+    trial_count: int
+    head_sha256: str
+
+    def __post_init__(self) -> None:
+        if type(self.trial_count) is not int or self.trial_count < 0:
+            raise RegistryError("checkpoint trial_count must be a nonnegative integer")
+        if (
+            type(self.head_sha256) is not str
+            or _HEX64.fullmatch(self.head_sha256) is None
+        ):
+            raise RegistryError("checkpoint head_sha256 must be lowercase sha256")
+        if (self.trial_count == 0) != (self.head_sha256 == GENESIS):
+            raise RegistryError(
+                "checkpoint genesis requires zero trials and vice versa"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": CHECKPOINT_SCHEMA,
+            "trial_count": self.trial_count,
+            "head_sha256": self.head_sha256,
+        }
 
 
 def _check_finite_metrics(value: Any, path: str = "metrics") -> None:
@@ -271,11 +305,61 @@ class TrialRegistry:
             self._require_current_regular_file(descriptor)
             return count
 
-    def records(self) -> list[TrialRecord]:
-        """Verify and decode one consistent locked snapshot."""
+    @staticmethod
+    def _checkpoint(lines: list[bytes]) -> RegistryCheckpoint:
+        return RegistryCheckpoint(
+            trial_count=len(lines),
+            head_sha256=hashlib.sha256(lines[-1]).hexdigest() if lines else GENESIS,
+        )
+
+    def snapshot(
+        self,
+        *,
+        expected_checkpoint: RegistryCheckpoint | None = None,
+        allow_extensions: bool = False,
+    ) -> tuple[list[TrialRecord], RegistryCheckpoint]:
+        """Verify and decode one inode snapshot, optionally checking an external pin.
+
+        Exact mode refuses any changed length. Explicit extension mode accepts
+        a longer *valid chain* only when the pinned prefix ends at the same
+        digest. Neither mode authenticates the externally supplied checkpoint.
+        """
+        if expected_checkpoint is not None and not isinstance(
+            expected_checkpoint, RegistryCheckpoint
+        ):
+            raise RegistryError("expected checkpoint must be a RegistryCheckpoint")
+        if type(allow_extensions) is not bool:
+            raise RegistryError("checkpoint extension mode must be boolean")
+        if allow_extensions and expected_checkpoint is None:
+            raise RegistryError("checkpoint extensions require an expected checkpoint")
         with self._locked_descriptor(write=False) as descriptor:
             lines = [] if descriptor is None else self._verified_snapshot(descriptor)
-            return [TrialRecord.from_dict(json.loads(line)["record"]) for line in lines]
+            observed = self._checkpoint(lines)
+            if expected_checkpoint is not None:
+                count = expected_checkpoint.trial_count
+                if observed.trial_count < count or (
+                    not allow_extensions and observed.trial_count != count
+                ):
+                    raise RegistryError(
+                        "checkpoint trial count does not match registry"
+                    )
+                pinned_head = (
+                    hashlib.sha256(lines[count - 1]).hexdigest() if count else GENESIS
+                )
+                if pinned_head != expected_checkpoint.head_sha256:
+                    raise RegistryError("checkpoint head hash does not match registry")
+            records = [
+                TrialRecord.from_dict(json.loads(line)["record"]) for line in lines
+            ]
+            return records, observed
+
+    def checkpoint(self) -> RegistryCheckpoint:
+        """Export one verified prefix; its subsequent trust is out-of-band."""
+        return self.snapshot()[1]
+
+    def records(self) -> list[TrialRecord]:
+        """Verify and decode one consistent locked snapshot."""
+        return self.snapshot()[0]
 
 
 def _finite_statistic(value: object, name: str) -> float:
@@ -396,8 +480,10 @@ def registry_deflated_sharpe(
 
 
 __all__ = [
+    "CHECKPOINT_SCHEMA",
     "GENESIS",
     "SCHEMA",
+    "RegistryCheckpoint",
     "SHARPE_KEY",
     "STATUSES",
     "RegistryError",

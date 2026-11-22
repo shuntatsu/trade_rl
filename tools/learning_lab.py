@@ -3,7 +3,9 @@
 ``python -m tools.learning_lab plan [--methods ...] [--seeds 0 1 2 3 4]``
 ``python -m tools.learning_lab train --method L1-PPO --seed 0 --registry R --output-dir D``
 ``python -m tools.learning_lab evaluate --method L1-PPO --seed 0 --split validate ...``
+``python -m tools.learning_lab checkpoint --registry R``
 ``python -m tools.learning_lab registry --registry R [--deflated-for-last]``
+``python -m tools.learning_lab registry --registry R --expected-trial-count N --expected-head-sha256 H``
 
 ``plan`` and ``registry`` read no data. ``train`` and ``evaluate`` default to ``--data
 synthetic`` (a seeded generator; nothing is read or fetched). ``--data real`` is refused
@@ -29,7 +31,7 @@ from tools import core7_mtf_tierd as tierd_driver
 from trade_rl.evaluation.agy_anchor_oos import protocol as anchor_protocol
 from trade_rl.evaluation.core7_mtf_study import protocol as core7_protocol
 from trade_rl.evaluation.learning_lab import agents, runner, splits
-from trade_rl.evaluation.learning_lab.registry import TrialRegistry
+from trade_rl.evaluation.learning_lab.registry import RegistryCheckpoint, TrialRegistry
 from trade_rl.evaluation.learning_lab.synthetic import synthetic_stage
 
 EXIT_OK = 0
@@ -99,12 +101,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="directory of the registered checkpoint (learned methods)",
     )
 
+    checkpoint = commands.add_parser(
+        "checkpoint", help="print a verified head/count for independent storage"
+    )
+    checkpoint.add_argument("--registry", type=Path, required=True)
+
     registry = commands.add_parser("registry", help="verify and summarize the registry")
     registry.add_argument("--registry", type=Path, required=True)
     registry.add_argument(
         "--deflated-for-last",
         action="store_true",
         help="deflated Sharpe of the last record against every trial",
+    )
+    registry.add_argument(
+        "--expected-trial-count",
+        type=int,
+        default=None,
+        help="authenticated external checkpoint count; requires head sha256",
+    )
+    registry.add_argument(
+        "--expected-head-sha256",
+        default=None,
+        help="authenticated external checkpoint terminal line SHA-256; requires count",
+    )
+    registry.add_argument(
+        "--allow-checkpoint-extensions",
+        action="store_true",
+        help="permit later appended trials if the pinned prefix is identical",
     )
     return parser
 
@@ -271,15 +294,47 @@ def main(
         }
         out.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
         return EXIT_OK
+    if args.command == "checkpoint":
+        try:
+            checkpoint = TrialRegistry(args.registry).checkpoint()
+        except ValueError as error:
+            err.write(f"refused: {error}\n")
+            return EXIT_REFUSED
+        out.write(json.dumps(checkpoint.to_dict(), indent=2, sort_keys=True) + "\n")
+        return EXIT_OK
     if args.command == "registry":
         registry = TrialRegistry(args.registry)
         try:
-            records = registry.records()
+            supplied_count = args.expected_trial_count is not None
+            supplied_hash = args.expected_head_sha256 is not None
+            if supplied_count != supplied_hash:
+                raise ValueError(
+                    "checkpoint needs both expected count and head SHA-256"
+                )
+            if args.allow_checkpoint_extensions and not supplied_count:
+                raise ValueError("checkpoint extensions need an external checkpoint")
+            expected = (
+                RegistryCheckpoint(
+                    trial_count=args.expected_trial_count,
+                    head_sha256=args.expected_head_sha256,
+                )
+                if supplied_count
+                else None
+            )
+            if expected is None:
+                records = registry.records()
+            else:
+                records, _ = registry.snapshot(
+                    expected_checkpoint=expected,
+                    allow_extensions=args.allow_checkpoint_extensions,
+                )
             document = {
                 "trials": len(records),
                 "chain_verified": True,
                 "records": [r.to_dict() for r in records],
             }
+            if expected is not None:
+                document["checkpoint_verified"] = True
             if args.deflated_for_last and records:
                 document["deflated_sharpe"] = runner.deflated_for(records)
         except ValueError as error:

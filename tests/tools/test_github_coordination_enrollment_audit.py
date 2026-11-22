@@ -189,10 +189,25 @@ def test_binds_stable_issue_main_branch_and_registry_without_authority() -> None
 def test_existing_task_phase_update_preserves_other_registry_entries() -> None:
     _, _, status = inputs()
     prior = EnrollmentProjection(REPO, ISSUE, "I_issue", status)
-    api = FakeGitHub(CoordinatorRegistry(REPO, (prior,)))
-    observation = audit(api, status=replace(status, phase=TaskPhase.REVIEW))
+    # Unrelated task must retain its exact issue, digest, phase and lease fence.
+    unrelated_status = replace(
+        status,
+        task_id="T1067-02",
+        task_contract_digest="e" * 64,
+        lease_branch=lease_branch_name("T1067-02", 1, "worker-a"),
+    )
+    unrelated = EnrollmentProjection(REPO, ISSUE + 1, "I_unrelated", unrelated_status)
+    api = FakeGitHub(CoordinatorRegistry(REPO, (unrelated, prior)))
+    updated = replace(status, phase=TaskPhase.REVIEW)
+
+    observation = audit(api, status=updated)
+
     assert observation.plan.operation == "update"
-    assert observation.plan.after_registry.entries[0].status.phase == TaskPhase.REVIEW
+    assert observation.plan.after_registry.entries == (
+        EnrollmentProjection(REPO, ISSUE, "I_issue", updated),
+        unrelated,
+    )
+    assert observation.plan.after_registry.digest() == observation.plan.after_digest
     assert observation.plan.cleanup_authorized is False
 
 
@@ -307,3 +322,4 @@ def test_invalid_task_mode_or_time_is_not_enrollment() -> None:
             ),
         )
     assert all(method == "GET" for method, _ in api.calls)
+

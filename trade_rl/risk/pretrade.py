@@ -17,6 +17,19 @@ def _copied_weight_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
     return np.frombuffer(vector.tobytes(), dtype=np.float64)
 
 
+def _finite_turnover(
+    target: np.ndarray, current: np.ndarray, *, field_name: str
+) -> float:
+    # Finite per-symbol weights do not imply a finite L1 sum or subtraction.
+    # Never allow an infinite diagnostic or risk-budget intermediate to reach
+    # an order decision or serialized risk evidence.
+    with np.errstate(over="ignore", invalid="ignore"):
+        turnover = float(np.abs(target - current).sum())
+    if not math.isfinite(turnover):
+        raise ValueError(f"{field_name} must be finite")
+    return turnover
+
+
 @dataclass(frozen=True, slots=True)
 class PreTradeRiskConfig:
     max_gross: float = 1.0
@@ -86,6 +99,15 @@ class RiskConstrainedTarget:
         )
         if proposal.shape != weights.shape or pretrade.shape != weights.shape:
             raise ValueError("risk target pipeline stages must have the same shape")
+        for field_name, value in (
+            ("requested_turnover", self.requested_turnover),
+            ("constrained_turnover", self.constrained_turnover),
+            ("projection_l1", self.projection_l1),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{field_name} must be finite and non-negative")
+        if not math.isfinite(self.risk_scale) or not 0.0 <= self.risk_scale <= 1.0:
+            raise ValueError("risk_scale must be within [0, 1]")
         if self.max_gross is not None and (
             not math.isfinite(self.max_gross) or self.max_gross <= 0.0
         ):
@@ -260,11 +282,13 @@ class PreTradeRisk:
             if reduce_mask.shape != requested.shape:
                 raise ValueError("reduce_only_mask must match target weights")
 
-        emergency_mask = (
-            np.zeros(requested.shape, dtype=np.bool_)
-            if emergency_flatten_mask is None
-            else np.asarray(emergency_flatten_mask, dtype=np.bool_).reshape(-1)
-        )
+        if emergency_flatten_mask is None:
+            emergency_mask = np.zeros(requested.shape, dtype=np.bool_)
+        else:
+            raw_emergency_mask = np.asarray(emergency_flatten_mask)
+            if raw_emergency_mask.dtype != np.dtype(np.bool_):
+                raise TypeError("emergency_flatten_mask must contain booleans")
+            emergency_mask = raw_emergency_mask.reshape(-1).copy()
         if emergency_mask.shape != requested.shape:
             raise ValueError("emergency flatten mask must match target weights")
 
@@ -272,7 +296,9 @@ class PreTradeRisk:
         reasons: list[str] = []
         if np.any(reduce_mask):
             reasons.append("reduce_only")
-        requested_turnover = float(np.abs(requested - existing).sum())
+        requested_turnover = _finite_turnover(
+            requested, existing, field_name="requested_turnover"
+        )
 
         if np.any(emergency_mask):
             requested = requested.copy()
@@ -287,8 +313,10 @@ class PreTradeRisk:
             reduce_only_mask=reduce_mask,
         )
         ordinary_mask = ~emergency_mask
-        ordinary_turnover = float(
-            np.abs(controlled[ordinary_mask] - existing[ordinary_mask]).sum()
+        ordinary_turnover = _finite_turnover(
+            controlled[ordinary_mask],
+            existing[ordinary_mask],
+            field_name="ordinary_turnover",
         )
 
         weights = controlled.copy()
@@ -316,11 +344,15 @@ class PreTradeRisk:
             atol=_TOLERANCE,
             rtol=0.0,
         )
-        constrained_turnover = float(np.abs(weights - existing).sum())
+        constrained_turnover = _finite_turnover(
+            weights, existing, field_name="constrained_turnover"
+        )
         turnover_overridden = False
 
-        emergency_turnover = float(
-            np.abs(weights[emergency_mask] - existing[emergency_mask]).sum()
+        emergency_turnover = _finite_turnover(
+            weights[emergency_mask],
+            existing[emergency_mask],
+            field_name="emergency_turnover",
         )
         if emergency_turnover > _TOLERANCE:
             turnover_overridden = True
@@ -339,7 +371,9 @@ class PreTradeRisk:
                 )
 
         self._validate_final(weights, risk_scale=scale)
-        projection_l1 = float(np.abs(proposal_weights - weights).sum())
+        projection_l1 = _finite_turnover(
+            proposal_weights, weights, field_name="projection_l1"
+        )
         return RiskConstrainedTarget(
             weights=weights,
             requested_turnover=requested_turnover,

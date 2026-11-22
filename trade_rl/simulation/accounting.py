@@ -565,7 +565,11 @@ class BookState:
         prices: np.ndarray,
         recovery: np.ndarray,
     ) -> float:
-        settle_mask = np.asarray(mask, dtype=np.bool_).reshape(-1)
+        # A settlement is irreversible: reject non-boolean selectors rather than
+        # silently converting nonzero numbers, NaN or nonempty strings to True.
+        settle_mask = np.asarray(mask)
+        if settle_mask.ndim != 1 or settle_mask.dtype != np.dtype(np.bool_):
+            raise ValueError("settlement mask must be a boolean vector")
         price_vector = _finite_vector(prices, field_name="settlement_prices")
         recovery_vector = _finite_vector(recovery, field_name="recovery")
         if any(

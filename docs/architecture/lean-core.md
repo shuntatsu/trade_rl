@@ -539,6 +539,11 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 受理し、整数・実数・文字列のtruthinessを暗黙の緊急指示として扱わない。
 正常域の投影・閾値・理由と、既存研究結果は変更しない。
 
+`BookState.settle_positions` の上場廃止・非アクティブ銘柄の精算maskも、
+一次元bool配列のみ受理する。整数・浮動小数点（NaNを含む）・文字列や
+二次元maskをtruthinessで清算対象へ変換せず、口座を変更する前に拒否する。
+正しいbool maskの既存の精算金額・保有数量・回復率は維持する。
+
 Stateful `execute_orders` の処理途中で例外が発生した場合、呼出元の
 `BookState`と`OrderBookState`は書き換えず、同一`MarketExecutor`の
 確率的slippage RNGも呼出開始時へ戻す。これにより同じ注文入力の再試行で

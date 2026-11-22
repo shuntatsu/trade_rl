@@ -567,6 +567,57 @@ def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(
     assert book.fill_count == before_fills
 
 
+@pytest.mark.parametrize(
+    "mask",
+    [
+        np.array([1, 0]),
+        np.array([2, 0]),
+        np.array([math.nan, 0.0]),
+        np.array(["false", "true"]),
+        np.array([None, True], dtype=object),
+        np.array([[True, False]]),
+    ],
+)
+def test_settle_positions_refuses_non_boolean_or_non_vector_mask_atomically(
+    mask: np.ndarray,
+) -> None:
+    """Never turn malformed delisting selectors into irreversible liquidation."""
+    book = BookState.from_weights(
+        weights=np.array([0.5, 0.0]),
+        capital=1_000.0,
+        prices=np.array([100.0, 50.0]),
+    )
+    before = book.clone()
+
+    with pytest.raises(ValueError, match="settlement mask must be a boolean vector"):
+        book.settle_positions(
+            mask=mask,
+            prices=np.array([100.0, 50.0]),
+            recovery=np.array([0.5, 1.0]),
+        )
+
+    _assert_cash_and_inventory_unchanged(book, before)
+    assert book._exact_quantities == before._exact_quantities
+    assert book.total_cost == before.total_cost
+    assert book.fill_count == before.fill_count
+
+
+def test_settle_positions_explicit_boolean_mask_still_settles_selected_leg() -> None:
+    book = BookState.from_weights(
+        weights=np.array([0.5, 0.0]),
+        capital=1_000.0,
+        prices=np.array([100.0, 50.0]),
+    )
+    proceeds = book.settle_positions(
+        mask=np.array([True, False]),
+        prices=np.array([100.0, 50.0]),
+        recovery=np.array([0.5, 1.0]),
+    )
+    assert proceeds == 250.0
+    assert book.cash == 750.0
+    np.testing.assert_array_equal(book.quantities, np.zeros(2))
+
+
 def test_settle_positions_zero_recovery_is_legitimate() -> None:
     """Exact zero recovery is allowed to clear the position without proceeds."""
     book = BookState(

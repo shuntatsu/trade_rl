@@ -231,7 +231,7 @@ def test_one_shot_workflow_auth_token_expression_is_valid() -> None:
         / ".github/workflows/retire-merged-pr-branches.yml"
     ).read_text(encoding="utf-8")
     token_expr = "$" + "{{ github.token }}"
-    assert workflow.count("GH_TOKEN: " + token_expr) == 14
+    assert workflow.count("GH_TOKEN: " + token_expr) == 16
     assert "GH_TOKEN: }" not in workflow
     assert (
         "github.event.comment.body == '/retire-archived-branches-20261120" in workflow

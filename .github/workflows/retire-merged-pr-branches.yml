@@ -265,3 +265,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -m tools.archived_obsolete_20261121 --apply
+
+  archived-sd2-review-13:
+    name: Retire 13 archived SD2 review-only refs (owner-created Issue comment)
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.actor == 'shuntatsu' &&
+      github.event.issue.number == 1057 &&
+      github.event.comment.body == '/retire-thirteen-archived-sd2-review-refs-20261121 b95286e38df9e46a10f9fb43fbfac14dd3c51499'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout current trusted main with complete Git history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all live GitHub ref tips and immutable 56-tip archive
+        shell: bash
+        run: git fetch --no-tags --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Preview 13 exact closed reviewer refs and current guards
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_sd2_review_retirement_20261121
+
+      - name: Apply owner-only atomic SHA leases and verify entire ref roster
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m tools.archived_sd2_review_retirement_20261121 --apply

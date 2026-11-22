@@ -286,7 +286,7 @@ def test_workflow_command_job_and_token_counts() -> None:
     assert mod.COMMAND in workflow
     assert "github.event.action == 'created'" in workflow
     assert "python3 -m tools.archived_obsolete_20261121 --apply" in workflow
-    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 14
+    assert workflow.count("GH_TOKEN: " + "$" + "{{ github.token }}") == 16
 
 
 def test_archive_snapshot_source_is_pinned_and_never_overwritten() -> None:

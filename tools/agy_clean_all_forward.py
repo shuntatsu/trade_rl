@@ -29,7 +29,7 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -82,13 +82,14 @@ GROSS_CAP = 1.0
 DECISION_STRIDE = 6  # 4h bars; the lab's 4H decision cadence
 ECON_MODE = "ECON_BRAKE_CAP"
 
-# name -> (arm, one-way cost, signal lag in bars, gates)
-CELLS: dict[str, tuple[str, float, int, bool]] = {
-    "CANDIDATE__BASE": (ARM_CANDIDATE, 0.0006, 1, True),
-    "CANDIDATE__HIGH_COST": (ARM_CANDIDATE, 0.0012, 1, True),
-    "CANDIDATE__STRESS": (ARM_CANDIDATE, 0.0020, 1, False),
-    "CANDIDATE__NO_DELAY": (ARM_CANDIDATE, 0.0006, 0, False),
-    "CONTROL_ANC__BASE": (ARM_CONTROL, 0.0006, 1, False),
+# name -> (arm, one-way cost, signal lag in bars, mask lag in bars, gates)
+CELLS: dict[str, tuple[str, float, int, int, bool]] = {
+    "CANDIDATE__BASE": (ARM_CANDIDATE, 0.0006, 1, 1, True),
+    "CANDIDATE__HIGH_COST": (ARM_CANDIDATE, 0.0012, 1, 1, True),
+    "CANDIDATE__STRESS": (ARM_CANDIDATE, 0.0020, 1, 1, False),
+    "CANDIDATE__NO_DELAY": (ARM_CANDIDATE, 0.0006, 0, 1, False),
+    "CANDIDATE__LAB_MASK": (ARM_CANDIDATE, 0.0006, 1, 0, False),
+    "CONTROL_ANC__BASE": (ARM_CONTROL, 0.0006, 1, 1, False),
 }
 
 # Local single-use ledger: one exclusive-create claim file per stage (see ``claim_stage``).
@@ -385,6 +386,31 @@ def claim_stage(
     return path
 
 
+def write_ledger_result(
+    stage: str, digest: str, label: str, result_sha256: str
+) -> Path:
+    """Bind a stage result to the ledger by exclusive create of ``<stage>.result.json``."""
+    path = LEDGER_DIR / f"{stage}.result.json"
+    try:
+        f = path.open("x", encoding="utf-8")
+    except FileExistsError:
+        raise SystemExit(f"ledger result already exists: {path}") from None
+    with f:
+        f.write(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "protocol_digest": digest,
+                    "label": label,
+                    "result_sha256": result_sha256,
+                },
+                indent=1,
+                sort_keys=True,
+            )
+        )
+    return path
+
+
 def check_interim_result(path: Path, digest: str) -> dict[str, Any]:
     """FINAL needs an INTERIM_A result of this protocol whose label is INTERIM_NOT_A_DECISION
     and a local INTERIM_A ledger claim recording the same digest."""
@@ -396,6 +422,19 @@ def check_interim_result(path: Path, digest: str) -> dict[str, Any]:
         != digest
     ):
         raise SystemExit("INTERIM_A ledger claim has another protocol digest")
+    ledger_result = LEDGER_DIR / "INTERIM_A.result.json"
+    if not ledger_result.is_file():
+        raise SystemExit(f"no INTERIM_A ledger result: {ledger_result}")
+    led = json.loads(ledger_result.read_text(encoding="utf-8"))
+    if led.get("protocol_digest") != digest or led.get("stage") != "INTERIM_A":
+        raise SystemExit("INTERIM_A ledger result has another digest or stage")
+    if led.get("label") != "INTERIM_NOT_A_DECISION":
+        raise SystemExit(
+            f"interim label {led.get('label')!r} does not allow FINAL "
+            "(STOPPED_EARLY ends the line; INVALID needs an amendment)"
+        )
+    if led.get("result_sha256") != sha256_file(path):
+        raise SystemExit("--interim-result does not match the INTERIM_A ledger result")
     obj = json.loads(path.read_text(encoding="utf-8"))
     if obj.get("protocol_digest") != digest:
         raise SystemExit("interim result has another protocol digest")
@@ -442,7 +481,7 @@ def decide(stage: Stage, cells: dict[str, dict[str, Any]]) -> dict[str, Any]:
     if invalid:
         return {"label": "INVALID", "invalid_cells": invalid, "failed_conditions": None}
     base, high = cells["CANDIDATE__BASE"], cells["CANDIDATE__HIGH_COST"]
-    gate_dd = max(cells[k]["max_drawdown"] for k, v in CELLS.items() if v[3])
+    gate_dd = max(cells[k]["max_drawdown"] for k, v in CELLS.items() if v[4])
     if not stage.final:
         stop = []
         if base["total_return"] <= EARLY_STOP_RETURN:
@@ -475,6 +514,26 @@ def cap_gross(ws: Any, wp: Any, cap: float = GROSS_CAP) -> tuple[Any, Any, bool]
     return ws, wp, False
 
 
+def with_lagged_masks(p10: Any, lag: int = 1) -> Any:
+    """Copy of ``p10`` whose ``perp_mask``/``carry_mask`` are shifted down ``lag`` rows.
+
+    The masks are bar-completeness flags known only at the bar close, so the decision at bar
+    k may use only ``mask[k - lag]``. The first ``lag`` rows become False; nothing else changes.
+    """
+    if lag <= 0:
+        return p10
+
+    def shift(arr: Any) -> Any:
+        a = np.asarray(arr, dtype=bool)
+        out = np.zeros_like(a)
+        out[lag:] = a[:-lag]
+        return out
+
+    return replace(
+        p10, perp_mask=shift(p10.perp_mask), carry_mask=shift(p10.carry_mask)
+    )
+
+
 def cash_need(ws: Any, wp: Any) -> float:
     """Cash-account need as a fraction of equity: spot long notional + IM rate x perp gross."""
     return float(np.maximum(ws, 0.0).sum() + CASH_IM_RATE * np.abs(wp).sum())
@@ -495,6 +554,7 @@ def replay_cell(
     stop: int,
     cap: float | None,
     econ_mode: str = ECON_MODE,
+    p10_select: Any = None,
 ) -> dict[str, Any]:
     """Replay one cell over bars ``[start, stop)``; pure given the lab objects.
 
@@ -503,6 +563,9 @@ def replay_cell(
     current weights through as the target with deadband 0. Executed gross is reported only:
     held weights drift and halted legs keep their weight, so it may exceed the cap legitimately.
     """
+    # ``p10_select`` (masks lagged) is used only to choose symbols for the decision target;
+    # execution keeps the current bar's validity, since a halted bar cannot trade.
+    sel = p10 if p10_select is None else p10_select
     n = len(p10.symbols)
     ws, wp, eq = np.zeros(n), np.zeros(n), 1.0
     lrs: list[float] = []
@@ -514,7 +577,7 @@ def replay_cell(
         if i % DECISION_STRIDE == 0:
             db, _f, a_m, c_m = r15g._econ_scalars(econ, k, econ_mode)
             alpha, scale = r17.nonrl_alpha_and_scale_np(p10, p17, arm, k)
-            ws_t, wp_t = r17.synthesize_r17_np(p10, k, alpha, scale, a_m, c_m)
+            ws_t, wp_t = r17.synthesize_r17_np(sel, k, alpha, scale, a_m, c_m)
             if cap is not None:
                 ws_t, wp_t, was = cap_gross(ws_t, wp_t, cap)
                 capped += int(was)
@@ -950,11 +1013,12 @@ def cmd_run(
         raise SystemExit("no bar opens exactly at the OOS start")
 
     cells: dict[str, dict[str, Any]] = {}
-    for name, (arm, cost, lag, _gate) in CELLS.items():
+    for name, (arm, cost, lag, mask_lag, _gate) in CELLS.items():
         p10, p17, econ = packs[lag]
         st = replay_cell(
             **lab_kw,
             p10=p10,
+            p10_select=with_lagged_masks(p10, mask_lag),
             p17=p17,
             econ=econ,
             arm=arm,
@@ -964,6 +1028,7 @@ def cmd_run(
             cap=GROSS_CAP,
         )
         st["lag"] = lag
+        st["mask_lag"] = mask_lag
         cells[name] = st
 
     decision = decide(stage, cells)
@@ -993,6 +1058,9 @@ def cmd_run(
     }
     out_dir.mkdir(parents=True)
     _write_once(out_dir / "result.json", result)
+    write_ledger_result(
+        stage.name, digest, result["label"], sha256_file(out_dir / "result.json")
+    )
     print(
         json.dumps(
             {

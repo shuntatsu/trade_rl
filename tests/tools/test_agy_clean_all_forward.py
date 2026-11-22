@@ -14,7 +14,7 @@ import pytest
 
 from tools import agy_clean_all_forward as fwd
 
-PINNED_DIGEST = "dacd5039d7cd7271a98467e0f27e5fd62d0303b7eee43aa51687b48a75851204"
+PINNED_DIGEST = "b7c3dd044311dfb2bbdd33b9748babc627ffe43ecc88be6f1287a7b34ee9adac"
 
 
 def test_protocol_digest_is_pinned() -> None:
@@ -331,6 +331,18 @@ def _interim(tmp_path: Path, **over: Any) -> Path:
     return path
 
 
+def _ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    result_path: Path,
+    label: str = "INTERIM_NOT_A_DECISION",
+    digest: str = "dig",
+) -> None:
+    monkeypatch.setattr(fwd, "LEDGER_DIR", tmp_path / "ledger")
+    fwd.claim_stage("INTERIM_A", digest, COMMIT, 1, datetime(2026, 11, 22, tzinfo=UTC))
+    fwd.write_ledger_result("INTERIM_A", digest, label, fwd.sha256_file(result_path))
+
+
 def test_check_interim_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fwd, "LEDGER_DIR", tmp_path / "ledger")
     with pytest.raises(SystemExit, match="no INTERIM_A ledger claim"):
@@ -339,16 +351,64 @@ def test_check_interim_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(SystemExit, match="ledger claim has another"):
         fwd.check_interim_result(_interim(tmp_path), "dig")
     (tmp_path / "ledger" / "INTERIM_A.claim").write_text('{"protocol_digest": "dig"}')
-    rec = fwd.check_interim_result(_interim(tmp_path), "dig")
+    with pytest.raises(SystemExit, match="no INTERIM_A ledger result"):
+        fwd.check_interim_result(_interim(tmp_path), "dig")
+
+
+def test_check_interim_result_binds_file_to_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    res = _interim(tmp_path)
+    _ledger(tmp_path, monkeypatch, res)
+    rec = fwd.check_interim_result(res, "dig")
     assert rec["label"] == "INTERIM_NOT_A_DECISION" and len(rec["sha256"]) == 64
+    # a hand-made file with the same fields but other bytes is refused
+    res.write_text(json.dumps({**json.loads(res.read_text()), "extra": 1}))
+    with pytest.raises(SystemExit, match="does not match the INTERIM_A ledger result"):
+        fwd.check_interim_result(res, "dig")
+
+
+def test_check_interim_result_refuses_bad_ledger_labels_and_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for label in ("STOPPED_EARLY", "INVALID"):
+        res = _interim(tmp_path, label=label)
+        _ledger(tmp_path, monkeypatch, res, label=label)
+        with pytest.raises(SystemExit, match="does not allow FINAL"):
+            fwd.check_interim_result(res, "dig")
+        import shutil
+
+        shutil.rmtree(tmp_path / "ledger")
+    res = _interim(tmp_path)
+    _ledger(tmp_path, monkeypatch, res, digest="dig")
+    with pytest.raises(SystemExit, match="another protocol digest"):
+        fwd.check_interim_result(res, "other")
+
+
+def test_check_interim_result_file_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
     for over, match in (
         ({"protocol_digest": "x"}, "digest"),
         ({"stage": "FINAL"}, "INTERIM_A"),
         ({"label": "STOPPED_EARLY"}, "does not allow FINAL"),
-        ({"label": "INVALID"}, "does not allow FINAL"),
     ):
+        res = _interim(tmp_path, **over)
+        _ledger(tmp_path, monkeypatch, res)
         with pytest.raises(SystemExit, match=match):
-            fwd.check_interim_result(_interim(tmp_path, **over), "dig")
+            fwd.check_interim_result(res, "dig")
+        shutil.rmtree(tmp_path / "ledger")
+
+
+def test_ledger_result_is_write_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fwd, "LEDGER_DIR", tmp_path)
+    fwd.write_ledger_result("FINAL", "d", "L", "s")
+    with pytest.raises(SystemExit, match="already exists"):
+        fwd.write_ledger_result("FINAL", "d", "L", "s")
 
 
 def test_verify_work_lab(tmp_path: Path) -> None:
@@ -702,3 +762,67 @@ def test_importable_pretrade_provenance(
 
     monkeypatch.setattr(fwd.importlib.util, "find_spec", boom)
     assert fwd._importable_pretrade() == (None, None)
+
+
+@dataclasses.dataclass(frozen=True)
+class _MaskPack:
+    symbols: tuple[str, ...]
+    perp_mask: np.ndarray
+    carry_mask: np.ndarray
+    other: np.ndarray
+
+
+def test_with_lagged_masks_shifts_only_masks() -> None:
+    perp = np.array([[True, False], [False, True], [True, True], [False, False]])
+    carry = ~perp
+    pk = _MaskPack(("A", "B"), perp, carry, np.arange(4.0))
+    out = fwd.with_lagged_masks(pk, 1)
+    assert out is not pk and pk.perp_mask is perp
+    assert not out.perp_mask[0].any() and not out.carry_mask[0].any()
+    assert np.array_equal(out.perp_mask[1:], perp[:-1])
+    assert np.array_equal(out.carry_mask[1:], carry[:-1])
+    assert out.other is pk.other and out.symbols == pk.symbols
+    assert fwd.with_lagged_masks(pk, 0) is pk
+    assert out.perp_mask.dtype == bool
+
+
+def test_replay_selects_symbol_only_after_mask_turns_true_one_bar_earlier() -> None:
+    lab, _ = _fake_lab(target=0.0)
+    seen: list[tuple[int, bool]] = []
+
+    def synth(sel: Any, k: int, *a: Any) -> Any:
+        seen.append((k, bool(sel.perp_mask[k, 0])))
+        return np.zeros(2), np.zeros(2)
+
+    lab["r17"].synthesize_r17_np = synth
+    t_len = 30
+    perp = np.zeros((t_len, 2), dtype=bool)
+    perp[9:, 0] = True  # mask turns True at bar 9, a decision bar (start 3, stride 6)
+    mp = _MaskPack(("A", "B"), perp, perp.copy(), np.zeros(t_len))
+    pack = _Pack(t_len, 2, 0.0)
+    kw: dict[str, Any] = {
+        "p17": None,
+        "econ": None,
+        "arm": "X",
+        "cost": 0.0006,
+        "start": 3,
+        "stop": 17,
+    }
+    fwd.replay_cell(**lab, p10=pack, cap=1.0, p10_select=mp, **kw)
+    assert seen == [(3, False), (9, True), (15, True)]  # unlagged masks: selected at 9
+    seen.clear()
+    fwd.replay_cell(
+        **lab, p10=pack, cap=1.0, p10_select=fwd.with_lagged_masks(mp, 1), **kw
+    )
+    assert seen == [(3, False), (9, False), (15, True)]  # not until bar k+1 is decided
+
+
+def test_cells_table_shape_and_gating() -> None:
+    assert set(fwd.CELLS) >= {"CANDIDATE__LAB_MASK"}
+    assert fwd.CELLS["CANDIDATE__LAB_MASK"] == (fwd.ARM_CANDIDATE, 0.0006, 1, 0, False)
+    assert fwd.CELLS["CANDIDATE__NO_DELAY"][2:4] == (0, 1)
+    assert [k for k, v in fwd.CELLS.items() if v[4]] == [
+        "CANDIDATE__BASE",
+        "CANDIDATE__HIGH_COST",
+    ]
+    assert all(v[3] == 1 for k, v in fwd.CELLS.items() if k != "CANDIDATE__LAB_MASK")

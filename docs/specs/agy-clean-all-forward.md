@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol was written before any bar, funding event or metric at or after 2026-08-01 was read for this signal.
 
-Protocol digest: `dacd5039d7cd7271a98467e0f27e5fd62d0303b7eee43aa51687b48a75851204`
+Protocol digest: `b7c3dd044311dfb2bbdd33b9748babc627ffe43ecc88be6f1287a7b34ee9adac`
 
 ## Question
 
@@ -44,9 +44,9 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 - **Execution:** the lab's `execute_hybrid_step` (two legs, exact conservation, linear cost plus `IMPACT_QUAD = 0.002` on weight changes, realized funding).
   - The lab has no participation cap.
   - The universe is 11 majors and the intended capital is small (≤ $100k), so the cap is disclosed and not modelled.
-  - No financing arises because the cash-account need stays at or below equity. The need is spot long notional plus `CASH_IM_RATE` × perp gross, with `CASH_IM_RATE = 0.4` (the engine's 1 / max_leverage, as in `agy_anchor_realistic_v1` Amendment 1). Its measured maximum on known-used data (2023-01 to 2026-07, lag 1, 6 bp, capped) is 0.65, with a maximum spot long of 0.32 and a maximum absolute net of 0.054. This is enforced as an invalidity rule, not assumed.
+  - Financing is excluded by an enforced check, not assumed: a cell is INVALID if the cash-account need exceeds equity. The need is spot long notional plus `CASH_IM_RATE` × perp gross, with `CASH_IM_RATE = 0.4` (the engine's 1 / max_leverage, as in `agy_anchor_realistic_v1` Amendment 1). Its measured maximum on known-used data (2023-01 to 2026-07, lag 1, 6 bp, capped) is 0.65 for both arms. A halted leg keeps its weight and counts toward the need, so a real infeasibility makes the cell INVALID. That is intended and is not a rescue case.
 - No constant of the lab changes.
-- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` stay unshifted, as in the lab. They are listing and eligibility masks known at the bar open.
+- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` are bar-completeness flags (bucket k holds all four hourly bars), known only at the close of bar k. The lab uses `mask[k]` for the decision at bar k and its lag helper does not shift them. In every cell except `CANDIDATE__LAB_MASK`, the harness selects symbols for the decision at bar k with `mask[k-1]` (`with_lagged_masks`; row 0 is False; nothing else changes). Execution keeps the current bar's `spot_valid`/`perp_valid`: a halted bar cannot trade, which is the exchange outcome and not a selection. The parity and loop oracles stay lab-faithful (unshifted masks). On pre-2026-08 data `perp_valid` is False on about 0.067% of cells and `spot_valid` on about 0.074% (independent reviewer's measurement), so the effect is small.
 
 ## Data
 
@@ -79,7 +79,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 | INTERIM_A | 2026-09-30T00:00Z | 2026-11-22 | interim with early stop; never a decision |
 | FINAL | 2027-05-01T00:00Z | 2027-05-02 | decisive, once |
 
-- FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment. It also requires `<ledger>/INTERIM_A.claim` to exist and to record the same digest.
+- FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment. It also requires `<ledger>/INTERIM_A.claim` to exist and to record the same digest. After writing `result.json`, `run` writes `<ledger>/<stage>.result.json` by exclusive create (digest, stage, label, sha256 of `result.json`). FINAL requires `INTERIM_A.result.json` with label `INTERIM_NOT_A_DECISION`, the same digest, and a sha256 equal to that of the `--interim-result` file.
 - Each stage can be claimed once: before computing anything, `run` creates `C:\trade_rl_runs\agy_clean_all_forward_ledger\<stage>.claim` by exclusive create, holding the digest, commit, G4 comment id and time. It refuses if the file exists. This is local single-use enforcement on this host, not a remote lock. A refusal after the claim also consumes it, and needs an amendment.
 
 - Each stage starts flat at 2026-08-01T00:00Z.
@@ -88,13 +88,14 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 
 ## Cells (frozen)
 
-| Cell | Arm | One-way cost | Signal lag | Gates |
-|---|---|---|---|---|
-| `CANDIDATE__BASE` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 1 bar | yes |
-| `CANDIDATE__HIGH_COST` | CLEAN_ALL_175, gross ≤ 1 | 12 bp | 1 bar | yes |
-| `CANDIDATE__STRESS` | CLEAN_ALL_175, gross ≤ 1 | 20 bp | 1 bar | reported |
-| `CANDIDATE__NO_DELAY` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 0 | reported |
-| `CONTROL_ANC__BASE` | ANC_BIDIR_75_25, gross ≤ 1 | 6 bp | 1 bar | reported |
+| Cell | Arm | One-way cost | Signal lag | Mask lag | Gates |
+|---|---|---|---|---|---|
+| `CANDIDATE__BASE` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 1 bar | 1 bar | yes |
+| `CANDIDATE__HIGH_COST` | CLEAN_ALL_175, gross ≤ 1 | 12 bp | 1 bar | 1 bar | yes |
+| `CANDIDATE__STRESS` | CLEAN_ALL_175, gross ≤ 1 | 20 bp | 1 bar | 1 bar | reported |
+| `CANDIDATE__NO_DELAY` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 0 | 1 bar | reported |
+| `CANDIDATE__LAB_MASK` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 1 bar | 0 (lab-faithful) | reported |
+| `CONTROL_ANC__BASE` | ANC_BIDIR_75_25, gross ≤ 1 | 6 bp | 1 bar | 1 bar | reported |
 
 CASH returns 0.
 
@@ -166,3 +167,13 @@ This protocol was revised again after independent review 6011084200 (BLOCKED) at
 - FINAL also requires the local INTERIM_A ledger claim with the same digest.
 - The lag note on `perp_mask` and `carry_mask` was added to the Signal section.
 - The post-cap target-gross check is kept as a defensive guard and described as such.
+
+## Amendment 3 (result-blind, before any run)
+
+This protocol was revised a third time after independent review 6011108990 (BLOCKED) at 627047df, before any stage ran and before any data at or after 2026-08-01 was read.
+
+- **B5, causal masks:** `perp_mask` and `carry_mask` are bar-completeness flags known at bar close, and the lab's decision at bar k used `mask[k]`. The Signal section's earlier "known at the bar open" claim was wrong and is corrected. The Cells table gains a frozen `Mask lag` column. All pre-registered cells use mask lag 1 (`with_lagged_masks`). `CANDIDATE__NO_DELAY` keeps signal lag 0 with mask lag 1. A reported, non-gating `CANDIDATE__LAB_MASK` cell (CLEAN_ALL_175, 6 bp, signal lag 1, mask lag 0) is the lab-faithful counterfactual, so the difference is disclosed. Gating is still `CANDIDATE__BASE` and `CANDIDATE__HIGH_COST` only. The oracles are unchanged.
+- Measured frequency on pre-2026-08 data (reviewer): `perp_valid` False on 90 of 134,508 cells (0.067%), `spot_valid` False on 99 (0.074%).
+- **N4:** the interim result is bound to a ledger entry `INTERIM_A.result.json`, and FINAL requires the `--interim-result` file to match it.
+- **N7:** a halted leg keeps its weight and counts toward the cash need; a real infeasibility makes the cell INVALID, which is intended.
+- **N8:** the "no financing" statement is phrased as an enforced check. The spot-long maximum figure was dropped.

@@ -8,6 +8,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -155,12 +156,23 @@ def test_two_concurrent_thread_publishers_get_one_winner_and_no_overwrite(
 
 
 def test_two_real_processes_cannot_both_publish_same_evidence(tmp_path: Path) -> None:
+    """Both processes must be alive and barrier-ready before either may publish."""
     root = tmp_path / "future"
+    release = tmp_path / "release"
+    ready_a, ready_b = tmp_path / "ready-a", tmp_path / "ready-b"
     script = """
 from pathlib import Path
 import sys
+import time
 from tools.prospective_evidence_publication import publish_json_evidence_once
 from trade_rl.evaluation.experiments.errors import InvalidExperimentStateError
+ready, release = Path(sys.argv[3]), Path(sys.argv[4])
+ready.touch()
+deadline = time.monotonic() + 20
+while not release.exists():
+    if time.monotonic() > deadline:
+        raise SystemExit('cross-process release barrier timed out')
+    time.sleep(0.01)
 try:
     publish_json_evidence_once(root=Path(sys.argv[1]), name='same.json', payload={'seed':sys.argv[2]})
 except InvalidExperimentStateError:
@@ -171,21 +183,39 @@ else:
     cwd = Path(__file__).resolve().parents[2]
     command = [sys.executable, "-c", script, str(root)]
     first = subprocess.Popen(
-        [*command, "A"],
+        [*command, "A", str(ready_a), str(release)],
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    second = subprocess.Popen(
-        [*command, "B"],
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    a, aerr = first.communicate(timeout=30)
-    b, berr = second.communicate(timeout=30)
+    workers = [first]
+    try:
+        second = subprocess.Popen(
+            [*command, "B", str(ready_b), str(release)],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        workers.append(second)
+        deadline = time.monotonic() + 20
+        while not (ready_a.is_file() and ready_b.is_file()):
+            assert time.monotonic() < deadline, "both workers must reach the barrier"
+            assert first.poll() is None and second.poll() is None, (
+                "a worker exited before the publication barrier"
+            )
+            time.sleep(0.01)
+        assert first.poll() is None and second.poll() is None
+        assert not (root / "same.json").exists()
+        release.touch()
+        a, aerr = first.communicate(timeout=30)
+        b, berr = second.communicate(timeout=30)
+    finally:
+        for child in workers:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=5)
     assert (first.returncode, second.returncode) == (0, 0), (aerr, berr)
     assert sorted((a.strip(), b.strip())) == ["conflict", "published"]
     assert (root / "same.json").read_bytes() in (

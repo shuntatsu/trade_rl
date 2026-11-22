@@ -19,7 +19,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "ecd91aa1d1ba94bdcf6c4d8b6666bdf55ab5e7f6b801797690eb7c240589f815"
+DIGEST_PIN = "f4d3d6d4c2a22dee8e4c21bdb0c8d91f5b579f4ccb572c0d006901a337a50701"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -892,7 +892,7 @@ def test_oracle_scenario_is_nontrivial() -> None:
     cell = m.simulate(sig, "combo", 0.0006, 0)
     assert cell["fees"] > 0 and cell["funding"] != 0.0
     assert cell["max_gross_at_fills"] > 0.05
-    assert cell["max_gross_at_marks"] <= 2.0 + 1e-9
+    assert cell["max_held_gross"] <= 2.0 + 1e-9
 
 
 # ----------------------------------------------------------------------------- decision
@@ -1331,11 +1331,37 @@ def test_authorization_requires_full_commit() -> None:
         m.authorization_receipt(URL, "d" * 64, "abc123", _gh())
 
 
+def test_harness_commit_refuses_untracked_files_but_not_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    def git(*a: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *a], check=True, capture_output=True
+        )
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / ".gitignore").write_text("ignored.txt\n")
+    (tmp_path / "a.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    assert m._COMMIT_RE.fullmatch(m.harness_commit())
+    (tmp_path / "ignored.txt").write_text("ok\n")
+    assert m._COMMIT_RE.fullmatch(m.harness_commit())
+    (tmp_path / "stray_module.py").write_text("y = 2\n")
+    with pytest.raises(SystemExit, match="not clean"):
+        m.harness_commit()
+
+
 def test_harness_commit_requires_clean_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         m, "_git", lambda *a: " M tools/x.py\n" if a[0] == "status" else COMMIT
     )
-    with pytest.raises(SystemExit, match="tracked modifications"):
+    with pytest.raises(SystemExit, match="not clean"):
         m.harness_commit()
     monkeypatch.setattr(m, "_git", lambda *a: "" if a[0] == "status" else COMMIT + "\n")
     assert m.harness_commit() == COMMIT
@@ -1458,7 +1484,10 @@ def test_interim_end_to_end_write_once_and_ledger(env: dict[str, Any]) -> None:
     out = env["tmp"] / "out_x" / "result.json"
     led = json.loads(
         (
-            env["ledger"] / env["digest"] / "FORWARD_INTERIM_2027-01.result.json"
+            env["ledger"]
+            / m.PROTOCOL_ID
+            / env["digest"]
+            / "FORWARD_INTERIM_2027-01.result.json"
         ).read_text()
     )
     assert led["result_sha256"] == m.sha256_file(out) and led["label"] == res["label"]
@@ -1505,32 +1534,70 @@ def test_full_sequence_interims_and_final_share_one_model(env: dict[str, Any]) -
     }
 
 
-def test_stopped_line_refuses_more_interims_but_not_the_final(
+def _old_ns(env: dict[str, Any], digest: str = "9" * 64) -> Path:
+    """A ledger namespace left by an EARLIER digest of the same protocol id."""
+    return env["ledger"] / m.PROTOCOL_ID / digest
+
+
+def _seed(
+    ns: Path, name: str, label: str, claim: bool = True, digest: str = "9" * 64
+) -> None:
+    if claim:
+        m.claim_stage(name, digest, COMMIT, 1, datetime(2026, 12, 20, tzinfo=UTC), ns)
+    m.write_ledger_result(name, digest, label, False, "s", ns)
+
+
+def test_old_stopped_early_blocks_interims_and_final_under_a_new_digest(
     env: dict[str, Any],
 ) -> None:
-    led = env["ledger"] / env["digest"]
-    m.claim_stage(
-        "FORWARD_INTERIM_2026-12",
-        env["digest"],
-        COMMIT,
-        1,
-        datetime(2026, 12, 20, tzinfo=UTC),
-        led,
-    )
-    m.write_ledger_result(
-        "FORWARD_INTERIM_2026-12", env["digest"], "STOPPED_EARLY", False, "s", led
-    )
+    ns = _old_ns(env)
+    _seed(ns, "FORWARD_INTERIM_2026-12", "STOPPED_EARLY")
+    assert env["digest"] != "9" * 64
     with pytest.raises(SystemExit, match="line stopped"):
         _run(env, "FORWARD_INTERIM", datetime(2027, 1, 20, 9, tzinfo=UTC))
-    assert not (
-        led / "FORWARD_INTERIM_2027-01.claim"
-    ).exists()  # refused before claiming
-    fin = _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), tag="fin")
-    assert fin["label"] in {"MTF_COMBO_SUPPORTED", "MTF_COMBO_NOT_SUPPORTED", "INVALID"}
+    with pytest.raises(SystemExit, match="line stopped"):
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), tag="fin")
+    # refused before claiming: the current digest namespace was never created
+    assert not (env["ledger"] / m.PROTOCOL_ID / env["digest"]).exists()
+
+
+def test_old_final_blocks_a_new_digest_from_reclaiming_the_final(
+    env: dict[str, Any],
+) -> None:
+    _seed(_old_ns(env), "FORWARD_FINAL", "MTF_COMBO_NOT_SUPPORTED")
+    with pytest.raises(SystemExit, match="single use applies across digests"):
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), tag="fin")
+    assert not (env["ledger"] / m.PROTOCOL_ID / env["digest"]).exists()
+
+
+def test_old_claim_without_result_still_blocks_the_final(env: dict[str, Any]) -> None:
+    m.claim_stage(
+        "FORWARD_FINAL",
+        "9" * 64,
+        COMMIT,
+        1,
+        datetime(2027, 12, 2, tzinfo=UTC),
+        _old_ns(env),
+    )
+    with pytest.raises(SystemExit, match="single use applies across digests"):
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), tag="fin")
+
+
+def test_old_interim_of_the_same_month_blocks_but_another_month_runs(
+    env: dict[str, Any],
+) -> None:
+    _seed(_old_ns(env), "FORWARD_INTERIM_2027-01", "INTERIM_NOT_A_DECISION")
+    with pytest.raises(SystemExit, match="single use applies across digests"):
+        _run(env, "FORWARD_INTERIM", datetime(2027, 1, 25, 9, tzinfo=UTC))
+    res = _run(env, "FORWARD_INTERIM", datetime(2027, 2, 20, 9, tzinfo=UTC), tag="feb")
+    assert res["claim_name"] == "FORWARD_INTERIM_2027-02"
+    assert (
+        env["ledger"] / m.PROTOCOL_ID / env["digest"] / "FORWARD_INTERIM_2027-02.claim"
+    ).exists()
 
 
 def test_model_drift_between_stages_is_invalid(env: dict[str, Any]) -> None:
-    led = env["ledger"] / env["digest"]
+    led = env["ledger"] / m.PROTOCOL_ID / env["digest"]
     m.claim_stage(
         "FORWARD_INTERIM_2026-12",
         env["digest"],
@@ -1572,7 +1639,10 @@ def test_missing_stage_hour_gives_invalid_result_and_burns_the_claim(
     )
     assert res["cells"] == {} and "model" not in res
     assert (
-        env["ledger"] / env["digest"] / "FORWARD_INTERIM_2027-01.result.json"
+        env["ledger"]
+        / m.PROTOCOL_ID
+        / env["digest"]
+        / "FORWARD_INTERIM_2027-01.result.json"
     ).exists()
 
 

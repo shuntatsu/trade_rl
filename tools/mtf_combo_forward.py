@@ -991,7 +991,7 @@ def simulate(sig: Signals, kind: str, fee: float, delay: int) -> dict[str, Any]:
         min_clamp_scale=book.min_clamp_scale,
         final_leverage=book.lev,
         max_gross_at_fills=book.max_gross_fill,
-        max_gross_at_marks=book.max_gross_mark,
+        max_held_gross=book.max_gross_mark,
         max_identity_err=err,
         invalid_reasons=reasons,
         valid=not reasons,
@@ -1011,7 +1011,7 @@ def cash_cell(bars: int) -> dict[str, Any]:
         min_clamp_scale=1.0,
         final_leverage=0.0,
         max_gross_at_fills=0.0,
-        max_gross_at_marks=0.0,
+        max_held_gross=0.0,
         max_identity_err=0.0,
         invalid_reasons=[],
         valid=True,
@@ -1392,9 +1392,12 @@ def _git(*args: str) -> str:  # pragma: no cover - real git
 
 
 def harness_commit() -> str:
-    """Exact HEAD of the repository holding this file; refuses on tracked modifications."""
-    if _git("status", "--porcelain", "--untracked-files=no").strip():
-        raise SystemExit("harness repository has tracked modifications; commit first")
+    """Exact HEAD of the repository holding this file; refuses on modified or untracked files."""
+    # untracked files count (a stray module could change behaviour); .gitignore is respected
+    if _git("status", "--porcelain", "--untracked-files=all").strip():
+        raise SystemExit(
+            "harness repository is not clean (modified or untracked files); commit first"
+        )
     commit = _git("rev-parse", "HEAD").strip()
     if not _COMMIT_RE.fullmatch(commit):
         raise SystemExit(f"unexpected HEAD from git: {commit!r}")
@@ -1532,12 +1535,34 @@ def ledger_results(ledger_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
-def check_line_not_stopped(ledger_dir: Path) -> None:
-    """After a ledgered STOPPED_EARLY interim no further interim runs (the final still may)."""
-    for led in ledger_results(ledger_dir):
-        if led.get("label") == LABEL_STOPPED:
+def _namespaces(root: Path) -> list[Path]:
+    """Every per-digest provenance folder under the protocol-id ledger root."""
+    if not root.exists():
+        return []
+    return sorted(p for p in root.iterdir() if p.is_dir())
+
+
+def check_cross_digest(root: Path, stage: Stage, name: str) -> None:
+    """Single-use and stop rules are keyed by protocol id + stage (+ interim month), across ALL
+    digest namespaces under ``root``: a harness commit changes the digest but never reopens a
+    consumed stage or a stopped line. Refuses before any claim, fetch or fit."""
+    for ns in _namespaces(root):
+        results = ledger_results(ns)
+        for led in results:
+            if led.get("label") == LABEL_STOPPED:
+                raise SystemExit(
+                    f"line stopped by {led.get('stage')} (digest {ns.name}): "
+                    "no further interim or final runs"
+                )
+        used = (
+            (ns / f"{name}.claim").exists()
+            or (ns / f"{name}.result.json").exists()
+            or any(led.get("stage") == name for led in results)
+        )
+        if used:
             raise SystemExit(
-                f"line stopped by {led.get('stage')}: no further interim runs"
+                f"stage {name} was already claimed under digest {ns.name}: "
+                "single use applies across digests"
             )
 
 
@@ -1646,14 +1671,14 @@ def run_stage(
         raise SystemExit(f"work directory is not empty: {work}")
     last_close = stage_window(stage, now)
     digest = protocol_digest()
-    # One ledger namespace per protocol digest, one claim per stage (interims once per UTC
-    # month); a new digest exists only after a reviewed, relayed amendment.
-    ledger_dir = ledger_dir / digest
-    if stage.interim:
-        check_line_not_stopped(ledger_dir)
+    # Claims and the stop state are keyed by protocol id + stage (interims once per UTC month)
+    # across every digest; the per-digest subfolder only keeps provenance.
+    name = claim_name(stage, now)
+    ledger_root = ledger_dir / PROTOCOL_ID
+    check_cross_digest(ledger_root, stage, name)
+    ledger_dir = ledger_root / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
-    name = claim_name(stage, now)
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir
     )

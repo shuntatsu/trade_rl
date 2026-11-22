@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it.
 
-Protocol digest: `ecd91aa1d1ba94bdcf6c4d8b6666bdf55ab5e7f6b801797690eb7c240589f815`
+Protocol digest: `f4d3d6d4c2a22dee8e4c21bdb0c8d91f5b579f4ccb572c0d006901a337a50701`
 
 ## Question
 
@@ -37,7 +37,7 @@ All times are UTC. A 4h bar is labelled by its open time and a decision happens 
 **Data.** 1h klines from the public `https://fapi.binance.com/fapi/v1/klines` endpoint, loaded from 2021-01-01 00:00. A 4h or 1d bar exists only if all of its hourly bars exist; otherwise it is blank (NaN) and so are the features that use it. 4h and 1d bars are aggregated from 1h bars (open of the first hour, max high, min low, close of the last hour, sums of quote and taker-buy quote volume). The 1d bar is the UTC day. At a 4h decision close the latest COMPLETED daily bar is used, and the 1h feature of the hour that closes at `c`.
 
 **Features.** The 42 columns of the exploratory bank, in this order (`FEATURE_COLUMNS` in the harness):
-- for each of 4h, 1h and 1d: RSI(14), MACD histogram / close, PPO(12,26), stochastic(14,3), Ichimoku score (the cloud shifted +26 bars, never −26), bull / bear / net counts of the multi-indicator divergence (10 indicators, pivots 5/3, gap 60, life 6), SMA20 and SMA50 log distance, 1- and 6-bar log returns, 30-bar return std;
+- for each of 4h, 1h and 1d: RSI(14), MACD histogram / close, PPO(12,26), stochastic(14,3), Ichimoku score (the cloud shifted +26 bars, never −26), bull / bear / net counts of the multi-indicator divergence (9 indicators: RSI, MACD histogram, stochastic, CCI, MFI, OBV, ROC, Williams %R, taker-buy ratio; pivots 5/3, gap 60, life 6), SMA20 and SMA50 log distance, 1- and 6-bar log returns, 30-bar return std;
 - the daily `regime`, `dsma200_1d` and `vol_ann` (30-day std × √365).
 
 They are computed in numpy with the same rolling and EWM rules as the exploratory pandas code, including its NaN rules. The tests prove causality by truncation and prove numeric parity against a verbatim pandas copy (G2).
@@ -69,13 +69,13 @@ A bar whose `vol_ann` is not finite makes no decision for that coin (it holds), 
 
 The book holds actual contracts and cash. It follows the precedent of `btc_trend_ensemble_v1` Amendment 2 (PR #1331): quantities are held between accepted changes and there is no free re-weighting.
 
-- **Components.** Sleeve A on BTC and each sleeve-B coin are separate components with their own signed units. A component's units are set only when its nominal weight changes (entry, exit or flip) or when the leverage changes, in which case every component's units are scaled by `L_new / L_old`.
+- **Components.** Sleeve A on BTC and each sleeve-B coin are separate components with their own signed units. A component's units are set only when its nominal weight changes (entry, exit or flip) or when the leverage changes, in which case every component's units are scaled by `L_new / L_old`; the only other rescaling is the fill-time cap below.
 - **Sizing.** A changed component is set to `units = L · nominal · E / price`, where `E` is the equity marked at the fill price just before the fill (after funding, before that fill's fee). Cash may be negative (margin).
-- **Hard gross cap.** If a fill would leave the gross notional above 2 times the post-fee equity, every position the fill would set is scaled by the largest factor `s ≤ 1` that lands on the cap (the fee depends on `s`). This binds, for instance, when sleeve A alone runs at leverage 2 with size 1, because the entry fee lowers the equity the fraction was sized on. The number of clamps and the smallest factor are recorded per cell.
+- **Fill-time gross cap.** The cap applies at fills only. If a fill would leave the gross notional above 2 times the post-fee equity, the fill's candidate units are scaled by the largest factor `s ≤ 1` that lands on the cap (the fee depends on `s`). The factor multiplies ALL component units of the candidate book, including components the fill does not change: the cap is a bound on the whole book's gross after the fill, so scaling only the changed components could not always reach it (held units may already sit near or above the cap after a loss). Identity and fees stay exact, because the fee is charged on the actual per-coin trade that results. This binds, for instance, when sleeve A alone runs at leverage 2 with size 1, because the entry fee lowers the equity the fraction was sized on. The number of clamps and the smallest factor are recorded per cell. Between fills the held gross is NOT capped: held units are never force-reduced, so after a loss the marked gross can exceed 2 (a book at gross 2 that loses 10% marks at 2 × 0.9 / 0.8 = 2.25). The largest marked gross is reported as `max_held_gross` and gates nothing.
 - **Fees.** `fee · Σ |Δ net units of a coin| · price`, charged at the fill on actual notional per coin (net of the components of that coin), at 6 bp one-way (12 bp in HIGH_COST). Leverage changes pay fees on the notional they trade.
 - **Funding.** The ACTUAL Binance funding of each symbol from the public `https://fapi.binance.com/fapi/v1/fundingRate` endpoint. An event stamped `t` with `c_{j−1} ≤ t < c_j` is paid in bar `j` on the units held after the fill at `c_{j−1}`: `cash −= units · price · rate` (longs pay a positive rate). `price` is the record's mark price, else the 1h open of the funding hour (the number of fallbacks is recorded). The funding history of every symbol must cover the window without a gap above 8h plus one minute.
 - **Timing.** A decision at the close `c_j` fills at that close (BASE) or at `c_{j+1}` (DELAY). Decisions are made at the closes from 2026-12-01 00:00 to 2027-11-30 20:00 (the last closes before 2027-11-30 23:59); P&L is marked at every close through 2027-12-01 00:00 (2,190 4h bars). The book starts flat at the first decision with equity 1.
-- **Validity.** A cell is invalid if at any step: equity is not positive; gross leverage after a fill exceeds `2 + 1e-9` (gross is `Σ|units·price| / equity` over the net per-coin positions; after the hard cap above this is an assertion that the clamp worked; the gross at every mark is reported but gates nothing, because held units drift after losses); an accounting identity breaks by more than `1e-9` (the cash and mark-to-market reconciliations of every bar and every fill); a price is not positive. A missing hour from the open of the first decision bar onward, in any symbol, is a data problem that makes the stage INVALID. Missing hours before it only blank the affected bars.
+- **Validity.** A cell is invalid if at any step: equity is not positive; gross leverage after a fill exceeds `2 + 1e-9` (gross is `Σ|units·price| / equity` over the net per-coin positions; after the fill-time cap above this is an assertion that the clamp worked; the gross at every mark is reported as `max_held_gross` but gates nothing, because held units drift after losses); an accounting identity breaks by more than `1e-9` (the cash and mark-to-market reconciliations of every bar and every fill); a price is not positive. A missing hour from the open of the first decision bar onward, in any symbol, is a data problem that makes the stage INVALID. Missing hours before it only blank the affected bars.
 
 ## Cells (frozen)
 
@@ -96,7 +96,7 @@ The book holds actual contracts and cash. It follows the precedent of `btc_trend
 | FORWARD interim | Binance USDT-M 1h klines from 2021-01-01 to the last settled 4h close (the newest 5 minutes are ignored), funding from 2026-12-01 | from 2026-12-01 00:00 | monthly progress, `INTERIM_NOT_A_DECISION` |
 | FORWARD final | the same, to 2027-12-01 00:00 | 2026-12-01 00:00 to 2027-11-30 23:59 | decisive, prospective |
 
-- Interims may run from 2026-12-02, once per UTC month. One stops the line (`STOPPED_EARLY`) if the `COMBO__BASE` max drawdown is 25% or more. A ledgered `STOPPED_EARLY` blocks further interims; the final may still run and its drawdown gate then fails.
+- Interims may run from 2026-12-02, once per UTC month. One stops the line (`STOPPED_EARLY`) if the `COMBO__BASE` max drawdown is 25% or more. A ledgered `STOPPED_EARLY` blocks every further interim and the final: the drawdown is a running maximum, so a final could only fail its drawdown gate, and the line is over.
 - The final runs once, at or after 2027-12-02.
 - Every run re-downloads the full history (the work directory must be empty). Raw responses are cached write-once and hashed in the receipt.
 
@@ -139,6 +139,7 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 - `MTF_COMBO_SUPPORTED` means one prospective year, one market regime, 365 days of about 2,190 overlapping 4h observations, passed these gates with the frozen constants. It is not statistical significance, not an edge estimate, not a Sharpe forecast and not a result about other years, symbols or venues.
 - A pass does not authorize orders, paper trading, live trading or capital. It would justify a further pre-registered protocol only.
 - `MTF_COMBO_NOT_SUPPORTED` ends this version. A software or data refusal needs a result-blind amendment before any rerun.
+- Drawdown and Sharpe are measured on 4h close marks only; intrabar drawdown, which is larger, is not measured.
 - Funding and fees use Binance public history and a flat 6 bp per fill; real slippage, partial fills, margin rules, liquidation, borrow and funding-interval changes are not modelled.
 
 ## Authorization
@@ -146,8 +147,10 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 - FORWARD reads are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247).
 - Each stage run also needs its own G4 relay on Issue #810 that quotes this protocol id, the digest and the full code commit.
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
-- The checkout must be clean.
-- Outputs are write-once. A local ledger claim, keyed by the protocol digest, must be created exclusively before any data is fetched: once per UTC month for interims and once for the final.
+- The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
+- The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.
+- Outputs are write-once. A local ledger claim must be created exclusively before any data is fetched: once per UTC month for interims and once for the final, keyed by protocol id and stage as described below.
+- Single use and the stop state are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The per-digest subfolders (`<ledger>/mtf_combo_v1/<digest>/`) keep provenance only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
 - Run with the locked environment: `uv run --locked --extra forecast-gbm python -m tools.mtf_combo_forward run ...`. The receipt records the numpy and scikit-learn versions.
 
 ## Stop rule
@@ -160,9 +163,10 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 
 ## Choices the review should check
 
+- The screens (`q4`) refit the ML model for each test year on earlier data with per-year bands and a 30-bar embargo. This protocol fits ONE model at the start of each stage run on all rows whose label bar opens before 2026-12-01 and uses its bands for the whole of FORWARD. It is a deliberate simplification (no retraining after the start), not the screens' walk-forward, so screen figures do not describe this model's cadence.
 - The vol estimate uses in-stage bars only. Warm-up history is used for features, the regime and model training but NOT for the vol estimate: no shadow book exists before the stage, so `L = 1.0` for the first 180 in-stage bars, as in the screens.
 - Component-level actual units with leverage scaling and sizing from pre-fee equity (the fee is a second-order shortfall of the nominal weight).
-- Gross leverage is capped and checked at fills only. Held units are not force-reduced when a loss lifts the marked gross above 2 between fills; that is reported, not gated. The clamp is an addition to the screens, which had no cap on a fill.
+- Gross leverage is capped and checked at fills only. Held units are not force-reduced when a loss lifts the marked gross above 2 between fills; that is reported as `max_held_gross`, not gated. The clamp is an addition to the screens, which had no cap on a fill.
 - The BTC filter treats a non-finite BTC regime as "not down", so a short is blocked; the screens allowed it. This never occurs after the 200-day warm-up.
 - A funding event stamped at or just after a decision close is paid by the units held after that close's fill.
 - `HOLD_BTC` is a perpetual long with funding, not spot.

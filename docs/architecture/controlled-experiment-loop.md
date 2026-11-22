@@ -60,8 +60,11 @@ parentの同時置換に対するatomicな保護は保証しない。
 自由形式pathのauthorityは追加せず、出力名は小文字の単一
 `*.json` leafのみ受け付ける。
 
-入力は予約・directory生成前にcanonical JSONへserializeし、非有限値や
-unsupported type、1 MiB超を拒否する。成功した公開後には別のdescriptor-safe
+入力は予約・directory生成前にdeep-immutable JSON値へ一度だけ固定し、
+**検証時と公開時の両canonical JSON serializerが同一snapshotを使う**。
+呼出元がその後で元のmappingやネストしたlistを変更しても、公開bytes・sizeの
+根拠は変わらない。非有限値やunsupported type、1 MiB超を拒否する。
+成功した公開後には別のdescriptor-safe
 readbackでsize・SHA-256の完全一致を検証し、
 `PublishedJsonEvidence(path, sha256, size_bytes)`を返す。公開後の読戻しが
 失敗した場合、既にcommit済みかもしれないため

@@ -194,6 +194,54 @@ else:
     )
 
 
+def test_nested_payload_mutation_between_validation_and_publication_is_never_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Publish exact prevalidated bytes even when a caller mutates nested values."""
+    from trade_rl.evaluation.experiments.store import StudyStore
+
+    root = tmp_path / "future"
+    source = {"nested": {"value": "before"}}
+    original = canonical_json_bytes(source)
+    actual_publish = StudyStore.publish_json_once
+
+    def mutate_during_write(self: StudyStore, name: str, payload: object) -> Path:
+        source["nested"]["value"] = "after"
+        return actual_publish(self, name, payload)
+
+    monkeypatch.setattr(StudyStore, "publish_json_once", mutate_during_write)
+    result = future.publish_json_evidence_once(
+        root=root, name="result.json", payload=source
+    )
+    assert result.path.read_bytes() == original
+    assert result.sha256 == hashlib.sha256(original).hexdigest()
+    assert source["nested"]["value"] == "after"
+
+
+def test_mutation_past_size_budget_does_not_commit_oversized_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A postcheck race must not bypass the advertised 1 MiB admission budget."""
+    from trade_rl.evaluation.experiments.store import StudyStore
+
+    root = tmp_path / "future"
+    source = {"value": "ok"}
+    original = canonical_json_bytes(source)
+    actual_publish = StudyStore.publish_json_once
+
+    def mutate_during_write(self: StudyStore, name: str, payload: object) -> Path:
+        source["value"] = "a" * (future.MAX_JSON_EVIDENCE_BYTES + 256)
+        return actual_publish(self, name, payload)
+
+    monkeypatch.setattr(StudyStore, "publish_json_once", mutate_during_write)
+    result = future.publish_json_evidence_once(
+        root=root, name="receipt.json", payload=source
+    )
+    assert result.path.read_bytes() == original
+    assert result.size_bytes == len(original)
+    assert len(result.path.read_bytes()) <= future.MAX_JSON_EVIDENCE_BYTES
+
+
 def test_postpublication_readback_failure_never_claims_success_or_retries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

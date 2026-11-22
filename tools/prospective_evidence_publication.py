@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes, freeze_json_value
 from trade_rl.artifacts.verified_file import read_verified_bytes
 from trade_rl.evaluation.experiments.errors import PublishedArtifactCleanupError
 from trade_rl.evaluation.experiments.store import StudyStore
@@ -55,13 +55,16 @@ def publish_json_evidence_once(
         raise TypeError("evidence payload must be a canonical JSON mapping")
     # Serialize and reject invalid/oversized evidence before creating directories
     # or reserving any output filename.
-    encoded = canonical_json_bytes(payload)
+    # Deep-freeze exactly one caller snapshot. The StudyStore canonical encoder
+    # runs again at publication time; never hand it the original mutable input.
+    frozen_payload = freeze_json_value(payload)
+    encoded = canonical_json_bytes(frozen_payload)
     if len(encoded) > MAX_JSON_EVIDENCE_BYTES:
         raise ValueError("evidence JSON size exceeds the prospective 1 MiB ceiling")
 
     expected_sha = hashlib.sha256(encoded).hexdigest()
     store = StudyStore(root)
-    published = store.publish_json_once(name, payload)
+    published = store.publish_json_once(name, frozen_payload)
     try:
         read_verified_bytes(
             published,

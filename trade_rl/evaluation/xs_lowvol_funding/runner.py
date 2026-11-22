@@ -12,9 +12,11 @@ from the first 4h bar opening at or after the earliest public notice of that eve
 see ``notices``) through its last available bar. The engine charges the scenario cost on each
 fill; this runner adds the extra adverse 5% of the closed notional as a cash debit at each
 fill bar, applied to the equity path from that bar on. A position still held at the last
-available bar refuses the run (no write-off branch). The debits are
-reported (count, total charge, the result without them) and enter the cash check, the
-returns, the drawdown and every metric of the cell.
+available bar is written off (Amendment 6): the engine settles it at the first inactive bar's
+open, which is that bar's close, and the same 5% of the settled notional is debited at the
+settlement bar. The debits are reported (count, total charge, the result without them, and
+the write-off events) and enter the cash check, the returns, the drawdown and every metric
+of the cell.
 
 The causality probe runs per ``(arm, signal lag)``: the market rows after a cut are perturbed
 and every input row up to the cut and every decision must be identical.
@@ -90,8 +92,11 @@ DISCLOSURES: tuple[str, ...] = (
     "90 days before the event) through its last available bar; "
     "the extra adverse 5% is a post-replay cash debit at each fill bar, so the engine's "
     "risk layer does not see it",
-    "a position still held at a name's last available bar refuses the run (no write-off "
-    "branch; a disclosed limitation that would need an amendment)",
+    "a position still held at a name's last available bar is written off at that bar's "
+    "close (Amendment 6, side-agnostic): the engine settles it at the first inactive bar's "
+    "open (the last published close) and the same extra adverse 5% of the settled notional "
+    "is a post-replay cash debit at the settlement bar; the events are reported per cell "
+    "and never gate; a settlement the ledger cannot show exactly refuses the run",
     "exchange rules (lot size, minimum notional) are one static snapshot, not point-in-time; "
     "a symbol absent from the snapshot uses the fallback rules",
     "an unavailable row carries a constant sentinel price, never a market price",
@@ -169,7 +174,7 @@ def replay(
             raise
         raise UnsupportedWriteOffError(
             "a forced close left a position on an asset that became unavailable; the "
-            "shared replay cannot write it off (fill tracker diverged from the book)"
+            "shared replay cannot account for it (fill tracker diverged from the book)"
         ) from error
 
 
@@ -179,20 +184,14 @@ def make_policy(
     inputs: XsInputs,
     start_index: int,
     lag: int,
-    refuse_unclosed: bool = False,
     last_weekly_row: int | None = None,
 ) -> PortfolioPolicy:
-    """The policy of an arm; ``lag`` is the scenario's extra signal lag in bars.
-
-    ``refuse_unclosed`` (the real replays) refuses a position still held at a name's last
-    available bar; the synthetic causality probe leaves it off.
-    """
+    """The policy of an arm; ``lag`` is the scenario's extra signal lag in bars."""
     return XsPolicy(
         arm=arm,
         inputs=inputs,
         start_index=start_index,
         signal_lag_bars=lag,
-        refuse_unclosed=refuse_unclosed,
         last_weekly_row=last_weekly_row,
     )
 
@@ -331,8 +330,8 @@ def forced_closes(
 
     A leg's last available bar is ``L`` when it is active at ``L`` and not at ``L + 1``. The
     forced rows of the leg are the run ``s .. L`` of ``forced``; every fill of the leg on the
-    bars ``s + 1 .. L`` is a forced-close fill and carries the extra adverse charge. A position still held after ``L`` refuses the run (the policy raises
-    first; this is the same check on the ledger).
+    bars ``s + 1 .. L`` is a forced-close fill and carries the extra adverse charge. A
+    position still held at ``L`` is not a fill: :func:`write_offs` settles it at ``L + 1``.
     """
     ledger = result.ledger_evidence
     if ledger is None or not ledger.intervals.intervals:
@@ -345,16 +344,6 @@ def forced_closes(
     for leg in range(active.shape[1]):
         for last in np.flatnonzero(active[:-1, leg] & ~active[1:, leg]):
             row = int(last)
-            tail = by_next.get(row)
-            if (
-                tail is not None
-                and abs(float(Fraction(tail.exact_quantities_after[leg])))
-                > _QUANTITY_ATOL
-            ):
-                raise UnsupportedWriteOffError(
-                    f"{dataset.symbols[leg]} still held at its last available bar {row}; "
-                    "the protocol has no write-off branch (disclosed limitation)"
-                )
             fills: list[tuple[int, float]] = []
             first = row + 1
             if schedule[row, leg]:
@@ -383,6 +372,90 @@ def forced_closes(
     return events
 
 
+@dataclass(frozen=True, slots=True)
+class WriteOff:
+    """A leg held at its last available bar, settled at that bar's close (Amendment 6)."""
+
+    leg: str
+    last_bar: int
+    settlement_bar: int
+    notional: float
+
+    @property
+    def charge(self) -> float:
+        return protocol.FORCED_CLOSE_ADVERSE * self.notional
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "symbol": self.leg,
+            "last_bar": self.last_bar,
+            "bar": self.settlement_bar,
+            "settled_notional": self.notional,
+            "charge": self.charge,
+        }
+
+
+def write_offs(
+    result: SharedCashPortfolioReplayResult, dataset: MarketDataset
+) -> list[WriteOff]:
+    """The write-offs of a replay: legs still held at ``L`` when the leg's last bar is ``L``.
+
+    The engine settles such a position at the open of bar ``L + 1`` (the first inactive
+    bar), which the dataset sets to the close of ``L``, at recovery 1. The settled notional
+    is the absolute quantity times that price; the extra adverse charge applies to it like
+    to a forced-close fill. Anything the ledger cannot show exactly (a fill on the leg at
+    ``L + 1``, a leg that is not flat afterwards, a settlement price other than the last
+    close, a recovery below 1) refuses the run.
+    """
+    ledger = result.ledger_evidence
+    if ledger is None or not ledger.intervals.intervals:
+        return []
+    by_next = {iv.next_index: iv for iv in ledger.intervals.intervals}
+    active = np.asarray(dataset.resolved_array("asset_active"), dtype=np.bool_)
+    recovery = np.asarray(
+        dataset.resolved_array("delisting_recovery"), dtype=np.float64
+    )
+    multipliers = np.asarray(dataset.contract_multipliers, dtype=np.float64)
+    events: list[WriteOff] = []
+    for leg in range(active.shape[1]):
+        name = str(dataset.symbols[leg])
+        for last in np.flatnonzero(active[:-1, leg] & ~active[1:, leg]):
+            row = int(last)
+            settle = by_next.get(row + 1)
+            if settle is None:
+                continue
+            before = Fraction(settle.exact_quantities_before[leg])
+            if abs(float(before)) <= _QUANTITY_ATOL:
+                continue
+            after = Fraction(settle.exact_quantities_after[leg])
+            if abs(float(after)) > _QUANTITY_ATOL:
+                raise UnsupportedWriteOffError(
+                    f"{name} is not flat after its settlement at bar {row + 1}"
+                )
+            if any(
+                event.symbol_index == leg and float(event.filled_notional) > 0.0
+                for event in settle.order_events
+            ):
+                raise UnsupportedWriteOffError(
+                    f"{name} filled at its settlement bar {row + 1}; the settlement "
+                    "cannot be separated from the fill"
+                )
+            price = float(dataset.open[row + 1, leg])
+            if price != float(dataset.close[row, leg]) or recovery[row + 1, leg] != 1.0:
+                raise UnsupportedWriteOffError(
+                    f"{name} is not settled at its last close with full recovery"
+                )
+            events.append(
+                WriteOff(
+                    leg=name,
+                    last_bar=row,
+                    settlement_bar=row + 1,
+                    notional=abs(float(before)) * price * float(multipliers[leg]),
+                )
+            )
+    return events
+
+
 def _equity_path(returns: np.ndarray) -> np.ndarray:
     return protocol.INITIAL_CAPITAL * np.cumprod(1.0 + returns)
 
@@ -391,12 +464,13 @@ def _charged_returns(
     returns: np.ndarray,
     intervals: Any,
     closes: list[ForcedClose],
+    written_off: list[WriteOff] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """``(returns after the debits, cumulative debit per interval)``.
 
-    The charge of each forced-close fill is debited at its fill bar (an interval is identified
-    by the row it ends on); each debit lowers the equity path from that interval on by its
-    full amount.
+    The charge of each forced-close fill and of each write-off is debited at its fill or
+    settlement bar (an interval is identified by the row it ends on); each debit lowers the
+    equity path from that interval on by its full amount.
     """
     debit = np.zeros(returns.size, dtype=np.float64)
     if len(intervals) != returns.size:
@@ -406,6 +480,9 @@ def _charged_returns(
         for bar, notional in event.fills:
             if bar in position:
                 debit[position[bar]] += protocol.FORCED_CLOSE_ADVERSE * notional
+    for off in written_off or ():
+        if off.settlement_bar in position:
+            debit[position[off.settlement_bar]] += off.charge
     cumulative = np.cumsum(debit)
     if not cumulative.any():
         return returns, cumulative
@@ -523,6 +600,7 @@ def _build_cell(
         initial_capital=protocol.INITIAL_CAPITAL,
         causality_passed=causality_passed,
         execution_cost=protocol.scenario_cost(scenario),
+        engine_settlement=True,
     )
     stop_reason = summary.stop_reason
     if (
@@ -538,12 +616,15 @@ def _build_cell(
     ledger = result.ledger_evidence
     intervals = ledger.intervals.intervals if ledger is not None else ()
     closes = forced_closes(result, dataset, forced)
-    charged, cumulative = _charged_returns(returns, intervals, closes)
+    offs = write_offs(result, dataset)
+    charged, cumulative = _charged_returns(returns, intervals, closes, offs)
     years = _calendar_year_returns(dataset, result, charged)
     if years is None or len(intervals) != returns.size:
         reasons.append("returns_not_aligned_with_ledger_intervals")
         years = {}
-    total_charge = float(sum(e.fill_charge for e in closes))
+    forced_charge = float(sum(e.fill_charge for e in closes))
+    write_off_charge = float(sum(e.charge for e in offs))
+    total_charge = forced_charge + write_off_charge
     total_return = summary.total_return
     sharpe = summary.annual_sharpe
     drawdown = summary.max_drawdown
@@ -562,7 +643,7 @@ def _build_cell(
         "half_sharpes": _half_sharpes(dataset, intervals, charged),
         "forced_close": {
             "count": len(closes),
-            "total_charge_usdt": total_charge,
+            "total_charge_usdt": forced_charge,
             "events": [event.to_dict() for event in closes],
             "without_charge": {
                 "total_return": summary.total_return,
@@ -570,6 +651,9 @@ def _build_cell(
                 "max_drawdown": summary.max_drawdown,
             },
         },
+        "write_off_count": len(offs),
+        "write_off_total_charge_usdt": write_off_charge,
+        "write_off_events": [event.to_dict() for event in offs],
         "leg_attribution": (
             None if arm == protocol.CONTROL_CASH else _leg_attribution(result, dataset)
         ),
@@ -689,7 +773,6 @@ def run_stage(
                 inputs=inputs,
                 start_index=start,
                 lag=lag,
-                refuse_unclosed=True,
                 last_weekly_row=last_weekly_row(start, stop),
             )
             result = replay(
@@ -783,7 +866,9 @@ __all__ = [
     "ForcedClose",
     "ProbeResult",
     "UnsupportedWriteOffError",
+    "WriteOff",
     "forced_closes",
+    "write_offs",
     "last_weekly_row",
     "inputs_of",
     "make_policy",

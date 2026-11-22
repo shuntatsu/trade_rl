@@ -517,9 +517,18 @@ def protocol_payload() -> dict[str, object]:
             "adverse_charge": FORCED_CLOSE_ADVERSE,
             "booked": "cash debit at each fill bar of the forced close, applied to the "
             "equity path from that bar on",
-            "unclosed_at_last_bar": "the run refuses (no write-off branch; disclosed "
-            "limitation that would need an amendment)",
-            "reported": ["count", "total_charge", "result_without_charge"],
+            "unclosed_at_last_bar": "write-off (Amendment 6, side-agnostic): the "
+            "position is settled by the engine at the first inactive bar's open, the "
+            "close of the last available bar, at full recovery; the same adverse charge "
+            "applies to the settled notional, booked as a cash debit at the settlement "
+            "bar; a settlement the ledger cannot show exactly refuses the run",
+            "reported": [
+                "count",
+                "total_charge",
+                "result_without_charge",
+                "write_off_events",
+                "write_off_count",
+            ],
         },
         "risk": {
             "max_gross": rc.max_gross,

@@ -201,11 +201,11 @@ def funding_mean(
 
 
 class UnsupportedWriteOffError(StageDataError):
-    """A position of a delisted name is still held at its last available bar.
+    """A write-off the protocol cannot account for exactly.
 
-    The spec has no write-off branch: the shared replay cannot continue once the engine
-    settles a position on an asset that has just become unavailable, so the run refuses.
-    This is a disclosed limitation that would need an amendment.
+    A leg held at its last available bar is written off at that bar's close (Amendment 6).
+    The run refuses when the ledger does not show that settlement exactly: a leg that is
+    not flat after it, a settlement price that is not the last close, or a recovery below 1.
     """
 
 
@@ -398,7 +398,6 @@ class XsPolicy(PortfolioPolicy):
         start_index: int,
         signal_lag_bars: int = 0,
         rebalance_every_bars: int = protocol.REBALANCE_EVERY_BARS,
-        refuse_unclosed: bool = False,
         last_weekly_row: int | None = None,
     ) -> None:
         if arm not in protocol.ARMS:
@@ -407,7 +406,6 @@ class XsPolicy(PortfolioPolicy):
             raise ValueError("invalid start index, signal lag or stride")
         self._arm = arm
         self._inputs = inputs
-        self._refuse_unclosed = refuse_unclosed
         self._last_weekly = last_weekly_row
         self._start = start_index
         self._lag = signal_lag_bars
@@ -472,16 +470,6 @@ class XsPolicy(PortfolioPolicy):
         if self._arm == protocol.CONTROL_CASH:
             return PortfolioTargetProposal(target_weights=(0.0,) * n_legs)
         t = snapshot.index
-        if self._refuse_unclosed:
-            leftover = self._inputs.last_bar[t] & (
-                np.abs(np.asarray(snapshot.account.quantities)) > _NO_TRADE_ATOL
-            )
-            if leftover.any():
-                names = [self._inputs.legs[i] for i in np.flatnonzero(leftover)]
-                raise UnsupportedWriteOffError(
-                    f"{names} still held at the last available bar; the protocol has "
-                    "no write-off branch (disclosed limitation)"
-                )
         scale = risk_scale_of(snapshot)
         current = np.asarray(snapshot.account.weights, dtype=np.float64)
 

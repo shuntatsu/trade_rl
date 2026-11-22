@@ -8,6 +8,7 @@ replay engine and the stage guards; the fixture's returns and funding are closed
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
@@ -137,7 +138,6 @@ def _replay(
         inputs=inputs,
         start_index=start,
         lag=protocol.scenario_signal_lag_bars(scenario),
-        refuse_unclosed=True,
     )
     stop = stage_data.dataset.n_bars - 1
     if risk:
@@ -257,15 +257,11 @@ def test_the_forced_close_charge_is_a_cash_debit_on_the_equity_path_from_the_fil
     assert cell.valid and cell.max_borrowing is not None and cell.max_borrowing < 0.1
 
 
-def test_an_unclosed_position_at_the_last_bar_refuses_the_run_naming_the_symbol() -> (
-    None
-):
+def _thin_delisted() -> data.StageData:
     # from the first forced-close fill bar on the name is too thin to fill anything (1% of
-    # ~4 USDT), so the position is still held at its last available bar. The protocol has no
-    # write-off branch (and the shared replay cannot continue past an engine settlement),
-    # so the run refuses.
+    # ~4 USDT), so the position is still held at its last available bar
     thin_from = NOTICE_ROW * protocol.BAR_HOURS
-    stage_data = fx.stage(
+    return fx.stage(
         overrides={
             "AAAUSDT": {
                 "last_hour": fx.last_hour_of_row(fx.WINDOW, LAST_ROW),
@@ -274,8 +270,136 @@ def test_an_unclosed_position_at_the_last_bar_refuses_the_run_naming_the_symbol(
         },
         notice_book=_notice_book(),
     )
+
+
+def test_a_position_held_at_the_last_bar_is_written_off_at_that_close_with_the_five_percent() -> (
+    None
+):
+    stage_data = _thin_delisted()
+    dataset = stage_data.dataset
+    leg = dataset.symbols.index("AAAUSDT")
+    # only the delisted leg is held, so the settlement interval has no other cash flow
+    weights = np.zeros(len(dataset.symbols))
+    weights[leg] = 0.25
+    result = _replay(stage_data, policy_override=_Constant(weights), risk=False)
+    held = _interval(result, LAST_ROW)
+    quantity = Fraction(held.exact_quantities_after[leg])
+    assert quantity > 0  # still held at the last available bar
+    settle = _interval(result, LAST_ROW + 1)
+    assert Fraction(settle.exact_quantities_after[leg]) == 0
+    assert result.book.quantities[leg] == 0.0
+    price = float(dataset.close[LAST_ROW, leg])
+    assert float(dataset.open[LAST_ROW + 1, leg]) == price
+    proceeds = float(quantity) * price
+    # cash conservation: the settlement adds exactly the quantity times the last close (the
+    # engine books no fill, fee or funding on an inactive bar) and equity is unchanged by it
+    assert settle.cash_after - settle.cash_before == pytest.approx(proceeds, rel=1e-9)
+    assert settle.portfolio_value_after == pytest.approx(
+        settle.portfolio_value_before, rel=1e-9
+    )
+    events = runner.write_offs(result, dataset)
+    assert [(e.leg, e.last_bar, e.settlement_bar) for e in events] == [
+        ("AAAUSDT", LAST_ROW, LAST_ROW + 1)
+    ]
+    assert events[0].notional == pytest.approx(proceeds, rel=1e-9)
+    assert events[0].charge == pytest.approx(0.05 * proceeds, rel=1e-9)
+    cell = _cell(stage_data, result, protocol.CANDIDATE)
+    stats = cell.cap_statistics
+    assert stats["write_off_count"] == 1
+    assert stats["write_off_events"] == [
+        {
+            "symbol": "AAAUSDT",
+            "last_bar": LAST_ROW,
+            "bar": LAST_ROW + 1,
+            "settled_notional": pytest.approx(proceeds, rel=1e-9),
+            "charge": pytest.approx(0.05 * proceeds, rel=1e-9),
+        }
+    ]
+    charge = stats["write_off_total_charge_usdt"]
+    assert charge == pytest.approx(0.05 * proceeds, rel=1e-9)
+    # the charge is a cash debit on the equity path from the settlement bar on
+    raw = protocol.INITIAL_CAPITAL * np.cumprod(
+        1.0 + np.asarray(result.returns.values, dtype=np.float64)
+    )
+    path = protocol.INITIAL_CAPITAL * np.cumprod(1.0 + np.asarray(cell.returns))
+    position = LAST_ROW + 1 - fx.WINDOW.first_decision_index - 1
+    forced_charge = stats["forced_close"]["total_charge_usdt"]
+    assert path[position] == pytest.approx(
+        raw[position] - forced_charge - charge, rel=1e-6
+    )
+    assert cell.cap_statistics["forced_close"]["without_charge"][
+        "total_return"
+    ] - cell.total_return == pytest.approx(
+        (forced_charge + charge) / protocol.INITIAL_CAPITAL,
+        abs=1e-9,
+    )
+    assert cell.valid
+
+
+def test_a_long_and_a_short_leg_are_both_written_off_at_their_last_close() -> None:
+    thin_from = NOTICE_ROW * protocol.BAR_HOURS
+    overrides = {
+        name: {
+            "last_hour": fx.last_hour_of_row(fx.WINDOW, LAST_ROW),
+            "volume_from": (thin_from, 1.0),
+        }
+        for name in ("AAAUSDT", "BBBUSDT")
+    }
+    stage_data = fx.stage(
+        overrides=overrides,
+        notice_book=fx.book(
+            ("AAAUSDT", fx.close_of(NOTICE_ROW - 1)),
+            ("BBBUSDT", fx.close_of(NOTICE_ROW - 1)),
+        ),
+    )
+    dataset = stage_data.dataset
+    names = list(dataset.symbols)
+    weights = np.zeros(len(names))
+    weights[names.index("AAAUSDT")] = 0.2
+    weights[names.index("BBBUSDT")] = -0.2
+    result = _replay(stage_data, policy_override=_Constant(weights), risk=False)
+    events = {e.leg: e for e in runner.write_offs(result, dataset)}
+    assert set(events) == {"AAAUSDT", "BBBUSDT"}
+    before = _interval(result, LAST_ROW + 1)
+    after_cash = before.cash_after - before.cash_before
+    signed = 0.0
+    for name, event in events.items():
+        leg = names.index(name)
+        quantity = float(Fraction(before.exact_quantities_before[leg]))
+        assert (quantity > 0) == (name == "AAAUSDT")  # long and short
+        assert Fraction(before.exact_quantities_after[leg]) == 0
+        price = float(dataset.close[LAST_ROW, leg])
+        assert event.notional == pytest.approx(abs(quantity) * price, rel=1e-9)
+        assert event.charge == pytest.approx(0.05 * abs(quantity) * price, rel=1e-9)
+        signed += quantity * price
+    # the cash identity of the settlement interval: short proceeds are negative
+    assert after_cash == pytest.approx(signed, rel=1e-9, abs=1e-6)
+    assert before.portfolio_value_after == pytest.approx(
+        before.portfolio_value_before, rel=1e-9
+    )
+
+
+def test_a_settlement_the_ledger_cannot_show_exactly_still_refuses() -> None:
+    stage_data = _thin_delisted()
+    result = _replay(stage_data)
+    leg = stage_data.dataset.symbols.index("AAAUSDT")
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    intervals = list(ledger.intervals.intervals)
+    position = [iv.next_index for iv in intervals].index(LAST_ROW + 1)
+    quantities = list(intervals[position].exact_quantities_after)
+    quantities[leg] = intervals[position].exact_quantities_before[leg]  # not flat
+    intervals[position] = replace(
+        intervals[position], exact_quantities_after=tuple(quantities)
+    )
+    broken = replace(
+        result,
+        ledger_evidence=replace(
+            ledger, intervals=replace(ledger.intervals, intervals=tuple(intervals))
+        ),
+    )
     with pytest.raises(runner.UnsupportedWriteOffError, match="AAAUSDT"):
-        _replay(stage_data)
+        runner.write_offs(broken, stage_data.dataset)
     assert issubclass(runner.UnsupportedWriteOffError, StageDataError)
 
 
@@ -861,8 +985,6 @@ def test_a_non_dust_residual_after_settlement_is_invalid() -> None:
 
 
 def _with_residual(result: SharedCashPortfolioReplayResult) -> Any:
-    from dataclasses import replace
-
     ledger = result.ledger_evidence
     assert ledger is not None
     quantities = list(ledger.intervals.terminal_exact_quantities)
@@ -894,7 +1016,6 @@ def _terminal_cell(
         inputs=runner.inputs_of(stage_data),
         start_index=start,
         lag=0,
-        refuse_unclosed=True,
         last_weekly_row=runner.last_weekly_row(start, stop) if unwind else None,
     )
     result = runner.replay(
@@ -962,3 +1083,16 @@ def test_every_stage_policy_holds_no_book_after_the_last_weekly_decision() -> No
         )
         late = [d for d in result.decisions if d.index >= 461]
         assert late and all(not any(d.proposal_weights) for d in late)
+
+
+def test_the_settlement_reconciles_only_when_the_package_opts_in() -> None:
+    from trade_rl.evaluation.core7_mtf_study.runner import _check_ledger_reconciled
+
+    stage_data = _thin_delisted()
+    result = _replay(stage_data)
+    ledger = result.ledger_evidence
+    dataset = stage_data.dataset
+    capital = protocol.INITIAL_CAPITAL
+    assert _check_ledger_reconciled(ledger, dataset, capital, engine_settlement=True)
+    # the shared default still rebuilds quantities from fills only
+    assert not _check_ledger_reconciled(ledger, dataset, capital)

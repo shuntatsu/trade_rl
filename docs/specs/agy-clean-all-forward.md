@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol was written before any bar, funding event or metric at or after 2026-08-01 was read for this signal.
 
-Protocol digest: `b7c3dd044311dfb2bbdd33b9748babc627ffe43ecc88be6f1287a7b34ee9adac`
+Protocol digest: `4dd8b811520924171831eee4d22ea467f7e1baa89eb29bf559942736c370ba21`
 
 ## Question
 
@@ -42,11 +42,13 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
   - The lab's deadband applies.
 - **Gross cap:** after synthesis, the decision target is scaled proportionally so that spot gross plus perp gross is at most 1.0. The cap applies to decision targets only. Between decisions the held weights drift with prices and a halted leg keeps its weight, so the executed gross may exceed 1.0 without any trade (about 1.18 at most on known-used data). The executed gross is recorded per cell as `max_executed_gross`, as reported data only.
 - **Execution:** the lab's `execute_hybrid_step` (two legs, exact conservation, linear cost plus `IMPACT_QUAD = 0.002` on weight changes, realized funding).
+  - The fill model treats a leg whose 4h bar is flagged incomplete as not tradable on that bar: its weight is held. This uses the bar's realized completeness as the fill outcome, an execution-model approximation. It carries no information into any decision target, because targets use only lagged signals, lagged econ scalars and lagged masks. It can misstate fills on bars where trading continued for part of the bar. On known-used data, no decision-bar cell had an incomplete flag (0 of 14,388).
+  - Every stage reports, per cell, the count of decision-bar legs with an incomplete flag whose target differs from the current weight (`incomplete_decision_legs`) and the count of decision-bar leg cells with an incomplete flag (`incomplete_decision_bar_cells`). The counts do not gate.
   - The lab has no participation cap.
   - The universe is 11 majors and the intended capital is small (≤ $100k), so the cap is disclosed and not modelled.
   - Financing is excluded by an enforced check, not assumed: a cell is INVALID if the cash-account need exceeds equity. The need is spot long notional plus `CASH_IM_RATE` × perp gross, with `CASH_IM_RATE = 0.4` (the engine's 1 / max_leverage, as in `agy_anchor_realistic_v1` Amendment 1). Its measured maximum on known-used data (2023-01 to 2026-07, lag 1, 6 bp, capped) is 0.65 for both arms. A halted leg keeps its weight and counts toward the need, so a real infeasibility makes the cell INVALID. That is intended and is not a rescue case.
 - No constant of the lab changes.
-- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` are bar-completeness flags (bucket k holds all four hourly bars), known only at the close of bar k. The lab uses `mask[k]` for the decision at bar k and its lag helper does not shift them. In every cell except `CANDIDATE__LAB_MASK`, the harness selects symbols for the decision at bar k with `mask[k-1]` (`with_lagged_masks`; row 0 is False; nothing else changes). Execution keeps the current bar's `spot_valid`/`perp_valid`: a halted bar cannot trade, which is the exchange outcome and not a selection. The parity and loop oracles stay lab-faithful (unshifted masks). On pre-2026-08 data `perp_valid` is False on about 0.067% of cells and `spot_valid` on about 0.074% (independent reviewer's measurement), so the effect is small.
+- The one-bar lag shifts the signals and the econ controls. `perp_mask` and `carry_mask` are bar-completeness flags (bucket k holds all four hourly bars), known only at the close of bar k. The lab uses `mask[k]` for the decision at bar k and its lag helper does not shift them. In every cell except `CANDIDATE__LAB_MASK`, the harness selects symbols for the decision at bar k with `mask[k-1]` (`with_lagged_masks`; row 0 is False; nothing else changes). Execution keeps the current bar's `spot_valid`/`perp_valid` as a fill-model approximation (see Execution), not as a selection. The parity and loop oracles stay lab-faithful (unshifted masks). On pre-2026-08 data `perp_valid` is False on about 0.067% of cells and `spot_valid` on about 0.074% (independent reviewer's measurement), so the effect is small.
 
 ## Data
 
@@ -80,7 +82,7 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 | FINAL | 2027-05-01T00:00Z | 2027-05-02 | decisive, once |
 
 - FINAL requires `--interim-result` pointing to an INTERIM_A `result.json` with the same protocol digest and the label `INTERIM_NOT_A_DECISION`. `STOPPED_EARLY` ends the line. `INVALID` needs an amendment. It also requires `<ledger>/INTERIM_A.claim` to exist and to record the same digest. After writing `result.json`, `run` writes `<ledger>/<stage>.result.json` by exclusive create (digest, stage, label, sha256 of `result.json`). FINAL requires `INTERIM_A.result.json` with label `INTERIM_NOT_A_DECISION`, the same digest, and a sha256 equal to that of the `--interim-result` file.
-- Each stage can be claimed once: before computing anything, `run` creates `C:\trade_rl_runs\agy_clean_all_forward_ledger\<stage>.claim` by exclusive create, holding the digest, commit, G4 comment id and time. It refuses if the file exists. This is local single-use enforcement on this host, not a remote lock. A refusal after the claim also consumes it, and needs an amendment.
+- Each stage can be claimed once: before computing anything, `run` creates `C:\trade_rl_runs\agy_clean_all_forward_ledger\<stage>.claim` by exclusive create, holding the digest, commit, G4 comment id and time. It refuses if the file exists. This is local single-use enforcement on this host, not a remote lock. A refusal after the claim also consumes it, and needs an amendment. The ledger is a local file. The claim is written before any computation, so a crash after the claim consumes the stage, which then needs an amendment.
 
 - Each stage starts flat at 2026-08-01T00:00Z.
 - Warm-up comes from known-used rows before that date.
@@ -93,11 +95,13 @@ A re-evaluation on the same known-used data (4H decisions, one-bar signal delay,
 | `CANDIDATE__BASE` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 1 bar | 1 bar | yes |
 | `CANDIDATE__HIGH_COST` | CLEAN_ALL_175, gross ≤ 1 | 12 bp | 1 bar | 1 bar | yes |
 | `CANDIDATE__STRESS` | CLEAN_ALL_175, gross ≤ 1 | 20 bp | 1 bar | 1 bar | reported |
-| `CANDIDATE__NO_DELAY` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 0 | 1 bar | reported |
+| `CANDIDATE__NO_DELAY` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 0 | 1 bar | reported (look-ahead diagnostic) |
 | `CANDIDATE__LAB_MASK` | CLEAN_ALL_175, gross ≤ 1 | 6 bp | 1 bar | 0 (lab-faithful) | reported |
 | `CONTROL_ANC__BASE` | ANC_BIDIR_75_25, gross ≤ 1 | 6 bp | 1 bar | 1 bar | reported |
 
 CASH returns 0.
+
+`CANDIDATE__NO_DELAY` is a look-ahead diagnostic: its signal is not delayed, so it is never evidence and is reported only. `CANDIDATE__LAB_MASK` equals `CANDIDATE__BASE` exactly on known data, because no mask changed at a decision bar.
 
 A cell is invalid if, at any bar, any of the following holds:
 - a target is not finite;
@@ -177,3 +181,13 @@ This protocol was revised a third time after independent review 6011108990 (BLOC
 - **N4:** the interim result is bound to a ledger entry `INTERIM_A.result.json`, and FINAL requires the `--interim-result` file to match it.
 - **N7:** a halted leg keeps its weight and counts toward the cash need; a real infeasibility makes the cell INVALID, which is intended.
 - **N8:** the "no financing" statement is phrased as an enforced check. The spot-long maximum figure was dropped.
+
+## Amendment 4 (result-blind, before any run)
+
+This protocol was revised a fourth time after independent review 6011129726 (BLOCKED) at d3eb4516, before any stage ran and before any data at or after 2026-08-01 was read.
+
+- **B6, execution flags:** the earlier rationale that a flagged bar "cannot trade, which is the exchange outcome" is withdrawn. The flags are bar-completeness data. The fill model treats a leg whose 4h bar is flagged incomplete as not tradable on that bar, which is an execution-model approximation that carries no information into any decision target and can misstate fills on partly traded bars. On known-used data 0 of 14,388 decision-bar cells (1,308 decision bars x 11 symbols) had an incomplete flag; overall 90 of 134,508 perp cells and 99 spot cells do. The execution rule is not redesigned.
+- Every stage reports per cell `incomplete_decision_legs` and `incomplete_decision_bar_cells`. They do not gate.
+- **N11:** `CANDIDATE__NO_DELAY` is labelled a look-ahead diagnostic, never evidence.
+- **N10:** the ledger is local, the claim precedes computation, and a crash after the claim consumes the stage.
+- **N9:** `CANDIDATE__LAB_MASK` equals `CANDIDATE__BASE` exactly on known data.

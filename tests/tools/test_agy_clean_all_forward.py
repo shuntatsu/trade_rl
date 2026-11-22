@@ -14,7 +14,7 @@ import pytest
 
 from tools import agy_clean_all_forward as fwd
 
-PINNED_DIGEST = "b7c3dd044311dfb2bbdd33b9748babc627ffe43ecc88be6f1287a7b34ee9adac"
+PINNED_DIGEST = "4dd8b811520924171831eee4d22ea467f7e1baa89eb29bf559942736c370ba21"
 
 
 def test_protocol_digest_is_pinned() -> None:
@@ -826,3 +826,27 @@ def test_cells_table_shape_and_gating() -> None:
         "CANDIDATE__HIGH_COST",
     ]
     assert all(v[3] == 1 for k, v in fwd.CELLS.items() if k != "CANDIDATE__LAB_MASK")
+
+
+def test_replay_reports_incomplete_decision_legs_without_gating() -> None:
+    lab, _ = _fake_lab(target=0.5)
+    pack = _Pack(30, 2, 0.0)
+    pack.spot_valid[3, 0] = False  # decision bar 3: target 0.5 != current 0 -> counted
+    pack.spot_valid[9, 1] = (
+        False  # decision bar 9: symbol 1 target 0 == current 0 -> cell only
+    )
+    pack.perp_valid[4, 0] = False  # held bar: not counted at all
+    st = fwd.replay_cell(
+        **lab,
+        p10=pack,
+        p17=None,
+        econ=None,
+        arm="X",
+        cost=0.0006,
+        start=3,
+        stop=17,
+        cap=1.0,
+    )
+    assert st["incomplete_decision_legs"] == 1
+    assert st["incomplete_decision_bar_cells"] == 2
+    assert st["valid"]

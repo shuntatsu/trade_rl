@@ -571,7 +571,7 @@ def replay_cell(
     lrs: list[float] = []
     valid, reasons = True, []
     max_err = turn = cost_sum = max_exec_gross = max_cash = max_net = 0.0
-    capped = decisions = 0
+    capped = decisions = incomplete_legs = incomplete_cells = 0
     for i in range(stop - start):
         k = start + i
         if i % DECISION_STRIDE == 0:
@@ -586,6 +586,14 @@ def replay_cell(
                     valid = False
                     reasons.append(f"target_gross_above_cap@{k}")
             decisions += 1
+            # Reported only: decision-bar legs whose bar-completeness flag is False.
+            bad_s = ~np.asarray(p10.spot_valid[k], dtype=bool)
+            bad_p = ~np.asarray(p10.perp_valid[k], dtype=bool)
+            incomplete_cells += int(bad_s.sum() + bad_p.sum())
+            incomplete_legs += int(
+                np.sum(bad_s & (np.asarray(ws_t) != ws))
+                + np.sum(bad_p & (np.asarray(wp_t) != wp))
+            )
             if not (np.all(np.isfinite(ws_t)) and np.all(np.isfinite(wp_t))):
                 valid = False
                 reasons.append(f"non_finite_target@{k}")
@@ -639,6 +647,8 @@ def replay_cell(
             "decisions": decisions,
             "max_executed_gross": max_exec_gross,
             "max_cash_need": max_cash,
+            "incomplete_decision_legs": incomplete_legs,
+            "incomplete_decision_bar_cells": incomplete_cells,
             "max_abs_net": max_net,
             "final_equity": eq,
             "arm": arm,

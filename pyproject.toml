@@ -51,7 +51,7 @@ include = ["trade_rl*"]
 "trade_rl.integrations.market_store" = ["migrations/*.sql"]
 
 [tool.uv]
-required-version = "==0.10.0"
+required-version = "==0.13.9"
 
 [tool.ruff]
 line-length = 88

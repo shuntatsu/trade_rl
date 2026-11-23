@@ -15,7 +15,7 @@ def test_checkpoint_workflow_is_manual_pinned_and_read_only() -> None:
     assert "permissions:\n  actions: read\n  contents: read" in text
     assert "runs-on: ubuntu-24.04" in text
     assert "timeout-minutes: 340" in text
-    assert 'version: "0.10.0"' in text
+    assert 'version: "0.13.9"' in text
     assert 'python-version: "3.12.16"' in text
     assert "uv sync --locked --extra train-sb3" in text
     assert "persist-credentials: false" in text
@@ -94,7 +94,7 @@ def test_checkpoint_workflow_uses_runner_python_without_managed_downloads() -> N
     uv_step = text[uv:sync]
     uv_sha = "68559e99cc807c1eb7e9238fd43a15bba460eec2"
     assert "uses: astral-sh/setup-uv@" + uv_sha in uv_step
-    assert 'version: "0.10.0"' in uv_step
+    assert 'version: "0.13.9"' in uv_step
     assert "enable-cache: false" in uv_step
     assert "python-version:" not in uv_step
 
@@ -131,7 +131,7 @@ def test_manual_checkpoint_is_new_lineage_only_on_exact_cached_python() -> None:
     assert "Python/3.12.16/x64/bin/python" in workflow[cached:setup]
     assert "3.12.16" in workflow[cached:setup]
     assert "sys.version_info[:3] == (3, 12, 16)" in workflow[runtime:sync]
-    assert "uv 0.10.0" in workflow[runtime:sync]
+    assert "grep -Eq" in workflow[runtime:sync]
     assert "sys.version_info[:3] == (3, 12, 16)" in workflow[installed:transport]
     assert "uv run --no-sync python" in workflow[installed:transport]
     assert "UV_PYTHON_PREFERENCE: only-system" in workflow
@@ -160,7 +160,7 @@ def test_non_economic_hosted_checkpoint_python_smoke_is_bounded() -> None:
     assert 'python-version: "3.12.16"' in text
     assert "UV_PYTHON_PREFERENCE: only-system" in text
     assert "UV_PYTHON_DOWNLOADS: never" in text
-    assert 'version: "0.10.0"' in text
+    assert 'version: "0.13.9"' in text
     assert "uv sync --locked --dry-run --extra train-sb3" in text
     assert ("ref: " + chr(36) + "{{ github.event.pull_request.head.sha }}") in text
     assert "ref: }" not in text

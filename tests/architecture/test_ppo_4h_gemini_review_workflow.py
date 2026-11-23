@@ -147,6 +147,7 @@ def test_gemini_review_verification_uses_runner_python_without_downloads() -> No
         "      - name: Set up uv\n"
         f"        uses: {SETUP_UV}\n"
         "        with:\n"
+        '          version: "0.13.9"\n'
         "          enable-cache: true\n"
         "          working-directory: target\n"
     )

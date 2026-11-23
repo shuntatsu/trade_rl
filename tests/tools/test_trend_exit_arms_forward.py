@@ -712,13 +712,20 @@ def test_oracle_scenario_is_nontrivial() -> None:
     assert base["fills"] > 10 and base["capped_fills"] > 0
     assert base["price_pnl"]["short"] != 0.0 and base["price_pnl"]["long"] != 0.0
     assert base["funding_total"] != 0.0 and base["costs_total"] > 0.0
-    # the arms differ from the rule only through the short leg
+    # The oracle must distinguish each challenger from the BASELINE SHORT LEG, not compare
+    # unrelated long and short totals.  Decisions on the long leg must remain identical.
+    assert m.CHALLENGERS == ("A1_SHORT_TRAIL3", "A2_SHORT_HALF", "A3_SHORT_TIME30")
+    base_short = base["price_pnl"]["short"]
+    assert math.isfinite(base_short)
+    w0 = m.arm_weights(sig, "A0_RULE")
     for arm in m.CHALLENGERS:
         other = cells[m.cell_name(arm, "BASE")]
-        assert other["price_pnl"]["long"] != base["price_pnl"]["short"]
-    w0, w1 = m.arm_weights(sig, "A0_RULE"), m.arm_weights(sig, "A1_SHORT_TRAIL3")
-    assert np.array_equal(np.maximum(w0, 0), np.maximum(w1, 0))  # longs identical
-    assert (np.abs(w1) <= np.abs(w0) + 1e-15).all()  # exits only de-risk
+        other_short = other["price_pnl"]["short"]
+        assert math.isfinite(other_short), arm
+        assert other_short != base_short, arm
+        w = m.arm_weights(sig, arm)
+        assert np.array_equal(np.maximum(w0, 0), np.maximum(w, 0)), arm
+        assert (np.minimum(w, 0) >= np.minimum(w0, 0) - 1e-15).all(), arm
 
 
 # ----------------------------------------------------------------------------- decision

@@ -864,3 +864,84 @@ def test_nonzero_combined_delta_underflow_is_never_reported_as_zero(
         diagnostic_combined_delta(
             _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"
         )
+
+
+@pytest.mark.parametrize("amount", [2**53 + 1, -(2**53 + 1), 10**20 + 1, -(10**20 + 1)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_inexact_finite_integer_verifier_metric_is_rejected(
+    field: str, amount: int
+) -> None:
+    """Integer evidence must not be silently rounded by binary64 admission."""
+    report = _complete_run().arms[0].external_report
+    assert report is not None
+    assert float(amount) != amount
+    with pytest.raises(ValueError, match="finite"):
+        if field == "initial_equity_usdt":
+            replace(report, initial_equity_usdt=amount)
+        elif field == "terminal_equity_usdt":
+            replace(report, terminal_equity_usdt=amount)
+        else:
+            replace(report, max_drawdown=amount)
+
+
+@pytest.mark.parametrize("amount", [2**53 + 1, -(2**53 + 1), 10**20 + 1, -(10**20 + 1)])
+@pytest.mark.parametrize(
+    "field", ["last_observed_equity_usdt", "max_drawdown_observed"]
+)
+def test_inexact_finite_integer_progress_metric_is_rejected(
+    field: str, amount: int
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        ArmAttemptProgress(**{field: amount})
+
+
+@pytest.mark.parametrize("sign", [1, -1])
+def test_rounded_nonzero_integer_pair_delta_cannot_be_admitted_as_zero(
+    sign: int,
+) -> None:
+    """A whole currency unit can disappear when two distinct ints round alike."""
+    nonrl_value = sign * (2**53 + 1)
+    cash_value = sign * (2**53)
+    protocol = build_task18_protocol()
+    assert float(nonrl_value) == float(cash_value)
+    exact = Fraction(nonrl_value - cash_value) / Fraction.from_float(
+        protocol.economics.initial_capital_per_symbol_usdt
+    )
+    assert exact != 0
+
+    source = _complete_run()
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            value = nonrl_value if arm.role == "NONRL" else cash_value
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=value,
+                external_report=replace(
+                    arm.external_report, terminal_equity_usdt=float(value)
+                ),
+            )
+        updated.append(arm)
+    receipt = replace(source, arms=tuple(updated))
+    result = evaluate_run_receipt(receipt, protocol)
+    assert result.roster_complete
+    assert not result.arm_reports_match
+    assert not result.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(receipt, protocol, "PAIR-01")
+
+
+def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
+    """Conservative numeric admission must not ban exact binary64 integers."""
+    report = _complete_run().arms[0].external_report
+    assert report is not None
+    value = 2**53
+    assert float(value) == value
+    assert replace(report, terminal_equity_usdt=value).terminal_equity_usdt == value
+    assert (
+        ArmAttemptProgress(last_observed_equity_usdt=value).last_observed_equity_usdt
+        == value
+    )

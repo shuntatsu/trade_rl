@@ -61,6 +61,11 @@ def _finite_number(value: object) -> TypeGuard[int | float]:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return False
     try:
+        if isinstance(value, int):
+            # Distinct finite integers can round to the same binary64 value,
+            # silently erasing a real equity difference in later diagnostics.
+            as_float = float(value)
+            return math.isfinite(as_float) and int(as_float) == value
         return math.isfinite(value)
     except (OverflowError, ValueError, TypeError):
         # A huge integer may be valid Python but not representable as binary64.

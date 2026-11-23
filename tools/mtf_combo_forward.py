@@ -32,7 +32,14 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.integrations.binance.source_clock import (
+    BinanceSourceClosePolicy,
+    _check_source_close_time,
+    _native_timestamp,
+)
+
 PROTOCOL_ID = "mtf_combo_v1"
+SOURCE_CLOSE_POLICY = BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
 
 # ----------------------------------------------------------------------------- constants
 
@@ -210,6 +217,7 @@ def _iso(d: datetime | None) -> str | None:
 def _constants() -> dict[str, Any]:
     return {
         "protocol_id": PROTOCOL_ID,
+        "source_close_policy": SOURCE_CLOSE_POLICY.value,
         "symbols": list(SYMBOLS),
         "regime_windows": list(REGIME_WINDOWS),
         "regime_threshold": REGIME_THRESHOLD,
@@ -1100,13 +1108,29 @@ def parse_klines(
     rows = []
     for it in payload:
         try:
-            open_ms = int(it[0])
+            source_open = _native_timestamp(it[0])
+            # Preserve exact sub-ms source finality while normalizing the grid.
+            if source_open >= 10**15:
+                if source_open % 1000:
+                    raise ValueError("microsecond open time is not ms aligned")
+                open_ms = source_open // 1000
+            else:
+                open_ms = source_open
+            if open_ms % HOUR_MS:
+                raise ValueError("source open time is not on a UTC hour")
+            _check_source_close_time(
+                it,
+                open_ms=open_ms,
+                interval_ms=HOUR_MS,
+                source_close_policy=SOURCE_CLOSE_POLICY,
+            )
+        except (IndexError, KeyError, TypeError, ValueError) as error:
+            raise SystemExit(f"malformed Binance source close_time: {error}") from None
+        try:
             o, h, lo, c = (float(it[i]) for i in (1, 2, 3, 4))
             qv, tbq = float(it[7]), float(it[10])
         except (IndexError, KeyError, TypeError, ValueError):
             raise SystemExit("malformed Binance klines row") from None
-        if open_ms % HOUR_MS:
-            raise SystemExit(f"Binance open time {open_ms} is not on the hour")
         rows.append((open_ms, o, h, lo, c, qv, tbq))
     return rows
 

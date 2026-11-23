@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it.
 
-Protocol digest: `8a6973b5706b2732bc9b0f5b8db7efa05eb818b23bf0c03277146b4fdc83e3c1`
+Protocol digest: `f601d84e51cfcf6c31ad674b134cb3cd84ea53e8b0e24f02f285e9d6b62b8fa7`
 
 ## Question
 
@@ -35,6 +35,20 @@ All times are UTC. A 4h bar is labelled by its open time and a decision happens 
 **Universe.** Binance USDT-M perpetuals: BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT ADAUSDT DOGEUSDT LINKUSDT DOTUSDT AVAXUSDT LTCUSDT.
 
 **Data.** 1h klines from the public `https://fapi.binance.com/fapi/v1/klines` endpoint, loaded from 2021-01-01 00:00. A 4h or 1d bar exists only if all of its hourly bars exist; otherwise it is blank (NaN) and so are the features that use it. 4h and 1d bars are aggregated from 1h bars (open of the first hour, max high, min low, close of the last hour, sums of quote and taker-buy quote volume). The 1d bar is the UTC day. At a 4h decision close the latest COMPLETED daily bar is used, and the 1h feature of the hour that closes at `c`.
+
+**Native Binance source-close admission.** Every raw 1h candle, including
+historical training warm-up and every interim/final stage, passes versioned
+BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2. Native open_time and
+close_time must be integer-form timestamps in one consistent unit (ms or us),
+with exact close (normalized_open_ms + 3600000) * unit - 1. Native us opens
+normalize to millisecond UTC grids only when exactly aligned; submillisecond
+close errors are never rounded away. Invalid/early/late/missing source close,
+mixed units or an unaligned open hard-fails the fetched page BEFORE hourly,
+daily or 4h aggregation, feature computation, taker-buy quote volume or
+execution sizing. Such rows are not silently treated as completed candles or
+tolerated missing gaps. Genuinely absent hours still follow the separate
+NaN-hole and invalid-stage policy. Raw downloaded bytes remain write-once for
+audit; no frozen Dataset identity is retroactively modified.
 
 **Features.** The 42 columns of the exploratory bank, in this order (`FEATURE_COLUMNS` in the harness):
 - for each of 4h, 1h and 1d: RSI(14), MACD histogram / close, PPO(12,26), stochastic(14,3), Ichimoku score (the cloud shifted +26 bars, never −26), bull / bear / net counts of the multi-indicator divergence (9 indicators: RSI, MACD histogram, stochastic, CCI, MFI, OBV, ROC, Williams %R, taker-buy ratio; pivots 5/3, gap 60, life 6), SMA20 and SMA50 log distance, 1- and 6-bar log returns, 30-bar return std;

@@ -19,7 +19,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "8a6973b5706b2732bc9b0f5b8db7efa05eb818b23bf0c03277146b4fdc83e3c1"
+DIGEST_PIN = "f601d84e51cfcf6c31ad674b134cb3cd84ea53e8b0e24f02f285e9d6b62b8fa7"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -35,6 +35,7 @@ def test_digest_pin() -> None:
 
 def test_constants_frozen() -> None:
     assert m.PROTOCOL_ID == "mtf_combo_v1"
+    assert m.SOURCE_CLOSE_POLICY.value == "strict_source_close_v2"
     assert m.SYMBOLS == tuple(
         "BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT ADAUSDT DOGEUSDT LINKUSDT "
         "DOTUSDT AVAXUSDT LTCUSDT".split()
@@ -1784,3 +1785,79 @@ def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
                 "o",
             ]
         )
+
+
+# Synthetic regression for source candle finality. These tests do not fetch
+# market data, train the MTF classifier or authorize any research stage.
+@pytest.mark.parametrize(
+    ("native_unit", "close_offset"),
+    [
+        (1, -m.HOUR_MS),
+        (1, -1),
+        (1, 1),
+        (1, m.HOUR_MS),
+        (1000, -1),
+        (1000, 1),
+    ],
+)
+def test_raw_klines_refuses_incomplete_or_shifted_close(
+    native_unit: int, close_offset: int
+) -> None:
+    open_ms = 1735689600000  # synthetic UTC 2025-01-01 00:00
+    row = _kline(open_ms)
+    row[0] = open_ms * native_unit
+    row[6] = (open_ms + m.HOUR_MS) * native_unit - 1 + close_offset
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+@pytest.mark.parametrize(("open_unit", "close_unit"), [(1, 1000), (1000, 1)])
+def test_raw_klines_refuses_native_timestamp_unit_mismatch(
+    open_unit: int, close_unit: int
+) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[0] = open_ms * open_unit
+    row[6] = (open_ms + m.HOUR_MS) * close_unit - 1
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+@pytest.mark.parametrize("native_unit", [1, 1000])
+def test_raw_klines_accepts_only_full_native_completed_hour(native_unit: int) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[0] = open_ms * native_unit
+    row[6] = (open_ms + m.HOUR_MS) * native_unit - 1
+    rows = m.parse_klines([row])
+    assert rows[0][0] == open_ms
+    arrs = m.hourly_arrays(rows, open_ms, open_ms)
+    assert arrs["close"].tolist() == [100.0]
+    assert arrs["qv"].tolist() == [500.0]
+    assert arrs["tbq"].tolist() == [250.0]
+
+
+@pytest.mark.parametrize("bad_close", [None, 3.5, "1735693199999.0", -1])
+def test_raw_klines_rejects_non_native_close_clock(bad_close: object) -> None:
+    row = _kline(1735689600000)
+    row[6] = bad_close
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+def test_page_reader_preserves_raw_rejected_source_bytes(tmp_path: Path) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[6] = open_ms - 1
+    body = json.dumps([row]).encode()
+    with pytest.raises(SystemExit, match="close_time"):
+        m.fetch_klines("BTCUSDT", open_ms, open_ms, tmp_path / "raw", lambda _: body)
+    assert (tmp_path / "raw" / "BTCUSDT_klines_000.json").read_bytes() == body
+
+
+@pytest.mark.parametrize("bad_open", [1735689600000001, "1735689600000.0", True])
+def test_raw_klines_rejects_non_native_or_unaligned_open(bad_open: object) -> None:
+    row = _kline(1735689600000)
+    row[0] = bad_open
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])

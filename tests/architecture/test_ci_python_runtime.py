@@ -57,3 +57,16 @@ def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
     assert "uv sync --extra dev --extra train-sb3" in source
     assert "uv sync --extra dev --extra store" in source
     assert "uv run pytest -q tests" in source
+
+
+def test_lean_core_reports_skipped_test_reasons_without_changing_final_command() -> (
+    None
+):
+    """A green job with hundreds of skipped tests is not a coverage claim."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    core = source.split("  core:\n", 1)[1].split("\n  ppo-runtime:\n", 1)[0]
+    command = core.split("      - name: Core tests\n", 1)[1].split(
+        "      - name: Build\n", 1
+    )[0]
+    assert 'PYTEST_ADDOPTS: "-rs"' in command
+    assert "run: uv run pytest -q tests" in command

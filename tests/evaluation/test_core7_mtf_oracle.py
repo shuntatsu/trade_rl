@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v20.json"
+PACKET_V19_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
 PACKET_V18_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v18.json"
 PACKET_V17_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v17.json"
 PACKET_V16_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v16.json"
@@ -65,7 +66,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "fb8bcc67cb696fc487a4fda704615c6150d23bedb51324c45b30f7ccdef792dc"
+    "d11973554924d1e4074cd33f1cb86729a60a2503867893931d74873b248b112a"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1058,7 +1059,7 @@ def test_v18_packet_is_immutable_unreviewed_history() -> None:
 
 def test_v19_transient_descriptor_packet_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]
     assert current["evidence"] == prior["evidence"]
@@ -1073,6 +1074,51 @@ def test_v19_transient_descriptor_packet_only_rebinds_source() -> None:
     assert current["identity"] == {
         "implementation_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
         "protocol_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v19_packet_remains_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
+    assert (
+        _git("hash-object", str(PACKET_V19_PATH)).stdout.strip()
+        == "cb0aa1922263540d3eef0defbb0452ce93adebe6"
+    )
+    assert (
+        assurance_digest(prior)
+        == "fb8bcc67cb696fc487a4fda704615c6150d23bedb51324c45b30f7ccdef792dc"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+        "protocol_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v20_masked_memoryview_owner_packet_preserves_authority() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V20 MASKED FINANCIAL MEMORYVIEW ORIGIN" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
+        "protocol_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
     }
     assert "not permitted" in current["claims"]["next_authorized_action"]
     verdict = evaluate_assurance(current)

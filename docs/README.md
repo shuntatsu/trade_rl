@@ -49,6 +49,7 @@ python -m tools.markdown_links --check
 - Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
 - Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md](specs/trend-exit-arms-forward.md)
 - Hierarchical MTF long/short perp system (pre-registered prospective FORWARD from 2026-12-01, not yet run, no data read; software PR, authorizes nothing economic, needs independent review and a per-stage G4 relay): [specs/mtf-combo-forward.md](specs/mtf-combo-forward.md)
+- BTC vol-targeted trend ensemble (HOLD: BACKCAST consumed with a defective result that decides nothing; Amendment 3 FORWARD-only protocol 2026-12-01 to 2027-11-30 awaits review/G4; FORWARD unauthorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
 - Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered; INTERIM_A reported as not a decision, FINAL at or after 2027-05-02): [specs/agy-clean-all-forward.md](specs/agy-clean-all-forward.md)
 
 ## 情報の所有先と更新

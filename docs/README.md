@@ -47,6 +47,7 @@ python -m tools.markdown_links --check
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
 
 - Divergence + visible Ichimoku MTF prototype (synthetic-only): [specs/divergence-cloud-mtf-dev.md](specs/divergence-cloud-mtf-dev.md)
+- Cloud-confirmation + divergence-exit C2/C3 candidates (known-used only): [specs/divergence-cloud-follow-dev.md](specs/divergence-cloud-follow-dev.md)
 
 ## 情報の所有先と更新
 

@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "3b80241e7b36edd0509daf92a098f1cc11271b000c0f317d3138ab3d8fc9c47b"
+DIGEST_PIN = "236517b19d9b3588e111083b24947284e283aa891487329bed962eb0e7d3482d"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -994,3 +994,29 @@ def test_binance_daily_rejects_invalid_native_open(bad_open: object) -> None:
     row[0] = bad_open
     with pytest.raises(SystemExit, match="malformed|UTC day boundary"):
         m.parse_binance([row])
+
+
+@pytest.mark.parametrize(
+    "closes",
+    [
+        [0.0, 100.0],
+        [-1.0, 100.0],
+        [float("nan"), 100.0],
+        [float("inf"), 100.0],
+        [100.0, 0.0],
+        [100.0, float("-inf")],
+    ],
+)
+def test_hold_cell_refuses_nonpositive_or_nonfinite_prices_without_division(
+    closes: list[float],
+) -> None:
+    with pytest.raises(ValueError, match="closes must be positive and finite"):
+        m.hold_cell(np.asarray(closes), cost=0.001)
+
+
+def test_hold_cell_cost_at_valid_boundary_keeps_exact_hold_semantics() -> None:
+    closes = np.asarray([0.01, 100.0, 1000.0])
+    actual = m.hold_cell(closes, cost=0.001)
+    assert actual["valid"] is True
+    assert actual["trades"] == 1
+    assert actual["equity"][-1] == pytest.approx(1000.0 / 0.01 / 1.001)

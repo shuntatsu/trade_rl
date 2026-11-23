@@ -360,6 +360,10 @@ def hold_cell(closes: Any, cost: float, start: int = 0) -> dict[str, Any]:
     n = len(c)
     if not 0 <= start < n - 1:
         raise ValueError("start must leave at least one evaluated day")
+    # Same fail-closed price admission as replay_cell: direct HOLD calls
+    # must not divide by a zero mark or manufacture non-finite account data.
+    if not np.all(np.isfinite(c)) or np.any(c <= 0.0):
+        raise ValueError("closes must be positive and finite")
     pos = np.zeros(n)
     pos[start + 1 :] = 1.0
     return _account(c, pos, cost, start)

@@ -2,7 +2,7 @@
 
 Status: **HOLD / unreviewed accounting correction (2026-11-22)**. This source has not been independently approved for economic execution. The original BACKCAST attempt fetched some raw closes but refused before any exposure, return, drawdown or label. No FORWARD result exists.
 
-Protocol digest: `3b80241e7b36edd0509daf92a098f1cc11271b000c0f317d3138ab3d8fc9c47b`
+Protocol digest: `236517b19d9b3588e111083b24947284e283aa891487329bed962eb0e7d3482d`
 
 ## Question
 
@@ -56,7 +56,7 @@ All quantities are computed at the close of UTC day t from closes up to and incl
 
 - **Daily bars:** a daily bar is the UTC day.
 - **Source candle finality (Binance FORWARD only):** every raw 1d Binance kline must pass versioned `STRICT_SOURCE_CLOSE_V2` source-clock admission: native open/close timestamps in the same unit (ms or microseconds), aligned UTC midnight open, and exact native close `(normalized_open_ms + 86400000) * unit - 1`. Missing, premature, shifted or mixed-unit source closes abort the page before daily close admission. Valid microsecond times are normalized to seconds only AFTER preserving microsecond close precision; no 'source says not final' candle may become a completed signal. Raw page bytes stay write-once and hashed even when validation fails. Bitstamp BACKCAST parsing and frozen historical evidence are unchanged.
-- **Missing days:** a missing day or a non-positive close refuses the run. No fill is applied.
+- **Missing days and direct ledger input:** a missing day or a non-positive close refuses the run. No fill is applied. Both the trend ledger and BTC HOLD reference independently reject all non-positive or non-finite daily closes before account arithmetic; the HOLD reference may not divide by an invalid entry mark.
 - **Fetched data:** raw responses are cached and hashed in the receipt.
 - **FORWARD interims:** FORWARD interim reports, labelled `INTERIM_NOT_A_DECISION`, may run monthly. An interim stops the line (`STOPPED_EARLY`) if `TREND__BASE` max DD is 25% or more.
 - **FORWARD final:** the final runs once, at or after 2027-11-24.

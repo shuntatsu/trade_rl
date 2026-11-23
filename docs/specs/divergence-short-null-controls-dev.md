@@ -20,3 +20,29 @@ Source ownership: data/features/short_null_permissions.py calculates causal bool
 Focused tests: registered seeds, deterministic prefix, future mutation independence, unavailable or delayed context refusal, regular 1h clock, exact HOLD, disallowed short flat requests, and native single-book fills. Research runner only reads previously consumed Binance USD-M 1h/mark/funding BTCUSDT and ETHUSDT 2022/2023/2024 with 2021-10 warmup, annual 10k USDT and target 25%. Fees .0005, spread .0002, impact .0001, 5% participation, no extra latency; double costs for all controls. 4 controls x 6 cohorts x 2 cost regimes = **48** recorded cells, including negative results. Three random seeds were not selected by outcome.
 
 External scratch protocol short_null_control_protocol_20261123.md is fixed before the N0-N3 result observations but after R2 results. Thus **all** cohorts are known-used and post-hoc; claims of independent significance are forbidden. Sealed/unused/FS1 data and paper/live orders remain out of scope. The source, results and hashes must be retained in research receipts and PR discussion.
+
+## Conditional daily short-opportunity diagnostic (offline-only)
+
+The read-only evaluation/short_opportunity_audit.py module tests whether
+R2's visible-cloud slope carries directional information within a common
+C2 six-hour bearish-cloud opportunity set. It does not execute trades or
+compute a second P&L. At completed UTC 00:00 bars, when the native daily
+visible cloud is bearish for all prior six completed hourly decisions and
+macro context is ready, classify the 30-day momentum and visible-cloud slope:
+G0 momentum >= 0, G1 momentum < 0 and slope >= 0, G2 both < 0.
+Use the **future 24h traded-close** price change, negative for a short,
+as an offline response label *only after* the full 24h has occurred inside
+the already-used yearly scope. Report counts, means, medians, favorable
+fractions and a past-only realized-vol normalized response for all three
+categories. Distinct daily samples avoid overlapping 24h labels in one
+symbol, but they are not independent across assets, year regimes or other
+experiments.
+
+The conditional analysis does not match actual executed short durations,
+fees, funding, order book fills or trade P&L. Thus it is **not** an
+exposure-matched strategy evaluation; that is a separate, still-open
+research question. Source labels are not usable by portfolio policies
+or ML features at their observation time. Protocol and all six research
+receipts are retained in the Fedora scratch workspace with hashes;
+result interpretation belongs to the PR conversation, not a frozen
+future-data or G4 study. No data-driven filter tuning is authorized.

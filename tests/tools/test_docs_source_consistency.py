@@ -335,3 +335,94 @@ def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
         assert check_breadth_asof(tmp_path) is True
     # Both histories must be inspected before no-notice can be called safe.
     assert simulated == [72, 48]
+
+
+def test_empty_registered_spec_is_rejected_as_contract_violation(
+    tmp_path: Path,
+) -> None:
+    binding = ProtocolBinding(
+        protocol_id="trend_breadth_v1",
+        source="tools/trend_breadth.py",
+        spec="docs/specs/trend-breadth.md",
+    )
+    src = tmp_path / binding.source
+    src.parent.mkdir(parents=True)
+    src.write_text("PROTOCOL_ID = 'trend_breadth_v1'\n")
+    spec = tmp_path / binding.spec
+    spec.parent.mkdir(parents=True)
+    spec.write_bytes(b"")
+    with pytest.raises(ContractViolation, match="protocol_id heading mismatch"):
+        check_protocol_digest(
+            tmp_path, binding, lambda _b: ("trend_breadth_v1", "a" * 64)
+        )
+
+
+def test_installed_digest_rejects_other_checkout_or_spec_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    from types import ModuleType
+
+    from tools.docs_source_consistency import _installed_digest
+
+    binding = ProtocolBinding(
+        "trend_breadth_v1",
+        "tools/trend_breadth.py",
+        "docs/specs/trend-breadth.md",
+    )
+    src = tmp_path / binding.source
+    src.parent.mkdir(parents=True)
+    src.write_text("PROTOCOL_ID = 'trend_breadth_v1'\n")
+    fake = ModuleType("tools.trend_breadth")
+    fake.__file__ = str(tmp_path / "other-checkout.py")
+    fake.PROTOCOL_ID = binding.protocol_id  # type: ignore[attr-defined]
+    fake.SPEC_RELPATH = binding.spec  # type: ignore[attr-defined]
+    fake.protocol_digest = lambda: "a" * 64  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
+    with pytest.raises(ContractViolation, match="outside checkout"):
+        _installed_digest(tmp_path, binding)
+    fake.__file__ = str(src)
+    fake.SPEC_RELPATH = "docs/specs/other.md"  # type: ignore[attr-defined]
+    with pytest.raises(ContractViolation, match="spec path"):
+        _installed_digest(tmp_path, binding)
+    fake.SPEC_RELPATH = binding.spec  # type: ignore[attr-defined]
+    assert _installed_digest(tmp_path, binding) == (binding.protocol_id, "a" * 64)
+
+
+def test_breadth_zero_length_asof_prefix_cannot_vacuously_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import numpy as np
+
+    from tools.docs_source_consistency import check_breadth_asof
+
+    src = tmp_path / "tools/trend_breadth.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("# synthetic zero-prefix stub\n")
+    spec = tmp_path / "docs/specs/trend-breadth.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("synthetic stub\n")
+    fake = ModuleType("tools.trend_breadth")
+    fake.__file__ = str(src)
+    fake.Stage = lambda *_: None  # type: ignore[attr-defined]
+
+    def build_panel(bars, *_):
+        original_length = len(bars["ZZZUSDT"]["close"])
+        n = 72 if original_length == 72 else 0
+        panel = SimpleNamespace(bars=n, times=tuple(range(n)))
+        for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
+            setattr(panel, field, np.ones(n))
+        return panel, {}
+
+    fake.build_panel = build_panel  # type: ignore[attr-defined]
+    fake.panel_problems = lambda *_: []  # type: ignore[attr-defined]
+    fake.simulate_weights = lambda p, *_: {  # type: ignore[attr-defined]
+        "valid": True,
+        "equity": np.ones(p.bars + 1),
+    }
+    monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
+    with pytest.raises(ContractViolation, match="nonempty"):
+        check_breadth_asof(tmp_path)

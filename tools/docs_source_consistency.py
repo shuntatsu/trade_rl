@@ -276,7 +276,8 @@ def check_protocol_digest(
     if not spec.is_file():
         raise ContractViolation(f"{binding.source}: missing spec {binding.spec}")
     doc = _read(root, binding.spec)
-    if f"`{binding.protocol_id}`" not in doc.splitlines()[0]:
+    lines = doc.splitlines()
+    if not lines or f"`{binding.protocol_id}`" not in lines[0]:
         raise ContractViolation(f"{binding.spec}: protocol_id heading mismatch")
     matches = _DIGEST_LINE.findall(doc)
     if len(matches) != 1:
@@ -374,6 +375,11 @@ def check_breadth_asof(root: Path) -> bool:
     _verified_no_notice_refusal(module, problems)
 
     period = len(prior_panel.times)
+    if period == 0 or len(full_panel.times) <= period:
+        raise ContractViolation(
+            "trend_breadth: as-of observation prefix must be nonempty "
+            "and shorter than the full history"
+        )
     for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
         if not np.array_equal(
             getattr(full_panel, field)[:period],

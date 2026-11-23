@@ -90,6 +90,36 @@ def test_historical_source_or_status_drift_fails_closed(
         check_historical_agy_status(tmp_path)
 
 
+def test_commented_out_agy_refusal_does_not_satisfy_source_contract(
+    tmp_path: Path,
+) -> None:
+    _fixture_agy(tmp_path)
+    p = tmp_path / "tools/agy_anchor_oos.py"
+    p.write_text(
+        "def main(argv, *, rows_factory=None):\n"
+        "    args = build_parser().parse_args(argv)\n"
+        '    # if args.command in {"run", "coverage"} and rows_factory is None:\n'
+        "    #     return EXIT_REFUSED\n"
+        "    moment = now()\n"
+    )
+    with pytest.raises(ContractViolation, match="source requires"):
+        check_historical_agy_status(tmp_path)
+
+
+def test_agy_guard_after_clock_does_not_satisfy_source_contract(tmp_path: Path) -> None:
+    _fixture_agy(tmp_path)
+    p = tmp_path / "tools/agy_anchor_oos.py"
+    p.write_text(
+        "def main(argv, *, rows_factory=None):\n"
+        "    args = build_parser().parse_args(argv)\n"
+        "    moment = now()\n"
+        '    if args.command in {"run", "coverage"} and rows_factory is None:\n'
+        "        return EXIT_REFUSED\n"
+    )
+    with pytest.raises(ContractViolation, match="pre-data"):
+        check_historical_agy_status(tmp_path)
+
+
 def test_optional_protocol_digest_and_spec_are_bound(tmp_path: Path) -> None:
     binding = ProtocolBinding(
         protocol_id="trend_breadth_v1",
@@ -197,13 +227,13 @@ def test_no_notice_exemption_requires_actual_invalid_decision() -> None:
 
     good = SimpleNamespace(
         LABEL_INVALID="INVALID",
-        decide=lambda _stage, _cells, _problems: {"label": "INVALID"},
+        decide=lambda _cells, _problems: {"label": "INVALID"},
     )
     assert _verified_no_notice_refusal(good, ["no notice at delisting"])
     assert not _verified_no_notice_refusal(good, ["other data gap"])
     bad = SimpleNamespace(
         LABEL_INVALID="INVALID",
-        decide=lambda _stage, _cells, _problems: {"label": "SUPPORTED"},
+        decide=lambda _cells, _problems: {"label": "SUPPORTED"},
     )
     with pytest.raises(ContractViolation, match="must yield INVALID"):
         _verified_no_notice_refusal(bad, ["no notice at delisting"])

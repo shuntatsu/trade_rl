@@ -91,18 +91,54 @@ def check_historical_agy_status(root: Path) -> None:
             "historical agy spec/status must keep the observed INVALID evidence"
         )
 
-    # Source is authoritative: the ordinary run and coverage CLI must refuse
-    # before even reading the clock or injected market-data factory.
-    signature = re.search(r"(?m)^def main\(", source)
-    tail = source[signature.end() :] if signature else ""
-    pre_clock = tail.partition("    moment = now()")[0]
-    guard = 'if args.command in {"run", "coverage"} and rows_factory is None:'
-    if not tail or not pre_clock or guard not in pre_clock:
+    # Validate the executable AST rather than comments, docstrings or untrusted
+    # source text: both run and coverage must return directly before the clock.
+    try:
+        tree = ast.parse(source, filename="tools/agy_anchor_oos.py")
+    except SyntaxError as error:
+        raise ContractViolation("historical agy source cannot be parsed") from error
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "main"
+    ]
+    if len(functions) != 1:
+        raise ContractViolation("historical agy source requires one main entrypoint")
+    body = functions[0].body
+    clock = [
+        i
+        for i, node in enumerate(body)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "moment" for t in node.targets)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "now"
+    ]
+    if len(clock) != 1:
+        raise ContractViolation(
+            "historical agy source requires a single clock boundary"
+        )
+    expected = ast.parse(
+        'if args.command in {"run", "coverage"} and rows_factory is None:\n'
+        "    return EXIT_REFUSED\n"
+    ).body[0]
+    assert isinstance(expected, ast.If)
+    gate = [
+        node
+        for node in body[: clock[0]]
+        if isinstance(node, ast.If) and ast.dump(node.test) == ast.dump(expected.test)
+    ]
+    if len(gate) != 1:
         raise ContractViolation(
             "historical agy source requires the run/coverage pre-data refusal gate"
         )
-    block = pre_clock.partition(guard)[2]
-    if "return EXIT_REFUSED" not in block:
+    if not any(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "EXIT_REFUSED"
+        for node in gate[0].body
+    ):
         raise ContractViolation("historical agy source must fail closed before data")
 
 
@@ -217,7 +253,7 @@ def _verified_no_notice_refusal(module: object, problems: list[str]) -> bool:
     from typing import Any
 
     model: Any = module
-    decision = model.decide("BREADTH", {}, problems)
+    decision = model.decide({}, problems)
     if decision.get("label") != model.LABEL_INVALID:
         raise ContractViolation(
             "trend_breadth: a no-notice stage problem must yield INVALID"

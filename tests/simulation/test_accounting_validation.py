@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+from array import array
 from collections import UserList, deque
+from decimal import Decimal
 
 import numpy as np
 import pytest
@@ -1005,6 +1007,147 @@ def test_custom_numpy_buffer_protocols_refused_before_conversion(
     value = [wrapper()] if nested else wrapper()
     with pytest.raises(ValueError, match="opaque array-like"):
         BookState.zero(2, 1_000.0, value)
+
+
+class _TransientOpaqueArrayInterface:
+    """A descriptor that hides a masked backing scalar only on first lookup."""
+
+    def __init__(self) -> None:
+        self.masked = np.ma.array(100.0, mask=True)
+        self.data = np.array(100.0)
+        self.lookups = 0
+
+    @property
+    def __array_interface__(self) -> dict[str, object]:
+        self.lookups += 1
+        if self.lookups == 1:
+            raise AttributeError("temporarily missing buffer protocol")
+        return self.data.__array_interface__
+
+    def __float__(self) -> float:
+        return float(self.masked.data)
+
+
+class _TransientOpaqueArrayStruct:
+    def __init__(self) -> None:
+        self.masked = np.ma.array(100.0, mask=True)
+        self.data = np.array(100.0)
+        self.lookups = 0
+
+    @property
+    def __array_struct__(self) -> object:
+        self.lookups += 1
+        if self.lookups == 1:
+            raise AttributeError("temporarily missing buffer protocol")
+        return self.data.__array_struct__
+
+    def __float__(self) -> float:
+        return float(self.masked.data)
+
+
+@pytest.mark.parametrize(
+    "adapter_class", (_TransientOpaqueArrayInterface, _TransientOpaqueArrayStruct)
+)
+@pytest.mark.parametrize("nested", (False, True))
+def test_transient_array_protocol_mask_is_refused_before_numpy_cast(
+    adapter_class: type,
+    nested: bool,
+) -> None:
+    adapter = adapter_class()
+    vector: object = [[adapter]] if nested else [adapter]
+    with pytest.raises(ValueError, match="opaque array-like"):
+        BookState.zero(1, 1_000.0, vector)
+    # A protocol descriptor must not be invoked just to determine its presence.
+    assert adapter.lookups == 0
+
+
+class _DynamicArrayInterfaceGetattr:
+    def __init__(self) -> None:
+        self.masked = np.ma.array(100.0, mask=True)
+        self.data = np.array(100.0)
+        self.lookups = 0
+
+    def __getattr__(self, name: str) -> object:
+        if name != "__array_interface__":
+            raise AttributeError(name)
+        self.lookups += 1
+        if self.lookups == 1:
+            raise AttributeError("first dynamically supplied interface is unavailable")
+        return self.data.__array_interface__
+
+    def __float__(self) -> float:
+        return float(self.masked.data)
+
+
+class _DynamicArrayInterfaceGetattribute:
+    def __init__(self) -> None:
+        self.masked = np.ma.array(100.0, mask=True)
+        self.data = np.array(100.0)
+        self.lookups = 0
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "__array_interface__":
+            lookups = object.__getattribute__(self, "lookups") + 1
+            object.__setattr__(self, "lookups", lookups)
+            if lookups == 1:
+                raise AttributeError(
+                    "first dynamically supplied interface is unavailable"
+                )
+            return object.__getattribute__(self, "data").__array_interface__
+        return object.__getattribute__(self, name)
+
+    def __float__(self) -> float:
+        return float(self.masked.data)
+
+
+@pytest.mark.parametrize(
+    "adapter_class", (_DynamicArrayInterfaceGetattr, _DynamicArrayInterfaceGetattribute)
+)
+@pytest.mark.parametrize("nested", (False, True))
+def test_dynamic_numpy_array_protocol_mask_is_rejected_without_lookup(
+    adapter_class: type, nested: bool
+) -> None:
+    adapter = adapter_class()
+    value: object = [[adapter]] if nested else [adapter]
+    with pytest.raises(ValueError, match="opaque array-like"):
+        BookState.zero(1, 1_000.0, value)
+    assert adapter.lookups == 0
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        [Decimal("100.0")],
+        deque([100.0]),
+        range(100, 101),
+        array("d", [100.0]),
+        memoryview(array("d", [100.0])),
+    ),
+)
+def test_builtin_numeric_collections_remain_accepted_with_opaque_protocol_guard(
+    value: object,
+) -> None:
+    book = BookState.zero(1, 1_000.0, value)
+    np.testing.assert_array_equal(book.mark_prices, [100.0])
+
+
+def test_transient_array_interface_settlement_is_atomic() -> None:
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0]),
+        peak_value=1_100.0,
+    )
+    prior = book.clone()
+    adapter = _TransientOpaqueArrayInterface()
+    with pytest.raises(ValueError, match="opaque array-like"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=[adapter],
+            recovery=np.array([1.0]),
+        )
+    _assert_cash_and_inventory_unchanged(book, prior)
+    assert book.termination_reason == prior.termination_reason
 
 
 def test_settlement_refuses_duck_masked_recovery_atomically() -> None:

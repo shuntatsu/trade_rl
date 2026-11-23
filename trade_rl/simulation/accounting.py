@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import math
+from array import array
+from collections import deque
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
 from typing import Protocol, TypeGuard
@@ -17,6 +21,7 @@ from trade_rl.simulation.quantities import (
     project_quantity,
 )
 
+_ARRAY_PROTOCOL_ABSENT = object()
 _TOLERANCE = 1e-12
 _MIN_EQUITY: float = float(np.finfo(np.float64).tiny)
 
@@ -48,12 +53,41 @@ def _is_indexable_container(value: object) -> TypeGuard[_IndexableContainer]:
 
 
 def _has_opaque_numpy_protocol(value: object) -> bool:
-    # __array_interface__/__array_struct__ can conceal masks like __array__.
+    # Exact builtin values/containers cannot attach arbitrary NumPy descriptors.
+    # Preserve their low-overhead admission in frequent replay/accounting calls.
+    if type(value) in (
+        bool,
+        int,
+        float,
+        complex,
+        str,
+        bytes,
+        bytearray,
+        list,
+        tuple,
+        deque,
+        Decimal,
+        range,
+        memoryview,
+        array,
+    ):
+        return False
+    # Both ordinary and dynamically supplied descriptors can hide a masked
+    # buffer on the first probe, then publish it during NumPy conversion.
     try:
-        return any(
-            hasattr(value, name)
-            for name in ("__array__", "__array_interface__", "__array_struct__")
-        )
+        value_type = type(value)
+        if (
+            inspect.getattr_static(value_type, "__getattr__", _ARRAY_PROTOCOL_ABSENT)
+            is not _ARRAY_PROTOCOL_ABSENT
+            or value_type.__getattribute__ is not object.__getattribute__
+        ):
+            return True
+        for name in ("__array__", "__array_interface__", "__array_struct__"):
+            if inspect.getattr_static(
+                value, name, _ARRAY_PROTOCOL_ABSENT
+            ) is not _ARRAY_PROTOCOL_ABSENT or hasattr(value, name):
+                return True
+        return False
     except Exception as exc:
         # An inaccessible user-defined buffer descriptor is not trustworthy.
         raise ValueError("opaque array-like protocol cannot be inspected") from exc

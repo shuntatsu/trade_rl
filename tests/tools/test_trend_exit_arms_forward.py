@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_exit_arms_forward as m
 
-DIGEST_PIN = "009672ce10dd71e228bd6cd1919f51829d62d8ced5a8fc4ba2e467e1e9fcc2bd"
+DIGEST_PIN = "be9374984bf53ae7bd08ded6b585ba9f09837fad39dd20247eae0bc8cfd35590"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -880,6 +880,27 @@ def test_decide_interim_branches() -> None:
     assert m.decide("FORWARD_INTERIM", other)["label"] == "INTERIM_NOT_A_DECISION"
 
 
+def test_final_decides_even_when_a0_crosses_the_stop_and_records_it() -> None:
+    """The 30% stop is an interim rule. A final whose A0 BASE drawdown crossed 30% after the last
+    interim still decides the arm question and reports ``a0_stop_crossed``."""
+    for dd, crossed in ((0.35, True), (0.30, True), (0.2999, False)):
+        cells = _final_cells(
+            **{"A0_RULE__BASE": _cell(_final_cells()["A0_RULE__BASE"]["returns"], dd)}
+        )
+        out = m.decide("FORWARD_FINAL", cells)
+        assert (
+            out["label"] == "ARM_IMPROVES:A1_SHORT_TRAIL3,A2_SHORT_HALF,A3_SHORT_TIME30"
+        )
+        assert out["a0_stop_crossed"] is crossed and out["a0_base_max_dd"] == dd
+    none = _cells({a: (0.0, 0.0, 0.0) for a in m.CHALLENGERS})
+    none["A0_RULE__BASE"] = _cell(none["A0_RULE__BASE"]["returns"], 0.9)
+    out = m.decide("FORWARD_FINAL", none)
+    assert out["label"] == "NO_ARM_IMPROVES" and out["a0_stop_crossed"]
+    interim = m.decide("FORWARD_INTERIM", none)
+    assert interim["label"] == "STOPPED_EARLY" and interim["a0_stop_crossed"]
+    assert "a0_stop_crossed" not in m.decide("FORWARD_FINAL", {}, ["x"])
+
+
 def test_summary_cell_is_json_safe() -> None:
     sig = random_signals(0, bars=120)
     cell = m.simulate_weights(sig, m.arm_weights(sig, "A0_RULE"), 1.0, 0)
@@ -1396,6 +1417,7 @@ def test_interim_end_to_end_write_once_and_ledger(env: dict[str, Any]) -> None:
     assert res["window"]["last_mark_close"].startswith("2027-01-20T08")
     assert res["claim_name"] == "FORWARD_INTERIM_2027-01"
     assert set(res["analysis"]["arms"]) == set(m.CHALLENGERS)
+    assert res["a0_stop_crossed"] == (res["cells"]["A0_RULE__BASE"]["max_dd"] >= 0.30)
     out = env["tmp"] / "out_x" / "result.json"
     led = json.loads(
         (
@@ -1645,3 +1667,77 @@ def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
                 "o",
             ]
         )
+
+
+def _claims(env: dict[str, Any]) -> list[Path]:
+    return sorted((env["ledger"]).rglob("*.claim")) if env["ledger"].exists() else []
+
+
+def test_probe_reads_no_stage_window_data() -> None:
+    assert (
+        m.PROBE_END_MS + m.DAY_S * 1000
+        < int(datetime(2026, 11, 1, tzinfo=UTC).timestamp()) * 1000
+    )
+    seen: list[str] = []
+
+    def f(url: str) -> bytes:
+        seen.append(url)
+        return fake_market(url)
+
+    m.connectivity_probe(f)
+    assert len(seen) == 2 and "klines" in seen[0] and "fundingRate" in seen[1]
+    assert all("symbol=BTCUSDT" in u for u in seen)
+
+
+@pytest.mark.parametrize("failure", ["raise", "empty", "garbage"])
+def test_connectivity_failure_refuses_without_claiming(
+    env: dict[str, Any], failure: str
+) -> None:
+    def broken(url: str) -> bytes:
+        if failure == "raise":
+            raise SystemExit("network failure")
+        return b"[]" if failure == "empty" else b"not json"
+
+    with pytest.raises(SystemExit, match="connectivity probe failed before any claim"):
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), fetch=broken)
+    assert _claims(env) == []
+    # the stage is still available afterwards
+    assert _run(env, "FORWARD_FINAL", datetime(2027, 12, 2, 1, tzinfo=UTC), tag="ok")[
+        "label"
+    ]
+
+
+@pytest.mark.parametrize("which", ["relay_edit", "scope_owner", "relay_quote"])
+def test_authorization_failure_leaves_no_claim(env: dict[str, Any], which: str) -> None:
+    calls = {"n": 0}
+    good = f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}"
+
+    def gh(cid: int) -> dict[str, Any]:
+        calls["n"] += 1
+        if which == "scope_owner" and cid == m.DATA_SCOPE_COMMENT_ID:
+            return _comment("scope", login="someone")
+        if which == "relay_quote" and cid != m.DATA_SCOPE_COMMENT_ID:
+            return _comment("no quote")
+        if which == "relay_edit" and cid != m.DATA_SCOPE_COMMENT_ID:
+            return _comment(good, updated=f"t{calls['n']}")
+        return _comment("scope") if cid == m.DATA_SCOPE_COMMENT_ID else _comment(good)
+
+    fetched: list[str] = []
+
+    def f(url: str) -> bytes:
+        fetched.append(url)
+        return fake_market(url)
+
+    with pytest.raises(SystemExit):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=f,
+            gh_fetch=gh,
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert _claims(env) == [] and fetched == []

@@ -177,6 +177,10 @@ HTTP_ATTEMPTS = 6
 HTTP_PACE_S = 0.5
 
 HOURLY_KEYS = ("open", "high", "low", "close", "qv")
+# Pre-claim connectivity probe: one BTCUSDT klines page and one funding page, both dated before
+# 2026-11-01, so no stage-window data is read before the claim.
+PROBE_START_MS = int(datetime(2026, 10, 1, tzinfo=UTC).timestamp()) * 1000
+PROBE_END_MS = PROBE_START_MS + DAY_S * 1000 - 1
 
 
 # ----------------------------------------------------------------------------- digests
@@ -243,6 +247,7 @@ def _constants() -> dict[str, Any]:
         "funding_limit": FUNDING_LIMIT,
         "max_funding_gap_s": MAX_FUNDING_GAP_S,
         "settle_s": SETTLE_S,
+        "probe": [PROBE_START_MS, PROBE_END_MS],
     }
 
 
@@ -893,7 +898,8 @@ def decide(
     problems: list[str] | None = None,
 ) -> dict[str, Any]:
     """Label. Priority: INVALID (any problem or invalid cell), then interim STOPPED_EARLY /
-    INTERIM_NOT_A_DECISION, then the final rule."""
+    INTERIM_NOT_A_DECISION, then the final rule. The A0 drawdown stop applies to interims only;
+    the final records ``a0_stop_crossed`` and ``a0_base_max_dd`` and still decides."""
     st = STAGES[stage] if isinstance(stage, str) else stage
     problems = list(problems or [])
     invalid = sorted(k for k, c in cells.items() if not c["valid"])
@@ -902,9 +908,13 @@ def decide(
         out["label"] = LABEL_INVALID
         return out
     out["analysis"] = analyze(cells)
+    a0_dd = float(cells[PRIMARY]["max_dd"])
+    # Recorded for every valid stage; only an interim acts on it. The final always decides the
+    # arm question (a relative comparison), whatever A0's drawdown.
+    out["a0_base_max_dd"] = a0_dd
+    out["a0_stop_crossed"] = bool(a0_dd >= EARLY_STOP_DD)
     if st.interim:
-        stopped = cells[PRIMARY]["max_dd"] >= EARLY_STOP_DD
-        out["label"] = LABEL_STOPPED if stopped else LABEL_INTERIM
+        out["label"] = LABEL_STOPPED if out["a0_stop_crossed"] else LABEL_INTERIM
     else:
         ids = out["analysis"]["improving"]
         out["label"] = f"{LABEL_IMPROVES}:{','.join(ids)}" if ids else LABEL_NONE
@@ -1429,6 +1439,26 @@ def stage_problems(
     return problems
 
 
+def connectivity_probe(fetch: Callable[[str], bytes]) -> None:
+    """Read one klines page and one funding page of BTCUSDT dated before the stage window. Any
+    failure refuses the run before the single-use claim, so an outage cannot burn a stage."""
+    kurl = (
+        f"{KLINES_URL}?symbol={BTC}&interval=1h&startTime={PROBE_START_MS}"
+        f"&endTime={PROBE_END_MS}&limit=24"
+    )
+    furl = (
+        f"{FUNDING_URL}?symbol={BTC}&startTime={PROBE_START_MS}"
+        f"&endTime={PROBE_END_MS + DAY_S * 1000}&limit=3"
+    )
+    try:
+        krows = parse_klines(json.loads(fetch(kurl)))
+        frows = parse_funding(json.loads(fetch(furl)))
+    except (ValueError, SystemExit) as exc:
+        raise SystemExit(f"connectivity probe failed before any claim: {exc}") from None
+    if not krows or not frows:
+        raise SystemExit("connectivity probe failed before any claim: empty page")
+
+
 def library_versions() -> dict[str, str | None]:  # pragma: no cover - environment
     out: dict[str, str | None] = {}
     for pkg in ("numpy",):
@@ -1467,6 +1497,7 @@ def run_stage(
     ledger_dir = ledger_root / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
+    connectivity_probe(fetch)  # refuses WITHOUT claiming if the exchange is unreachable
     # The protocol-root claim is the atomic single-use lock across digests (exclusive create);
     # the per-digest copy only records provenance.
     claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)

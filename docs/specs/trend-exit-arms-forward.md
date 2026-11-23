@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it, and no economic result was produced for it.
 
-Protocol digest: `009672ce10dd71e228bd6cd1919f51829d62d8ced5a8fc4ba2e467e1e9fcc2bd`
+Protocol digest: `be9374984bf53ae7bd08ded6b585ba9f09837fad39dd20247eae0bc8cfd35590`
 
 ## Question
 
@@ -71,10 +71,10 @@ The book holds actual contracts and cash. It follows `btc_trend_ensemble_v1` Ame
 - **Capital.** 100,000 USDT reference account. The size matters only through the participation of each fill; the research harness used capital 1.0, where the impact term was close to zero.
 - **Sizing.** A changed target weight is converted to units once, at the fill: `units = w · E / price`, with `E` the equity marked at the fill prices before that event's fills.
 - **Costs.** The repository `ExecutionCostConfig` formula with the FS1 constants: a fill of notional `N` pays `N · multiplier · (0.0005 fee + 0.0002 spread + 0.0001 · sqrt(participation))`, `participation = N / V`, with no price slippage. `multiplier` is 1 (BASE, DELAY) or 2 (HIGH_COST, which doubles the whole per-side rate). The cost is debited from cash.
-- **Participation cap.** A fill is capped at 5% of `V`, the quote volume of the last COMPLETED 1h bar before the fill close. An unfilled residual is carried toward the same target units while the target is unchanged. This differs from the research harness, which used the volume of the 1h bar opening at the fill; the completed hour is used here so that nothing after the decision is read.
+- **Participation cap.** A fill is capped at 5% of `V`, the quote volume of the 1h bar that closes at the fill close (the last 1h bar closed at or before it). An unfilled residual is carried toward the same target units while the target is unchanged. This differs from the research harness, which used the volume of the 1h bar opening at the fill; the hour that closes at the fill is used here so that nothing after the fill close is read.
 - **Funding.** The ACTUAL Binance funding of each symbol from the public `https://fapi.binance.com/fapi/v1/fundingRate` endpoint. An event stamped `t` with `c_{j−1} ≤ t < c_j` is paid in bar `j` on the units held after the fill at `c_{j−1}`: `cash −= units · price · rate` (longs pay a positive rate). `price` is the record's mark price, else the 1h open of the funding hour (the number of fallbacks is recorded). The funding history of every symbol must cover the window without a gap above 8h plus one minute.
 - **Timing.** A decision at the close `c_j` fills at that close (BASE, HIGH_COST) or at `c_{j+1}` (DELAY). Decisions are made at the closes from 2026-12-01 00:00 to 2027-11-30 20:00; P&L is marked at every close through 2027-12-01 00:00 (2,190 4h bars). The book starts flat with 100,000 USDT.
-- **Validity.** A cell is invalid if at any step: equity is not positive; the gross notional after a fill event exceeds 1.5 times equity (gross is `Σ|units · price| / equity`; nominal gross is at most 1 and exceeds it only through price drift); an accounting identity breaks by more than `1e-9` relative (the cash and mark-to-market reconciliation `equity = capital + price P&L + funding − costs` at every mark, and equity after a fill event equals equity before it minus its costs); a price is not positive. A missing hour from the open of the first decision bar onward, in any symbol, is a data problem that makes the stage INVALID. Missing hours before it only blank the affected bars. There is no gross clamp: a breach is invalid, not scaled.
+- **Validity.** A cell is invalid if at any step: equity is not positive; the gross notional after a fill event in which at least one fill happened exceeds 1.5 times equity (gross is `Σ|units · price| / equity`; nominal gross is at most 1 and exceeds it only through price drift). Gross is NOT an invalid condition at a mark or at a decision event without a fill: drift-only excursions are reported as `max_held_gross` (every mark) and `max_gross_at_fills`, and gate nothing; an accounting identity breaks by more than `1e-9` relative (the cash and mark-to-market reconciliation `equity = capital + price P&L + funding − costs` at every mark, and equity after a fill event equals equity before it minus its costs); a price is not positive. A missing hour from the open of the first decision bar onward, in any symbol, is a data problem that makes the stage INVALID. Missing hours before it only blank the affected bars. There is no gross clamp: a breach is invalid, not scaled.
 - **Reporting.** Each cell reports total return, max drawdown, Sharpe, fills, capped fills, turnover, costs, funding, price P&L, funding and costs per side (long and short), max gross at fills and at marks.
 
 ## Cells (frozen)
@@ -88,7 +88,8 @@ Each of `A0_RULE`, `A1_SHORT_TRAIL3`, `A2_SHORT_HALF`, `A3_SHORT_TIME30` is run 
 | FORWARD interim | Binance USDT-M 1h klines from 2021-01-01 to the last settled 4h close (the newest 5 minutes are ignored), funding from 2026-12-01 | from 2026-12-01 00:00 | monthly progress, `INTERIM_NOT_A_DECISION` |
 | FORWARD final | the same, to 2027-12-01 00:00 | 2026-12-01 00:00 to 2027-11-30 20:00 | decisive, prospective |
 
-- Interims may run from 2026-12-02, once per UTC month. All arms stop together (`STOPPED_EARLY`) if the `A0_RULE__BASE` max drawdown is 30% or more. A ledgered `STOPPED_EARLY` blocks every further interim and the final and ends the line with the meaning `NO_ARM_IMPROVES`. An interim also records the decision statistics for information; they decide nothing.
+- Interims may run from 2026-12-02, once per UTC month. At an interim, all arms stop together (`STOPPED_EARLY`) if the `A0_RULE__BASE` max drawdown is 30% or more. A ledgered `STOPPED_EARLY` blocks every further interim and the final and ends the line with the meaning `NO_ARM_IMPROVES`. An interim also records the decision statistics for information; they decide nothing.
+- The 30% stop applies to interims ONLY. The final never stops on it: the arm question is a relative comparison with `A0`, so the final ALWAYS decides it (when all cells are valid), also when `A0_RULE__BASE` crossed 30% after the last interim. Every valid stage result records `a0_base_max_dd` and `a0_stop_crossed` (true when the `A0_RULE__BASE` max drawdown over the whole stage window is 30% or more); in a final it is a reported fact and changes no label.
 - The final runs once, at or after 2027-12-02.
 - Every run re-downloads the full history (the work directory must be empty). Raw responses are cached write-once and hashed in the receipt.
 
@@ -96,7 +97,7 @@ Each of `A0_RULE`, `A1_SHORT_TRAIL3`, `A2_SHORT_HALF`, `A3_SHORT_TIME30` is run 
 
 For each challenger `Ai` (`A1_SHORT_TRAIL3`, `A2_SHORT_HALF`, `A3_SHORT_TIME30`), `IMPROVES(Ai)` requires ALL of:
 1. All cells are valid and the data have no problem.
-2. The paired moving-block bootstrap of the 4h return difference `Ai − A0` in BASE (the equity-return series of the two cells; block 30 bars, overlapping blocks, 5,000 draws, seed 0, one shared set of block draws for all arms) has a lower one-sided 95% bound (the 5% quantile of the bootstrap means) above 0, AND the arm is rejected by the Holm step-down at α = 0.05 across the three arms, using the one-sided bootstrap p-values `(1 + #{mean ≤ 0}) / (5000 + 1)`: sorted ascending, reject while `p_(r) ≤ 0.05 / (3 − r)`, stopping at the first failure.
+2. The paired moving-block bootstrap of the 4h return difference `Ai − A0` in BASE (the equity-return series of the two cells; block 30 bars, overlapping blocks, 5,000 draws, seed 0, one shared set of block draws for all arms) has a lower one-sided 95% bound (the 5% quantile of the bootstrap means) above 0, AND the arm is rejected by the Holm step-down at α = 0.05 across the three arms, using the one-sided bootstrap p-values `(1 + #{mean ≤ 0}) / (5000 + 1)`: sorted ascending with index `r = 0, 1, 2`, reject while `p_(r) ≤ 0.05 / (3 − r)` (thresholds 0.05/3, 0.05/2, 0.05), stopping at the first failure.
 3. The mean 4h difference `Ai − A0` is positive in the HIGH_COST cells and positive in the DELAY cells (each against the same-variant `A0`).
 4. `Ai` BASE max drawdown ≤ `A0` BASE max drawdown + 5 percentage points.
 
@@ -108,7 +109,7 @@ For each challenger `Ai` (`A1_SHORT_TRAIL3`, `A2_SHORT_HALF`, `A3_SHORT_TIME30`)
 
 Secondary, reported but not decisive: whether `A0_RULE__BASE` has a higher Sharpe than `C_HOLD_BTC`. Sharpe is computed from 4h simple returns of the equity series, population standard deviation, × √(6·365), with no risk-free rate. The long and short leg price P&L, costs and funding are reported for every cell.
 
-Interim labels are `INTERIM_NOT_A_DECISION`, `STOPPED_EARLY` and `INVALID`. No interim result is a decision, except that `STOPPED_EARLY` is terminal.
+Interim labels are `INTERIM_NOT_A_DECISION`, `STOPPED_EARLY` (interims only; `A0_RULE__BASE` max drawdown ≥ 30% at that interim) and `INVALID`. The final has no `STOPPED_EARLY` label: its labels are exactly `ARM_IMPROVES:<ids>`, `NO_ARM_IMPROVES` and `INVALID`, whatever `a0_stop_crossed` says. No interim result is a decision, except that `STOPPED_EARLY` is terminal.
 
 ## Mechanism chain (G1)
 
@@ -141,7 +142,8 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
 - The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
 - The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.
-- Outputs are write-once. A local ledger claim must be created exclusively before any data is fetched: once per UTC month for interims and once for the final, keyed by protocol id and stage as described below.
+- Before the claim, every run (a) completes the authorization fetches (the G4 relay and the scope comment, each fetched twice) and (b) passes a minimal connectivity probe: one BTCUSDT klines page and one funding page dated 2026-10-01..03, which reads no stage-window data. Any failure refuses the run WITHOUT claiming, so an outage or an authorization problem cannot burn the single-use stage. The operator accepts that a failure AFTER the claim (during the stage-window fetch or the replay) consumes the stage and needs a result-blind amendment.
+- Outputs are write-once. A local ledger claim must be created exclusively before any stage-window data is fetched: once per UTC month for interims and once for the final, keyed by protocol id and stage as described below.
 - Single use and the stop state are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The atomic single-use lock is an exclusive-create claim at the protocol root (`<ledger>/trend_exit_arms_v1/<stage name>.claim`); the per-digest subfolders (`<ledger>/trend_exit_arms_v1/<digest>/`) keep a provenance copy only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
 - Run with the locked environment: `uv run --locked python -m tools.trend_exit_arms_forward run ...`. The receipt records the numpy version. The harness needs only the standard library and numpy.
 
@@ -149,6 +151,7 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 
 - No change to any constant, lookback, multiplier, cost, window, cell or rule after any stage result.
 - No rescue run.
+- The 30% `A0_RULE__BASE` drawdown stop applies to interims only. The final decides the arm question regardless and records `a0_stop_crossed`; neither the stop nor its crossing is a reason to skip, rerun or reinterpret the final.
 - A refusal or invalid result caused by a defect outside the economics needs a result-blind amendment before any rerun.
 - Other exits, other arms, the excluded learned exits, other symbols or higher exposure are new protocols.
 - No label authorizes orders, paper trading or live trading.

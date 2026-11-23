@@ -47,6 +47,7 @@ python -m tools.markdown_links --check
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
 - Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
+- Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md](specs/trend-exit-arms-forward.md)
 - BTC vol-targeted trend ensemble (HOLD: BACKCAST consumed with a defective result that decides nothing; Amendment 3 FORWARD-only protocol 2026-12-01 to 2027-11-30 awaits review/G4; FORWARD unauthorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
 
 ## 情報の所有先と更新

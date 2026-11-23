@@ -1158,6 +1158,74 @@ def test_book_rejects_memoryview_with_masked_array_owner(
         BookState.zero(2, 1_000.0, value)
 
 
+def _ndarray_with_masked_base(*, masked: bool = True) -> np.ndarray:
+    # Casting this MaskedArray to a plain ndarray preserves the masked owner
+    # in the base chain, unlike caller-owned np.asarray materialization.
+    source = np.ma.array([100.0, 50.0], mask=[masked, False])
+    unmasked_type = source.astype(np.float64).view(np.ndarray)
+    assert not np.ma.isMaskedArray(unmasked_type)
+    assert np.ma.isMaskedArray(unmasked_type.base)
+    return unmasked_type
+
+
+@pytest.mark.parametrize("masked", (True, False))
+@pytest.mark.parametrize(
+    "wrapper",
+    ("direct", "list", "chained", "object_array", "memoryview", "memoryview_list"),
+)
+def test_book_refuses_plain_ndarray_with_masked_base_provenance(
+    masked: bool, wrapper: str
+) -> None:
+    values = _ndarray_with_masked_base(masked=masked)
+    if wrapper == "direct":
+        input_values: object = values
+    elif wrapper == "list":
+        input_values = [values]
+    elif wrapper == "chained":
+        input_values = values.view(np.ndarray)
+    elif wrapper == "memoryview":
+        input_values = memoryview(values)
+    elif wrapper == "memoryview_list":
+        input_values = [memoryview(values)]
+    else:
+        nested = np.empty(1, dtype=object)
+        nested[0] = values  # Retain owner chain; do not pre-coerce to scalars.
+        input_values = nested
+    with pytest.raises(ValueError, match="masked array"):
+        BookState.zero(2, 1_000.0, input_values)
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_ndarray_with_masked_base_refuses_settlement_without_mutation(
+    wrapped: bool,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    prior = book.clone()
+    values = _ndarray_with_masked_base()
+    with pytest.raises(ValueError, match="masked array"):
+        book.settle_positions(
+            mask=np.array([True, False]),
+            prices=memoryview(values) if wrapped else values,
+            recovery=np.ones(2),
+        )
+    _assert_cash_and_inventory_unchanged(book, prior)
+    assert book.termination_reason == prior.termination_reason
+
+
+def test_plain_ndarray_base_chain_without_masks_still_admitted() -> None:
+    original = np.array([100.0, 50.0])
+    values = original.view(np.ndarray)
+    assert isinstance(values.base, np.ndarray)
+    assert not np.ma.isMaskedArray(values.base)
+    book = BookState.zero(2, 1_000.0, values)
+    np.testing.assert_array_equal(book.mark_prices, original)
+
+
 def test_memoryview_with_masked_owner_refuses_settlement_atomically() -> None:
     book = BookState(
         quantities=np.array([1.0, -1.0]),

@@ -93,6 +93,21 @@ def _has_opaque_numpy_protocol(value: object) -> bool:
         raise ValueError("opaque array-like protocol cannot be inspected") from exc
 
 
+def _has_masked_origin(value: object) -> bool:
+    # A view can expose plain numbers while retaining a masked original:
+    # follow only native ndarray and memoryview owner links before casting.
+    while True:
+        if np.ma.isMaskedArray(value):
+            return True
+        if isinstance(value, memoryview):
+            value = value.obj
+        elif isinstance(value, np.ndarray):
+            # Read the native descriptor rather than subclass attributes.
+            value = np.ndarray.base.__get__(value)
+        else:
+            return False
+
+
 def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
     # Snapshot each index once; casting the original dynamic container could
     # fetch a masked value after the validator observed an unmasked value.
@@ -104,11 +119,7 @@ def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
         if parent is None:
             active.pop(id(item), None)
             continue
-        if np.ma.isMaskedArray(item):
-            raise ValueError(f"{field_name} must not contain a masked array")
-        # A memoryview exposes plain buffer scalars even when its original
-        # owner is a MaskedArray; inspect that provenance before indexing.
-        if isinstance(item, memoryview) and np.ma.isMaskedArray(item.obj):
+        if _has_masked_origin(item):
             raise ValueError(f"{field_name} must not contain a masked array")
         if isinstance(item, np.ndarray):
             if item.dtype.kind != "O":
@@ -142,7 +153,7 @@ def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
 
 def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
     # Native numeric ndarrays retain the original no-element-walk fast path.
-    if np.ma.isMaskedArray(value):
+    if _has_masked_origin(value):
         raise ValueError(f"{field_name} must not be a masked array")
     checked = (
         value

@@ -19,6 +19,8 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
+`python -m tools.docs_source_consistency --check` は、登録済みのsource/doc semantic contractを、GitHub・market-data・networkを読まずに検証する。historical agy v1の `BACKCAST_2020 INVALID` / `FORWARD HOLD` と実sourceのCLI拒否が `docs/README.md`・正本spec・current-statusで一致すること、Learning Labの仕様/READMEへの同時導入、prospective harnessのコードとspecに束縛されたprotocol digest、BREADTHが未来の上場廃止の有無で過去の精算・資金を変えない合成as-of会計オラクルを検証する。新しいプロトコルを追加する場合は対応するbindingと独立した反例を同じsource/test/docs変更に登録する。Fast/Full CIのsemantic gateが失敗したら仕様を結果後に緩めず、現行sourceを正本に失敗原因と歴史的証拠の保持を確認して是正する。成功は**登録した部分契約の検証**のみであり、他の自然文の正しさ、全PIT、G0–G5/G4、unused/final、経済成績や実取引を認可しない。
+
 ## 必要時参照
 
 `docs/AGENTS.md` が詳細指示の唯一の正本であり、節の抽出は原文を省略表示するだけで契約を変更しない。作業に関係するsource・tests・正本は別途直接確認する。

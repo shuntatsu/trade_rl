@@ -34,6 +34,8 @@ python -m tools.markdown_links --check
 
 検査は存在するlocal target、Git treeの外への参照、危険なURI scheme、コード例内の誤検知を扱う。外部URLの到達性、fragment/heading anchorの正しさ、文章・研究内容の正確性は保証しない。Guideのsource fingerprint、研究の承認・実験認可、ライセンス監査も別の検査で扱う。
 
+正本文書とsourceの**意味上の不一致**には、別の検査 `python -m tools.docs_source_consistency --check` をFast Push / Full CIの両方で使用する。過去のagy `BACKCAST_2020 INVALID` / `HOLD` の誤表記、Learning Labの未掲載、登録済み研究harnessのsource/spec digest不一致、BREADTHの未来情報による過去時点の精算変化を拒否する。これが証明するのは**登録した部分的な意味契約**だけで、あらゆる文の正しさや収益・独立研究レビューは保証しない。新規の経済規範には専用のas-of・会計反例も追加する。
+
 ## Active work（完了までは暫定）
 
 - [Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) — 非LLM売買研究の親計画。進捗・依存はIssue/PR、現行判断はresearch/current-status.mdを正本とする。

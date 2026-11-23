@@ -10,7 +10,7 @@ import json
 import math
 import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_breadth as m
 
-DIGEST_PIN = "67e9c2fa75c95efee1a1ebb51f73df1b6a647dfe433929eaa8dd72fc4d3b3117"
+DIGEST_PIN = "2b691b98370c3b4b8bf36f51c4982b015e50f9c8f74ced2776e365355f99d016"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp())
@@ -41,7 +41,8 @@ def test_constants_frozen() -> None:
     assert m.REGIME_WINDOWS == (20, 50, 100, 200) and m.REGIME_THRESHOLD == 0.5
     assert (m.SIZE_VOL, m.VOL_DAYS) == (0.5, 30)
     assert (m.SIDE_BUDGET, m.SIDE_CAP, m.BORROW_TOL, m.N_MIN) == (0.9, 1.0, 0.02, 20)
-    assert (m.DEAD_RUN_HOURS, m.NOTICE_LOOKBACK_DAYS) == (24, 90)
+    assert m.DEAD_RUN_HOURS == 24
+    assert m.NOTICE_POLICY == "first-public-release-during-listing-episode"
     assert not hasattr(m, "FALLBACK_LEAD_BARS")  # no hindsight fallback
     assert (m.FORCED_EXTRA, m.FUNDING_UNCOVERED_MAX) == (0.05, 0.01)
     assert (m.SHARPE_MIN, m.MAX_DD_LIMIT) == (0.5, 0.40)
@@ -301,22 +302,31 @@ def test_forced_start_notice_pairing() -> None:
     ev = 1500
     e_s = float(times[ev])
     day = m.DAY_S
+    episode = {
+        "episode_start_s": float(times[0] - m.BAR_S),
+        "episode_end_s": e_s,
+    }
     # earliest notice within 90 days wins; later postponement notices never delay the start
     rel1, rel2 = e_s - 20 * day, e_s - 5 * day
-    start, status = m.forced_start(times, 0, ev, [rel1, rel2])
+    start, status = m.forced_start(times, 0, ev, [rel1, rel2], **episode)
     assert status == "notice"
     first = start
     assert start is not None and times[start] - m.BAR_S >= rel1
     assert (
         times[start - 1] - m.BAR_S < rel1
     )  # the FIRST decision bar opening at/after release
-    # a notice older than 90 days, after the event, or none at all: no forced window (the
-    # position is held to the last bar and written off there; no hindsight)
-    assert m.forced_start(times, 0, ev, [e_s - 91 * day]) == (None, "none")
-    assert m.forced_start(times, 0, ev, [e_s + 5]) == (None, "none")
-    assert m.forced_start(times, 1490, ev, []) == (None, "none")
+    # A prior public warning stays actionable even 91 days later; future
+    # delisting must not retrospectively decide when a release was usable.
+    old_start, old_status = m.forced_start(times, 0, ev, [e_s - 91 * day], **episode)
+    assert old_status == "notice" and old_start is not None and old_start < ev
+    assert m.forced_start(times, 0, ev, [e_s + 5], **episode) == (None, "none")
+    assert m.forced_start(times, 0, ev, [float(times[0]) - 2 * day], **episode) == (
+        None,
+        "none",
+    )
+    assert m.forced_start(times, 1490, ev, [], **episode) == (None, "none")
     # released inside the last bar: too late to close, only the write-off applies
-    assert m.forced_start(times, 0, ev, [e_s - 100]) == (None, "late")
+    assert m.forced_start(times, 0, ev, [e_s - 100], **episode) == (ev + 1, "late")
     assert first is not None and first < ev
     # the earliest of two is used even when listed out of order after sorting
     assert m.notice_times({"X": [5.0, 3.0, 9.0e12]}, "X", 100) == [3.0, 5.0]
@@ -340,10 +350,11 @@ def test_zombie_tail_blank_and_relisting_start_a_new_episode_with_fresh_warmup()
     h2["qv"][24 * 250 : 24 * 260] = 0.0
     h2["vol"][24 * 250 : 24 * 260] = 0.0
     panel, info = m.build_panel({"AAAUSDT": h, "BBBUSDT": h2}, stage, {}, None)
-    assert panel.events == ((24 * 250 // 4 - 1, 1), (24 * 300 // 4 - 1, 0))
-    # AAA: no price after its last traded bar
-    assert np.isnan(panel.mark_px[24 * 300 // 4 :, 0]).all()
-    assert np.isfinite(panel.mark_px[: 24 * 300 // 4, 0]).all()
+    assert panel.events == ((24 * 250 // 4 + 5, 1), (24 * 300 // 4 + 5, 0))
+    # No retrospective closure at the last trade; one-day confirmation is
+    # marked at the last *observed* price, then the asset leaves the book.
+    assert np.isnan(panel.mark_px[24 * 300 // 4 + 6 :, 0]).all()
+    assert np.isfinite(panel.mark_px[: 24 * 300 // 4 + 6, 0]).all()
     # BBB: the new episode has regime NaN until it has 200 fresh daily bars
     reg = panel.regime[:, 1]
     assert np.isfinite(reg[6 * 200 : 24 * 250 // 4 - 6]).all()
@@ -351,9 +362,14 @@ def test_zombie_tail_blank_and_relisting_start_a_new_episode_with_fresh_warmup()
     assert np.isnan(reg[relist : relist + 6 * 199]).all()
     assert np.isfinite(reg[relist + 6 * 201 :]).all()
     assert [r["delisted"] for r in info["episodes"]["BBBUSDT"]] == [True, False]
-    # eligibility needs the regime: the symbol is out of the cross-section during the gap
+    # The first dead day is not yet a confirmed delisting. Mark/old
+    # eligibility may persist, but no missing-volume bar can execute an order.
+    # From the 24h confirmation onward, eligibility must be absent until a
+    # fresh 200-day regime is available in the relisted episode.
     elig = m.eligible_matrix(panel)
-    assert not elig[24 * 250 // 4 : relist + 6 * 200 - 1, 1].any()
+    confirm = 24 * 250 // 4 + 5
+    assert np.isnan(panel.close[24 * 250 // 4 : confirm + 1, 1]).all()
+    assert not elig[confirm : relist + 6 * 200 - 1, 1].any()
     assert elig[relist + 6 * 200 + 5, 1]
     # no notice recorded: no forced window, both events are write-off-only
     assert info["notice_none"] == 2 and info["notice_matched"] == 0
@@ -376,10 +392,14 @@ def test_build_panel_marks_forced_window_ages_and_holes() -> None:
     release = T0 + 24 * 3600 * 320 + 1800  # inside the 4h bar that opens at hour 24*320
     panel, info = m.build_panel({"DDDUSDT": h}, stage, {}, {"DDDUSDT": [release]})
     j_last = end_hour // 4 - 1
-    assert panel.events == ((j_last, 0),)
+    assert panel.events == ((j_last + 6, 0),)
     forced_rows = np.nonzero(panel.forced[:, 0])[0]
     first_open_after = math.ceil((release - panel.times[0] + m.BAR_S) / m.BAR_S)
-    assert forced_rows[0] == first_open_after and forced_rows[-1] == j_last
+    # The public notice remains actionable as *intent* through confirmation,
+    # but no dead-hour bar has a tradable close or volume for a forced fill.
+    assert forced_rows[0] == first_open_after
+    assert forced_rows[-1] == j_last + 6
+    assert np.isnan(panel.close[j_last + 1 : j_last + 7, 0]).all()
     assert (
         panel.times[first_open_after] - m.BAR_S
         >= release
@@ -392,7 +412,9 @@ def test_build_panel_marks_forced_window_ages_and_holes() -> None:
         ages[0] == 0
         and ages[6 * 201] == 1
         and ages[j_last] == 1
-        and ages[j_last + 1] == 0
+        and ages[j_last + 1] == 1
+        and ages[j_last + 6] == 1
+        and ages[j_last + 7] == 0
     )
     assert np.isnan(panel.close[j_last + 1 :, 0]).all()
     # a short hole inside the episode: price carried for marking, no tradable close
@@ -2125,3 +2147,446 @@ def test_blanked_symbol_days_are_reported() -> None:
     only, only_info = m.build_panel({"AAAUSDT": clean}, stage, {}, None)
     assert m.breadth_report(only, only_info, 1)["blanked_symbol_days"] == 0
     assert rep["symbols_no_notice"] == 0
+
+
+# Issue #1346: later missing hours must never settle an earlier held book.
+
+
+@pytest.mark.parametrize("target", [0.5, -0.5])
+def test_no_notice_settlement_waits_for_causal_24h_confirmation(target: float) -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, observed = 72, 48
+    hourly = {
+        "open": np.r_[np.full(observed, 100.0), np.full(hours - observed, np.nan)],
+        "high": np.r_[np.full(observed, 100.0), np.full(hours - observed, np.nan)],
+        "low": np.r_[np.full(observed, 100.0), np.full(hours - observed, np.nan)],
+        "close": np.r_[np.full(observed, 100.0), np.full(hours - observed, np.nan)],
+        "qv": np.r_[np.full(observed, 1e9), np.zeros(hours - observed)],
+        "vol": np.r_[np.full(observed, 1e6), np.zeros(hours - observed)],
+    }
+    full, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    prior, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:observed] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=observed)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert info["notice_none"] == 1
+    # The last 4h traded close is row 11; future confirmation is row 17.
+    assert full.events == ((17, 0),)
+    assert prior.events == ()
+    assert np.isfinite(full.mark_px[:18, 0]).all()
+    assert np.array_equal(full.mark_px[: observed // 4, 0], prior.mark_px[:, 0])
+    for p in (prior, full):
+        assert not p.forced.any()
+    full_cell = m.simulate_weights(full, np.full((full.bars, 1), target), 0.0, 0)
+    prior_cell = m.simulate_weights(prior, np.full((prior.bars, 1), target), 0.0, 0)
+    assert full_cell["valid"] and prior_cell["valid"]
+    assert np.allclose(
+        full_cell["equity"][: len(prior_cell["equity"])],
+        prior_cell["equity"],
+        rtol=0,
+        atol=1e-12,
+    )
+    assert full_cell["write_off_count"] == 1
+    assert full_cell["write_offs"][0]["bar"] == 17
+    # Independent hand calculation: 0.5x notional and a 5% charge.
+    assert full_cell["equity"][-1] == pytest.approx(0.975, abs=1e-12)
+    assert prior_cell["equity"][-1] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_released_notice_cannot_be_paired_only_after_future_delisting() -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, observed = 72, 48
+    trade = np.arange(hours) < observed
+    hourly = {
+        k: np.where(trade, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(trade, 1e9, 0.0)
+    hourly["vol"] = np.where(trade, 1e6, 0.0)
+    release = start.timestamp() + 24 * 3600 + 1800
+    full, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {},
+        {"ZZZUSDT": [release]},
+        ("ZZZUSDT",),
+    )
+    prior, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:observed] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=observed)),
+        {},
+        {"ZZZUSDT": [release]},
+        ("ZZZUSDT",),
+    )
+    # Release information is known in both snapshots. Future delisting must not
+    # make prior forced rows differ or silently change prior eligibility.
+    assert full.events == ((17, 0),)
+    assert np.array_equal(full.forced[: prior.times.size], prior.forced)
+    first = next(j for j, active in enumerate(prior.forced[:, 0]) if active)
+    assert prior.times[first] - m.BAR_S >= release
+    assert not prior.forced[:first].any()
+    assert prior.forced[first:, 0].all()
+    assert full.forced[first : observed // 4, 0].all()
+
+
+def test_23_dead_hours_do_not_trigger_a_no_notice_write_off() -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    n = 72
+    hourly = {k: np.full(n, 100.0) for k in ("open", "high", "low", "close")}
+    hourly["qv"] = np.full(n, 1e9)
+    hourly["vol"] = np.full(n, 1e6)
+    for field in hourly:
+        hourly[field][48:71] = (
+            np.nan if field in ("open", "high", "low", "close") else 0
+        )
+    panel, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=n)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert panel.events == ()
+    assert np.isfinite(panel.mark_px[-1, 0])
+    cell = m.simulate_weights(panel, np.full((panel.bars, 1), 0.5), 0.0, 0)
+    assert cell["valid"] and cell["write_off_count"] == 0
+
+
+@pytest.mark.parametrize("target", [0.5, -0.5])
+def test_unannounced_delisting_confirmation_rounds_up_to_next_close(
+    target: float,
+) -> None:
+    """At a 43h episode end, the 67h confirmation settles at the 68h close."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, prefix = 96, 48
+    h = np.arange(hours)
+    live, relisted = h < 43, h >= 67
+    price = np.where(live, 100.0, np.where(relisted, 200.0, np.nan))
+    hourly = {k: price.copy() for k in ("open", "high", "low", "close")}
+    hourly["qv"] = np.where(live | relisted, 1e9, 0.0)
+    hourly["vol"] = np.where(live | relisted, 1e6, 0.0)
+    full, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    prior, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:prefix] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=prefix)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    # Confirm at hour 67; first 4h close >=67 is hour 68, row 16.
+    assert full.events == ((16, 0),)
+    assert full.mark_px[16, 0] == pytest.approx(100.0)
+    assert full.mark_px[17, 0] == pytest.approx(200.0)
+    assert np.isnan(full.close[16, 0])
+    full_cell = m.simulate_weights(full, np.full((full.bars, 1), target), 0.0, 0)
+    prior_cell = m.simulate_weights(prior, np.full((prior.bars, 1), target), 0.0, 0)
+    assert full_cell["valid"] and prior_cell["valid"]
+    assert full_cell["write_off_count"] == 1
+    assert full_cell["write_offs"][0]["bar"] == 16
+    assert np.allclose(
+        full_cell["equity"][: len(prior_cell["equity"])],
+        prior_cell["equity"],
+        rtol=0,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("target", [0.5, -0.5])
+def test_unconfirmed_gap_funding_is_not_moved_back_before_gap(
+    target: float,
+) -> None:
+    """Only an actually observed later funding event affects later cash."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, prefix = 72, 48
+    traded = np.arange(hours) < prefix
+    hourly = {
+        k: np.where(traded, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(traded, 1e9, 0.0)
+    hourly["vol"] = np.where(traded, 1e6, 0.0)
+    funding_at = int((start.timestamp() + 56 * 3600) * 1000)
+    full, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {"ZZZUSDT": [(funding_at, 0.01, 100.0)]},
+        {},
+        ("ZZZUSDT",),
+    )
+    prior, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:prefix] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=prefix)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    full_cell = m.simulate_weights(full, np.full((full.bars, 1), target), 0.0, 0)
+    prior_cell = m.simulate_weights(prior, np.full((prior.bars, 1), target), 0.0, 0)
+    assert full_cell["valid"] and prior_cell["valid"]
+    assert np.allclose(
+        full_cell["equity"][: len(prior_cell["equity"])],
+        prior_cell["equity"],
+        rtol=0,
+        atol=1e-12,
+    )
+    # Long pays and short receives 1% of 0.5x; 5% adverse charge at hour 72.
+    expected = 1 - 0.025 - target * 0.01
+    assert full_cell["equity"][-1] == pytest.approx(expected, abs=1e-12)
+
+
+def test_zombie_zero_volume_prefix_is_not_resurrected_by_later_retrade() -> None:
+    """An appended live hour cannot resurrect earlier finite no-volume bars."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, prefix, last_trade = 72, 48, 36
+    hourly = {k: np.full(hours, 100.0) for k in ("open", "high", "low", "close")}
+    traded = (np.arange(hours) < last_trade) | (np.arange(hours) >= 58)
+    hourly["qv"] = np.where(traded, 1e9, 0.0)
+    hourly["vol"] = np.where(traded, 1e6, 0.0)
+    full, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    truncated, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:prefix] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=prefix)),
+        {},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert full.events == ()
+    assert truncated.events == ()
+    for field in ("close", "mark_px", "fill_qv", "regime", "vol", "forced"):
+        assert np.array_equal(
+            getattr(full, field)[: prefix // 4],
+            getattr(truncated, field),
+            equal_nan=True,
+        ), field
+    # The zero-volume zombie never produces a usable 4h price in either view.
+    assert np.isnan(truncated.close[last_trade // 4 :, 0]).all()
+
+
+def test_notice_between_listing_start_and_first_complete_4h_bar_is_actionable() -> None:
+    """No later delisting is needed to act on a public release in a partial bar."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    n = 72
+    live = np.arange(n) >= 1  # listing starts at h=1, first full 4h bar opens at h=4
+    hourly = {
+        k: np.where(live, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(live, 1e9, 0.0)
+    hourly["vol"] = np.where(live, 1e6, 0.0)
+    published = start.timestamp() + 2.5 * 3600  # in listing, before h=4
+    p, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=n)),
+        {},
+        {"ZZZUSDT": [published]},
+        ("ZZZUSDT",),
+    )
+    assert p.events == ()
+    assert np.isnan(p.close[0, 0])
+    assert np.isfinite(p.close[1, 0])
+    assert p.forced[1, 0]  # 4h bar h=4..8 is actionable at its close
+    assert p.forced[1:, 0].all()
+
+
+def test_notice_in_last_partial_hour_reports_late_not_missing() -> None:
+    """A released notice with no complete later tradable candle is still observed."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    n = 96
+    live = np.arange(n) < 49
+    hourly = {
+        k: np.where(live, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(live, 1e9, 0.0)
+    hourly["vol"] = np.where(live, 1e6, 0.0)
+    published = start.timestamp() + 48.5 * 3600
+    p, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=n)),
+        {},
+        {"ZZZUSDT": [published]},
+        ("ZZZUSDT",),
+    )
+    assert p.events == ((18, 0),)  # 49+24=73h; 4h close at 76h
+    assert info["notice_late"] == 1
+    assert info["notice_none"] == 0
+    # The published notice is known, but the next decision has no trading
+    # volume and cannot fill; it must not be erased by later dead hours.
+    # Release at hour 48.5: first opening AFTER release is h=52,
+    # and its closing decision is h=56 (row j=13).
+    assert not p.forced[:13].any()
+    assert p.forced[13:19, 0].all()
+    assert np.isnan(p.close[13:19, 0]).all()
+
+
+def test_published_notice_remains_in_force_through_unconfirmed_gap() -> None:
+    """A later retrade cannot rewrite a notice state already in the observed prefix."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours, prefix = 144, 48
+    traded = np.ones(hours, dtype=bool)
+    traded[28:50] = (
+        False  # 22h hole; future relisting within <24h not yet known at prefix
+    )
+    hourly = {k: np.full(hours, 100.0) for k in ("open", "high", "low", "close")}
+    hourly["qv"] = np.where(traded, 1e9, 0.0)
+    hourly["vol"] = np.where(traded, 1e6, 0.0)
+    notices = {"ZZZUSDT": [start.timestamp() + 5 * 3600 + 1800]}
+    full, _ = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("FULL", start, start + timedelta(hours=hours)),
+        {},
+        notices,
+        ("ZZZUSDT",),
+    )
+    prior, _ = m.build_panel(
+        {"ZZZUSDT": {k: v[:prefix] for k, v in hourly.items()}},
+        m.Stage("ASOF", start, start + timedelta(hours=prefix)),
+        {},
+        notices,
+        ("ZZZUSDT",),
+    )
+    assert full.events == prior.events == ()
+    assert np.array_equal(full.forced[: prefix // 4], prior.forced)
+    assert prior.forced[2:, 0].all()
+    assert np.isnan(prior.close[7:, 0]).all()
+
+
+@pytest.mark.parametrize("target", [0.2, -0.2])
+def test_asof_equity_never_depends_on_later_gaps_or_notice_outcome(
+    target: float,
+) -> None:
+    """Cross 24h confirmation, 23h control, notices, funding and all day cuts.
+
+    Exact hourly and capital histories through each cut are the oracle. No
+    archive, trading endpoint, outcome or candidate-economic data is consumed.
+    """
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    n = 144
+    funding = [
+        (int((start.timestamp() + hour * 3600) * 1000), 0.0001, 100.0)
+        for hour in range(8, n, 8)
+    ]
+    for dead_start in (28, 48, 63):
+        for dead_len in (2, 22, 23, 24, 25, 39):
+            traded = np.ones(n, dtype=bool)
+            traded[dead_start : dead_start + dead_len] = False
+            price = np.where(
+                traded,
+                100.0 + 0.05 * np.arange(n),
+                100.0 + 0.05 * dead_start,
+            )
+            hourly = {name: price.copy() for name in ("open", "high", "low", "close")}
+            hourly["qv"] = np.where(traded, 1e9, 0.0)
+            hourly["vol"] = np.where(traded, 1e6, 0.0)
+            for release_hour in (
+                None,
+                5,
+                dead_start - 1,
+                dead_start + 2,
+                dead_start + dead_len + 2,
+            ):
+                notices = (
+                    {}
+                    if release_hour is None
+                    else {"TSTUSDT": [start.timestamp() + release_hour * 3600 + 1800]}
+                )
+                full, _ = m.build_panel(
+                    {"TSTUSDT": hourly},
+                    m.Stage("FULL", start, start + timedelta(hours=n)),
+                    {"TSTUSDT": funding},
+                    notices,
+                    ("TSTUSDT",),
+                )
+                full_cell = m.simulate_weights(
+                    full, np.full((full.bars, 1), target), 0.0, 0
+                )
+                assert full_cell["valid"], full_cell["invalid_reasons"]
+                for prefix in (24, 48, 72, 96, 120):
+                    truncated, _ = m.build_panel(
+                        {
+                            "TSTUSDT": {
+                                key: values[:prefix].copy()
+                                for key, values in hourly.items()
+                            }
+                        },
+                        m.Stage("ASOF", start, start + timedelta(hours=prefix)),
+                        {
+                            "TSTUSDT": [
+                                row
+                                for row in funding
+                                if row[0]
+                                < int((start.timestamp() + prefix * 3600) * 1000)
+                            ]
+                        },
+                        notices,
+                        ("TSTUSDT",),
+                    )
+                    for field in (
+                        "close",
+                        "mark_px",
+                        "fill_qv",
+                        "regime",
+                        "vol",
+                        "forced",
+                        "age_bucket",
+                        "fund",
+                    ):
+                        assert np.array_equal(
+                            getattr(full, field)[: prefix // 4],
+                            getattr(truncated, field),
+                            equal_nan=True,
+                        ), (dead_start, dead_len, release_hour, prefix, field)
+                    past = m.simulate_weights(
+                        truncated, np.full((truncated.bars, 1), target), 0.0, 0
+                    )
+                    assert past["valid"], past["invalid_reasons"]
+                    assert np.allclose(
+                        full_cell["equity"][: len(past["equity"])],
+                        past["equity"],
+                        rtol=0,
+                        atol=1e-12,
+                    ), (dead_start, dead_len, release_hour, prefix, target)
+
+
+def test_notice_after_24h_confirmation_cannot_attach_to_old_episode() -> None:
+    """Rounding the settlement to a 4h close must not extend the old listing."""
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours = 120
+    live = (np.arange(hours) < 49) | (np.arange(hours) >= 80)
+    hourly = {
+        k: np.where(live, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(live, 1e9, 0.0)
+    hourly["vol"] = np.where(live, 1e6, 0.0)
+    # Old episode is confirmed ended at h=73, but its next 4h settlement
+    # mark is h=76. A release at h=74 belongs to neither listing episode.
+    release = start.timestamp() + 74 * 3600
+    p, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=hours)),
+        {},
+        {"ZZZUSDT": [release]},
+        ("ZZZUSDT",),
+    )
+    assert p.events == ((18, 0),)
+    assert info["notice_none"] == 1
+    assert info["notice_late"] == 0
+    assert info["episodes"]["ZZZUSDT"][0]["notice"] == "none"
+    assert not p.forced.any()

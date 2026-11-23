@@ -58,7 +58,7 @@ BORROW_TOL = (
 )
 N_MIN = 20  # new entries need at least this many eligible symbols
 DEAD_RUN_HOURS = 24  # a run of dead hours this long ends a listing episode
-NOTICE_LOOKBACK_DAYS = 90
+NOTICE_POLICY = "first-public-release-during-listing-episode"
 FORCED_EXTRA = 0.05  # extra adverse charge on forced-close fills and write-offs
 FUNDING_UNCOVERED_MAX = (
     0.01  # share of eligible symbol-bars without a recent funding event
@@ -171,7 +171,7 @@ def _constants() -> dict[str, Any]:
         "borrow_tol": BORROW_TOL,
         "n_min": N_MIN,
         "dead_run_hours": DEAD_RUN_HOURS,
-        "notice_lookback_days": NOTICE_LOOKBACK_DAYS,
+        "notice_policy": NOTICE_POLICY,
         "forced_extra": FORCED_EXTRA,
         "funding_uncovered_max": FUNDING_UNCOVERED_MAX,
         "max_funding_gap_s": MAX_FUNDING_GAP_S,
@@ -386,12 +386,10 @@ class Panel:
     fill_qv: np.ndarray
     regime: np.ndarray
     vol: np.ndarray
-    forced: (
-        np.ndarray
-    )  # bool: forced-close window (notice released, event not yet passed)
+    forced: np.ndarray  # bool: notice observed in current listing episode
     age_bucket: np.ndarray  # int8 listing-age bucket, 0 outside episodes
     fund: np.ndarray
-    events: tuple[tuple[int, int], ...]  # (row j_E of the last available bar, symbol k)
+    events: tuple[tuple[int, int], ...]  # (24h-confirmed settlement row, symbol k)
 
     @property
     def bars(self) -> int:
@@ -415,25 +413,29 @@ def notice_times(
 
 
 def forced_start(
-    times: np.ndarray, j_first: int, j_event: int, releases: list[float]
+    times: np.ndarray,
+    j_first: int,
+    j_current: int,
+    releases: list[float],
+    *,
+    episode_start_s: float,
+    episode_end_s: float,
 ) -> tuple[int | None, str]:
-    """First decision row of the forced-close window of an event and how it was paired.
+    """Act only on a release actually published during the listing episode.
 
-    The notice is the EARLIEST of the symbol with ``release <= event`` and ``release >=
-    event - 90 days``; the window starts at the first decision close whose 4h bar opens at or
-    after the release. Without a paired notice there is NO forced-close window (the position is
-    held to the last valid bar and written off there: you learn that an instrument stopped only
-    by observing it stop). Returns ``(None, status)`` with status ``none`` or ``late``."""
-    event_s = float(times[j_event])
-    lo = event_s - NOTICE_LOOKBACK_DAYS * DAY_S
-    paired = [r for r in releases if lo <= r <= event_s]
-    if not paired:
+    The episode may start before its first complete 4h candle and end after
+    its last complete candle; neither partial interval may be ignored.
+    Eligibility before the notice must never depend on future delisting.
+    """
+    published = [r for r in releases if episode_start_s <= r <= episode_end_s]
+    if not published:
         return None, "none"
-    release = paired[0]
-    start = math.ceil((release + BAR_S - float(times[0])) / BAR_S)
-    start = max(j_first, start)
-    if start > j_event:
-        return None, "late"
+    release = min(published)
+    start = max(j_first, math.ceil((release + BAR_S - float(times[0])) / BAR_S))
+    if start > j_current:
+        # Intent exists at the first causally available decision even if no
+        # tradable candle remains. The book must not invent an actual fill.
+        return start, "late"
     return start, "notice"
 
 
@@ -484,6 +486,9 @@ def build_panel(
         keep = np.zeros(n_hours, dtype=bool)
         for ep in eps:
             keep[ep.start : ep.end] = True
+        # A finite zero-volume zombie hour is dead *now*, even if later
+        # trading resumes before 24h. Never resurrect a past bar or feature.
+        keep &= np.isfinite(h["close"]) & traded
         clean = {
             key: np.where(keep, h[key], np.nan)
             for key in ("open", "high", "low", "close", "qv")
@@ -504,9 +509,14 @@ def build_panel(
             if not fin.size:
                 continue
             j_first, j_last = lo + int(fin[0]), lo + int(fin[-1])
-            # an episode that is still listed at the stage end keeps its last close for marking
-            # through a trailing hole of less than a day; a delisted one ends at its last bar
-            j_mark = j_last if ep.delisted else nb - 1
+            # The 24-hour absence is not observable at the earlier last fill.
+            # Settle at the first 4h close after confirmation, carrying only
+            # the last actually traded mark across the dead hours.
+            j_confirm = (
+                (ep.end + DEAD_RUN_HOURS + 3) // 4 - 1 if ep.delisted else nb - 1
+            )
+            assert 0 <= j_confirm < nb
+            j_mark = j_confirm
             mark_px[j_first : j_mark + 1, k] = _ffill(fr.close[j_first : j_mark + 1])
             t0 = float(times[j_first]) - BAR_S
             ages = (times[j_first : j_mark + 1] - t0) / DAY_S
@@ -518,11 +528,29 @@ def build_panel(
                 "last_close": int(times[j_last]),
                 "delisted": ep.delisted,
             }
+            # Notice-driven exits depend on publication time alone, even
+            # when no future delisting happens in this study window.
+            start, status = forced_start(
+                times,
+                j_first,
+                j_last,
+                releases,
+                episode_start_s=float(grid_start_s + ep.start * HOUR_S),
+                # Notices during an unconfirmed gap are public, but a
+                # release *after* the 24th dead hour cannot be associated
+                # with the old listing merely because book settlement is
+                # rounded forward to the next 4h close.
+                episode_end_s=float(
+                    grid_start_s + (ep.end + DEAD_RUN_HOURS) * HOUR_S
+                    if ep.delisted
+                    else end_s
+                ),
+            )
+            if start is not None:
+                forced[start : j_mark + 1, k] = True
             if ep.delisted:
-                start, status = forced_start(times, j_first, j_last, releases)
-                if start is not None:
-                    forced[start : j_last + 1, k] = True
-                events.append((j_last, k))
+                events.append((j_confirm, k))
+                rec["confirmed_close"] = int(times[j_confirm])
                 info[f"notice_{'matched' if status == 'notice' else status}"] += 1
                 rec["notice"] = status
                 if status == "none":
@@ -1001,8 +1029,11 @@ class _Book:
                 )
 
     def settle(self, j: int, k: int) -> None:
-        """Write-off: a position held at the last available close of its listing is settled at
-        that close and pays the extra charge."""
+        """Write-off only at observed dead-run confirmation, not retrospectively.
+
+        Mark at the last traded price and charge the adverse settlement cost.
+        The gap does not create a tradable bar or an executable fill.
+        """
         self.pending[k] = np.nan
         self.w_prev[k] = 0.0
         pre = float(self.u[k])

@@ -340,3 +340,93 @@ def test_constant_prices_have_no_divergence() -> None:
     )
     assert output.events == ()
     assert not np.any(output.bull_total + output.bear_total)
+
+
+@pytest.mark.parametrize("bearish", [False, True])
+def test_high_low_penetration_uses_actual_pivot_price_line(bearish: bool) -> None:
+    """Known review regression: an interim wick pierces the pivot price line.
+
+    Close-only penetration incorrectly leaves the divergence alive. Both
+    bullish low-to-low and bearish high-to-high optional modes must reject it.
+    The disabled filter must still demonstrate this is a filter rejection.
+    """
+    original_low = np.asarray(
+        [96, 95, 94, 90, 92, 94, 86, 89, 92, 93],
+        dtype=float,
+    )
+    original_close = np.asarray(
+        [100, 100, 100, 100, 100.6, 100.8, 101, 100.8, 101.1, 101.1],
+        dtype=float,
+    )
+    original_osc = np.asarray(
+        [30, 30, 30, 30, 32, 33, 36, 35, 38, 39],
+        dtype=float,
+    )
+    if bearish:
+        close = 200 - original_close
+        high = 200 - original_low
+        low = close - 1
+        osc = -original_osc
+        kind = "bear_regular"
+    else:
+        close = original_close
+        high = close + 1
+        low = original_low
+        osc = original_osc
+        kind = "bull_regular"
+
+    def exact_event(validate_lines: bool) -> bool:
+        out = detect_divergences(
+            high=high,
+            low=low,
+            close=close,
+            indicators={"TEST": osc},
+            config=DivergenceConfig(
+                pivot_period=1,
+                min_indicators=1,
+                pivot_source="high_low",
+                validate_lines=validate_lines,
+            ),
+        )
+        return any(
+            e.kind == kind
+            and e.observed_at == 8
+            and e.pivot_at == 3
+            and e.anchor_at == 7
+            for e in out.events
+        )
+
+    assert exact_event(False), "the fixture must produce a divergence without filtering"
+    assert not exact_event(True), "the wick must invalidate the high/low price line"
+
+
+def test_high_low_pivot_mode_preserves_prefix_causality() -> None:
+    raw = _bars(350)
+    indicators = build_divergence_bank(raw, names=("RSI", "MACD_HIST"))
+    config = DivergenceConfig(
+        pivot_source="high_low",
+        pivot_period=2,
+        min_indicators=1,
+        validate_lines=True,
+    )
+    full = detect_divergences(
+        high=raw.high,
+        low=raw.low,
+        close=raw.close,
+        indicators=indicators,
+        config=config,
+    )
+    cutoff = 240
+    part = detect_divergences(
+        high=raw.high[:cutoff],
+        low=raw.low[:cutoff],
+        close=raw.close[:cutoff],
+        indicators={k: v[:cutoff] for k, v in indicators.items()},
+        config=config,
+    )
+    for kind in ("bull_regular", "bear_regular", "bull_hidden", "bear_hidden"):
+        np.testing.assert_array_equal(
+            getattr(full, kind)[:cutoff],
+            getattr(part, kind),
+        )
+    assert tuple(e for e in full.events if e.observed_at < cutoff) == part.events

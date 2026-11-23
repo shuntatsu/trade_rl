@@ -335,6 +335,7 @@ class _ExecutedEntryPrices:
         quantities: np.ndarray,
         *,
         terminated: bool = False,
+        settled: np.ndarray | None = None,
     ) -> None:
         for event in events:
             filled = float(event.filled_quantity)
@@ -363,6 +364,15 @@ class _ExecutedEntryPrices:
         actual = np.asarray(quantities, dtype=np.float64)
         if actual.shape != self._quantities.shape:
             raise RuntimeError("execution fill events diverged from book quantities")
+        if settled is not None:
+            # a position on an asset that is inactive at the processing bar is settled by
+            # the book itself (no fill event); the tracker follows only that exact case
+            mask = np.asarray(settled, dtype=np.bool_)
+            if mask.shape != self._quantities.shape:
+                raise RuntimeError("settlement mask does not match the fill tracker")
+            closed = mask & (actual == 0.0)
+            self._quantities[closed] = 0.0
+            self._average_prices[closed] = 0.0
         if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
             if terminated:
                 self._quantities = actual.copy()
@@ -1092,6 +1102,7 @@ def _run_shared_cash_replay_core(
             stateful_evidence.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            settled=~dataset.resolved_array("asset_active")[execution.next_index],
         )
         if capture_ledger_evidence:
             if execution_observation_count != len(ledger_intervals) + 1:

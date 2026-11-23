@@ -6,6 +6,7 @@ than asking the OS for all bytes of an attacker-sized regular file.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -235,6 +236,173 @@ def test_reader_rejects_file_truncation_while_loading(
         study.load_incomplete_pair_attempt(root)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="directory-fd source identity is POSIX")
+def test_root_swap_after_inventory_never_admits_foreign_valid_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid, self-signed foreign root cannot replace the inspected directory."""
+    original_root = tmp_path / "attempt"
+    foreign_root = tmp_path / "foreign"
+    detached = tmp_path / "detached"
+    original_digest = _persist(original_root, _row())
+    foreign_digest = _persist(foreign_root, _row(action=(-1, 0)))
+    assert original_digest != foreign_digest
+    original_bytes = (original_root / "incomplete-pairs.json").read_bytes()
+    foreign_bytes = (foreign_root / "incomplete-pairs.json").read_bytes()
+
+    real_scandir = study.os.scandir
+    real_loads = study.json.loads
+    replaced = False
+    decoded = 0
+
+    @contextmanager
+    def switch_after_inventory(path: object) -> Iterator[object]:
+        nonlocal replaced
+        with real_scandir(path) as entries:  # type: ignore[arg-type]
+            yield entries
+        if not replaced and (path == original_root or isinstance(path, int)):
+            original_root.rename(detached)
+            foreign_root.rename(original_root)
+            replaced = True
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoded
+        decoded += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.os, "scandir", switch_after_inventory)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+    with pytest.raises(ValueError, match="failure receipt root changed"):
+        study.load_incomplete_pair_attempt(original_root)
+
+    assert replaced
+    assert decoded == 0
+    assert (detached / "incomplete-pairs.json").read_bytes() == original_bytes
+    assert (original_root / "incomplete-pairs.json").read_bytes() == foreign_bytes
+
+
+@pytest.mark.skipif(os.name != "posix", reason="inode swap is POSIX specific")
+def test_receipt_leaf_swap_after_read_is_rejected_before_json_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a pinned digest cannot authorize a pathname redirected after open."""
+    root = tmp_path / "attempt"
+    other = tmp_path / "other"
+    original_digest = _persist(root, _row())
+    _persist(other, _row(action=(-1, 0)))
+    receipt = root / "incomplete-pairs.json"
+    replacement = other / "incomplete-pairs.json"
+    detached = tmp_path / "detached-receipt.json"
+    old_bytes = receipt.read_bytes()
+    new_bytes = replacement.read_bytes()
+    real_open = study.open_regular_binary
+    real_loads = study.json.loads
+    swapped = False
+    decoded = 0
+
+    class SwappingRead:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, size: int = -1) -> bytes:
+            nonlocal swapped
+            data = self.handle.read(size)
+            if not swapped:
+                receipt.rename(detached)
+                replacement.rename(receipt)
+                swapped = True
+            return data
+
+    @contextmanager
+    def changing_open(path: Path, *, field: str) -> Iterator[SwappingRead]:
+        with real_open(path, field=field) as handle:
+            yield SwappingRead(handle)
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoded
+        decoded += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study, "open_regular_binary", changing_open)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+
+    # The existing ctime fence may reject the unlink before the new held-root
+    # identity check; both must reject before JSON can be decoded.
+    with pytest.raises(ValueError, match="failure receipt (root )?changed"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=original_digest
+        )
+
+    assert swapped
+    assert decoded == 0
+    assert detached.read_bytes() == old_bytes
+    assert receipt.read_bytes() == new_bytes
+
+
+@pytest.mark.skipif(os.name != "posix", reason="directory-fd inventory is POSIX")
+def test_ab_a_directory_swap_during_root_inventory_must_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspect the pinned inode, never a temporary clean pathname alias."""
+    root = tmp_path / "attempt"
+    clean_foreign = tmp_path / "foreign"
+    detached = tmp_path / "detached"
+    original_digest = _persist(root, _row())
+    foreign_digest = _persist(clean_foreign, _row(action=(-1, 0)))
+    assert original_digest != foreign_digest
+    (root / "extra.json").write_bytes(b"should-refuse")
+    original_bytes = (root / "incomplete-pairs.json").read_bytes()
+    foreign_bytes = (clean_foreign / "incomplete-pairs.json").read_bytes()
+    real_scandir = study.os.scandir
+    real_loads = study.json.loads
+    swapped = False
+    decoder_calls = 0
+
+    @contextmanager
+    def swap_only_while_inventory_open(path: object) -> Iterator[object]:
+        nonlocal swapped
+        pinned_inode = (
+            isinstance(path, int) and os.fstat(path).st_ino == root.stat().st_ino
+        )
+        if path == root or pinned_inode:
+            assert not swapped
+            root.rename(detached)
+            clean_foreign.rename(root)
+            swapped = True
+            try:
+                # Old code sees B's single entry; corrected descriptor scan
+                # still sees both entries of pinned A.
+                with real_scandir(path) as entries:  # type: ignore[arg-type]
+                    yield entries
+            finally:
+                root.rename(clean_foreign)
+                detached.rename(root)
+        else:
+            with real_scandir(path) as entries:  # type: ignore[arg-type]
+                yield entries
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoder_calls
+        decoder_calls += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.os, "scandir", swap_only_while_inventory_open)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+    with pytest.raises(ValueError, match="failure receipt root contents are malformed"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=original_digest
+        )
+
+    assert swapped
+    assert decoder_calls == 0
+    assert (root / "extra.json").read_bytes() == b"should-refuse"
+    assert (root / "incomplete-pairs.json").read_bytes() == original_bytes
+    assert (clean_foreign / "incomplete-pairs.json").read_bytes() == foreign_bytes
+
+
 def test_root_enumeration_is_bounded_before_receipt_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -271,7 +439,11 @@ def test_root_enumeration_is_bounded_before_receipt_read(
             raise AssertionError("unbounded root directory enumeration")
 
     def checked_scandir(path: object):  # type: ignore[no-untyped-def]
-        if Path(path) == root:  # type: ignore[arg-type]
+        same_root_fd = isinstance(path, int) and (
+            os.fstat(path).st_dev,
+            os.fstat(path).st_ino,
+        ) == (root.stat().st_dev, root.stat().st_ino)
+        if path == root or same_root_fd:
             return FloodedScandir()
         return real_scandir(path)  # type: ignore[arg-type]
 

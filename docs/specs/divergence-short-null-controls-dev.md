@@ -46,3 +46,32 @@ or ML features at their observation time. Protocol and all six research
 receipts are retained in the Fedora scratch workspace with hashes;
 result interpretation belongs to the PR conversation, not a frozen
 future-data or G4 study. No data-driven filter tuning is authorized.
+## Native paired short-hour disagreement diagnostic (used-data only)
+
+The new read-only evaluation module trade_rl/evaluation/paired_short_exposure.py
+compares two existing, executed single-symbol portfolio replays **hour by
+hour**, not by selecting equal annual trade durations retrospectively.
+At native hourly interval [t,t+1], use each canonical ledger's exact
+quantity **before** the interval to classify four disjoint states: both
+short, only R2 short, only control short, neither short. Record count,
+mean and median next-hour short-signed traded-price change, and favorable
+fraction for every bucket, including empty ones. The price at t+1 is an
+**offline response label**, NEVER an input to a decision, a new economic
+PnL estimate, or a replacement fill/cost/funding calculation.
+
+The previously published native directional equity buckets also count
+entry intervals (flat before, short after); those are not equivalent
+to pre-interval short-held hours. The scratch runner reconciles the two
+definitions using the actual native flat-to-short entry intervals and
+refuses inconsistent counts, fees, returns, or funding compared with
+the existing saved R2/N0-N3 receipts. Any direct long/short reversal,
+gapped native ledger, nonfinite price, unexpected timestamp or noncontinuous
+portfolio equity is rejected. The null comparison cannot claim equal risk
+because pre-interval signed positions also omit exact intrabar execution,
+position sizing, and conditional market-state differences.
+
+This analysis only uses the already consumed BTCUSDT/ETHUSDT 2022-2024
+Binance study years, with no future/opened unused data or live orders.
+All 24 comparisons (4 controls for each of 6 asset-year cohorts) and
+the research protocol/runner hashes must be retained even when R2 loses.
+No economically validated strategy follows from these diagnostics.

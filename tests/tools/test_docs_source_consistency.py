@@ -298,7 +298,8 @@ def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
     fake.Stage = lambda *_: None  # type: ignore[attr-defined]
 
     def build_panel(bars, *_):
-        rows = len(bars["ZZZUSDT"]["close"])
+        # The Stage has 1h inputs but the portfolio oracle has 4h marks.
+        rows = len(bars["ZZZUSDT"]["close"]) // 4
         panel = SimpleNamespace(bars=rows, times=tuple(range(rows)))
         for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
             setattr(panel, field, np.ones(rows))
@@ -321,8 +322,8 @@ def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
     def simulate_weights(panel, *_):
         simulated.append(panel.bars)
         equity = np.full(panel.bars + 1, 1_000.0)
-        if future_changes_past and panel.bars == 72:
-            equity[48] -= 25.0  # future observation retroactively changes past cash
+        if future_changes_past and panel.bars == 18:
+            equity[12] -= 25.0  # future observation retroactively changes past cash
         return {"valid": True, "equity": equity}
 
     fake.simulate_weights = simulate_weights  # type: ignore[attr-defined]
@@ -334,7 +335,7 @@ def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
     else:
         assert check_breadth_asof(tmp_path) is True
     # Both histories must be inspected before no-notice can be called safe.
-    assert simulated == [72, 48]
+    assert simulated == [18, 12]
 
 
 def test_empty_registered_spec_is_rejected_as_contract_violation(
@@ -426,3 +427,66 @@ def test_breadth_zero_length_asof_prefix_cannot_vacuously_pass(
     monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
     with pytest.raises(ContractViolation, match="nonempty"):
         check_breadth_asof(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("observed_rows", "shift_asof_clock", "future_changes_past"),
+    [
+        (2, False, True),
+        (12, True, False),
+        (12, False, False),
+    ],
+)
+def test_asof_expected_clock_prefix_is_never_truncated_or_relabelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    observed_rows: int,
+    shift_asof_clock: bool,
+    future_changes_past: bool,
+) -> None:
+    """The oracle must compare *all* 48 prior hours, not a convenient subset."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import numpy as np
+
+    from tools.docs_source_consistency import check_breadth_asof
+
+    source = tmp_path / "tools/trend_breadth.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# as-of clock stub\n", encoding="utf-8")
+    spec = tmp_path / "docs/specs/trend-breadth.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("synthetic source clock\n", encoding="utf-8")
+
+    fake = ModuleType("tools.trend_breadth")
+    fake.__file__ = str(source)
+    fake.Stage = lambda *_: None  # type: ignore[attr-defined]
+
+    def build_panel(bars, *_):
+        is_full = len(bars["ZZZUSDT"]["close"]) == 72
+        n = 18 if is_full else observed_rows
+        times = np.arange(n, dtype=int)
+        if not is_full and shift_asof_clock:
+            times += 1
+        panel = SimpleNamespace(times=times, bars=n - 1)
+        for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
+            setattr(panel, field, np.ones(n))
+        return panel, {}
+
+    fake.build_panel = build_panel  # type: ignore[attr-defined]
+    fake.panel_problems = lambda *_: []  # type: ignore[attr-defined]
+
+    def simulate_weights(panel, *_):
+        equity = np.full(panel.bars + 2, 1_000.0)
+        if future_changes_past and len(panel.times) == 18:
+            equity[5] = 975.0
+        return {"valid": True, "equity": equity}
+
+    fake.simulate_weights = simulate_weights  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
+    if observed_rows != 12 or shift_asof_clock:
+        with pytest.raises(ContractViolation, match="as-of.*(rows|clock|times)"):
+            check_breadth_asof(tmp_path)
+    else:
+        assert check_breadth_asof(tmp_path) is True

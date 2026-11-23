@@ -375,11 +375,16 @@ def check_breadth_asof(root: Path) -> bool:
     _verified_no_notice_refusal(module, problems)
 
     period = len(prior_panel.times)
-    if period == 0 or len(full_panel.times) <= period:
+    # The oracle is defined on the *entire* literal 48h observation window.
+    # A shorter/nonconsecutive panel could hide earlier economic leakage by
+    # comparing only its available prefix.
+    if period != observed // 4 or len(full_panel.times) != hours // 4:
         raise ContractViolation(
             "trend_breadth: as-of observation prefix must be nonempty "
-            "and shorter than the full history"
+            "and contain the complete expected 4h clock rows"
         )
+    if not np.array_equal(full_panel.times[:period], prior_panel.times):
+        raise ContractViolation("trend_breadth: as-of clock times differ")
     for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
         if not np.array_equal(
             getattr(full_panel, field)[:period],

@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v18.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
+PACKET_V18_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v18.json"
 PACKET_V17_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v17.json"
 PACKET_V16_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v16.json"
 PACKET_V15_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v15.json"
@@ -64,7 +65,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "ebd32575b29118d857ae7c0a207939dc4beb6c57f59eccd1f2febfe922c60c7b"
+    "fb8bcc67cb696fc487a4fda704615c6150d23bedb51324c45b30f7ccdef792dc"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1004,7 +1005,7 @@ def test_v17_packet_is_immutable_unreviewed_history() -> None:
 
 def test_v18_merged_main_source_packet_preserves_fork_and_protocol() -> None:
     old: dict[str, Any] = json.loads(PACKET_V17_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
     assert new["schema_version"] == old["schema_version"]
     assert new["mechanism"] == old["mechanism"]
     assert new["evidence"] == old["evidence"]
@@ -1034,6 +1035,50 @@ def test_v18_merged_main_source_packet_preserves_fork_and_protocol() -> None:
     assert result.status == "UNREVIEWED"
     assert result.errors == ()
     assert result.economic_execution_authorized is False
+
+
+def test_v18_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V18_PATH)).stdout.strip() == (
+        "c80bf17daa2cbbba9b2749479152c762a690bf7c"
+    )
+    assert (
+        assurance_digest(old)
+        == "ebd32575b29118d857ae7c0a207939dc4beb6c57f59eccd1f2febfe922c60c7b"
+    )
+    assert old["identity"] == {
+        "implementation_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+        "protocol_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v19_transient_descriptor_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V19 TRANSIENT OPAQUE ARRAY DESCRIPTOR" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+        "protocol_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
 
 
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:

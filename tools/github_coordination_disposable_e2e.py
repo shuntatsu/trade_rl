@@ -308,7 +308,10 @@ class GitHubGitObjectHttpApi:
             not is_tree and query is not None
         ):
             raise ValueError("REST reader requires exact recursive-tree query only")
-        url = f"{self._url}/{suffix}"
+        return self._get_json(suffix, is_tree=is_tree)
+
+    def _get_json(self, suffix: str, *, is_tree: bool) -> dict[str, Any]:
+        url = self._url + (f"/{suffix}" if suffix else "")
         if is_tree:
             url += "?recursive=1"
         request = urllib.request.Request(
@@ -341,6 +344,46 @@ class GitHubGitObjectHttpApi:
         if not isinstance(decoded, dict):
             raise ValueError("GitHub REST response must be an object")
         return decoded
+
+
+_SOURCE_ISSUE_SUFFIX = re.compile(r"issues/[1-9][0-9]{0,8}")
+_SOURCE_LEASE_SUFFIX = re.compile(
+    r"git/ref/heads/agent/[A-Za-z0-9][A-Za-z0-9._-]*/e[0-9]{4,18}-[a-z0-9]+(?:-[a-z0-9]+)*"
+)
+
+
+class GitHubEnrollmentReadHttpApi(GitHubGitObjectHttpApi):
+    """Disposable-only GET transport for immutable Task source/readbacks.
+
+    No redirects, partial HTTP requests, arbitrary paths or write methods.
+    Ordinary Git-object reads retain the narrower parent-class contract.
+    """
+
+    def _request_json(
+        self, method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        if isinstance(suffix, str) and _GIT_READ_SUFFIX.fullmatch(suffix):
+            return super()._request_json(method, suffix, query=query)
+        if (
+            method != "GET"
+            or type(suffix) is not str
+            or query is not None
+            or ".." in suffix
+            or not (
+                suffix
+                in {
+                    "",
+                    "git/ref/heads/main",
+                    "git/ref/heads/coordination/task-registry",
+                }
+                or _SOURCE_ISSUE_SUFFIX.fullmatch(suffix)
+                or _SOURCE_LEASE_SUFFIX.fullmatch(suffix)
+            )
+        ):
+            raise ValueError(
+                "source REST reader permits only bounded GET repository/Issue/ref paths"
+            )
+        return self._get_json(suffix, is_tree=False)
 
 
 def prepare_disposable_registry_plan(
@@ -571,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "GitHubGitObjectHttpApi",
+    "GitHubEnrollmentReadHttpApi",
     "GitHubGraphQLHttpApi",
     "execute_disposable_registry_cas",
     "inspect_disposable_interrupted_cas",

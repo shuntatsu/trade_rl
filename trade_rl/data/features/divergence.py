@@ -217,7 +217,7 @@ def detect_divergences(
                     if not np.isfinite(osc[old : anchor + 1]).all():
                         continue
                     if cfg.validate_lines and not _clear_line(
-                        c, osc, p=old, anchor=anchor, bullish=bullish
+                        level, osc, p=old, anchor=anchor, bullish=bullish
                     ):
                         continue
                     candidates.append(

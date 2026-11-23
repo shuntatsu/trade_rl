@@ -714,10 +714,15 @@ def test_oracle_scenario_is_nontrivial() -> None:
     assert base["funding_total"] != 0.0 and base["costs_total"] > 0.0
     # The oracle must distinguish each challenger from the BASELINE SHORT LEG, not compare
     # unrelated long and short totals.  Decisions on the long leg must remain identical.
+    assert m.CHALLENGERS == ("A1_SHORT_TRAIL3", "A2_SHORT_HALF", "A3_SHORT_TIME30")
+    base_short = base["price_pnl"]["short"]
+    assert math.isfinite(base_short)
     w0 = m.arm_weights(sig, "A0_RULE")
     for arm in m.CHALLENGERS:
         other = cells[m.cell_name(arm, "BASE")]
-        assert other["price_pnl"]["short"] != base["price_pnl"]["short"], arm
+        other_short = other["price_pnl"]["short"]
+        assert math.isfinite(other_short), arm
+        assert other_short != base_short, arm
         w = m.arm_weights(sig, arm)
         assert np.array_equal(np.maximum(w0, 0), np.maximum(w, 0)), arm
         assert (np.minimum(w, 0) >= np.minimum(w0, 0) - 1e-15).all(), arm

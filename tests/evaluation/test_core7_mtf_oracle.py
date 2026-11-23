@@ -41,6 +41,9 @@ PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v17.j
 PACKET_V16_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v16.json"
 PACKET_V15_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v15.json"
 PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
+PACKET_M1_FORK_V14_PATH = (
+    ROOT / "report" / "issue1112-m1-core7-mtf-ppo-research-assurance-v14.json"
+)
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
 PACKET_V11_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
@@ -791,9 +794,52 @@ def test_v13_packet_is_immutable_unreviewed_history() -> None:
     assert verdict.economic_execution_authorized is False
 
 
+def test_main_1307_canonical_v14_is_unchanged_after_merging_m1() -> None:
+    # Another merged PR published its independent v14 first; never replace it.
+    old: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    packet: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(packet) == (
+        "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    )
+    assert packet["identity"] == {
+        "implementation_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+        "protocol_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+    }
+    assert packet["schema_version"] == old["schema_version"]
+    assert packet["mechanism"] == old["mechanism"]
+    assert packet["evidence"] == old["evidence"]
+    assert packet["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert packet["claims"][field] == old["claims"][field]
+    result = evaluate_assurance(packet)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
+
+
+def test_parallel_m1_v14_preserved_byte_exact_in_separate_archive() -> None:
+    assert _git("hash-object", str(PACKET_M1_FORK_V14_PATH)).stdout.strip() == (
+        "7fff1ae1841c1039ea90c4e4267e0a4032ed7ee7"
+    )
+    data: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
+    assert assurance_digest(data) == (
+        "be04c734d837ad1037ce2ab692cadc6cc9979d2672f7d103dfd8b16d3a03b1cb"
+    )
+    assert (
+        data["mechanism"]
+        == json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))["mechanism"]
+    )
+    assert evaluate_assurance(data).status == "UNREVIEWED"
+
+
 def test_v14_masked_vector_packet_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]
     assert current["evidence"] == prior["evidence"]
@@ -817,7 +863,9 @@ def test_v14_masked_vector_packet_only_rebinds_source() -> None:
 
 
 def test_v14_packet_is_immutable_unreviewed_history() -> None:
-    prior: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    prior: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
     assert assurance_digest(prior) == (
         "be04c734d837ad1037ce2ab692cadc6cc9979d2672f7d103dfd8b16d3a03b1cb"
     )
@@ -832,7 +880,9 @@ def test_v14_packet_is_immutable_unreviewed_history() -> None:
 
 
 def test_v15_nested_masked_vector_packet_only_rebinds_source() -> None:
-    prior: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    prior: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
     current: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]

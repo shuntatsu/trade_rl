@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v15.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v16.json"
+PACKET_V15_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v15.json"
 PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
@@ -58,7 +59,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "460167479a86d52bec498abaf7fd6e7156b9b6d98e2bc85b40521038875844f9"
+    "62a7005b01a9b5ea851fe4517c73c4fcf365c98cd602570e4a28913b9a27bd84"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -831,7 +832,7 @@ def test_v14_packet_is_immutable_unreviewed_history() -> None:
 
 def test_v15_nested_masked_vector_packet_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]
     assert current["evidence"] == prior["evidence"]
@@ -849,6 +850,46 @@ def test_v15_nested_masked_vector_packet_only_rebinds_source() -> None:
     }
     assert "not permitted" in current["claims"]["next_authorized_action"]
     verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v15_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "460167479a86d52bec498abaf7fd6e7156b9b6d98e2bc85b40521038875844f9"
+    )
+    assert old["identity"] == {
+        "implementation_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+        "protocol_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v16_array_like_packet_only_rebinds_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    assert "V16 MASKED ARRAY-LIKE INPUT REFUSAL" in new["thesis"]["limitations"]
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+        "protocol_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+    }
+    assert "not permitted" in new["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(new)
     assert verdict.status == "UNREVIEWED"
     assert verdict.errors == ()
     assert verdict.economic_execution_authorized is False

@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_breadth as m
 
-DIGEST_PIN = "a28695f0d7257aa1804633c41329ba19b31984cf1e1306c45ac71e4af4d95671"
+DIGEST_PIN = "67e9c2fa75c95efee1a1ebb51f73df1b6a647dfe433929eaa8dd72fc4d3b3117"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp())
@@ -41,11 +41,8 @@ def test_constants_frozen() -> None:
     assert m.REGIME_WINDOWS == (20, 50, 100, 200) and m.REGIME_THRESHOLD == 0.5
     assert (m.SIZE_VOL, m.VOL_DAYS) == (0.5, 30)
     assert (m.SIDE_BUDGET, m.SIDE_CAP, m.BORROW_TOL, m.N_MIN) == (0.9, 1.0, 0.02, 20)
-    assert (m.DEAD_RUN_HOURS, m.NOTICE_LOOKBACK_DAYS, m.FALLBACK_LEAD_BARS) == (
-        24,
-        90,
-        42,
-    )
+    assert (m.DEAD_RUN_HOURS, m.NOTICE_LOOKBACK_DAYS) == (24, 90)
+    assert not hasattr(m, "FALLBACK_LEAD_BARS")  # no hindsight fallback
     assert (m.FORCED_EXTRA, m.FUNDING_UNCOVERED_MAX) == (0.05, 0.01)
     assert (m.SHARPE_MIN, m.MAX_DD_LIMIT) == (0.5, 0.40)
     assert (m.BOOT_BLOCK, m.BOOT_DRAWS, m.BOOT_SEED, m.ALPHA) == (30, 5000, 0, 0.05)
@@ -313,10 +310,11 @@ def test_forced_start_notice_pairing() -> None:
     assert (
         times[start - 1] - m.BAR_S < rel1
     )  # the FIRST decision bar opening at/after release
-    # a notice older than 90 days, or after the event, is not paired: hindsight fallback
-    assert m.forced_start(times, 0, ev, [e_s - 91 * day]) == (ev - 42, "fallback")
-    assert m.forced_start(times, 0, ev, [e_s + 5]) == (ev - 42, "fallback")
-    assert m.forced_start(times, 1490, ev, []) == (1490, "fallback")
+    # a notice older than 90 days, after the event, or none at all: no forced window (the
+    # position is held to the last bar and written off there; no hindsight)
+    assert m.forced_start(times, 0, ev, [e_s - 91 * day]) == (None, "none")
+    assert m.forced_start(times, 0, ev, [e_s + 5]) == (None, "none")
+    assert m.forced_start(times, 1490, ev, []) == (None, "none")
     # released inside the last bar: too late to close, only the write-off applies
     assert m.forced_start(times, 0, ev, [e_s - 100]) == (None, "late")
     assert first is not None and first < ev
@@ -357,8 +355,10 @@ def test_zombie_tail_blank_and_relisting_start_a_new_episode_with_fresh_warmup()
     elig = m.eligible_matrix(panel)
     assert not elig[24 * 250 // 4 : relist + 6 * 200 - 1, 1].any()
     assert elig[relist + 6 * 200 + 5, 1]
-    # no notice recorded: both events use the hindsight fallback
-    assert info["notice_fallback"] == 2 and info["notice_matched"] == 0
+    # no notice recorded: no forced window, both events are write-off-only
+    assert info["notice_none"] == 2 and info["notice_matched"] == 0
+    assert not panel.forced.any()
+    assert info["no_notice_symbols"] == ["AAAUSDT", "BBBUSDT"]
 
 
 def test_build_panel_marks_forced_window_ages_and_holes() -> None:
@@ -536,9 +536,22 @@ def test_rebalance_rows_and_ew_weights() -> None:
     stamps = [datetime.fromtimestamp(int(t), UTC) for t in p.times[reb]]
     assert [s.day for s in stamps] == [1, 1] and {s.month for s in stamps} == {2, 3}
     w, force = m.ew_weights(p, n_min=3)
-    assert (w[: np.nonzero(reb)[0][0]] == 0).all()  # flat before the first rebalance
+    # the first row with N_t >= n_min is a rebalance too, then month starts only
+    assert np.allclose(w[0], 0.9 / 4) and force[0].all() and not force[1].any()
     j1 = int(np.nonzero(reb)[0][0])
     assert np.allclose(w[j1], 0.9 / 4) and force[j1].all() and not force[j1 + 1].any()
+    assert force.all(axis=1).sum() == 3
+    # eligibility only from row 100: the first rebalance is row 100, before the month start
+    late = m.Panel(
+        **{
+            **p.__dict__,
+            "regime": np.where(np.arange(n)[:, None] >= 100, 1.0, np.nan)
+            * np.ones((1, 4)),
+        }
+    )
+    wl, fl = m.ew_weights(late, n_min=3)
+    assert (wl[:100] == 0).all() and np.allclose(wl[100], 0.9 / 4) and fl[100].all()
+    assert 100 < j1 and fl.all(axis=1).sum() == 3
     # a symbol that leaves the eligible set is closed; nobody is added between rebalances
     p2 = mk_panel(np.full((n, 4), 100.0))
     reg = p2.regime.copy()
@@ -832,6 +845,7 @@ def oracle_ew(p: m.Panel, n_min: int) -> tuple[list[list[float]], list[list[bool
     fin = math.isfinite
     cur = [0.0] * S
     w, force = [], []
+    started = False
     for j in range(T):
         el = [
             fin(p.regime[j][k])
@@ -843,6 +857,9 @@ def oracle_ew(p: m.Panel, n_min: int) -> tuple[list[list[float]], list[list[bool
         n = sum(el)
         dt = datetime.fromtimestamp(int(p.times[j]), UTC)
         reb = dt.day == 1 and dt.hour == 0 and dt.minute == 0
+        first = (not started) and n >= n_min
+        started = started or n >= n_min
+        reb = reb or first
         if reb:
             cur = [0.9 / n if (el[k] and n >= n_min) else 0.0 for k in range(S)]
         else:
@@ -917,13 +934,22 @@ def oracle_book(
                 ):
                     continue
                 x = min(want, 0.05 * vol)
+                if delta > 0:
+                    rc = mult * (0.0005 + 0.0002 + 0.0001 * math.sqrt(x / vol)) + (
+                        0.05 if pf[k] else 0.0
+                    )
+                    x = min(x, max(0.0, cash) / (1.0 + rc))
                 red = min(x, abs(pre) * px[k]) if delta * pre < 0 else 0.0
                 opn = x - red
                 side = 1 if delta > 0 else -1
                 if opn > 0:
                     held = held_l if side > 0 else held_s
-                    r = mult * (0.0005 + 0.0002 + 0.0001 * math.sqrt(x / vol))
-                    room = max(0.0, 1.0 * (e_pre - cost_ev) - held) / (1.0 + r)
+                    r = mult * (0.0005 + 0.0002 + 0.0001 * math.sqrt(x / vol)) + (
+                        0.05 if pf[k] else 0.0
+                    )
+                    room = max(0.0, 1.0 * (e_pre - cost_ev - r * red) - held) / (
+                        1.0 + r
+                    )
                     opn = min(opn, room)
                 x = red + opn
                 if x <= 1e-15 * max(e_pre, 1.0):
@@ -1077,12 +1103,11 @@ def test_oracle_scenario_is_nontrivial() -> None:
     assert (
         len(p.events) == 3
     )  # the EEE gap, the DDD delisting and the no-notice delisting
-    assert info["notice_matched"] == 1 and info["notice_fallback"] == 2
-    # the hindsight fallback: the no-notice name starts closing 42 bars before its event
+    assert info["notice_matched"] == 1 and info["notice_none"] == 2
+    # no hindsight: a no-notice name has no forced window at all
     k = p.symbols.index(NO_NOTICE)
-    j_e = max(j for j, kk in p.events if kk == k)
-    rows = np.nonzero(p.forced[:, k])[0]
-    assert rows[0] == j_e - m.FALLBACK_LEAD_BARS and rows[-1] == j_e
+    assert not p.forced[:, k].any()
+    assert sorted(set(info["no_notice_symbols"])) == ["EEEUSDT", NO_NOTICE]
 
 
 # ----------------------------------------------------------------------------- causality
@@ -1915,3 +1940,188 @@ def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
                 "o",
             ]
         )
+
+
+# ----------------------------------------------------------------------------- review 6016979366
+
+
+@pytest.mark.parametrize("gap", [1e-6, 1.0, 1000.0, 5000.0])
+def test_a_flip_at_the_side_cap_cannot_break_the_cap_or_cash(gap: float) -> None:
+    """The reducing part of a flip pays costs too: the clamp must bound the whole fill (the
+    reviewer's probe: side notional 1.000035 x equity and cash -3.5 before the fix)."""
+    p = mk_panel(np.full((3, 2), 100.0))
+    book = m._Book(p, 1.0)
+    E = INIT
+    short = 0.05 * E
+    book.u[1] = -short / 100.0  # short B, notional 5,000
+    book.u[0] = (E - gap) / 100.0  # long A, notional E - gap
+    book.cash = E - (E - gap) + short
+    book.long_n, book.short_n = E - gap, short
+    book.pending[1] = 0.05 * E / 100.0  # flip B to a 5,000 long
+    book.fill_event(1, np.array([0.0, 0.05]), np.zeros(2, bool), np.zeros(2, bool))
+    eq = book._equity(p.mark_px[1])
+    assert not book.reasons, book.reasons
+    assert book.cash >= -1e-9 * eq
+    # an INCREASING fill may never push a side above the cap; a pure reduction of the other side
+    # pays its costs out of equity and cannot add notional
+    assert book.long_n <= max(m.SIDE_CAP * eq * (1 + 1e-9), E - gap + 1e-9)
+    assert book.long_n <= E - gap + 1e-6 or book.long_n <= m.SIDE_CAP * eq * (1 + 1e-9)
+
+
+def test_the_forced_extra_is_inside_the_clamp_bound() -> None:
+    p = mk_panel(np.full((3, 2), 100.0))
+    book = m._Book(p, 1.0)
+    E = INIT
+    book.u[1] = -5000.0 / 100.0
+    book.u[0] = (E - 10.0) / 100.0
+    book.cash = E - (E - 10.0) + 5000.0
+    book.long_n, book.short_n = E - 10.0, 5000.0
+    book.pending[1] = 50.0
+    book.pend_forced[1] = True
+    book.fill_event(1, np.array([0.0, 0.05]), np.zeros(2, bool), np.ones(2, bool))
+    eq = book._equity(p.mark_px[1])
+    assert not book.reasons and book.cash >= -1e-9 * eq
+    assert book.long_n <= max(m.SIDE_CAP * eq * (1 + 1e-9), E - 10.0 + 1e-9)
+
+
+def _causal_equal(a: m.Panel, b: m.Panel, rows: int, cols: tuple[str, ...]) -> None:
+    for col in cols:
+        got, want = getattr(a, col)[:rows], getattr(b, col)[:rows]
+        assert np.array_equal(got, want, equal_nan=True), col
+
+
+def _truncated(
+    info: dict[str, Any],
+    cut_day: int,
+    symbols: tuple[str, ...],
+    notices: dict[str, list[float]] | None = None,
+) -> m.Panel:
+    cut_h = cut_day * 24
+    end = datetime.fromtimestamp(T0 + cut_h * 3600, UTC)
+    stage = m.Stage("T", datetime(2021, 1, 1, tzinfo=UTC), end)
+    trunc = {
+        s: {k: v[:cut_h].copy() for k, v in h.items()}
+        for s, h in info["hourly"].items()
+    }
+    cut_ms = (T0 + cut_h * 3600) * 1000
+    ft = {s: [e for e in ev if e[0] < cut_ms] for s, ev in info["funding"].items()}
+    q, _ = m.build_panel(
+        trunc, stage, ft, info["notices"] if notices is None else notices, symbols
+    )
+    return q
+
+
+def test_cut_inside_a_no_notice_delisting_window_changes_nothing_before_it() -> None:
+    """The removed 42-bar hindsight fallback would have flagged rows 7 days before the
+    no-notice symbol's last bar (day 330); a cut at day 325 sits inside that old window."""
+    _, info = scenario(1)
+    # no notice for anybody: every delisting is write-off only
+    p, _ = m.build_panel(
+        info["hourly"], info["stage"], info["funding"], {}, tuple(info["hourly"])
+    )
+    k = p.symbols.index(NO_NOTICE)
+    q = _truncated(info, 325, p.symbols, {})
+    rows = q.times.size
+    assert rows < max(j for j, kk in p.events if kk == k)  # the cut is before the event
+    assert rows > max(j for j, kk in p.events if kk == k) - 42  # inside the old window
+    cols = (
+        "close",
+        "mark_px",
+        "fill_qv",
+        "regime",
+        "vol",
+        "fund",
+        "forced",
+        "age_bucket",
+    )
+    _causal_equal(p, q, rows, cols)
+    assert not p.forced[:, k].any()
+    wa, wb = m.trend_weights(p, 3), m.trend_weights(q, 3)
+    assert np.array_equal(wa[:rows], wb)
+    for mult, delay in ((1.0, 0), (1.0, 1)):
+        ca = m.simulate_weights(p, wa, mult, delay)["equity"][:rows]
+        cb = m.simulate_weights(q, wb, mult, delay)["equity"][:rows]
+        assert np.allclose(ca, cb, rtol=0, atol=1e-12)
+
+
+def test_cut_inside_a_notice_window_changes_nothing_before_the_release() -> None:
+    p, info = scenario(1)
+    d = p.symbols.index("DDDUSDT")
+    release_row = int(np.nonzero(p.forced[:, d])[0][0])
+    q = _truncated(info, 320, p.symbols)  # inside the notice-to-event window of DDD
+    rows = q.times.size
+    assert release_row < rows
+    cols = ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "age_bucket")
+    _causal_equal(p, q, rows, cols)
+    # the notice pairing is the one disclosed exception: forced flags may differ only from the
+    # release row of the paired symbol onward
+    assert np.array_equal(p.forced[:release_row], q.forced[:release_row])
+    wa, wb = m.trend_weights(p, 3), m.trend_weights(q, 3)
+    assert np.array_equal(wa[:release_row], wb[:release_row])
+
+
+def hashlib_sha(b: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(b).hexdigest()
+
+
+def test_preflight_refuses_a_malformed_zip_that_cannot_be_rebuilt(
+    tmp_path: Path,
+) -> None:
+    stage, hourly, funding, _ = small_universe()
+    write_archives(tmp_path, {"AAAUSDT": hourly["AAAUSDT"]}, funding, stage)
+    for sub, pat in (
+        ("futures/um/monthly/klines/AAAUSDT/1h", "*-2021-03.zip"),
+        ("futures/um/monthly/fundingRate/AAAUSDT", "*-2021-07.zip"),
+    ):
+        victim = next((tmp_path / sub).glob(pat))
+        keep = victim.read_bytes()
+        side = victim.with_name(victim.name + ".CHECKSUM")
+        victim.write_bytes(b"not a zip")
+        side.write_text(hashlib_sha(b"not a zip") + "  x\n")
+        with pytest.raises(SystemExit, match="no replacement"):
+            m.archive_preflight(tmp_path, ("AAAUSDT",), stage)
+        victim.write_bytes(keep)
+        side.write_text(hashlib_sha(keep) + "  x\n")
+    assert m.archive_preflight(tmp_path, ("AAAUSDT",), stage)["files"] > 20
+
+
+def test_a_readable_zip_with_a_malformed_csv_is_a_data_problem(
+    env: dict[str, Any],
+) -> None:
+    sub = env["root"] / "futures/um/monthly/klines/AAAUSDT/1h"
+    victim = next(sub.glob("*2021-03.zip"))
+    _write_zip(
+        victim, "x.csv", "1,2,3\n"
+    )  # a valid zip, a malformed csv, no daily files
+    res = _run(env)
+    assert res["label"] == m.LABEL_INVALID
+    assert any("malformed archive" in q for q in res["problems"])
+
+
+def test_notices_with_overrides_are_refused(tmp_path: Path) -> None:
+    doc = json.loads(m.NOTICES_PATH.read_text(encoding="utf-8"))
+    assert not doc.get("overrides")  # the pinned file has none
+    doc["overrides"] = {"X": 1}
+    bad = tmp_path / "n.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(SystemExit, match="overrides"):
+        m.load_notices(bad, sha=m.sha256_file(bad))
+
+
+def test_blanked_symbol_days_are_reported() -> None:
+    n = 24 * 400
+    stage = m.Stage(
+        "T", datetime(2021, 1, 1, tzinfo=UTC), datetime(2022, 2, 5, tzinfo=UTC)
+    )
+    clean = synth_hourly(n, 21)
+    holed = synth_hourly(n, 22)
+    for k in ("open", "high", "low", "close", "qv", "vol"):
+        holed[k][24 * 150 + 5] = np.nan  # one missing hour at day 150
+    panel, info = m.build_panel({"AAAUSDT": clean, "BBBUSDT": holed}, stage, {}, None)
+    rep = m.breadth_report(panel, info, 1)
+    assert 140 <= rep["blanked_symbol_days"] <= 160
+    only, only_info = m.build_panel({"AAAUSDT": clean}, stage, {}, None)
+    assert m.breadth_report(only, only_info, 1)["blanked_symbol_days"] == 0
+    assert rep["symbols_no_notice"] == 0

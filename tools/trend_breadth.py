@@ -59,9 +59,6 @@ BORROW_TOL = (
 N_MIN = 20  # new entries need at least this many eligible symbols
 DEAD_RUN_HOURS = 24  # a run of dead hours this long ends a listing episode
 NOTICE_LOOKBACK_DAYS = 90
-FALLBACK_LEAD_BARS = (
-    42  # forced-close lead of an event with no recorded notice (7 days)
-)
 FORCED_EXTRA = 0.05  # extra adverse charge on forced-close fills and write-offs
 FUNDING_UNCOVERED_MAX = (
     0.01  # share of eligible symbol-bars without a recent funding event
@@ -175,7 +172,6 @@ def _constants() -> dict[str, Any]:
         "n_min": N_MIN,
         "dead_run_hours": DEAD_RUN_HOURS,
         "notice_lookback_days": NOTICE_LOOKBACK_DAYS,
-        "fallback_lead_bars": FALLBACK_LEAD_BARS,
         "forced_extra": FORCED_EXTRA,
         "funding_uncovered_max": FUNDING_UNCOVERED_MAX,
         "max_funding_gap_s": MAX_FUNDING_GAP_S,
@@ -425,13 +421,14 @@ def forced_start(
 
     The notice is the EARLIEST of the symbol with ``release <= event`` and ``release >=
     event - 90 days``; the window starts at the first decision close whose 4h bar opens at or
-    after the release. Without a notice the hindsight fallback starts ``FALLBACK_LEAD_BARS``
-    rows before the event. Returns ``(None, status)`` when the notice came too late."""
+    after the release. Without a paired notice there is NO forced-close window (the position is
+    held to the last valid bar and written off there: you learn that an instrument stopped only
+    by observing it stop). Returns ``(None, status)`` with status ``none`` or ``late``."""
     event_s = float(times[j_event])
     lo = event_s - NOTICE_LOOKBACK_DAYS * DAY_S
     paired = [r for r in releases if lo <= r <= event_s]
     if not paired:
-        return max(j_first, j_event - FALLBACK_LEAD_BARS), "fallback"
+        return None, "none"
     release = paired[0]
     start = math.ceil((release + BAR_S - float(times[0])) / BAR_S)
     start = max(j_first, start)
@@ -473,7 +470,8 @@ def build_panel(
     info: dict[str, Any] = {
         "episodes": {},
         "notice_matched": 0,
-        "notice_fallback": 0,
+        "notice_none": 0,
+        "no_notice_symbols": [],
         "notice_late": 0,
         "funding_events_unpriced": 0,
         "funding_mark_fallbacks": 0,
@@ -527,6 +525,8 @@ def build_panel(
                 events.append((j_last, k))
                 info[f"notice_{'matched' if status == 'notice' else status}"] += 1
                 rec["notice"] = status
+                if status == "none":
+                    info["no_notice_symbols"].append(sym)
             recs.append(rec)
         info["episodes"][sym] = recs
         ev = sorted(funding.get(sym, []))
@@ -690,7 +690,7 @@ def ew_weights(
     panel: Panel, n_min: int = N_MIN, budget: float = SIDE_BUDGET
 ) -> tuple[np.ndarray, np.ndarray]:
     """Equal-weight long control: ``budget / N_t`` on every eligible symbol at each monthly
-    rebalance row (flat while ``N_t < n_min``); between rebalances a symbol that leaves the
+    rebalance row and at the first row with ``N_t >= n_min`` (flat while ``N_t < n_min``); between rebalances a symbol that leaves the
     eligible set is closed and nobody is added. Returns ``(weights, forced re-target mask)``."""
     elig = eligible_matrix(panel)
     n_t = elig.sum(axis=1)
@@ -698,13 +698,16 @@ def ew_weights(
     w = np.zeros(panel.close.shape)
     force = np.zeros(panel.close.shape, dtype=bool)
     cur = np.zeros(panel.close.shape[1])
+    started = False
     for j in range(len(w)):
-        if reb[j]:
+        first = (not started) and n_t[j] >= n_min
+        if reb[j] or first:
             cur = (
                 np.where(elig[j], budget / n_t[j], 0.0)
                 if n_t[j] >= n_min
                 else cur * 0.0
             )
+            started = started or n_t[j] >= n_min
             force[j] = True
         else:
             cur = np.where(elig[j], cur, 0.0)
@@ -888,15 +891,30 @@ class _Book:
             return False  # not tradable this bar: the target stays pending
         cap = MAX_PARTICIPATION * vol
         x = min(want, cap)
+        clamped = False
+        if delta > 0.0:
+            # a buy (a long increase or a short cover) is paid from cash together with its costs
+            # and the forced extra: it may never leave cash below zero
+            rc = sum(unit_cost_rate(x / vol, self.mult)) + (
+                FORCED_EXTRA if self.pend_forced[k] else 0.0
+            )
+            cash_cap = max(0.0, self.cash) / (1.0 + rc)
+            if x > cash_cap:
+                x, clamped = cash_cap, True
         reduce_part = min(x, abs(pre) * px) if delta * pre < 0.0 else 0.0
         open_part = x - reduce_part
         side = 1 if delta > 0 else -1
         e_now = e_pre - self._event_cost
-        clamped = False
         if open_part > 0.0:
             held = self.long_n if side > 0 else self.short_n
-            r = sum(unit_cost_rate(x / vol, self.mult))
-            room = max(0.0, SIDE_CAP * e_now - held) / (1.0 + SIDE_CAP * r)
+            # the cost of the WHOLE fill (reducing part, forced extra included) is paid out of
+            # equity, so it must fit under the cap together with the opened notional
+            r = sum(unit_cost_rate(x / vol, self.mult)) + (
+                FORCED_EXTRA if self.pend_forced[k] else 0.0
+            )
+            room = max(0.0, SIDE_CAP * (e_now - r * reduce_part) - held) / (
+                1.0 + SIDE_CAP * r
+            )
             if open_part > room:
                 open_part, clamped = room, True
         x = reduce_part + open_part
@@ -1321,6 +1339,16 @@ def _checksum_line(path: Path) -> str | None:
     return parts[0].lower() if parts else None
 
 
+def _rebuildable(path: Path, files: SymbolFiles) -> bool:
+    for ym, p in files.monthly.items():
+        if p == path:
+            return bool(files.daily.get(ym))
+    for ym, p in files.funding.items():
+        if p == path:
+            return ym in files.rest
+    return False
+
+
 def archive_preflight(
     root: Path, symbols: tuple[str, ...], stage: Stage
 ) -> dict[str, Any]:
@@ -1348,8 +1376,12 @@ def archive_preflight(
                         if len(z.namelist()) != 1:
                             raise SystemExit(f"{p} does not hold exactly one member")
                 except zipfile.BadZipFile:
-                    # a malformed monthly archive may be rebuilt from daily files at read time
-                    pass
+                    # a malformed zip is tolerated only where the month can be rebuilt from
+                    # daily kline zips or cached REST funding; otherwise the run is refused
+                    if not _rebuildable(p, files):
+                        raise SystemExit(
+                            f"malformed zip with a matching checksum and no replacement: {p}"
+                        ) from None
             lines.append(f"{p.relative_to(root).as_posix()}\0{digest}")
             n_files += 1
     manifest = hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
@@ -1400,7 +1432,13 @@ def read_klines(
     end_ms = int(stage.end.timestamp()) * 1000
     keys = ("open", "high", "low", "close", "qv", "vol")
     arrs = {k: np.full(n, np.nan) for k in keys}
-    stats = {"monthly": 0, "daily_months": 0, "malformed_months": 0, "rows": 0}
+    stats = {
+        "monthly": 0,
+        "daily_months": 0,
+        "malformed_months": 0,
+        "unrecovered_months": 0,
+        "rows": 0,
+    }
     months = sorted(set(files.monthly) | set(files.daily))
     for ym in months:
         blocks: list[np.ndarray] = []
@@ -1419,6 +1457,8 @@ def read_klines(
                 except (ValueError, zipfile.BadZipFile):
                     stats["malformed_months"] += 1
             stats["daily_months"] += 1
+        elif not done:
+            stats["unrecovered_months"] += 1  # malformed and nothing to rebuild it from
         for b in blocks:
             if not b.size:
                 continue
@@ -1447,7 +1487,7 @@ def read_funding(
     month comes from its Vision zip, else from the cached REST json (which carries a mark)."""
     end_ms = int(stage.end.timestamp()) * 1000
     events: dict[int, tuple[float, float]] = {}
-    stats = {"vision_months": 0, "rest_months": 0}
+    stats = {"vision_months": 0, "rest_months": 0, "unrecovered_months": 0}
     for ym in sorted(set(files.funding) | set(files.rest)):
         vision_ok = False
         if ym in files.funding:
@@ -1461,6 +1501,8 @@ def read_funding(
                 vision_ok = True
                 events.update(parsed)
                 stats["vision_months"] += 1
+            if not vision_ok and ym not in files.rest:
+                stats["unrecovered_months"] += 1
         if not vision_ok and ym in files.rest:
             payload = json.loads(files.rest[ym].read_text(encoding="utf-8"))
             stats["rest_months"] += 1
@@ -1515,7 +1557,12 @@ def load_notices(
     if sha256_file(path) != sha:
         raise SystemExit(f"notices file {path} does not match its pinned sha256")
     out: dict[str, list[float]] = {}
-    for e in json.loads(path.read_text(encoding="utf-8"))["entries"]:
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if doc.get("overrides"):
+        raise SystemExit(
+            "notices file carries overrides, which this reader does not merge"
+        )
+    for e in doc["entries"]:
         stamp = datetime.fromisoformat(e["release_utc"].replace("Z", "+00:00"))
         out.setdefault(e["symbol"], []).append(stamp.timestamp())
     return {k: sorted(v) for k, v in out.items()}
@@ -1742,6 +1789,15 @@ def breadth_report(panel: Panel, info: dict[str, Any], n_min: int) -> dict[str, 
     n_t = elig.sum(axis=1)
     live = n_t >= n_min
     first = int(np.argmax(live)) if live.any() else None
+    # symbol-bars of listings at least 200 days old that are not eligible only because a missing
+    # hour blanked the regime or volatility (a disclosed conservatism), in days
+    blanked = (
+        (panel.age_bucket >= 1)
+        & np.isfinite(panel.mark_px)
+        & ~panel.forced
+        & ~(np.isfinite(panel.regime) & np.isfinite(panel.vol))
+    )
+    blanked_days = float(blanked.sum()) / 6.0
     return {
         "eligible_min": int(n_t.min()),
         "eligible_median": float(np.median(n_t)),
@@ -1751,7 +1807,9 @@ def breadth_report(panel: Panel, info: dict[str, Any], n_min: int) -> dict[str, 
         "symbols_ever_eligible": int((elig.sum(axis=0) > 0).sum()),
         "events": len(panel.events),
         "notice_matched": info["notice_matched"],
-        "notice_fallback": info["notice_fallback"],
+        "notice_none": info["notice_none"],
+        "symbols_no_notice": len(set(info["no_notice_symbols"])),
+        "blanked_symbol_days": blanked_days,
         "notice_late": info["notice_late"],
         "funding_mark_fallbacks": info["funding_mark_fallbacks"],
         "funding_events_unpriced": info["funding_events_unpriced"],
@@ -1802,6 +1860,11 @@ def run_stage(
     hourly = LazyArchive(archive_root, stage, syms, read_stats)
     panel, info = build_panel(hourly, stage, funding, notices, syms)
     problems = panel_problems(panel, info)
+    for sym, st in read_stats.items():
+        if st.get("unrecovered_months"):
+            problems.append(
+                f"{sym}: {st['unrecovered_months']} malformed archive month(s) with no replacement"
+            )
     result: dict[str, Any] = {
         "protocol_id": PROTOCOL_ID,
         "protocol_digest": digest,

@@ -31,11 +31,30 @@ class EconomicTerminationReason(str, Enum):
     INSOLVENCY = "insolvency"
 
 
-def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
+def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
     # np.asarray(MaskedArray) discards its missingness metadata and admits
     # hidden values as financial quantities or prices. Reject before casting.
     if np.ma.isMaskedArray(value):
         raise ValueError(f"{field_name} must not be a masked array")
+    # A list/tuple or an object array can wrap a MaskedArray; a subsequent
+    # np.asarray silently strips an inner mask as well. Numeric ndarrays take
+    # the ordinary fast path without walking their individual elements.
+    if isinstance(value, (list, tuple)) or (
+        isinstance(value, np.ndarray) and value.dtype.kind == "O"
+    ):
+        pending: list[object] = [value]
+        seen: set[int] = set()
+        while pending:
+            item = pending.pop()
+            if np.ma.isMaskedArray(item):
+                raise ValueError(f"{field_name} must not contain a masked array")
+            if isinstance(item, (list, tuple)) or (
+                isinstance(item, np.ndarray) and item.dtype.kind == "O"
+            ):
+                if id(item) in seen:
+                    continue
+                seen.add(id(item))
+                pending.extend(item if isinstance(item, (list, tuple)) else item.flat)
     vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")

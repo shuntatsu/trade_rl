@@ -854,3 +854,45 @@ def test_account_transition_refuses_masked_numeric_input_atomically(
     assert book.returns_history == before.returns_history
     assert book.peak_value == before.peak_value
     assert book.termination_reason == before.termination_reason
+
+
+@pytest.mark.parametrize("wrapper", ("list", "tuple", "nested_list"))
+def test_book_constructor_rejects_nested_masked_numeric_vector(wrapper: str) -> None:
+    hidden = np.ma.array([100.0, 50.0], mask=[True, False])
+    value = (
+        [hidden]
+        if wrapper == "list"
+        else (hidden,)
+        if wrapper == "tuple"
+        else [[hidden]]
+    )
+    with pytest.raises(ValueError, match="masked"):
+        BookState.zero(2, 1_000.0, value)
+
+
+def test_settlement_nested_masked_recovery_is_atomic() -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    before = book.clone()
+    wrapped_recovery = [[np.ma.array([0.5, 1.0], mask=[True, False])]]
+    with pytest.raises(ValueError, match="masked"):
+        book.settle_positions(
+            mask=np.array([True, False]),
+            prices=np.array([100.0, 50.0]),
+            recovery=wrapped_recovery,
+        )
+    assert book.cash == before.cash
+    assert book.exact_quantities == before.exact_quantities
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    assert book.total_cost == before.total_cost
+    assert book.fill_count == before.fill_count
+    assert book.termination_reason == before.termination_reason
+
+
+def test_ordinary_nested_numeric_vectors_remain_valid() -> None:
+    book = BookState.zero(2, 1_000.0, [[100.0, 50.0]])
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])

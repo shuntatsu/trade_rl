@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections import deque
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
@@ -36,11 +38,20 @@ def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
     # hidden values as financial quantities or prices. Reject before casting.
     if np.ma.isMaskedArray(value):
         raise ValueError(f"{field_name} must not be a masked array")
-    # A list/tuple or an object array can wrap a MaskedArray; a subsequent
-    # np.asarray silently strips an inner mask as well. Numeric ndarrays take
-    # the ordinary fast path without walking their individual elements.
-    if isinstance(value, (list, tuple)) or (
-        isinstance(value, np.ndarray) and value.dtype.kind == "O"
+    # Sequence wrappers and object arrays may hide masked values at any depth.
+    # Opaque __array__ adapters cannot attest to masks before conversion, so
+    # refuse them rather than trusting a conversion that can strip missingness.
+    # Ordinary numeric ndarrays retain the common no-walk fast path.
+    is_sequence = isinstance(value, (Sequence, deque)) and not isinstance(
+        value, (str, bytes, bytearray)
+    )
+    if (
+        is_sequence
+        or (isinstance(value, np.ndarray) and value.dtype.kind == "O")
+        or (
+            not isinstance(value, (np.ndarray, np.generic))
+            and callable(getattr(type(value), "__array__", None))
+        )
     ):
         pending: list[object] = [value]
         seen: set[int] = set()
@@ -48,13 +59,26 @@ def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
             item = pending.pop()
             if np.ma.isMaskedArray(item):
                 raise ValueError(f"{field_name} must not contain a masked array")
-            if isinstance(item, (list, tuple)) or (
-                isinstance(item, np.ndarray) and item.dtype.kind == "O"
-            ):
-                if id(item) in seen:
+            if isinstance(item, np.ndarray):
+                if item.dtype.kind != "O":
                     continue
-                seen.add(id(item))
-                pending.extend(item if isinstance(item, (list, tuple)) else item.flat)
+                elements: Iterable[object] = item.flat
+            elif isinstance(item, np.generic):
+                continue
+            elif callable(getattr(type(item), "__array__", None)):
+                raise ValueError(
+                    f"{field_name} must not contain opaque array-like values"
+                )
+            elif isinstance(item, (Sequence, deque)) and not isinstance(
+                item, (str, bytes, bytearray)
+            ):
+                elements = item
+            else:
+                continue
+            if id(item) in seen:
+                continue
+            seen.add(id(item))
+            pending.extend(elements)
     vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")

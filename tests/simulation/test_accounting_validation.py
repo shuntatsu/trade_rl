@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import UserList, deque
 
 import numpy as np
 import pytest
@@ -895,4 +896,60 @@ def test_settlement_nested_masked_recovery_is_atomic() -> None:
 
 def test_ordinary_nested_numeric_vectors_remain_valid() -> None:
     book = BookState.zero(2, 1_000.0, [[100.0, 50.0]])
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+@pytest.mark.parametrize("wrapper", ("deque", "userlist", "nested_userlist"))
+def test_book_constructor_rejects_other_sequence_masked_array(wrapper: str) -> None:
+    hidden = np.ma.array([100.0, 50.0], mask=[True, False])
+    if wrapper == "deque":
+        input_values = deque([hidden])
+    elif wrapper == "userlist":
+        input_values = UserList([hidden])
+    else:
+        input_values = [UserList([deque([hidden])])]
+    with pytest.raises(ValueError, match="masked"):
+        BookState.zero(2, 1_000.0, input_values)
+
+
+@pytest.mark.parametrize("wrapper", (deque, UserList))
+def test_settlement_refuses_other_sequence_masked_recovery_atomically(
+    wrapper: object,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    before = book.clone()
+    hidden = np.ma.array([0.5, 1.0], mask=[True, False])
+    with pytest.raises(ValueError, match="masked"):
+        book.settle_positions(
+            mask=np.array([True, False]),
+            prices=np.array([100.0, 50.0]),
+            recovery=wrapper([hidden]),
+        )
+    assert book.cash == before.cash
+    assert book.exact_quantities == before.exact_quantities
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    assert book.total_cost == before.total_cost
+    assert book.fill_count == before.fill_count
+    assert book.termination_reason == before.termination_reason
+
+
+def test_book_constructor_rejects_opaque_array_like_mask_adapter() -> None:
+    class MaskAdapter:
+        def __array__(self, dtype: object = None, copy: object = None) -> np.ndarray:
+            values = np.ma.array([100.0, 50.0], mask=[True, False])
+            return values if dtype is None else values.astype(dtype)
+
+    # A custom __array__ can discard hidden missingness during conversion.
+    with pytest.raises(ValueError, match="array-like"):
+        BookState.zero(2, 1_000.0, MaskAdapter())
+
+
+@pytest.mark.parametrize("wrapper", (deque, UserList))
+def test_ordinary_other_numeric_sequences_remain_valid(wrapper: object) -> None:
+    book = BookState.zero(2, 1_000.0, wrapper([100.0, 50.0]))
     np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])

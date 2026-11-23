@@ -546,8 +546,11 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 正しいbool maskの既存の精算金額・保有数量・回復率は維持する。
 `BookState` の数量・mark価格・契約倍率および公開会計更新の数値vectorも、
 `np.asarray` が欠損maskを捨てて隠れた値を使用しないよう、masked arrayを
-正規化前に拒否する。リスト・タプルやobject配列に内包されたmasked arrayも
-同様に拒否し、通常の数値リスト・タプルの受理は維持する。特に精算価格・回復率・split・配当・再評価・funding付き
+正規化前に拒否する。リスト・タプル・`deque`・`UserList`などのシーケンスや
+object配列に内包されたmasked arrayも同様に拒否する。任意の`__array__`を
+持つ不透明なadapterは欠損情報の保持を確認できないため入力時に拒否し、
+通常の数値ndarray・リスト・タプル・`deque`・`UserList`の受理は維持する。
+特に精算価格・回復率・split・配当・再評価・funding付き
 mark-to-marketは、拒否時にcash・保有・費用・履歴を更新しない。
 通常の非masked数値vectorと既存の会計・経済意味は変えない。
 

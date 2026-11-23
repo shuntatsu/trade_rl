@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it, and no economic result was produced for it.
 
-Protocol digest: `ca3c6a79496427b7e47e4bfdb72f2742e57df0afdfde207e4ac3c2664ed0dc9c`
+Protocol digest: `d3f2a0b4158ff3b7cb751ff8639587322ed80136ad7828afcb60524ee9a414b4`
 
 ## Question
 
@@ -153,6 +153,7 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 
 - FORWARD reads are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247). The same-account review route is [Issue #810 comment 7082120805](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7082120805).
 - Each stage run also needs its own G4 relay on Issue #810 that quotes this protocol id, the digest and the full code commit.
+- The stage-specific G4 relay additionally requires exactly one standalone line `G4 claim: <claim name>` with the exact UTC `claim_name` (`FORWARD_INTERIM_YYYY-MM` or `FORWARD_FINAL`). An ambiguous/missing/multiple claim line fails closed even when the protocol id, digest and commit match. The relay comment ID is consumed **once across all stages, months and digest namespaces of this protocol**: before any stage-window data access the harness scans existing claims, exclusively creates a `g4-<comment ID>.claim` marker at the protocol ledger root, and refuses reused or malformed historical claims. The stage root claim is already consumed at that point and is never rolled back on a G4 conflict or later failure. These are additional software gates, not a G4 authorization grant. The ledger root must be a durable, shared, absolute filesystem path to enforce cross-run uniqueness.
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
 - The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
 - The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.

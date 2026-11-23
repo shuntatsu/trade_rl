@@ -1432,6 +1432,7 @@ def authorization_receipt(
     url: str,
     digest: str,
     commit: str,
+    claim: str,
     fetch: Callable[[int], dict[str, Any]] = _gh_comment,
 ) -> dict[str, Any]:
     if not _COMMIT_RE.fullmatch(commit):
@@ -1451,12 +1452,18 @@ def authorization_receipt(
             or first["updated_at"] != second["updated_at"]
         ):
             raise SystemExit(f"{role} comment {cid} changed between fetches")
-        if role == "g4_relay" and not all(
-            token in first["body"] for token in (PROTOCOL_ID, digest, commit)
-        ):
-            raise SystemExit(
-                "G4 relay does not quote this protocol id, digest and exact commit"
-            )
+        if role == "g4_relay":
+            if not all(
+                token in first["body"] for token in (PROTOCOL_ID, digest, commit)
+            ):
+                raise SystemExit(
+                    "G4 relay does not quote this protocol id, digest and exact commit"
+                )
+            # One explicit, unambiguous claim line; citing another stage in prose
+            # or listing several stages must never admit the current stage.
+            claims = re.findall(r"(?m)^G4 claim: ([A-Z0-9_-]+)$", first["body"])
+            if claims != [claim]:
+                raise SystemExit(f"G4 claim must name exactly this stage: {claim}")
         out[role] = {
             "comment_id": cid,
             "author": first["user"]["login"],
@@ -1523,6 +1530,63 @@ def claim_stage(
             )
         )
     return path
+
+
+def reserve_g4_comment(
+    root: Path,
+    comment_id: int,
+    name: str,
+    digest: str,
+    commit: str,
+    now: datetime,
+) -> Path:
+    """Consume one owner G4 relay ID per protocol, including historical digests.
+
+    Called only after the protocol-root stage claim and before any stage data
+    access. A failed/contended reservation does not undo the stage claim.
+    This deliberate fail-closed behavior avoids double use on a retry.
+    """
+    if not root.is_absolute() or root.is_symlink():
+        raise SystemExit("G4 ledger root must be a real absolute directory")
+    root.mkdir(parents=True, exist_ok=True)
+    if type(comment_id) is not int or comment_id <= 0:
+        raise SystemExit("invalid G4 comment ID")
+    for path in sorted(root.rglob("*.claim")):
+        if path == root / f"{name}.claim":
+            continue  # the current stage was claimed immediately before this call
+        if path.is_symlink() or not path.is_file():
+            raise SystemExit(f"unsafe historical G4 claim path: {path}")
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"unreadable historical G4 claim: {path}") from exc
+        if (
+            not isinstance(record, dict)
+            or type(record.get("authorization_comment_id")) is not int
+        ):
+            raise SystemExit(f"invalid historical G4 claim: {path}")
+        if record["authorization_comment_id"] == comment_id:
+            raise SystemExit(f"G4 comment {comment_id} already consumed: {path}")
+    marker = root / f"g4-{comment_id}.claim"
+    try:
+        with marker.open("x", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "authorization_comment_id": comment_id,
+                        "stage": name,
+                        "protocol_digest": digest,
+                        "commit": commit,
+                        "claimed_at": now.isoformat(),
+                    },
+                    sort_keys=True,
+                )
+            )
+    except FileExistsError:
+        raise SystemExit(
+            f"G4 comment {comment_id} already consumed: {marker}"
+        ) from None
+    return marker
 
 
 def write_ledger_result(
@@ -1716,10 +1780,13 @@ def run_stage(
     check_cross_digest(ledger_root, stage, name)
     ledger_dir = ledger_root / digest
     commit = harness_commit()
-    auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
+    auth = authorization_receipt(authorization_url, digest, commit, name, gh_fetch)
     # The protocol-root claim is the atomic single-use lock across digests (exclusive create);
     # the per-digest copy only records provenance.
     claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)
+    reserve_g4_comment(
+        ledger_root, auth["g4_relay"]["comment_id"], name, digest, commit, now
+    )
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir
     )

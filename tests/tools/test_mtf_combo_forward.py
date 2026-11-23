@@ -5,6 +5,7 @@ parity oracle (``pandas``) and the real-model determinism test (``scikit-learn``
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -19,7 +20,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "c8181bcef2f30b534a5c4bc56c83b5d93fda48e9cc50b1291a75c70521525be8"
+DIGEST_PIN = "f86d236d28b7854a2cef54e66edba6a2be23a183456e5be75b6248799239a6d0"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -1258,7 +1259,9 @@ def _comment(
 def _gh(relay_body: str | None = None, **over: Any) -> Any:
     digest = "d" * 64
     relay_body = (
-        relay_body if relay_body is not None else f"{m.PROTOCOL_ID} {digest} {COMMIT}"
+        relay_body
+        if relay_body is not None
+        else f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
     )
 
     def fetch(cid: int) -> dict[str, Any]:
@@ -1269,8 +1272,53 @@ def _gh(relay_body: str | None = None, **over: Any) -> Any:
     return fetch
 
 
+def test_g4_relay_requires_exact_stage_claim() -> None:
+    digest = "d" * 64
+    good = f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
+    rec = m.authorization_receipt(
+        URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=good)
+    )
+    assert rec["g4_relay"]["comment_id"] == 7040999999
+    for invalid in (
+        f"{m.PROTOCOL_ID} {digest} {COMMIT}",
+        good.replace("FORWARD_FINAL", "FORWARD_INTERIM_2027-01"),
+        good + "\nG4 claim: FORWARD_INTERIM_2027-01",
+        good.replace("G4 claim:", "Not G4 claim:"),
+    ):
+        with pytest.raises(SystemExit, match="G4 claim"):
+            m.authorization_receipt(
+                URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=invalid)
+            )
+
+
+def test_g4_comment_id_is_exclusive_across_stages_and_digests(tmp_path: Path) -> None:
+    root = tmp_path / "protocol"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    first = m.reserve_g4_comment(
+        root, 7040999999, "FORWARD_INTERIM_2027-01", "d" * 64, COMMIT, now
+    )
+    assert first.exists()
+    with pytest.raises(SystemExit, match="G4 comment.*already"):
+        m.reserve_g4_comment(root, 7040999999, "FORWARD_FINAL", "e" * 64, COMMIT, now)
+    assert not (root / "FORWARD_FINAL.claim").exists()
+    second = m.reserve_g4_comment(
+        root, 7040999998, "FORWARD_FINAL", "e" * 64, COMMIT, now
+    )
+    assert second.exists()
+
+
+def test_g4_reuse_detects_historical_claim_without_new_marker(tmp_path: Path) -> None:
+    root = tmp_path / "protocol"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    m.claim_stage(
+        "FORWARD_INTERIM_2027-01", "d" * 64, COMMIT, 7040999999, now, root / ("d" * 64)
+    )
+    with pytest.raises(SystemExit, match="G4 comment.*already"):
+        m.reserve_g4_comment(root, 7040999999, "FORWARD_FINAL", "e" * 64, COMMIT, now)
+
+
 def test_authorization_ok() -> None:
-    rec = m.authorization_receipt(URL, "d" * 64, COMMIT, _gh())
+    rec = m.authorization_receipt(URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh())
     assert rec["g4_relay"]["comment_id"] == 7040999999
     assert rec["data_scope"]["comment_id"] == m.DATA_SCOPE_COMMENT_ID
     assert len(rec["g4_relay"]["body_sha256"]) == 64
@@ -1287,16 +1335,22 @@ def test_authorization_ok() -> None:
 )
 def test_authorization_wrong_url(url: str) -> None:
     with pytest.raises(SystemExit, match="must be an Issue #810 comment"):
-        m.authorization_receipt(url, "d" * 64, COMMIT, _gh())
+        m.authorization_receipt(url, "d" * 64, COMMIT, "FORWARD_FINAL", _gh())
 
 
 def test_authorization_owner_and_issue_binding() -> None:
     with pytest.raises(SystemExit, match="not owner-authored"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay={"login": "mallory"}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay={"login": "mallory"})
+        )
     with pytest.raises(SystemExit, match="not owner-authored"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(scope={"login": "mallory"}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(scope={"login": "mallory"})
+        )
     with pytest.raises(SystemExit, match="not on Issue #810"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay={"issue_url": "x"}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay={"issue_url": "x"})
+        )
 
 
 def test_authorization_edit_between_fetches() -> None:
@@ -1308,7 +1362,7 @@ def test_authorization_edit_between_fetches() -> None:
         return _comment(body, updated=f"t{calls[cid]}")
 
     with pytest.raises(SystemExit, match="changed between fetches"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, fetch)
+        m.authorization_receipt(URL, "d" * 64, COMMIT, "FORWARD_FINAL", fetch)
 
 
 @pytest.mark.parametrize(
@@ -1324,12 +1378,14 @@ def test_authorization_edit_between_fetches() -> None:
 )
 def test_authorization_relay_must_quote_id_digest_commit(body: str) -> None:
     with pytest.raises(SystemExit, match="does not quote"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay_body=body))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
 
 
 def test_authorization_requires_full_commit() -> None:
     with pytest.raises(SystemExit, match="full 40-hex"):
-        m.authorization_receipt(URL, "d" * 64, "abc123", _gh())
+        m.authorization_receipt(URL, "d" * 64, "abc123", "FORWARD_FINAL", _gh())
 
 
 def test_harness_commit_refuses_untracked_files_but_not_ignored(
@@ -1457,14 +1513,23 @@ def _run(
     fetch: Any = fake_market,
     factory: Any = FakeModel,
 ) -> dict[str, Any]:
+    concrete_stage = m.STAGES[stage] if isinstance(stage, str) else stage
+    stage_claim = m.claim_name(concrete_stage, now)
+    cid = 7000000000 + int.from_bytes(
+        hashlib.sha256(stage_claim.encode()).digest()[:4], "big"
+    )
+    url = f"https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-{cid}"
+    gh = _gh(
+        relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {stage_claim}"
+    )
     return m.run_stage(
         stage,
-        URL,
+        url,
         env["tmp"] / f"work_{tag}",
         env["tmp"] / f"out_{tag}",
         now=now,
         fetch=fetch,
-        gh_fetch=env["gh"],
+        gh_fetch=gh,
         ledger_dir=env["ledger"],
         model_factory=factory,
         symbols=symbols,

@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "236517b19d9b3588e111083b24947284e283aa891487329bed962eb0e7d3482d"
+DIGEST_PIN = "9e65e80a94508869d37151369b1687c0e5cc94a40b9c1faa5f8ca8265f2bfca8"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 

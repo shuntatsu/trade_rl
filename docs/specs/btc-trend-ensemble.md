@@ -1,8 +1,8 @@
 # Vol-targeted BTC trend ensemble on a spot cash account (`btc_trend_ensemble_v1`)
 
-Status: **HOLD / unreviewed accounting correction (2026-11-22)**. This source has not been independently approved for economic execution. The original BACKCAST attempt fetched some raw closes but refused before any exposure, return, drawdown or label. No FORWARD result exists.
+Status: **HOLD / unreviewed accounting correction (2026-11-22)**. This source has not been independently approved for economic execution. The first BACKCAST attempt (digest `e0912608…`) refused before any exposure, return, drawdown or label. **A second BACKCAST under Amendment 1 (digest `7e276c4f…`, code `e0ac8908`) ran once and wrote a result labelled `TREND_BACKCAST_ONLY`** ([Issue #810 comment 7078583793](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078583793)); that result was computed by the defective `_account` that Amendment 2 corrects, so it is not valid evidence for the rule and is not relabelled ([Issue #810 comment 7080608617](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7080608617)). The BACKCAST window is consumed. No FORWARD result exists.
 
-Protocol digest: `236517b19d9b3588e111083b24947284e283aa891487329bed962eb0e7d3482d`
+Protocol digest: `9e65e80a94508869d37151369b1687c0e5cc94a40b9c1faa5f8ca8265f2bfca8`
 
 ## Question
 
@@ -15,7 +15,7 @@ Exploratory screens on known-used Binance BTCUSDT spot daily data (2018-11 to 20
 
 **Counter-hypothesis:** the known-data result is a 2019–2024 regime effect, and the lookback set and the vol target were fitted to it.
 
-**Cheapest originally proposed falsifier:** BACKCAST on 2015-01 to 2018-06 Bitstamp BTC/USD daily bars. Part of that window was subsequently fetched and inspected in the refused Amendment 1 attempt (no strategy returns computed); it must not be represented as wholly unseen now.
+**Cheapest originally proposed falsifier:** BACKCAST on 2015-01 to 2018-06 Bitstamp BTC/USD daily bars. That window is now consumed: BACKCAST ran once under Amendment 1 and its (defectively accounted) result is on record. Under the corrected accounting the only remaining falsifier is the prospective FORWARD stage.
 
 **Prior exposure, disclosed:**
 - The six lookbacks, the 20% target, the 0.05 deadband and the 30-day vol window were chosen after seeing known-used 2018-11 to 2026-10 results. On that data: CAGR about 21%, max DD 19–22%, Sharpe about 1.2.
@@ -125,11 +125,11 @@ Status: Active.
 - **Ledger namespace:** the ledger is now keyed by protocol digest, `<ledger>/<digest>/<claim name>.claim`. Each digest gets one claim per claim name: one for BACKCAST, one per month for FORWARD_INTERIM, one for FORWARD_FINAL. A new digest exists only after a reviewed and relayed amendment. The refused claim of digest `e0912608` stays at the ledger root.
 - **Cross-digest single use:** BACKCAST refuses before claiming if any digest namespace already holds a `BACKCAST.result.json`. A refusal that wrote no result does not block a reviewed amendment; a result of any label does.
 
-## Amendment 2 (result-blind accounting correction; no real economic result)
+## Amendment 2 (accounting correction, result-blind with respect to FORWARD; a defective BACKCAST result exists)
 
 Status: HOLD pending a new review and G4.
 
-**Exposure and result-blind scope.** Amendment 1 refused during missing-day validation and did not compute a return, exposure or label. It nevertheless fetched and disclosed BACKCAST raw closes (2015-10-05 to 2018-06-30). Preserve that claim, raw page, historical digest `7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937` and all earlier review evidence. The window is no longer wholly unseen. This correction uses only synthetic data; no additional market prices, measured performance or stage decision were inspected.
+**Exposure and result-blind scope.** The first BACKCAST attempt refused during missing-day validation and computed no return, exposure or label, but fetched and disclosed BACKCAST raw closes (2015-10-05 to 2018-06-30). **After Amendment 1, BACKCAST ran once under digest `7e276c4f…` and wrote a `TREND_BACKCAST_ONLY` result (result.json sha256 `e63486ce…`), seen by the planner.** It was computed with the defective `_account` described below, so it is not evidence for the rule; it is neither relabelled nor re-scored, and the cross-digest guard keeps BACKCAST from running again under any digest. Preserve that claim, raw page, historical digest `7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937` and all earlier review evidence. The window is no longer wholly unseen. This correction uses only synthetic data; no additional market prices, measured performance or stage decision were inspected.
 
 **Reproduced software defect.** The old `_account` reset BTC units to a constant target weight after every daily price change, even when the accepted target did not change; it counted no trade, turnover or fee. Synthetic prices `[100, 200, 100]` and targets `[0, 0.5, 0.5]` produced equity 1.125, while an actual one-entry quantity-HOLD cash book returns exactly 1.0. These are synthetic oracle values, not market performance results.
 

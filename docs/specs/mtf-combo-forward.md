@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it.
 
-Protocol digest: `f601d84e51cfcf6c31ad674b134cb3cd84ea53e8b0e24f02f285e9d6b62b8fa7`
+Protocol digest: `c8181bcef2f30b534a5c4bc56c83b5d93fda48e9cc50b1291a75c70521525be8`
 
 ## Question
 
@@ -154,7 +154,7 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 - A pass does not authorize orders, paper trading, live trading or capital. It would justify a further pre-registered protocol only.
 - `MTF_COMBO_NOT_SUPPORTED` ends this version. A software or data refusal needs a result-blind amendment before any rerun.
 - Drawdown and Sharpe are measured on 4h close marks only; intrabar drawdown, which is larger, is not measured.
-- Funding and fees use Binance public history and a flat 6 bp per fill; real slippage, partial fills, margin rules, liquidation, borrow and funding-interval changes are not modelled.
+- Funding and fees use Binance public history and a flat 6 bp per fill; real slippage, partial fills, margin rules, liquidation, borrow and funding-interval changes are not modelled. Price gaps between 4h closes are not modelled either: a mark can show a larger loss than a stop or margin rule would have allowed intrabar. The source-close admission only verifies that each raw kline's native close equals its scheduled end; candle finality comes from the fetch window, which ends at the last completed close.
 
 ## Authorization
 
@@ -164,7 +164,7 @@ Each link can fail: persistence can end (a mean-reverting year); the classifier 
 - The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
 - The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.
 - Outputs are write-once. A local ledger claim must be created exclusively before any data is fetched: once per UTC month for interims and once for the final, keyed by protocol id and stage as described below.
-- Single use and the stop state are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The atomic single-use lock is an exclusive-create claim at the protocol root (`<ledger>/mtf_combo_v1/<stage name>.claim`); the per-digest subfolders (`<ledger>/mtf_combo_v1/<digest>/`) keep a provenance copy only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
+- Single use and the stop state (claims are named by the UTC month of the run time; naive datetimes are refused; the ledger root must be an absolute path) are keyed by protocol id and stage (and by UTC month for interims), NOT by digest. Before it claims anything, a stage run refuses if ANY digest namespace under the protocol id already holds a claim or result for the same stage name (the final, or that interim month), or a `STOPPED_EARLY` result. The atomic single-use lock is an exclusive-create claim at the protocol root (`<ledger>/mtf_combo_v1/<stage name>.claim`); the per-digest subfolders (`<ledger>/mtf_combo_v1/<digest>/`) keep a provenance copy only. A harness commit that changes the digest therefore never reopens a consumed stage or a stopped line.
 - Run with the locked environment: `uv run --locked --extra forecast-gbm python -m tools.mtf_combo_forward run ...`. The receipt records the numpy and scikit-learn versions.
 
 ## Stop rule

@@ -1470,8 +1470,16 @@ def authorization_receipt(
 
 
 def claim_name(stage: Stage, now: datetime) -> str:
-    """Ledger name: interims are once per UTC month."""
+    """Ledger name: interims are once per UTC month (the month of ``now`` in UTC)."""
+    now = _utc(now)
     return f"{stage.name}_{now:%Y-%m}" if stage.interim else stage.name
+
+
+def _utc(now: datetime) -> datetime:
+    """Refuse naive datetimes; normalise aware ones to UTC."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise SystemExit("now must be a timezone-aware datetime")
+    return now.astimezone(UTC)
 
 
 def check_clock(stage: Stage, now: datetime) -> None:
@@ -1690,7 +1698,9 @@ def run_stage(
     symbols: tuple[str, ...] = SYMBOLS,
 ) -> dict[str, Any]:
     stage = STAGES[stage_name] if isinstance(stage_name, str) else stage_name
-    now = now or datetime.now(UTC)
+    now = _utc(now or datetime.now(UTC))
+    if not ledger_dir.is_absolute():
+        raise SystemExit(f"ledger directory must be an absolute path: {ledger_dir}")
     factory = model_factory or default_model_factory
     check_clock(stage, now)
     if output_dir.exists():

@@ -19,7 +19,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "f601d84e51cfcf6c31ad674b134cb3cd84ea53e8b0e24f02f285e9d6b62b8fa7"
+DIGEST_PIN = "c8181bcef2f30b534a5c4bc56c83b5d93fda48e9cc50b1291a75c70521525be8"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -1861,3 +1861,34 @@ def test_raw_klines_rejects_non_native_or_unaligned_open(bad_open: object) -> No
     row[0] = bad_open
     with pytest.raises(SystemExit, match="close_time"):
         m.parse_klines([row])
+
+
+def test_claim_name_uses_the_utc_month_and_refuses_naive_datetimes() -> None:
+    from datetime import timedelta, timezone
+
+    st = m.STAGES["FORWARD_INTERIM"]
+    jst = timezone(timedelta(hours=9))
+    assert (
+        m.claim_name(st, datetime(2026, 12, 1, 0, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-11"
+    )
+    assert (
+        m.claim_name(st, datetime(2026, 12, 1, 9, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-12"
+    )
+    with pytest.raises(SystemExit, match="timezone-aware"):
+        m.claim_name(st, datetime(2026, 12, 20))
+
+
+def test_run_stage_refuses_a_relative_ledger_directory(tmp_path: Any) -> None:
+    from pathlib import Path
+
+    with pytest.raises(SystemExit, match="absolute"):
+        m.run_stage(
+            "FORWARD_INTERIM",
+            "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-1",
+            tmp_path / "work",
+            tmp_path / "out",
+            now=datetime(2027, 1, 20, 9, tzinfo=UTC),
+            ledger_dir=Path("relative_ledger"),
+        )

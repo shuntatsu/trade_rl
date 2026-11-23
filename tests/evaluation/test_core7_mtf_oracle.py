@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
+PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
 PACKET_V11_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
 PACKET_V10_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v10.json"
@@ -56,7 +57,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
+    "be04c734d837ad1037ce2ab692cadc6cc9979d2672f7d103dfd8b16d3a03b1cb"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -751,7 +752,7 @@ def test_prior_v12_packet_remains_immutable_and_unreviewed() -> None:
 
 def test_v13_packet_only_rebinds_source_without_economic_reclassification() -> None:
     old: dict[str, Any] = json.loads(PACKET_V12_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
     assert new["schema_version"] == old["schema_version"]
     assert new["mechanism"] == old["mechanism"]
     assert new["evidence"] == old["evidence"]
@@ -767,6 +768,46 @@ def test_v13_packet_only_rebinds_source_without_economic_reclassification() -> N
         "protocol_head": "f9be9737fe27facdb1dfd3147e436196c3d6d278",
     }
     verdict = evaluate_assurance(new)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v13_packet_is_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == (
+        "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "f9be9737fe27facdb1dfd3147e436196c3d6d278",
+        "protocol_head": "f9be9737fe27facdb1dfd3147e436196c3d6d278",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v14_masked_vector_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "MASKED FINANCIAL VECTOR" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+        "protocol_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
     assert verdict.status == "UNREVIEWED"
     assert verdict.errors == ()
     assert verdict.economic_execution_authorized is False

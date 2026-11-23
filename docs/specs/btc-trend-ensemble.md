@@ -2,7 +2,7 @@
 
 Status: **HOLD / Amendment 3 awaiting independent review (2026-11-23).** This source has not been independently approved for economic execution. The first BACKCAST attempt (digest `e0912608…`) refused before any exposure, return, drawdown or label. **A second BACKCAST under Amendment 1 (digest `7e276c4f…`, code `e0ac8908`) ran once and wrote a result labelled `TREND_BACKCAST_ONLY`** ([Issue #810 comment 7078583793](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078583793)); that result was computed by the defective `_account` that Amendment 2 corrects. It is defective, is not evidence for the rule, is not relabelled and is not re-scored; the label `TREND_BACKCAST_ONLY` stays on record unchanged and plays no part in any decision. BACKCAST is consumed and is refused under every digest. The corrected protocol decides on FORWARD alone, and no FORWARD result exists. The FORWARD decision window starts 2026-12-01 (Amendment 3); the earlier 2026-11-23 start was never run or read.
 
-Protocol digest: `6d5cabe197cf904f1567c7938a24c762f71648a867a607c9d7383a096d0ca6d5`
+Protocol digest: `0694b3b1197e7d2921e7854943ca3e6f6785b4bc893ae1c3a77c4453d8533053`
 
 ## Question
 
@@ -97,7 +97,7 @@ A cell is invalid if, at any day:
 - Each FORWARD stage also needs its own G4 relay on Issue #810 that quotes this protocol id, the digest and the full code commit. Earlier relays and reviews do not authorize this digest.
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
 - The checkout must be clean.
-- A connectivity probe (one BTCUSDT 1d page dated 2026-10-01 to 2026-10-07, before 2026-11-01) and the authorization fetches run **before** the claim. Any failure refuses without claiming, so an outage cannot burn a stage, and no stage-window data is read by the probe.
+- A connectivity probe (one BTCUSDT 1d page dated 2026-10-01 to 2026-10-07, before 2026-11-01) and the authorization fetches run **before** the claim. Any failure refuses without claiming, so an outage cannot burn a stage, and no stage-window data is read by the probe. The probe page is known-used pre-FORWARD data covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247); it is never scored.
 - Outputs are write-once.
 
 ## Ledger and single use
@@ -114,6 +114,7 @@ A cell is invalid if, at any day:
 - No rescue run.
 - A refusal for a defect outside the economics needs a result-blind amendment before any rerun.
 - **Governance exception (Amendment 3).** The no-change-after-a-stage-result rule has one stated exception: a **software defect in accounting, reproduced on synthetic data**, may be corrected by a reviewed result-blind amendment. The defective result is never relabelled or re-scored, and the amendment may not change any economic constant. Here the only stage still open is FORWARD, which has no data yet, so no result can be rescued. Basis: [Issue #810 comment 7080608617](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7080608617) (defect report) and [Issue #810 comment 7078583793](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078583793) (the defective BACKCAST result).
+- **Consequential decision-rule change (Amendment 3).** Correcting the accounting voids the only BACKCAST result as evidence, and BACKCAST can never run again. The original label rule `TREND_SUPPORTED = SUPPORTED(BACKCAST) ∧ SUPPORTED(FORWARD)` can then only be satisfied by counting invalid evidence, which is forbidden, or never, which leaves the protocol undecidable. Amendment 3 therefore removes the BACKCAST conjunct, and renames the labels to FORWARD-only names so that no later reader can mistake them for the original two-stage claim. This change is made before any FORWARD bar exists. It does not use the defective BACKCAST result in any way: neither its favourable value nor its label informs the change, and the outcome would be identical had BACKCAST failed. It weakens what a support label can claim (one prospective year instead of a backcast plus a forward year); it does not make support easier to reach on the remaining stage. No economic constant, cell, cost, window length or FORWARD condition changes. This is the only rule change permitted under this exception, and the stage G4 relay must quote and acknowledge it.
 - Higher exposure is a new protocol.
 - No label authorizes orders, paper trading or live trading.
 
@@ -162,7 +163,7 @@ Status: HOLD pending independent review and G4. Review 6020387665 (BLOCKED at he
 
 **B2, prerequisite and labels.** Removed: the same-digest BACKCAST claim and result requirement (it could never be met, because BACKCAST is refused under every digest). Added: the disclosed-prior requirement and the label set `TREND_FORWARD_SUPPORTED`, `TREND_FORWARD_NOT_SUPPORTED`, `INVALID`. BACKCAST remains refused; no new BACKCAST and no new path to one.
 
-**Single use and stop state.** Keyed by protocol id and stage across all digests, with an exclusive-create root claim, a cross-digest check, authorization and connectivity pre-checks before the claim, and a probe dated before 2026-11-01 (the same pattern as PR #1335, `tools/trend_exit_arms_forward.py`).
+**Single use and stop state.** Keyed by protocol id and stage across all digests, with an exclusive-create root claim, a cross-digest check, authorization and connectivity pre-checks before the claim, and a probe dated before 2026-11-01 (the same pattern as the single-use code in open [PR #1335](https://github.com/shuntatsu/trade_rl/pull/1335), not yet on main).
 
 **M3, L5, L6.** The description of the old `_account` defect is corrected in Amendment 2; source-candle finality is stated as coming from the stage window; the defective BACKCAST headline numbers are disclosed as prior exposure.
 

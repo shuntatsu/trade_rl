@@ -2,3 +2,5 @@
 /report/ppo-btc-relative-feature-ablation-g4-20260922.json -text whitespace=cr-at-eol
 /trade_rl/evaluation/dev_realdata_study/runner.py -text whitespace=cr-at-eol
 /trade_rl/evaluation/dev_realdata_study/trial_sources.py -text whitespace=cr-at-eol
+/tools/trend_breadth_data/universe_candidates.json -text
+/tools/trend_breadth_data/delisting_notices.json -text

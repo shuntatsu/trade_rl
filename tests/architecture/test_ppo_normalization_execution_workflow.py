@@ -14,7 +14,7 @@ def _text() -> str:
 # Unlike generic CI, stages must not silently select an updated toolcache patch.
 _PINNED_UV_SETUP = (
     "      - name: Set up uv\n"
-    "        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2\n"
+    "        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d\n"
     "        with:\n"
     '          python-version: "3.12.12"\n'
     "          enable-cache: true\n"

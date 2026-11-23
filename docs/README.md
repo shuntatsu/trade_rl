@@ -49,6 +49,7 @@ python -m tools.markdown_links --check
 - Divergence + visible Ichimoku MTF prototype (synthetic-only): [specs/divergence-cloud-mtf-dev.md](specs/divergence-cloud-mtf-dev.md)
 - Cloud-confirmation + divergence-exit C2/C3 candidates (known-used only): [specs/divergence-cloud-follow-dev.md](specs/divergence-cloud-follow-dev.md)
 - C2/C3 native-ledger directional and post-exit diagnostics (used historical data): [specs/divergence-cloud-attribution-dev.md](specs/divergence-cloud-attribution-dev.md)
+- C2 conditional short-risk R1/R2 overlay (known-used only): [specs/cloud-regime-short-gate-dev.md](specs/cloud-regime-short-gate-dev.md)
 
 ## 情報の所有先と更新
 

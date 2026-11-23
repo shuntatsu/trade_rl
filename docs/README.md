@@ -41,10 +41,12 @@ python -m tools.markdown_links --check
 - Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md](specs/funding-carry-multisymbol.md)
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 - Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
+- Daily trend breadth screen (pre-registered, one-shot, class 2 known-used data, not yet run; no economic result): [specs/trend-breadth.md](specs/trend-breadth.md)
 - Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
+- Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
 
 ## 情報の所有先と更新
 

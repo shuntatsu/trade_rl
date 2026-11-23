@@ -1,0 +1,22 @@
+# R2 negative-control study: long-only and causal weekly short nulls
+
+Status: Active — software-only research extension built on PR #1344. Known-used/post-hoc Binance data only; NOT independent or prospective economic evidence, G4 authorization, or live trading.
+
+## Purpose and falsifier
+
+Previous 2022–24 BTC/ETH historical R2 outcomes were profitable in six consumed yearly cohorts. That may reflect simply avoiding short exposure, rather than predictive information in the momentum/cloud filter. Compare R2 with long-only C2 and direction-blind controls. If simple controls perform as well or better, R2's incremental informational value remains unproven.
+
+## Fixed controls
+
+N0: original C2 except no short exposure at any time. Original long decisions unchanged.
+N1/N2/N3: original C2 with weekly deterministic randomized short permissions using seeds 17, 37, 97 fixed before these control returns. For each UTC Monday-to-Monday week a SHA-256 uniform value is drawn only at the first **available** hourly context observation. It is accepted when less than the trailing 90-day as-of fraction of ready hourly context where both R2 filters would be true. If fewer than 48 ready hours, all shorts fail closed. Decision is frozen for that calendar week, with missing context still preventing use.
+
+The random controls have roughly matched historical eligibility frequency, **not** exactly matched realized short position hours, fills, holding periods or turnover. Report those separately for each control; do not claim that return gaps prove information value.
+
+Source ownership: data/features/short_null_permissions.py calculates causal boolean permissions, strategies/short_null_control.py wraps C2 proposals; common native risk/execution/accounting alone owns P&L. No changes to canonical features, frozen Dataset identities, package-root exports or production routes.
+
+## G0-G3 and research use
+
+Focused tests: registered seeds, deterministic prefix, future mutation independence, unavailable or delayed context refusal, regular 1h clock, exact HOLD, disallowed short flat requests, and native single-book fills. Research runner only reads previously consumed Binance USD-M 1h/mark/funding BTCUSDT and ETHUSDT 2022/2023/2024 with 2021-10 warmup, annual 10k USDT and target 25%. Fees .0005, spread .0002, impact .0001, 5% participation, no extra latency; double costs for all controls. 4 controls x 6 cohorts x 2 cost regimes = **48** recorded cells, including negative results. Three random seeds were not selected by outcome.
+
+External scratch protocol short_null_control_protocol_20261123.md is fixed before the N0-N3 result observations but after R2 results. Thus **all** cohorts are known-used and post-hoc; claims of independent significance are forbidden. Sealed/unused/FS1 data and paper/live orders remain out of scope. The source, results and hashes must be retained in research receipts and PR discussion.

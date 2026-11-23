@@ -106,6 +106,10 @@ def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
             continue
         if np.ma.isMaskedArray(item):
             raise ValueError(f"{field_name} must not contain a masked array")
+        # A memoryview exposes plain buffer scalars even when its original
+        # owner is a MaskedArray; inspect that provenance before indexing.
+        if isinstance(item, memoryview) and np.ma.isMaskedArray(item.obj):
+            raise ValueError(f"{field_name} must not contain a masked array")
         if isinstance(item, np.ndarray):
             if item.dtype.kind != "O":
                 parent[index] = np.asarray(item).copy()

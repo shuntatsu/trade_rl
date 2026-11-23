@@ -1131,6 +1131,57 @@ def test_builtin_numeric_collections_remain_accepted_with_opaque_protocol_guard(
     np.testing.assert_array_equal(book.mark_prices, [100.0])
 
 
+def _masked_origin_memoryview(*, has_masked_entry: bool = True) -> memoryview:
+    # memoryview retains its MaskedArray owner, even though indexed values
+    # expose only the unmasked buffer and would otherwise lose missingness.
+    return memoryview(np.ma.array([100.0, 50.0], mask=[has_masked_entry, False]))
+
+
+@pytest.mark.parametrize("has_masked_entry", [True, False])
+@pytest.mark.parametrize("wrapper", ["direct", "nested", "chained", "object_array"])
+def test_book_rejects_memoryview_with_masked_array_owner(
+    wrapper: str, has_masked_entry: bool
+) -> None:
+    view = _masked_origin_memoryview(has_masked_entry=has_masked_entry)
+    assert np.ma.isMaskedArray(view.obj)
+    if wrapper == "direct":
+        value: object = view
+    elif wrapper == "nested":
+        value = [[view]]
+    elif wrapper == "chained":
+        value = memoryview(view)
+    else:
+        objects = np.empty(1, dtype=object)
+        objects[0] = view  # Keep view identity rather than pre-casting its values.
+        value = objects
+    with pytest.raises(ValueError, match="masked array"):
+        BookState.zero(2, 1_000.0, value)
+
+
+def test_memoryview_with_masked_owner_refuses_settlement_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    prior = book.clone()
+    with pytest.raises(ValueError, match="masked array"):
+        book.settle_positions(
+            mask=np.array([True, False]),
+            prices=_masked_origin_memoryview(),
+            recovery=np.ones(2),
+        )
+    _assert_cash_and_inventory_unchanged(book, prior)
+    assert book.termination_reason == prior.termination_reason
+
+
+def test_plain_numeric_memoryview_remains_admitted_as_prices() -> None:
+    values = array("d", [100.0, 50.0])
+    book = BookState.zero(2, 1_000.0, memoryview(values))
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
 def test_transient_array_interface_settlement_is_atomic() -> None:
     book = BookState(
         quantities=np.array([1.0]),

@@ -2,9 +2,10 @@
 
 Protocol: docs/specs/btc-trend-ensemble.md (the spec is the authority for every constant).
 
-Stages (``STAGES``) read public daily bars (Bitstamp BTC/USD for BACKCAST, Binance BTCUSDT
-for FORWARD), replay five frozen cells and write a write-once result. A local ledger claim
-is created exclusively before any data is fetched. Importing this module needs only the
+Stages (``STAGES``) read public Binance BTCUSDT daily bars (FORWARD only; BACKCAST is
+consumed, defective and refused under every digest), replay five frozen cells and write a
+write-once result. A local ledger claim is created exclusively, after the authorization and
+connectivity pre-checks, before any stage-window data is fetched. Importing this module needs only the
 standard library and numpy; the network code runs only in real ``run`` invocations.
 """
 
@@ -87,29 +88,38 @@ STAGES: dict[str, Stage] = {
         "FORWARD_INTERIM",
         "binance",
         date(2026, 5, 1),
-        date(2026, 11, 23),
-        date(2027, 11, 22),
+        date(2026, 12, 1),
+        date(2027, 11, 30),
         interim=True,
         final=False,
-        not_before=datetime(2026, 12, 1, tzinfo=UTC),
-        not_after=datetime(2027, 11, 24, tzinfo=UTC),
+        not_before=datetime(2026, 12, 2, tzinfo=UTC),
+        not_after=datetime(2027, 12, 2, tzinfo=UTC),
     ),
     "FORWARD_FINAL": Stage(
         "FORWARD_FINAL",
         "binance",
         date(2026, 5, 1),
-        date(2026, 11, 23),
-        date(2027, 11, 22),
+        date(2026, 12, 1),
+        date(2027, 11, 30),
         interim=False,
         final=True,
-        not_before=datetime(2027, 11, 24, tzinfo=UTC),
+        not_before=datetime(2027, 12, 2, tzinfo=UTC),
         not_after=None,
     ),
 }
 
-BACKCAST_LABEL_OK = (
-    "TREND_BACKCAST_ONLY"  # SUPPORTED(BACKCAST) and FORWARD not yet final
+# The consumed, defective BACKCAST (digest 7e276c4f..., computed by the pre-Amendment-2
+# ``_account``). Its label stays on record unchanged; it plays no part in any decision. FORWARD
+# only requires that this record exists at the ledger root as the disclosed prior.
+DEFECTIVE_BACKCAST_DIGEST = (
+    "7e276c4f94647d19b42f761317ca971e86ef0542dc7ca9653e0675765cf1c937"
 )
+DEFECTIVE_BACKCAST_LABEL = "TREND_BACKCAST_ONLY"
+LABEL_SUPPORTED = "TREND_FORWARD_SUPPORTED"
+LABEL_NOT_SUPPORTED = "TREND_FORWARD_NOT_SUPPORTED"
+LABEL_INVALID = "INVALID"
+LABEL_INTERIM = "INTERIM_NOT_A_DECISION"
+LABEL_STOPPED = "STOPPED_EARLY"
 
 DATA_SCOPE_COMMENT_ID = 7040247247  # owner scope relay on Issue #810
 OWNER_LOGIN = "shuntatsu"
@@ -127,6 +137,10 @@ BITSTAMP_URL = "https://www.bitstamp.net/api/v2/ohlc/btcusd/"
 BINANCE_URL = "https://api.binance.com/api/v3/klines"
 DAY_S = 86400
 EPOCH = date(1970, 1, 1)
+# Pre-claim connectivity probe: one BTCUSDT 1d klines page dated before 2026-11-01 only, so an
+# outage or a bad source clock refuses before the single-use claim and reads no stage-window data.
+PROBE_START = date(2026, 10, 1)
+PROBE_DAYS = 7
 
 
 # ----------------------------------------------------------------------------- digests
@@ -167,7 +181,15 @@ def _constants() -> dict[str, Any]:
             ]
             for k, v in STAGES.items()
         },
-        "backcast_label_ok": BACKCAST_LABEL_OK,
+        "defective_backcast": [DEFECTIVE_BACKCAST_DIGEST, DEFECTIVE_BACKCAST_LABEL],
+        "labels": [
+            LABEL_SUPPORTED,
+            LABEL_NOT_SUPPORTED,
+            LABEL_INVALID,
+            LABEL_INTERIM,
+            LABEL_STOPPED,
+        ],
+        "probe": [PROBE_START.isoformat(), PROBE_DAYS],
         "data_scope_comment": DATA_SCOPE_COMMENT_ID,
         "owner_login": OWNER_LOGIN,
         "issue_url": ISSUE_URL,
@@ -404,15 +426,13 @@ def supported(cells: dict[str, dict[str, Any]]) -> tuple[bool, list[str]]:
     return not failed, failed
 
 
-def decide(
-    stage: Stage | str,
-    cells: dict[str, dict[str, Any]],
-    backcast_supported: bool | None = None,
-) -> dict[str, Any]:
-    """Label for a stage. Priority: INVALID, then (interim) STOPPED_EARLY, then the stage rule.
+def decide(stage: Stage | str, cells: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Label for a FORWARD stage. Priority: INVALID, then (interim) STOPPED_EARLY, then the rule.
 
-    FORWARD_FINAL needs ``backcast_supported`` (the ledgered SUPPORTED(BACKCAST) fact)."""
+    BACKCAST is consumed and defective: it has no label under this digest and never decides."""
     st = STAGES[stage] if isinstance(stage, str) else stage
+    if not (st.interim or st.final):
+        raise ValueError("BACKCAST is consumed and plays no part in any decision")
     invalid = sorted(k for k, c in cells.items() if not c["valid"])
     ok, failed = supported(cells)
     out: dict[str, Any] = {
@@ -421,18 +441,12 @@ def decide(
         "supported": ok,
     }
     if invalid:
-        out["label"] = "INVALID"
+        out["label"] = LABEL_INVALID
     elif st.interim:
         stopped = cells["TREND__BASE"]["max_dd"] >= EARLY_STOP_DD
-        out["label"] = "STOPPED_EARLY" if stopped else "INTERIM_NOT_A_DECISION"
-    elif st.final:
-        if backcast_supported is None:
-            raise ValueError("FORWARD_FINAL needs backcast_supported")
-        out["label"] = (
-            "TREND_SUPPORTED" if ok and backcast_supported else "TREND_NOT_SUPPORTED"
-        )
+        out["label"] = LABEL_STOPPED if stopped else LABEL_INTERIM
     else:
-        out["label"] = BACKCAST_LABEL_OK if ok else "TREND_NOT_SUPPORTED"
+        out["label"] = LABEL_SUPPORTED if ok else LABEL_NOT_SUPPORTED
     return out
 
 
@@ -771,30 +785,93 @@ def write_ledger_result(
     return path
 
 
-def check_backcast_ledger(digest: str, ledger_dir: Path = LEDGER_DIR) -> dict[str, Any]:
-    """FORWARD stages need a BACKCAST ledger claim and result of this digest. A BACKCAST that
-    is not ``TREND_BACKCAST_ONLY`` (SUPPORTED) stops this version, so it also refuses."""
-    claim = ledger_dir / "BACKCAST.claim"
-    result = ledger_dir / "BACKCAST.result.json"
-    if not claim.is_file():
-        raise SystemExit(f"no BACKCAST ledger claim: {claim}")
-    if json.loads(claim.read_text(encoding="utf-8")).get("protocol_digest") != digest:
-        raise SystemExit("BACKCAST ledger claim has another protocol digest")
-    if not result.is_file():
-        raise SystemExit(f"no BACKCAST ledger result: {result}")
-    led = json.loads(result.read_text(encoding="utf-8"))
-    if led.get("protocol_digest") != digest or led.get("stage") != "BACKCAST":
-        raise SystemExit("BACKCAST ledger result has another digest or stage")
-    if led.get("label") != BACKCAST_LABEL_OK or led.get("supported") is not True:
+def _namespaces(root: Path) -> list[Path]:
+    """Every per-digest provenance folder under the ledger root."""
+    if not root.exists():
+        return []
+    return sorted(p for p in root.iterdir() if p.is_dir())
+
+
+def _ledger_results(ns: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(ns.glob("*.result.json"))
+    ]
+
+
+def check_cross_digest(root: Path, name: str) -> None:
+    """Single use and the stop state are keyed by protocol id + stage (+ interim month) across
+    ALL digest namespaces under ``root``: a new digest never reopens a consumed stage or a
+    stopped line. Refuses before any claim, fetch or computation."""
+    if (root / f"{name}.claim").exists():
         raise SystemExit(
-            f"BACKCAST label {led.get('label')!r} stops this version; "
-            "FORWARD stages need SUPPORTED(BACKCAST)"
+            f"stage {name} was already claimed at the ledger root: "
+            "single use applies across digests"
+        )
+    for ns in _namespaces(root):
+        results = _ledger_results(ns)
+        for led in results:
+            if led.get("label") == LABEL_STOPPED:
+                raise SystemExit(
+                    f"line stopped by {led.get('stage')} (digest {ns.name}): "
+                    "no further interim or final runs"
+                )
+        used = (
+            (ns / f"{name}.claim").exists()
+            or (ns / f"{name}.result.json").exists()
+            or any(led.get("stage") == name for led in results)
+        )
+        if used:
+            raise SystemExit(
+                f"stage {name} was already claimed under digest {ns.name}: "
+                "single use applies across digests"
+            )
+
+
+def check_disclosed_prior(root: Path) -> dict[str, Any]:
+    """FORWARD requires the consumed, defective BACKCAST record under digest 7e276c4f... at the
+    ledger root, as the disclosed prior. Its label is not read as evidence and decides nothing."""
+    ns = root / DEFECTIVE_BACKCAST_DIGEST
+    claim, result = ns / "BACKCAST.claim", ns / "BACKCAST.result.json"
+    if not claim.is_file() or not result.is_file():
+        raise SystemExit(
+            f"disclosed prior missing: no defective BACKCAST claim and result under {ns}"
+        )
+    led = json.loads(result.read_text(encoding="utf-8"))
+    if (
+        led.get("stage") != "BACKCAST"
+        or led.get("protocol_digest") != DEFECTIVE_BACKCAST_DIGEST
+        or led.get("label") != DEFECTIVE_BACKCAST_LABEL
+    ):
+        raise SystemExit(
+            "disclosed prior does not match the recorded defective BACKCAST "
+            f"({DEFECTIVE_BACKCAST_DIGEST[:8]}, {DEFECTIVE_BACKCAST_LABEL})"
         )
     return {
+        "role": "disclosed_prior_defective_not_evidence",
+        "digest": DEFECTIVE_BACKCAST_DIGEST,
         "label": led["label"],
         "result_sha256": led["result_sha256"],
         "ledger_result": str(result),
     }
+
+
+def connectivity_probe(fetch: Callable[[str], bytes]) -> None:
+    """Read one BTCUSDT 1d page dated before 2026-11-01 and run it through the source-close
+    admission. Any failure refuses the run before the single-use claim, so an outage or a
+    source-clock fault cannot burn a stage. No stage-window data is read."""
+    start_s = _day_index(PROBE_START) * DAY_S
+    end_s = start_s + PROBE_DAYS * DAY_S - 1
+    url = (
+        f"{BINANCE_URL}?symbol=BTCUSDT&interval=1d&startTime={start_s * 1000}"
+        f"&endTime={end_s * 1000 + 999}&limit={PROBE_DAYS}"
+    )
+    try:
+        rows = parse_binance(json.loads(fetch(url)))
+    except (ValueError, SystemExit, OSError) as exc:
+        raise SystemExit(f"connectivity probe failed before any claim: {exc}") from None
+    if not rows:
+        raise SystemExit("connectivity probe failed before any claim: empty page")
 
 
 # ----------------------------------------------------------------------------- stage run
@@ -814,6 +891,11 @@ def stage_window(stage: Stage, now: datetime) -> tuple[date, date]:
     last = stage.decision_end
     if stage.interim:
         last = min(last, now.date() - timedelta(days=1))
+    if last <= stage.decision_start:
+        raise SystemExit(
+            f"{stage.name}: no evaluated day complete yet (last complete day {last.isoformat()} "
+            f"<= first decision day {stage.decision_start.isoformat()}); refused before any claim"
+        )
     return stage.load_from, last
 
 
@@ -849,12 +931,9 @@ def run_stage(
         raise SystemExit(f"output directory exists: {output_dir}")
     if work.exists() and any(work.iterdir()):
         raise SystemExit(f"work directory is not empty: {work}")
-    digest = protocol_digest()
-    # One ledger namespace per protocol digest (Amendment 1): each digest gets exactly one claim
-    # per stage, and a new digest exists only after a reviewed, relayed amendment.
     if stage.name == "BACKCAST":
-        # The BACKCAST window is single-use across all digests: once any version has a
-        # BACKCAST result, no amendment can run it again (Amendment 1).
+        # BACKCAST is consumed (digest 7e276c4f..., defective result on record). Under every
+        # digest and every ledger state it is refused: no new BACKCAST, no new path to one.
         prior = (
             sorted(ledger_dir.glob("**/BACKCAST.result.json"))
             if ledger_dir.exists()
@@ -862,21 +941,30 @@ def run_stage(
         )
         if prior:
             raise SystemExit(f"a BACKCAST result already exists: {prior[0]}")
-    ledger_dir = ledger_dir / digest
+        raise SystemExit("BACKCAST is consumed and may not run under any digest")
+    digest = protocol_digest()
+    first, last = stage_window(
+        stage, now
+    )  # refuses before any claim if no day is evaluated
+    # Single use and the stop state are keyed by protocol id + stage (+ interim month) across
+    # every digest. ``ledger_dir`` is the protocol-specific root; per-digest folders keep
+    # provenance only, the root claim is the atomic lock.
+    name = claim_name(stage, now)
+    ledger_root = ledger_dir
+    check_cross_digest(ledger_root, name)
+    prior_record = check_disclosed_prior(ledger_root)
+    ledger_dir = ledger_root / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
-    backcast = (
-        None if stage.name == "BACKCAST" else check_backcast_ledger(digest, ledger_dir)
-    )
-    name = claim_name(stage, now)
+    connectivity_probe(fetch)  # refuses WITHOUT claiming if the exchange is unreachable
+    claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir
     )
 
-    first, last = stage_window(stage, now)
     closes, data_receipt = fetch_daily(stage.source, first, last, work / "raw", fetch)
     cells = evaluate(closes, first, stage.decision_start)
-    decision = decide(stage, cells, True if stage.final else None)
+    decision = decide(stage, cells)
     result = {
         "protocol_id": PROTOCOL_ID,
         "protocol_digest": digest,
@@ -885,7 +973,7 @@ def run_stage(
         "claim_name": name,
         "claim": str(claim),
         "authorization": auth,
-        "backcast_ledger": backcast,
+        "disclosed_prior": prior_record,
         "data": data_receipt,
         "window": {
             "load_from": first.isoformat(),

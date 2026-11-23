@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "9e65e80a94508869d37151369b1687c0e5cc94a40b9c1faa5f8ca8265f2bfca8"
+DIGEST_PIN = "6d5cabe197cf904f1567c7938a24c762f71648a867a607c9d7383a096d0ca6d5"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -49,10 +49,25 @@ def test_constants_frozen() -> None:
     )
     assert (f.load_from, f.decision_start, f.decision_end) == (
         date(2026, 5, 1),
-        date(2026, 11, 23),
-        date(2027, 11, 22),
+        date(2026, 12, 1),
+        date(2027, 11, 30),
     )
-    assert fin.not_before == datetime(2027, 11, 24, tzinfo=UTC)
+    assert (fin.load_from, fin.decision_start, fin.decision_end) == (
+        date(2026, 5, 1),
+        date(2026, 12, 1),
+        date(2027, 11, 30),
+    )
+    assert f.not_before == datetime(2026, 12, 2, tzinfo=UTC)
+    assert f.not_after == datetime(2027, 12, 2, tzinfo=UTC)
+    assert fin.not_before == datetime(2027, 12, 2, tzinfo=UTC)
+    assert m.DEFECTIVE_BACKCAST_DIGEST.startswith("7e276c4f")
+    assert m.DEFECTIVE_BACKCAST_LABEL == "TREND_BACKCAST_ONLY"
+    assert (m.LABEL_SUPPORTED, m.LABEL_NOT_SUPPORTED) == (
+        "TREND_FORWARD_SUPPORTED",
+        "TREND_FORWARD_NOT_SUPPORTED",
+    )
+    assert (m.PROBE_START, m.PROBE_DAYS) == (date(2026, 10, 1), 7)
+    assert m.PROBE_START < date(2026, 11, 1)
     assert m.CELLS["TREND__BASE"] == ("trend", 0.0010, 1, True)
     assert m.CELLS["TREND__HIGH_COST"] == ("trend", 0.0020, 1, True)
     assert m.CELLS["TREND__DELAY"] == ("trend", 0.0010, 2, True)
@@ -217,18 +232,28 @@ def _cells(**over: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return cells
 
 
-def test_decide_backcast_branches() -> None:
-    assert m.decide("BACKCAST", _cells())["label"] == "TREND_BACKCAST_ONLY"
+def test_decide_forward_final_branches_and_no_backcast_labels() -> None:
+    assert m.decide("FORWARD_FINAL", _cells())["label"] == "TREND_FORWARD_SUPPORTED"
     assert (
-        m.decide("BACKCAST", _cells(TREND__BASE=_cell(ret=-0.01)))["label"]
-        == "TREND_NOT_SUPPORTED"
+        m.decide("FORWARD_FINAL", _cells(TREND__BASE=_cell(ret=-0.01)))["label"]
+        == "TREND_FORWARD_NOT_SUPPORTED"
     )
-    inv = m.decide("BACKCAST", _cells(HOLD__BASE=_cell(valid=False)))
+    inv = m.decide("FORWARD_FINAL", _cells(HOLD__BASE=_cell(valid=False)))
     assert inv["label"] == "INVALID" and inv["invalid_cells"] == ["HOLD__BASE"]
+    # BACKCAST is consumed: it has no label and never decides
+    with pytest.raises(ValueError, match="consumed"):
+        m.decide("BACKCAST", _cells())
+    for cells in (_cells(), _cells(TREND__BASE=_cell(ret=-1.0))):
+        label = m.decide("FORWARD_FINAL", cells)["label"]
+        assert label not in {
+            "TREND_SUPPORTED",
+            "TREND_BACKCAST_ONLY",
+            "TREND_NOT_SUPPORTED",
+        }
 
 
 def test_decide_threshold_strictness() -> None:
-    ok = lambda **kw: m.decide("BACKCAST", _cells(**kw))["supported"]  # noqa: E731
+    ok = lambda **kw: m.decide("FORWARD_FINAL", _cells(**kw))["supported"]  # noqa: E731
     assert not ok(TREND__BASE=_cell(ret=0.0))  # return strictly above 0
     assert ok(TREND__BASE=_cell(sharpe=0.5))  # sharpe at least 0.5
     assert not ok(TREND__BASE=_cell(sharpe=0.4999))
@@ -242,15 +267,12 @@ def test_decide_threshold_strictness() -> None:
     assert ok(TREND__HIGH_COST=_cell(sharpe=-3.0))  # only BASE has a sharpe gate
 
 
-def test_decide_final_branches() -> None:
-    assert m.decide("FORWARD_FINAL", _cells(), True)["label"] == "TREND_SUPPORTED"
-    assert m.decide("FORWARD_FINAL", _cells(), False)["label"] == "TREND_NOT_SUPPORTED"
+def test_decide_final_ignores_backcast_entirely() -> None:
+    # No second argument exists: the verdict is a function of the FORWARD cells alone.
+    with pytest.raises(TypeError):
+        m.decide("FORWARD_FINAL", _cells(), True)  # type: ignore[call-arg]
     bad = _cells(TREND__DELAY=_cell(ret=-0.1))
-    assert m.decide("FORWARD_FINAL", bad, True)["label"] == "TREND_NOT_SUPPORTED"
-    inv = _cells(TREND__BASE=_cell(valid=False))
-    assert m.decide("FORWARD_FINAL", inv, True)["label"] == "INVALID"
-    with pytest.raises(ValueError):
-        m.decide("FORWARD_FINAL", _cells())
+    assert m.decide("FORWARD_FINAL", bad)["label"] == "TREND_FORWARD_NOT_SUPPORTED"
 
 
 def test_decide_interim_branches() -> None:
@@ -625,14 +647,14 @@ def test_interim_claim_is_once_per_month(tmp_path: Path) -> None:
 def test_not_before_refusals() -> None:
     inter, fin = m.STAGES["FORWARD_INTERIM"], m.STAGES["FORWARD_FINAL"]
     with pytest.raises(SystemExit, match="may not run before"):
-        m.check_clock(inter, datetime(2026, 11, 30, 23, 59, tzinfo=UTC))
-    m.check_clock(inter, datetime(2026, 12, 1, tzinfo=UTC))
-    with pytest.raises(SystemExit, match="may not run before 2027-11-24"):
-        m.check_clock(fin, datetime(2027, 11, 23, 23, 59, tzinfo=UTC))
-    m.check_clock(fin, datetime(2027, 11, 24, tzinfo=UTC))
+        m.check_clock(inter, datetime(2026, 12, 1, 23, 59, tzinfo=UTC))
+    m.check_clock(inter, datetime(2026, 12, 2, tzinfo=UTC))
+    with pytest.raises(SystemExit, match="may not run before 2027-12-02"):
+        m.check_clock(fin, datetime(2027, 12, 1, 23, 59, tzinfo=UTC))
+    m.check_clock(fin, datetime(2027, 12, 2, tzinfo=UTC))
+    m.check_clock(inter, datetime(2027, 12, 1, 23, 59, tzinfo=UTC))
     with pytest.raises(SystemExit, match="at or after"):
-        m.check_clock(inter, datetime(2027, 11, 24, tzinfo=UTC))
-    m.check_clock(m.STAGES["BACKCAST"], datetime(2026, 11, 22, tzinfo=UTC))
+        m.check_clock(inter, datetime(2027, 12, 2, tzinfo=UTC))
 
 
 def test_stage_window_interim_ends_at_last_complete_day() -> None:
@@ -643,7 +665,16 @@ def test_stage_window_interim_ends_at_last_complete_day() -> None:
     )
     assert m.stage_window(m.STAGES["FORWARD_FINAL"], datetime(2028, 1, 1, tzinfo=UTC))[
         1
-    ] == date(2027, 11, 22)
+    ] == date(2027, 11, 30)
+
+
+def test_interim_without_an_evaluated_day_refuses_before_any_claim() -> None:
+    inter = m.STAGES["FORWARD_INTERIM"]
+    with pytest.raises(SystemExit, match="no evaluated day complete yet"):
+        m.stage_window(inter, datetime(2026, 12, 2, 9, tzinfo=UTC))
+    assert m.stage_window(inter, datetime(2026, 12, 3, 0, 1, tzinfo=UTC))[1] == date(
+        2026, 12, 2
+    )
 
 
 # ----------------------------------------------------------------------------- stage runs (synthetic)
@@ -655,6 +686,21 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     digest = m.protocol_digest()
     gh = _gh(relay_body=f"{m.PROTOCOL_ID} {digest} {COMMIT}")
     return {"ledger": tmp_path / "ledger", "tmp": tmp_path, "gh": gh, "digest": digest}
+
+
+def _seed_defective_backcast(ledger: Path, label: str = "TREND_BACKCAST_ONLY") -> Path:
+    """The consumed defective BACKCAST record exactly as it sits in the real ledger."""
+    ns = ledger / m.DEFECTIVE_BACKCAST_DIGEST
+    m.claim_stage("BACKCAST", m.DEFECTIVE_BACKCAST_DIGEST, COMMIT, 1, NOW, ns)
+    m.write_ledger_result(
+        "BACKCAST",
+        m.DEFECTIVE_BACKCAST_DIGEST,
+        label,
+        label == "TREND_BACKCAST_ONLY",
+        "e63486ce",
+        ns,
+    )
+    return ns
 
 
 def _run(
@@ -675,120 +721,21 @@ def _run(
 NOW = datetime(2026, 12, 5, 9, tzinfo=UTC)
 
 
-def test_backcast_end_to_end_and_write_once(env: dict[str, Any]) -> None:
-    res = _run(env, "BACKCAST", NOW)
-    assert res["label"] in {"TREND_BACKCAST_ONLY", "TREND_NOT_SUPPORTED"}
-    assert set(res["cells"]) == set(m.CELLS)
-    assert res["data"]["days"] == 1491 and len(res["data"]["pages"]) == 2
-    out = env["tmp"] / "out_BACKCAST_x" / "result.json"
-    led = json.loads(
-        (env["ledger"] / env["digest"] / "BACKCAST.result.json").read_text()
-    )
-    assert led["result_sha256"] == m.sha256_file(out) and led["label"] == res["label"]
-    assert json.loads(out.read_text())["protocol_digest"] == env["digest"]
-    with pytest.raises(SystemExit, match="BACKCAST result already exists"):
-        _run(env, "BACKCAST", NOW, tag="again")
-    with pytest.raises(SystemExit, match="output directory exists"):
-        m.run_stage(
-            "BACKCAST",
-            URL,
-            env["tmp"] / "w2",
-            out,
-            now=NOW,
-            fetch=fake_market,
-            gh_fetch=env["gh"],
-            ledger_dir=env["ledger"],
-        )
-
-
-def test_forward_stages_require_backcast_ledger(env: dict[str, Any]) -> None:
-    with pytest.raises(SystemExit, match="no BACKCAST ledger claim"):
-        _run(env, "FORWARD_INTERIM", NOW)
-    assert not (
-        env["ledger"] / env["digest"] / "FORWARD_INTERIM_2026-12.claim"
-    ).exists()  # refused before claiming
-    m.claim_stage(
-        "BACKCAST", env["digest"], COMMIT, 1, NOW, env["ledger"] / env["digest"]
-    )
-    with pytest.raises(SystemExit, match="no BACKCAST ledger result"):
-        _run(env, "FORWARD_INTERIM", NOW)
-
-
-def test_forward_requires_same_digest_and_supported_backcast(
-    env: dict[str, Any],
-) -> None:
-    led = env["ledger"] / env["digest"]
-    m.claim_stage("BACKCAST", "other", COMMIT, 1, NOW, led)
-    with pytest.raises(SystemExit, match="another protocol digest"):
-        m.check_backcast_ledger(env["digest"], led)
-    (led / "BACKCAST.claim").unlink()
-    m.claim_stage("BACKCAST", env["digest"], COMMIT, 1, NOW, led)
-    m.write_ledger_result("BACKCAST", "other", "TREND_BACKCAST_ONLY", True, "s", led)
-    with pytest.raises(SystemExit, match="another digest or stage"):
-        m.check_backcast_ledger(env["digest"], led)
-    (led / "BACKCAST.result.json").unlink()
-    m.write_ledger_result(
-        "BACKCAST", env["digest"], "TREND_NOT_SUPPORTED", False, "s", led
-    )
-    with pytest.raises(SystemExit, match="stops this version"):
-        m.check_backcast_ledger(env["digest"], led)
-    with pytest.raises(SystemExit, match="stops this version"):
-        _run(env, "FORWARD_FINAL", datetime(2027, 11, 25, tzinfo=UTC))
-    (led / "BACKCAST.result.json").unlink()
-    m.write_ledger_result(
-        "BACKCAST", env["digest"], "TREND_BACKCAST_ONLY", True, "s", led
-    )
-    assert m.check_backcast_ledger(env["digest"], led)["label"] == "TREND_BACKCAST_ONLY"
-
-
 def test_clock_refusal_precedes_claim(env: dict[str, Any]) -> None:
     with pytest.raises(SystemExit, match="may not run before"):
-        _run(env, "FORWARD_FINAL", datetime(2027, 11, 23, tzinfo=UTC))
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 1, tzinfo=UTC))
     with pytest.raises(SystemExit, match="may not run before"):
-        _run(env, "FORWARD_INTERIM", datetime(2026, 11, 29, tzinfo=UTC))
+        _run(env, "FORWARD_INTERIM", datetime(2026, 12, 1, tzinfo=UTC))
     assert not env["ledger"].exists()
 
 
 def test_authorization_refusal_precedes_claim(env: dict[str, Any]) -> None:
     env2 = {**env, "gh": _gh(relay_body="no quote")}
+    _seed_defective_backcast(env["ledger"])
     with pytest.raises(SystemExit, match="does not quote"):
-        _run(env2, "BACKCAST", NOW)
-    assert not env["ledger"].exists()
-
-
-def test_full_sequence_backcast_interim_final(
-    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # force SUPPORTED(BACKCAST) so the forward stages can be exercised on synthetic data
-    real = m.decide
-
-    def forced(
-        stage: Any, cells: Any, backcast_supported: Any = None
-    ) -> dict[str, Any]:
-        out = real(stage, cells, backcast_supported)
-        if m.STAGES["BACKCAST"] is stage or stage == "BACKCAST":
-            out.update(label=m.BACKCAST_LABEL_OK, supported=True)
-        return out
-
-    monkeypatch.setattr(m, "decide", forced)
-    assert _run(env, "BACKCAST", NOW)["label"] == m.BACKCAST_LABEL_OK
-    monkeypatch.setattr(m, "decide", real)
-    dec = datetime(2026, 12, 5, 9, tzinfo=UTC)
-    r = _run(env, "FORWARD_INTERIM", dec)
-    assert r["label"] in {"INTERIM_NOT_A_DECISION", "STOPPED_EARLY", "INVALID"}
-    assert (
-        r["window"]["decision_end"] == "2026-12-04" and r["data"]["source"] == "binance"
-    )
-    with pytest.raises(SystemExit, match="already claimed"):
-        _run(env, "FORWARD_INTERIM", dec.replace(day=20), tag="dup")
-    r2 = _run(env, "FORWARD_INTERIM", datetime(2027, 1, 3, tzinfo=UTC), tag="jan")
-    assert r2["claim_name"] == "FORWARD_INTERIM_2027-01"
-    fin = _run(env, "FORWARD_FINAL", datetime(2027, 11, 24, 1, tzinfo=UTC))
-    assert fin["label"] in {"TREND_SUPPORTED", "TREND_NOT_SUPPORTED", "INVALID"}
-    assert fin["window"]["decision_end"] == "2027-11-22"
-    assert fin["backcast_ledger"]["label"] == m.BACKCAST_LABEL_OK
-    with pytest.raises(SystemExit, match="already claimed"):
-        _run(env, "FORWARD_FINAL", datetime(2027, 11, 25, tzinfo=UTC), tag="dup")
+        _run(env2, "FORWARD_INTERIM", NOW)
+    assert not (env["ledger"] / "FORWARD_INTERIM_2026-12.claim").exists()
+    assert not (env["ledger"] / env["digest"]).exists()
 
 
 def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
@@ -808,29 +755,6 @@ def test_cli_digest(capsys: pytest.CaptureFixture[str]) -> None:
                 "o",
             ]
         )
-
-
-def test_backcast_is_single_use_across_digests(env: dict[str, Any]) -> None:
-    # A BACKCAST result under any earlier digest blocks BACKCAST for every later digest.
-    (env["ledger"] / "old-digest").mkdir(parents=True)
-    m.write_ledger_result(
-        "BACKCAST",
-        "old-digest",
-        "TREND_NOT_SUPPORTED",
-        False,
-        "s",
-        env["ledger"] / "old-digest",
-    )
-    with pytest.raises(SystemExit, match="BACKCAST result already exists"):
-        _run(env, "BACKCAST", NOW)
-    assert not (env["ledger"] / env["digest"] / "BACKCAST.claim").exists()
-
-
-def test_backcast_allowed_after_a_refusal_without_result(env: dict[str, Any]) -> None:
-    # A refused attempt leaves a claim but no result; a reviewed amendment may run once.
-    m.claim_stage("BACKCAST", "old-digest", COMMIT, 1, NOW, env["ledger"])
-    res = _run(env, "BACKCAST", NOW)
-    assert res["label"] in {"TREND_BACKCAST_ONLY", "TREND_NOT_SUPPORTED"}
 
 
 def test_unchanged_target_never_rebalances_btc_quantity_for_free() -> None:
@@ -1020,3 +944,284 @@ def test_hold_cell_cost_at_valid_boundary_keeps_exact_hold_semantics() -> None:
     assert actual["valid"] is True
     assert actual["trades"] == 1
     assert actual["equity"][-1] == pytest.approx(1000.0 / 0.01 / 1.001)
+
+
+# ----------------------------------------------------------------------------- Amendment 3 stage runs
+
+DEC = datetime(2026, 12, 5, 9, tzinfo=UTC)
+FINAL_AT = datetime(2027, 12, 2, 1, tzinfo=UTC)
+
+
+def _root_claims(ledger: Path) -> list[str]:
+    return sorted(p.name for p in ledger.glob("*.claim"))
+
+
+def test_forward_runs_with_only_the_old_defective_backcast_record(
+    env: dict[str, Any],
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    r = _run(env, "FORWARD_INTERIM", DEC)
+    assert r["label"] in {"INTERIM_NOT_A_DECISION", "STOPPED_EARLY", "INVALID"}
+    assert r["window"]["decision_start"] == "2026-12-01"
+    assert r["window"]["decision_end"] == "2026-12-04"
+    assert r["disclosed_prior"]["role"] == "disclosed_prior_defective_not_evidence"
+    assert r["disclosed_prior"]["digest"] == m.DEFECTIVE_BACKCAST_DIGEST
+    assert "backcast_ledger" not in r
+    # the stage ran without any same-digest BACKCAST claim or result
+    ns = env["ledger"] / env["digest"]
+    assert not (ns / "BACKCAST.claim").exists()
+    assert not (ns / "BACKCAST.result.json").exists()
+    assert (ns / "FORWARD_INTERIM_2026-12.claim").exists()
+    assert "FORWARD_INTERIM_2026-12.claim" in _root_claims(env["ledger"])
+
+
+def test_final_uses_forward_labels_only_and_window(env: dict[str, Any]) -> None:
+    _seed_defective_backcast(env["ledger"])
+    fin = _run(env, "FORWARD_FINAL", FINAL_AT)
+    assert fin["label"] in {
+        "TREND_FORWARD_SUPPORTED",
+        "TREND_FORWARD_NOT_SUPPORTED",
+        "INVALID",
+    }
+    assert fin["window"]["decision_start"] == "2026-12-01"
+    assert fin["window"]["decision_end"] == "2027-11-30"
+    assert fin["disclosed_prior"]["label"] == "TREND_BACKCAST_ONLY"
+    assert fin["label"] != fin["disclosed_prior"]["label"]
+
+
+def test_forward_refuses_without_the_disclosed_prior(env: dict[str, Any]) -> None:
+    with pytest.raises(SystemExit, match="disclosed prior missing"):
+        _run(env, "FORWARD_INTERIM", DEC)
+    assert not env["ledger"].exists()
+    ns = env["ledger"] / m.DEFECTIVE_BACKCAST_DIGEST
+    m.claim_stage("BACKCAST", m.DEFECTIVE_BACKCAST_DIGEST, COMMIT, 1, NOW, ns)
+    with pytest.raises(SystemExit, match="disclosed prior missing"):
+        _run(env, "FORWARD_INTERIM", DEC)  # claim without result
+    assert _root_claims(env["ledger"]) == []
+
+
+def test_forward_refuses_a_mismatched_prior_record(env: dict[str, Any]) -> None:
+    ns = _seed_defective_backcast(env["ledger"], label="TREND_NOT_SUPPORTED")
+    with pytest.raises(SystemExit, match="does not match the recorded defective"):
+        m.check_disclosed_prior(env["ledger"])
+    (ns / "BACKCAST.result.json").unlink()
+    m.write_ledger_result("BACKCAST", "other", "TREND_BACKCAST_ONLY", True, "s", ns)
+    with pytest.raises(SystemExit, match="does not match the recorded defective"):
+        m.check_disclosed_prior(env["ledger"])
+
+
+@pytest.mark.parametrize("stage", ["BACKCAST", "FORWARD_INTERIM"])
+def test_any_backcast_attempt_is_refused_with_the_old_record_present(
+    env: dict[str, Any], stage: str
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    if stage == "BACKCAST":
+        with pytest.raises(SystemExit, match="BACKCAST result already exists"):
+            _run(env, "BACKCAST", NOW)
+    else:
+        _run(env, "FORWARD_INTERIM", DEC)  # forward never creates a BACKCAST artefact
+    assert not (env["ledger"] / env["digest"] / "BACKCAST.claim").exists()
+    assert not (env["ledger"] / env["digest"] / "BACKCAST.result.json").exists()
+    assert "BACKCAST.claim" not in _root_claims(env["ledger"])
+
+
+def test_backcast_is_refused_even_with_an_empty_ledger(env: dict[str, Any]) -> None:
+    with pytest.raises(SystemExit, match="BACKCAST is consumed"):
+        _run(env, "BACKCAST", NOW)
+    assert not env["ledger"].exists()
+
+
+def test_backcast_is_refused_under_a_new_digest_namespace(env: dict[str, Any]) -> None:
+    (env["ledger"] / "other-digest").mkdir(parents=True)
+    m.write_ledger_result(
+        "BACKCAST",
+        "other-digest",
+        "TREND_NOT_SUPPORTED",
+        False,
+        "s",
+        env["ledger"] / "other-digest",
+    )
+    with pytest.raises(SystemExit, match="BACKCAST result already exists"):
+        _run(env, "BACKCAST", NOW)
+    assert not (env["ledger"] / env["digest"]).exists()
+
+
+def test_full_sequence_interims_then_final_are_single_use(
+    env: dict[str, Any],
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    _run(env, "FORWARD_INTERIM", DEC)
+    with pytest.raises(SystemExit, match="already claimed"):
+        _run(env, "FORWARD_INTERIM", DEC.replace(day=20), tag="dup")
+    r2 = _run(env, "FORWARD_INTERIM", datetime(2027, 1, 3, tzinfo=UTC), tag="jan")
+    assert r2["claim_name"] == "FORWARD_INTERIM_2027-01"
+    fin = _run(env, "FORWARD_FINAL", FINAL_AT)
+    assert fin["window"]["decision_end"] == "2027-11-30"
+    with pytest.raises(SystemExit, match="already claimed"):
+        _run(env, "FORWARD_FINAL", datetime(2027, 12, 3, tzinfo=UTC), tag="dup")
+
+
+# ----------------------------------------------------------------------------- single use across digests
+
+
+def test_single_use_holds_across_digests_at_the_root(env: dict[str, Any]) -> None:
+    _seed_defective_backcast(env["ledger"])
+    # a stage claimed at the root by an earlier digest, with no per-digest trace at all
+    m.claim_stage("FORWARD_FINAL", "old", COMMIT, 1, FINAL_AT, env["ledger"])
+    with pytest.raises(SystemExit, match="already claimed at the ledger root"):
+        _run(env, "FORWARD_FINAL", FINAL_AT)
+    assert not (env["ledger"] / env["digest"]).exists()
+
+
+@pytest.mark.parametrize("kind", ["claim", "result", "ledger_row"])
+def test_single_use_holds_across_digest_namespaces(
+    env: dict[str, Any], kind: str
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    old = env["ledger"] / "old-digest"
+    if kind == "claim":
+        m.claim_stage("FORWARD_INTERIM_2026-12", "old", COMMIT, 1, DEC, old)
+    elif kind == "result":
+        (old).mkdir(parents=True)
+        (old / "FORWARD_INTERIM_2026-12.result.json").write_text("{}", encoding="utf-8")
+    else:
+        old.mkdir(parents=True)
+        (old / "x.result.json").write_text(
+            json.dumps({"stage": "FORWARD_INTERIM_2026-12", "label": "x"}),
+            encoding="utf-8",
+        )
+    with pytest.raises(SystemExit, match="already claimed under digest old-digest"):
+        _run(env, "FORWARD_INTERIM", DEC)
+    assert not (env["ledger"] / env["digest"]).exists()
+    # another month and the final remain open
+    _run(env, "FORWARD_INTERIM", datetime(2027, 1, 3, tzinfo=UTC), tag="jan")
+
+
+def test_stopped_early_under_any_digest_blocks_later_runs(env: dict[str, Any]) -> None:
+    _seed_defective_backcast(env["ledger"])
+    old = env["ledger"] / "old-digest"
+    m.claim_stage("FORWARD_INTERIM_2026-12", "old", COMMIT, 1, DEC, old)
+    m.write_ledger_result(
+        "FORWARD_INTERIM_2026-12", "old", "STOPPED_EARLY", False, "s", old
+    )
+    for stage, now in (
+        ("FORWARD_INTERIM", datetime(2027, 1, 3, tzinfo=UTC)),
+        ("FORWARD_FINAL", FINAL_AT),
+    ):
+        with pytest.raises(SystemExit, match="line stopped by FORWARD_INTERIM_2026-12"):
+            _run(env, stage, now, tag=stage)
+    assert not (env["ledger"] / env["digest"]).exists()
+
+
+def test_old_backcast_only_label_does_not_stop_the_line(env: dict[str, Any]) -> None:
+    _seed_defective_backcast(env["ledger"])
+    m.check_cross_digest(env["ledger"], "FORWARD_FINAL")
+
+
+def test_cross_digest_check_on_missing_root_passes(tmp_path: Path) -> None:
+    m.check_cross_digest(tmp_path / "nope", "FORWARD_FINAL")
+
+
+# ----------------------------------------------------------------------------- pre-claim checks
+
+
+def test_connectivity_probe_failure_refuses_before_any_claim(
+    env: dict[str, Any],
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+
+    def down(url: str) -> bytes:
+        raise OSError("unreachable")
+
+    with pytest.raises(SystemExit, match="connectivity probe failed before any claim"):
+        m.run_stage(
+            "FORWARD_INTERIM",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=DEC,
+            fetch=down,
+            gh_fetch=env["gh"],
+            ledger_dir=env["ledger"],
+        )
+    assert _root_claims(env["ledger"]) == []
+    assert not (env["ledger"] / env["digest"]).exists()
+
+
+@pytest.mark.parametrize("body", [b"[]", b"not json", b'{"x": 1}'])
+def test_connectivity_probe_rejects_empty_or_malformed(body: bytes) -> None:
+    with pytest.raises(SystemExit, match="before any claim"):
+        m.connectivity_probe(lambda url: body)
+
+
+def test_connectivity_probe_runs_source_close_admission() -> None:
+    bad = _binance([date(2026, 10, 1)])
+    bad[0][6] = bad[0][6] - 1  # off-by-one native close
+    with pytest.raises(SystemExit, match="before any claim"):
+        m.connectivity_probe(lambda url: json.dumps(bad).encode())
+
+
+def test_connectivity_probe_reads_only_data_before_2026_11_01() -> None:
+    urls: list[str] = []
+
+    def f(url: str) -> bytes:
+        urls.append(url)
+        return fake_market(url)
+
+    m.connectivity_probe(f)
+    assert len(urls) == 1
+    q = {
+        k: int(v[0])
+        for k, v in parse_qs(urlparse(urls[0]).query).items()
+        if v[0].isdigit()
+    }
+    limit_ms = int(datetime(2026, 11, 1, tzinfo=UTC).timestamp()) * 1000
+    assert q["startTime"] < q["endTime"] < limit_ms
+
+
+def test_authorization_failure_precedes_probe_and_claim(env: dict[str, Any]) -> None:
+    _seed_defective_backcast(env["ledger"])
+    calls: list[str] = []
+
+    def spy(url: str) -> bytes:
+        calls.append(url)
+        return fake_market(url)
+
+    env2 = {**env, "gh": _gh(relay_body="no quote")}
+    with pytest.raises(SystemExit, match="does not quote"):
+        m.run_stage(
+            "FORWARD_INTERIM",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=DEC,
+            fetch=spy,
+            gh_fetch=env2["gh"],
+            ledger_dir=env["ledger"],
+        )
+    assert calls == [] and _root_claims(env["ledger"]) == []
+
+
+def test_root_claim_is_exclusive_and_written_before_the_per_digest_claim(
+    env: dict[str, Any],
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    _run(env, "FORWARD_INTERIM", DEC)
+    root = json.loads((env["ledger"] / "FORWARD_INTERIM_2026-12.claim").read_text())
+    per = json.loads(
+        (env["ledger"] / env["digest"] / "FORWARD_INTERIM_2026-12.claim").read_text()
+    )
+    assert root == per and root["protocol_digest"] == env["digest"]
+    with pytest.raises(SystemExit, match="already claimed"):
+        m.claim_stage("FORWARD_INTERIM_2026-12", "x", COMMIT, 1, DEC, env["ledger"])
+
+
+def test_interim_before_an_evaluated_day_refuses_without_claiming(
+    env: dict[str, Any],
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+    with pytest.raises(SystemExit, match="no evaluated day complete yet"):
+        _run(env, "FORWARD_INTERIM", datetime(2026, 12, 2, 9, tzinfo=UTC))
+    assert _root_claims(env["ledger"]) == []
+    # the month is not burned: the same month can still run later
+    _run(env, "FORWARD_INTERIM", DEC, tag="later")

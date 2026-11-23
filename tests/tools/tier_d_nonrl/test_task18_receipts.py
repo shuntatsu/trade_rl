@@ -682,3 +682,98 @@ def test_noncompleted_arm_cannot_claim_terminal_verification_report() -> None:
     )
     assert not evaluated.declared_metrics_well_formed
     assert not evaluated.diagnostic_pair_arithmetic_available
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_huge_numeric_external_arm_report_is_rejected_with_typed_error(
+    field: str, amount: int
+) -> None:
+    """Untrusted numeric evidence may be a huge Python int, not a binary64."""
+    evidence = _complete_run().arms[0].external_report
+    assert evidence is not None
+    with pytest.raises(ValueError, match="finite"):
+        if field == "initial_equity_usdt":
+            replace(evidence, initial_equity_usdt=amount)
+        elif field == "terminal_equity_usdt":
+            replace(evidence, terminal_equity_usdt=amount)
+        else:
+            replace(evidence, max_drawdown=amount)
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["last_observed_equity_usdt", "max_drawdown_observed"]
+)
+def test_huge_numeric_interruption_progress_is_rejected_with_typed_error(
+    field: str, amount: int
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        ArmAttemptProgress(**{field: amount})
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_unrepresentable_receipt_metric_rejects_diagnostic_without_crashing(
+    field: str, amount: int
+) -> None:
+    original = _complete_run()
+    first = original.arms[0]
+    if field == "initial_equity_usdt":
+        broken = replace(first, initial_equity_usdt=amount)
+    elif field == "terminal_equity_usdt":
+        broken = replace(first, terminal_equity_usdt=amount)
+    else:
+        broken = replace(first, max_drawdown=amount)
+    run = replace(original, arms=(broken,) + original.arms[1:])
+
+    verdict = evaluate_run_receipt(run, build_task18_protocol())
+    assert not verdict.declared_metrics_well_formed
+    assert not verdict.arm_reports_match
+    assert not verdict.diagnostic_pair_arithmetic_available
+    assert verdict.adoption_status == "NOT_ESTABLISHED"
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(run, build_task18_protocol(), "PAIR-01")
+
+
+def test_finite_receipt_endpoints_cannot_publish_infinite_diagnostic_delta() -> None:
+    """Two finite binary64 endpoints may overflow on their signed difference."""
+    run = _complete_run()
+    changed = []
+    for arm in run.arms:
+        if arm.pair_id == "PAIR-01":
+            huge = 1e308 if arm.role == "NONRL" else -1e308
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=huge,
+                external_report=replace(arm.external_report, terminal_equity_usdt=huge),
+            )
+        changed.append(arm)
+    altered = replace(run, arms=tuple(changed))
+    verdict = evaluate_run_receipt(altered, build_task18_protocol())
+    assert verdict.roster_complete
+    assert verdict.arm_reports_match
+    assert not verdict.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(altered, build_task18_protocol(), "PAIR-01")
+    assert diagnostic_pair_delta(
+        run, build_task18_protocol(), "PAIR-01"
+    ) == pytest.approx(0.001)
+
+
+def test_combined_diagnostic_arithmetic_rejects_nonfinite_aggregate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future recipe with large finite pair metrics must not expose inf."""
+    from tools.tier_d_nonrl import task18_receipts as receipts
+
+    monkeypatch.setattr(receipts, "diagnostic_pair_delta", lambda *_: 1e308)
+    with pytest.raises(ValueError, match="combined diagnostic arithmetic"):
+        diagnostic_combined_delta(
+            _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"
+        )

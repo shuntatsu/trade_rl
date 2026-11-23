@@ -32,6 +32,10 @@ class EconomicTerminationReason(str, Enum):
 
 
 def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    # np.asarray(MaskedArray) discards its missingness metadata and admits
+    # hidden values as financial quantities or prices. Reject before casting.
+    if np.ma.isMaskedArray(value):
+        raise ValueError(f"{field_name} must not be a masked array")
     vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")

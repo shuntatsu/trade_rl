@@ -774,3 +774,83 @@ def test_gemini4_settlement_rejects_left_associative_overflow_atomically() -> No
         )
 
     _assert_cash_and_inventory_unchanged(book, before)
+
+
+@pytest.mark.parametrize("field", ["quantities", "mark_prices", "contract_multipliers"])
+def test_book_constructor_rejects_masked_numeric_vector(field: str) -> None:
+    # MaskedArray -> np.asarray discards the mask and exposes a hidden value.
+    values: dict[str, object] = {
+        "quantities": np.array([1.0, 0.0]),
+        "cash": 1_000.0,
+        "mark_prices": np.array([100.0, 50.0]),
+        "contract_multipliers": np.ones(2),
+        "peak_value": 1_100.0,
+    }
+    values[field] = np.ma.array(values[field], mask=[True, False])
+    with pytest.raises(ValueError, match="masked"):
+        BookState(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ["prices", "recovery"])
+def test_settlement_refuses_masked_price_or_recovery_without_mutation(
+    field: str,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_050.0,
+    )
+    before = book.clone()
+    vectors = {
+        "mask": np.array([True, False]),
+        "prices": np.array([100.0, 50.0]),
+        "recovery": np.array([1.0, 1.0]),
+    }
+    vectors[field] = np.ma.array(vectors[field], mask=[True, False])
+    with pytest.raises(ValueError, match="masked"):
+        book.settle_positions(**vectors)
+    assert book.cash == before.cash
+    assert book.exact_quantities == before.exact_quantities
+    np.testing.assert_array_equal(book.quantities, before.quantities)
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    assert book.total_cost == before.total_cost
+    assert book.fill_count == before.fill_count
+    assert book.max_drawdown == before.max_drawdown
+    assert book.termination_reason == before.termination_reason
+
+
+@pytest.mark.parametrize(
+    "operation", ["split", "dividend", "revalue", "mark_to_market"]
+)
+def test_account_transition_refuses_masked_numeric_input_atomically(
+    operation: str,
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    before = book.clone()
+    masked = np.ma.array([2.0, 1.0], mask=[True, False])
+    with pytest.raises(ValueError, match="masked"):
+        if operation == "split":
+            book.apply_split(masked)
+        elif operation == "dividend":
+            book.apply_dividend(masked)
+        elif operation == "revalue":
+            book.revalue(masked)
+        else:
+            book.mark_to_market(
+                mark_prices=masked, funding_amount=10.0, period_start_value=1_050.0
+            )
+    assert book.cash == before.cash
+    assert book.exact_quantities == before.exact_quantities
+    np.testing.assert_array_equal(book.quantities, before.quantities)
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    assert book.total_cost == before.total_cost
+    assert book.funding_pnl == before.funding_pnl
+    assert book.returns_history == before.returns_history
+    assert book.peak_value == before.peak_value
+    assert book.termination_reason == before.termination_reason

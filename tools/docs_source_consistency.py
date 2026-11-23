@@ -383,8 +383,14 @@ def check_breadth_asof(root: Path) -> bool:
             "trend_breadth: as-of observation prefix must be nonempty "
             "and contain the complete expected 4h clock rows"
         )
-    if not np.array_equal(full_panel.times[:period], prior_panel.times):
-        raise ContractViolation("trend_breadth: as-of clock times differ")
+    expected_times = int(start.timestamp()) + 4 * 3_600 * np.arange(1, hours // 4 + 1)
+    if not (
+        np.array_equal(full_panel.times, expected_times)
+        and np.array_equal(prior_panel.times, expected_times[:period])
+    ):
+        raise ContractViolation(
+            "trend_breadth: as-of clock times differ from declared UTC stage"
+        )
     for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
         if not np.array_equal(
             getattr(full_panel, field)[:period],

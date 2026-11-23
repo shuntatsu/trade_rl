@@ -300,7 +300,8 @@ def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
     def build_panel(bars, *_):
         # The Stage has 1h inputs but the portfolio oracle has 4h marks.
         rows = len(bars["ZZZUSDT"]["close"]) // 4
-        panel = SimpleNamespace(bars=rows, times=tuple(range(rows)))
+        times = tuple(1_609_459_200 + (i + 1) * 14_400 for i in range(rows))
+        panel = SimpleNamespace(bars=rows, times=times)
         for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
             setattr(panel, field, np.ones(rows))
         return panel, {}
@@ -466,9 +467,9 @@ def test_asof_expected_clock_prefix_is_never_truncated_or_relabelled(
     def build_panel(bars, *_):
         is_full = len(bars["ZZZUSDT"]["close"]) == 72
         n = 18 if is_full else observed_rows
-        times = np.arange(n, dtype=int)
+        times = 1_609_459_200 + np.arange(1, n + 1) * 14_400
         if not is_full and shift_asof_clock:
-            times += 1
+            times += 14_400
         panel = SimpleNamespace(times=times, bars=n - 1)
         for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
             setattr(panel, field, np.ones(n))
@@ -490,3 +491,48 @@ def test_asof_expected_clock_prefix_is_never_truncated_or_relabelled(
             check_breadth_asof(tmp_path)
     else:
         assert check_breadth_asof(tmp_path) is True
+
+
+@pytest.mark.parametrize("shift_seconds", (-14_400, 14_400))
+def test_both_full_and_asof_clocks_must_match_declared_utc_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    shift_seconds: int,
+) -> None:
+    """Matching panels with equally wrong time labels are not causal evidence."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import numpy as np
+
+    from tools.docs_source_consistency import check_breadth_asof
+
+    src = tmp_path / "tools/trend_breadth.py"
+    src.parent.mkdir(parents=True)
+    src.write_text("# synthetic dual-clock shift\n", encoding="utf-8")
+    spec = tmp_path / "docs/specs/trend-breadth.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("# synthetic spec\n", encoding="utf-8")
+
+    fake = ModuleType("tools.trend_breadth")
+    fake.__file__ = str(src)
+    fake.Stage = lambda *_: None  # type: ignore[attr-defined]
+
+    def build_panel(bars, *_):
+        n = len(bars["ZZZUSDT"]["close"]) // 4
+        # Full/as-of agree with each other, but both violate the declared clock.
+        times = 1_609_459_200 + np.arange(1, n + 1) * 14_400 + shift_seconds
+        panel = SimpleNamespace(times=times, bars=n - 1)
+        for name in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
+            setattr(panel, name, np.ones(n))
+        return panel, {}
+
+    fake.build_panel = build_panel  # type: ignore[attr-defined]
+    fake.panel_problems = lambda *_: []  # type: ignore[attr-defined]
+    fake.simulate_weights = lambda panel, *_: {  # type: ignore[attr-defined]
+        "valid": True,
+        "equity": np.full(panel.bars + 2, 1_000.0),
+    }
+    monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
+    with pytest.raises(ContractViolation, match="as-of clock times"):
+        check_breadth_asof(tmp_path)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import replace
+from fractions import Fraction
 from hashlib import sha256
 
 import pytest
@@ -773,6 +774,92 @@ def test_combined_diagnostic_arithmetic_rejects_nonfinite_aggregate(
     from tools.tier_d_nonrl import task18_receipts as receipts
 
     monkeypatch.setattr(receipts, "diagnostic_pair_delta", lambda *_: 1e308)
+    with pytest.raises(ValueError, match="combined diagnostic arithmetic"):
+        diagnostic_combined_delta(
+            _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"
+        )
+
+
+@pytest.mark.parametrize(
+    ("nonrl_value", "cash_value"),
+    [
+        (math.ulp(0.0), 0.0),
+        (0.0, math.ulp(0.0)),
+        (-math.ulp(0.0), 0.0),
+        (math.ulp(0.0), -math.ulp(0.0)),
+    ],
+)
+def test_nonzero_pair_delta_underflow_is_never_reported_as_zero(
+    nonrl_value: float, cash_value: float
+) -> None:
+    """Independent exact fractions prove that the declined difference is nonzero."""
+    protocol = build_task18_protocol()
+    exact = (
+        Fraction.from_float(nonrl_value) - Fraction.from_float(cash_value)
+    ) / Fraction.from_float(protocol.economics.initial_capital_per_symbol_usdt)
+    assert exact != 0
+    assert (
+        nonrl_value - cash_value
+    ) / protocol.economics.initial_capital_per_symbol_usdt == 0.0
+
+    source = _complete_run()
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            value = nonrl_value if arm.role == "NONRL" else cash_value
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=value,
+                external_report=replace(
+                    arm.external_report, terminal_equity_usdt=value
+                ),
+            )
+        updated.append(arm)
+    run = replace(source, arms=tuple(updated))
+    result = evaluate_run_receipt(run, protocol)
+
+    assert result.roster_complete
+    assert result.arm_reports_match
+    assert not result.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(run, protocol, "PAIR-01")
+
+
+def test_equal_tiny_finite_endpoints_legitimately_have_zero_pair_delta() -> None:
+    protocol = build_task18_protocol()
+    source = _complete_run()
+    tiny = math.ulp(0.0)
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=tiny,
+                external_report=replace(arm.external_report, terminal_equity_usdt=tiny),
+            )
+        updated.append(arm)
+    run = replace(source, arms=tuple(updated))
+
+    result = evaluate_run_receipt(run, protocol)
+    assert result.diagnostic_pair_arithmetic_available
+    assert diagnostic_pair_delta(run, protocol, "PAIR-01") == 0.0
+
+
+def test_nonzero_combined_delta_underflow_is_never_reported_as_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two valid pair outputs can still underflow when averaged."""
+    from tools.tier_d_nonrl import task18_receipts as receipts
+
+    tiny = math.ulp(0.0)
+    assert tiny / 2.0 == 0.0
+    monkeypatch.setattr(
+        receipts,
+        "diagnostic_pair_delta",
+        lambda _, __, pair_id: tiny if pair_id == "PAIR-01" else 0.0,
+    )
     with pytest.raises(ValueError, match="combined diagnostic arithmetic"):
         diagnostic_combined_delta(
             _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"

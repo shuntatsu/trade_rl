@@ -511,10 +511,11 @@ def _representable_pair_delta(
         return None
     # Keep the existing subtraction-then-division contract for ordinary values.
     # Extreme finite endpoints can still produce an infinite intermediate.
-    delta = (
-        float(nonrl.terminal_equity_usdt) - float(cash.terminal_equity_usdt)
-    ) / capital
-    return delta if math.isfinite(delta) else None
+    difference = float(nonrl.terminal_equity_usdt) - float(cash.terminal_equity_usdt)
+    delta = difference / capital
+    if not math.isfinite(delta) or (delta == 0.0 and difference != 0.0):
+        return None
+    return delta
 
 
 def evaluate_run_receipt(
@@ -844,9 +845,10 @@ def diagnostic_combined_delta(
         raise ValueError(
             "combined metric requires exactly one pair per declared symbol"
         )
-    combined = sum(
+    total = sum(
         diagnostic_pair_delta(receipt, protocol, pair_id) for pair_id in pair_ids
-    ) / len(protocol.dataset.symbols)
-    if not math.isfinite(combined):
+    )
+    combined = total / len(protocol.dataset.symbols)
+    if not math.isfinite(combined) or (combined == 0.0 and total != 0.0):
         raise ValueError("combined diagnostic arithmetic cannot be represented")
     return combined

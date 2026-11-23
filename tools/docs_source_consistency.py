@@ -172,13 +172,38 @@ def check_historical_agy_status(root: Path) -> None:
                 )
     if "args" not in seen:
         raise ContractViolation("historical agy pre-data refusal requires parsed args")
-    if not any(
-        isinstance(node, ast.Return)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "EXIT_REFUSED"
-        for node in gate_node.body
+    # A matching condition is insufficient if the body can access market data
+    # before returning. Permit only one literal, passive error diagnostic and
+    # an unconditional direct refusal as the last statement.
+    branch = list(gate_node.body)
+    first_stmt = branch[0] if branch else None
+    if isinstance(first_stmt, ast.Expr):
+        expression = first_stmt.value
+        branch.pop(0)
+        if not (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Attribute)
+            and isinstance(expression.func.value, ast.Name)
+            and expression.func.value.id == "err"
+            and expression.func.attr == "write"
+            and len(expression.args) == 1
+            and isinstance(expression.args[0], ast.Constant)
+            and isinstance(expression.args[0].value, str)
+            and not expression.keywords
+        ):
+            raise ContractViolation(
+                "historical agy pre-data refusal must not read inside its guard"
+            )
+    if (
+        gate_node.orelse
+        or len(branch) != 1
+        or not isinstance(branch[0], ast.Return)
+        or not isinstance(branch[0].value, ast.Name)
+        or branch[0].value.id != "EXIT_REFUSED"
     ):
-        raise ContractViolation("historical agy source must fail closed before data")
+        raise ContractViolation(
+            "historical agy pre-data refusal must immediately return EXIT_REFUSED"
+        )
 
 
 def check_learning_lab_links(root: Path) -> None:

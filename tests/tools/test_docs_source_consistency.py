@@ -123,6 +123,21 @@ def test_agy_guard_after_real_data_read_fails_even_before_clock(
         check_historical_agy_status(tmp_path)
 
 
+def test_agy_guard_must_not_read_before_refusing_inside_guard(tmp_path: Path) -> None:
+    _fixture_agy(tmp_path)
+    p = tmp_path / "tools/agy_anchor_oos.py"
+    p.write_text(
+        "def main(argv, *, rows_factory=None):\n"
+        "    args = build_parser().parse_args(argv)\n"
+        '    if args.command in {"run", "coverage"} and rows_factory is None:\n'
+        "        read_market_data()\n"
+        "        return EXIT_REFUSED\n"
+        "    moment = now()\n"
+    )
+    with pytest.raises(ContractViolation, match="pre-data"):
+        check_historical_agy_status(tmp_path)
+
+
 def test_agy_guard_after_clock_does_not_satisfy_source_contract(tmp_path: Path) -> None:
     _fixture_agy(tmp_path)
     p = tmp_path / "tools/agy_anchor_oos.py"

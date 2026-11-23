@@ -132,12 +132,10 @@ def test_no_pending_order_double_submission_on_repeat_signals() -> None:
 
 
 def test_module_exports_are_available() -> None:
-    from trade_rl.data.features import (
-        build_divergence_bank,
-        build_divergence_cloud_mtf,
-        detect_divergences,
-        visible_ichimoku_cloud,
-    )
+    from trade_rl.data.features.divergence import detect_divergences
+    from trade_rl.data.features.divergence_mtf import build_divergence_cloud_mtf
+    from trade_rl.data.features.indicators.divergence_bank import build_divergence_bank
+    from trade_rl.data.features.indicators.ichimoku_cloud import visible_ichimoku_cloud
     from trade_rl.strategies.divergence_cloud_mtf import (
         DivergenceCloudMtfPolicy as PublicPolicy,
     )

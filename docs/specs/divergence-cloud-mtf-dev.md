@@ -36,9 +36,11 @@ protocol, fixed dataset/scope/controls and authorized G4 stage.
   \`PortfolioPolicy\`; the existing shared Risk/Execution/Accounting runtime
   alone owns fill, fees, pending orders, margin and settlement.
 
-Data entry points are exported in \`trade_rl.data.features\`. The policy is
-an explicit opt-in module \`trade_rl.strategies.divergence_cloud_mtf\`, not
-a change to the package-root strategies API. **No existing MarketDataset
+All data entry points are imported explicitly from their owning
+\`trade_rl.data.features.divergence\` / \`divergence_mtf\` /
+\`indicators.*\` modules. The policy is imported explicitly from
+\`trade_rl.strategies.divergence_cloud_mtf\`. Neither data nor strategies
+package-root exports change, preserving existing provenance-bound source. **No existing MarketDataset
 schema, default FeatureSpec roster, frozen protocol, or historic Dataset
 identity is modified.**
 

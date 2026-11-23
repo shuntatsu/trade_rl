@@ -24,6 +24,12 @@ protocol, fixed dataset/scope/controls and authorized G4 stage.
 - \`trade_rl/data/features/divergence.py\`: strict-tie pivot confirmation;
   four types (regular/hidden, bullish/bearish), individual pivot and detection
   timestamps, per-indicator count, optional line filter and deduplication.
+  **Price-source contract:** default \`pivot_source="close"\` uses
+  close-to-close pivot and penetration lines; opt-in
+  \`pivot_source="high_low"\` uses bullish **low-to-low** and bearish
+  **high-to-high** lines, consistently for pivot detection, price deltas
+  and the enabled penetration filter. This is a synthetic correctness fix,
+  not a new economic signal or a retroactive change to default close mode.
 - \`trade_rl/data/features/indicators/ichimoku_cloud.py\`: **visible** cloud.
   A span computed at native day s is plotted 26 days ahead. Therefore at
   decision day t the visible span comes from s=t-26. A 52-day span needs 78

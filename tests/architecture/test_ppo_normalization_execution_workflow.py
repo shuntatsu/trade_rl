@@ -16,7 +16,6 @@ _PINNED_UV_SETUP = (
     "      - name: Set up uv\n"
     "        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2\n"
     "        with:\n"
-    '          version: "0.13.9"\n'
     '          python-version: "3.12.12"\n'
     "          enable-cache: true\n"
     "          working-directory: target\n"

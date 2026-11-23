@@ -784,6 +784,11 @@ the new 0.13.9 toolchain by rewriting their receipt or by major/minor-only
 Python matching. Checkpoint runtime preflight does not grant
 G0-G5 authorization or change the frozen economic protocol.
 
+Immutable-source workflows (PPO normalization one-shot and 4h source review)
+resolve uv from the exact checked-out `target/pyproject.toml` with
+`setup-uv working-directory: target`. They do not force new main's uv
+version on historical code; this is not a renewed economic authorization.
+
 
 ## Research-specific contract: forward study FS1
 

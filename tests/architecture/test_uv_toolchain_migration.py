@@ -14,6 +14,11 @@ from tools import ppo_checkpoint_actions as checkpoint
 
 ROOT = Path(__file__).resolve().parents[2]
 CURRENT_UV = "0.13.9"
+# Immutable reviewed/execution sources may require a historical uv version.
+SOURCE_BOUND_WORKFLOWS = {
+    "ppo-normalization-execution.yml": 3,
+    "ppo-4h-gemini-review.yml": 2,
+}
 
 
 def test_repository_requires_the_current_compatible_uv() -> None:
@@ -21,8 +26,9 @@ def test_repository_requires_the_current_compatible_uv() -> None:
     assert project["tool"]["uv"]["required-version"] == f"=={CURRENT_UV}"
 
 
-def test_every_setup_uv_invocation_pins_the_current_release() -> None:
+def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> None:
     total = 0
+    source_bound_counts: dict[str, int] = {}
     for path in (ROOT / ".github" / "workflows").glob("*.yml"):
         source = path.read_text(encoding="utf-8")
         for match in re.finditer(
@@ -32,8 +38,16 @@ def test_every_setup_uv_invocation_pins_the_current_release() -> None:
             following = source[match.end() :]
             following = following.split("\n      - name:", 1)[0]
             following = following.split("\n      - uses:", 1)[0]
-            assert re.search(rf'(?m)^\s+version: "{CURRENT_UV}"$', following), path
+            if path.name in SOURCE_BOUND_WORKFLOWS:
+                assert "working-directory: target" in following, path
+                assert re.search(r"(?m)^\s+version:", following) is None, path
+                source_bound_counts[path.name] = (
+                    source_bound_counts.get(path.name, 0) + 1
+                )
+            else:
+                assert re.search(rf'(?m)^\s+version: "{CURRENT_UV}"$', following), path
             total += 1
+    assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
     assert total >= 15  # all CI and manual/research workflows
 
 

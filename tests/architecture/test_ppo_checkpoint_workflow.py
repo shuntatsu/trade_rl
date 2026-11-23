@@ -131,7 +131,7 @@ def test_manual_checkpoint_is_new_lineage_only_on_exact_cached_python() -> None:
     assert "Python/3.12.16/x64/bin/python" in workflow[cached:setup]
     assert "3.12.16" in workflow[cached:setup]
     assert "sys.version_info[:3] == (3, 12, 16)" in workflow[runtime:sync]
-    assert "grep -Eq" in workflow[runtime:sync]
+    assert r"grep -Eq '^uv 0\.13\.9([[:space:]]|$)'" in workflow[runtime:sync]
     assert "sys.version_info[:3] == (3, 12, 16)" in workflow[installed:transport]
     assert "uv run --no-sync python" in workflow[installed:transport]
     assert "UV_PYTHON_PREFERENCE: only-system" in workflow

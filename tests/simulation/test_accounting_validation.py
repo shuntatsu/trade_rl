@@ -953,3 +953,162 @@ def test_book_constructor_rejects_opaque_array_like_mask_adapter() -> None:
 def test_ordinary_other_numeric_sequences_remain_valid(wrapper: object) -> None:
     book = BookState.zero(2, 1_000.0, wrapper([100.0, 50.0]))
     np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+class _DuckVector:
+    """An indexable NumPy input that is not a registered ABC Sequence."""
+
+    def __init__(self, values: object) -> None:
+        self.values = values
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+    def __getitem__(self, index: int) -> object:
+        return self.values[index]
+
+
+class _ArrayInterfaceVector:
+    def __init__(self) -> None:
+        self.values = np.array([100.0, 50.0], dtype=np.float64)
+        self.mask = np.array([True, False])
+
+    @property
+    def __array_interface__(self) -> dict[str, object]:
+        return {**self.values.__array_interface__, "mask": self.mask}
+
+
+class _ArrayStructVector:
+    def __init__(self) -> None:
+        self.values = np.array([100.0, 50.0], dtype=np.float64)
+        self.mask = np.array([True, False])
+
+    @property
+    def __array_struct__(self) -> object:
+        return self.values.__array_struct__
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_duck_sequence_rejects_nested_masked_prices(nested: bool) -> None:
+    # NumPy consumes __len__/__getitem__ even without Sequence registration.
+    wrapped = _DuckVector([np.ma.array([100.0, 50.0], mask=[True, False])])
+    value = [wrapped] if nested else wrapped
+    with pytest.raises(ValueError, match="masked"):
+        BookState.zero(2, 1_000.0, value)
+
+
+@pytest.mark.parametrize("wrapper", (_ArrayInterfaceVector, _ArrayStructVector))
+@pytest.mark.parametrize("nested", [False, True])
+def test_custom_numpy_buffer_protocols_refused_before_conversion(
+    wrapper: object, nested: bool
+) -> None:
+    value = [wrapper()] if nested else wrapper()
+    with pytest.raises(ValueError, match="opaque array-like"):
+        BookState.zero(2, 1_000.0, value)
+
+
+def test_settlement_refuses_duck_masked_recovery_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1_100.0,
+    )
+    prior = book.clone()
+    masked = _DuckVector([np.ma.array([0.5, 1.0], mask=[True, False])])
+    with pytest.raises(ValueError, match="masked"):
+        book.settle_positions(
+            mask=np.array([True, False]),
+            prices=np.array([100.0, 50.0]),
+            recovery=masked,
+        )
+    _assert_cash_and_inventory_unchanged(book, prior)
+    assert book.termination_reason == prior.termination_reason
+
+
+def test_numeric_duck_sequence_retains_prior_admission() -> None:
+    book = BookState.zero(2, 1_000.0, _DuckVector([100.0, 50.0]))
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+def test_nested_dynamic_sequence_keeps_visited_ancestors_alive() -> None:
+    import weakref
+
+    class DynamicVector:
+        def __init__(self, depth: int, parent: "DynamicVector | None" = None) -> None:
+            self.depth = depth
+            self.parent = weakref.ref(parent) if parent is not None else None
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, index: int) -> object:
+            if index != 0:
+                raise IndexError(index)
+            if self.parent is not None and self.parent() is None:
+                raise AssertionError("sequence ancestor released before validation")
+            if self.depth > 0:
+                return DynamicVector(self.depth - 1, self)
+            return np.ma.array([100.0, 50.0], mask=[True, False])
+
+    with pytest.raises(ValueError, match="masked"):
+        BookState.zero(2, 1_000.0, DynamicVector(16))
+
+
+def test_opaque_interface_probe_error_is_fail_closed() -> None:
+    class BrokenInterface:
+        @property
+        def __array_interface__(self) -> object:
+            raise RuntimeError("buffer metadata cannot be inspected")
+
+    with pytest.raises(ValueError, match="opaque"):
+        BookState.zero(2, 1_000.0, BrokenInterface())
+
+
+def test_duck_numeric_vector_uses_single_checked_snapshot() -> None:
+    class SwitchingVector:
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, index: int) -> object:
+            if index != 0:
+                raise IndexError(index)
+            self.reads += 1
+            if self.reads == 1:
+                return [100.0, 50.0]
+            # A second read would expose masked data and was silently cast.
+            return np.ma.array([100.0, 50.0], mask=[True, False])
+
+    input_values = SwitchingVector()
+    book = BookState.zero(2, 1_000.0, input_values)
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+    assert input_values.reads == 1
+
+
+def test_shared_sequence_reference_keeps_numeric_array_semantics() -> None:
+    shared = _DuckVector([100.0])
+    book = BookState.zero(2, 1_000.0, [shared, shared])
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 100.0])
+
+
+@pytest.mark.parametrize("kind", ("list", "object_array"))
+def test_cyclic_numeric_container_is_refused_before_cast(kind: str) -> None:
+    if kind == "list":
+        values: list[object] = []
+        values.append(values)
+        input_values: object = values
+    else:
+        object_array = np.empty(1, dtype=object)
+        object_array[0] = object_array
+        input_values = object_array
+    with pytest.raises(ValueError, match="cyclic"):
+        BookState.zero(2, 1_000.0, input_values)
+
+
+def test_normal_numeric_object_array_still_converts_to_prices() -> None:
+    prices = np.array([100.0, 50.0], dtype=object)
+    book = BookState.zero(2, 1_000.0, prices)
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])

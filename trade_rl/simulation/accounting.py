@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections import deque
-from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
+from typing import Protocol, TypeGuard
 
 import numpy as np
 
@@ -33,53 +32,86 @@ class EconomicTerminationReason(str, Enum):
     INSOLVENCY = "insolvency"
 
 
+class _IndexableContainer(Protocol):
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> object: ...
+
+
+def _is_indexable_container(value: object) -> TypeGuard[_IndexableContainer]:
+    # NumPy accepts duck-typed __getitem__ sequences without ABC registration.
+    return (
+        not isinstance(value, (str, bytes, bytearray))
+        and callable(getattr(type(value), "__len__", None))
+        and callable(getattr(type(value), "__getitem__", None))
+    )
+
+
+def _has_opaque_numpy_protocol(value: object) -> bool:
+    # __array_interface__/__array_struct__ can conceal masks like __array__.
+    try:
+        return any(
+            hasattr(value, name)
+            for name in ("__array__", "__array_interface__", "__array_struct__")
+        )
+    except Exception as exc:
+        # An inaccessible user-defined buffer descriptor is not trustworthy.
+        raise ValueError("opaque array-like protocol cannot be inspected") from exc
+
+
+def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
+    # Snapshot each index once; casting the original dynamic container could
+    # fetch a masked value after the validator observed an unmasked value.
+    root: list[object] = [None]
+    pending: list[tuple[object, list[object] | None, int]] = [(value, root, 0)]
+    active: dict[int, object] = {}
+    while pending:
+        item, parent, index = pending.pop()
+        if parent is None:
+            active.pop(id(item), None)
+            continue
+        if np.ma.isMaskedArray(item):
+            raise ValueError(f"{field_name} must not contain a masked array")
+        if isinstance(item, np.ndarray):
+            if item.dtype.kind != "O":
+                parent[index] = np.asarray(item).copy()
+                continue
+            if id(item) in active:
+                raise ValueError(f"{field_name} must not contain cyclic arrays")
+            active[id(item)] = item
+            pending.append((item, None, 0))
+            pending.append((item.tolist(), parent, index))
+            continue
+        if isinstance(item, np.generic):
+            parent[index] = item
+            continue
+        if _has_opaque_numpy_protocol(item):
+            raise ValueError(f"{field_name} must not contain opaque array-like values")
+        if _is_indexable_container(item):
+            if id(item) in active:
+                raise ValueError(f"{field_name} must not contain cyclic sequences")
+            active[id(item)] = item
+            children = [item[pos] for pos in range(len(item))]
+            snapshot: list[object] = [None] * len(children)
+            parent[index] = snapshot
+            pending.append((item, None, 0))
+            for pos in range(len(children) - 1, -1, -1):
+                pending.append((children[pos], snapshot, pos))
+            continue
+        parent[index] = item
+    return root[0]
+
+
 def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
-    # np.asarray(MaskedArray) discards its missingness metadata and admits
-    # hidden values as financial quantities or prices. Reject before casting.
+    # Native numeric ndarrays retain the original no-element-walk fast path.
     if np.ma.isMaskedArray(value):
         raise ValueError(f"{field_name} must not be a masked array")
-    # Sequence wrappers and object arrays may hide masked values at any depth.
-    # Opaque __array__ adapters cannot attest to masks before conversion, so
-    # refuse them rather than trusting a conversion that can strip missingness.
-    # Ordinary numeric ndarrays retain the common no-walk fast path.
-    is_sequence = isinstance(value, (Sequence, deque)) and not isinstance(
-        value, (str, bytes, bytearray)
+    checked = (
+        value
+        if isinstance(value, np.ndarray) and value.dtype.kind != "O"
+        else _checked_vector_snapshot(value, field_name=field_name)
     )
-    if (
-        is_sequence
-        or (isinstance(value, np.ndarray) and value.dtype.kind == "O")
-        or (
-            not isinstance(value, (np.ndarray, np.generic))
-            and callable(getattr(type(value), "__array__", None))
-        )
-    ):
-        pending: list[object] = [value]
-        seen: set[int] = set()
-        while pending:
-            item = pending.pop()
-            if np.ma.isMaskedArray(item):
-                raise ValueError(f"{field_name} must not contain a masked array")
-            if isinstance(item, np.ndarray):
-                if item.dtype.kind != "O":
-                    continue
-                elements: Iterable[object] = item.flat
-            elif isinstance(item, np.generic):
-                continue
-            elif callable(getattr(type(item), "__array__", None)):
-                raise ValueError(
-                    f"{field_name} must not contain opaque array-like values"
-                )
-            elif isinstance(item, (Sequence, deque)) and not isinstance(
-                item, (str, bytes, bytearray)
-            ):
-                elements = item
-            else:
-                continue
-            if id(item) in seen:
-                continue
-            seen.add(id(item))
-            pending.extend(elements)
-    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+    vector = np.asarray(checked, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")
     return vector

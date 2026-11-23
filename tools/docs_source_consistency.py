@@ -210,6 +210,21 @@ def _verify_asof_equity(full: object, truncated: object, observed_rows: int) -> 
         )
 
 
+def _verified_no_notice_refusal(module: object, problems: list[str]) -> bool:
+    """Only treat a no-notice data refusal as safe when it yields INVALID."""
+    if not any("no notice" in reason.lower() for reason in problems):
+        return False
+    from typing import Any
+
+    model: Any = module
+    decision = model.decide("BREADTH", {}, problems)
+    if decision.get("label") != model.LABEL_INVALID:
+        raise ContractViolation(
+            "trend_breadth: a no-notice stage problem must yield INVALID"
+        )
+    return True
+
+
 def check_breadth_asof(root: Path) -> bool:
     """Assert no past settlement can be inferred from later absent trading hours.
 
@@ -254,7 +269,7 @@ def check_breadth_asof(root: Path) -> bool:
     # stage error, it must do so before a replay or any receipt publication.
     # Otherwise, the two as-of-equivalent prefixes must reconcile.
     problems = module.panel_problems(full_panel, info)
-    if any("no notice" in problem.lower() for problem in problems):
+    if _verified_no_notice_refusal(module, problems):
         return True
 
     period = len(prior_panel.times)

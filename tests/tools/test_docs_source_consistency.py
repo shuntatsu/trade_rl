@@ -188,3 +188,22 @@ def test_asof_equity_oracle_rejects_only_future_dependent_marks() -> None:
         _verify_asof_equity([1.0, 1.0, 0.975], [1.0, 1.0, 1.0], 2)
     with pytest.raises(ContractViolation, match="noncausal no-notice"):
         _verify_asof_equity([1.0, 1.0], [1.0, 1.0, 1.0], 2)
+
+
+def test_no_notice_exemption_requires_actual_invalid_decision() -> None:
+    from types import SimpleNamespace
+
+    from tools.docs_source_consistency import _verified_no_notice_refusal
+
+    good = SimpleNamespace(
+        LABEL_INVALID="INVALID",
+        decide=lambda _stage, _cells, _problems: {"label": "INVALID"},
+    )
+    assert _verified_no_notice_refusal(good, ["no notice at delisting"])
+    assert not _verified_no_notice_refusal(good, ["other data gap"])
+    bad = SimpleNamespace(
+        LABEL_INVALID="INVALID",
+        decide=lambda _stage, _cells, _problems: {"label": "SUPPORTED"},
+    )
+    with pytest.raises(ContractViolation, match="must yield INVALID"):
+        _verified_no_notice_refusal(bad, ["no notice at delisting"])

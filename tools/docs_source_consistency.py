@@ -311,7 +311,7 @@ def _verify_asof_equity(full: object, truncated: object, observed_rows: int) -> 
 
 
 def _verified_no_notice_refusal(module: object, problems: list[str]) -> bool:
-    """Only treat a no-notice data refusal as safe when it yields INVALID."""
+    """Check the no-notice label; it never exempts the as-of equity oracle."""
     if not any("no notice" in reason.lower() for reason in problems):
         return False
     from typing import Any
@@ -369,8 +369,9 @@ def check_breadth_asof(root: Path) -> bool:
     # stage error, it must do so before a replay or any receipt publication.
     # Otherwise, the two as-of-equivalent prefixes must reconcile.
     problems = module.panel_problems(full_panel, info)
-    if _verified_no_notice_refusal(module, problems):
-        return True
+    # An INVALID decision for empty cells does not prove the actual stage
+    # refuses before replay or capital release. Always check the as-of account.
+    _verified_no_notice_refusal(module, problems)
 
     period = len(prior_panel.times)
     for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):

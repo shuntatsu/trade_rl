@@ -269,3 +269,69 @@ def test_no_notice_exemption_requires_actual_invalid_decision() -> None:
     )
     with pytest.raises(ContractViolation, match="must yield INVALID"):
         _verified_no_notice_refusal(bad, ["no notice at delisting"])
+
+
+@pytest.mark.parametrize("future_changes_past", [True, False])
+def test_no_notice_invalid_on_empty_cells_never_exempts_asof_equity_oracle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    future_changes_past: bool,
+) -> None:
+    """An INVALID label from empty cells is not a real stage/refusal oracle."""
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    import numpy as np
+
+    from tools.docs_source_consistency import check_breadth_asof
+
+    source = tmp_path / "tools/trend_breadth.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# synthetic stage stub\n", encoding="utf-8")
+    spec = tmp_path / "docs/specs/trend-breadth.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("synthetic stub\n", encoding="utf-8")
+
+    fake = ModuleType("tools.trend_breadth")
+    fake.__file__ = str(source)
+    fake.LABEL_INVALID = "INVALID"  # type: ignore[attr-defined]
+    fake.Stage = lambda *_: None  # type: ignore[attr-defined]
+
+    def build_panel(bars, *_):
+        rows = len(bars["ZZZUSDT"]["close"])
+        panel = SimpleNamespace(bars=rows, times=tuple(range(rows)))
+        for field in ("close", "mark_px", "fill_qv", "regime", "vol", "fund", "forced"):
+            setattr(panel, field, np.ones(rows))
+        return panel, {}
+
+    fake.build_panel = build_panel  # type: ignore[attr-defined]
+    fake.panel_problems = lambda *_: ["no notice at delisting"]  # type: ignore[attr-defined]
+
+    def decide(cells, _problems):
+        return {"label": "INVALID" if not cells else "SUPPORTED"}
+
+    fake.decide = decide  # type: ignore[attr-defined]
+    assert decide({}, ["no notice at delisting"])["label"] == "INVALID"
+    assert (
+        decide({"asof": "eligible"}, ["no notice at delisting"])["label"] == "SUPPORTED"
+    )
+
+    simulated: list[int] = []
+
+    def simulate_weights(panel, *_):
+        simulated.append(panel.bars)
+        equity = np.full(panel.bars + 1, 1_000.0)
+        if future_changes_past and panel.bars == 72:
+            equity[48] -= 25.0  # future observation retroactively changes past cash
+        return {"valid": True, "equity": equity}
+
+    fake.simulate_weights = simulate_weights  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tools.trend_breadth", fake)
+
+    if future_changes_past:
+        with pytest.raises(ContractViolation, match="noncausal no-notice"):
+            check_breadth_asof(tmp_path)
+    else:
+        assert check_breadth_asof(tmp_path) is True
+    # Both histories must be inspected before no-notice can be called safe.
+    assert simulated == [72, 48]

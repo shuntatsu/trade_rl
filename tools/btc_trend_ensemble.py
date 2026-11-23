@@ -25,7 +25,14 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.integrations.binance.source_clock import (
+    BinanceSourceClosePolicy,
+    _check_source_close_time,
+    _native_timestamp,
+)
+
 PROTOCOL_ID = "btc_trend_ensemble_v1"
+SOURCE_CLOSE_POLICY = BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2
 
 # ----------------------------------------------------------------------------- rule constants
 
@@ -136,6 +143,7 @@ def sha256_file(path: Path) -> str:
 def _constants() -> dict[str, Any]:
     return {
         "protocol_id": PROTOCOL_ID,
+        "source_close_policy": SOURCE_CLOSE_POLICY.value,
         "lookbacks": list(LOOKBACKS),
         "vol_window": VOL_WINDOW,
         "target_vol": TARGET_VOL,
@@ -449,11 +457,35 @@ def parse_binance(payload: Any) -> list[tuple[int, float]]:
     rows: list[tuple[int, float]] = []
     for it in payload:
         try:
-            open_ms, close = int(it[0]), float(it[4])
+            source_open = _native_timestamp(it[0])
+            close = float(it[4])
         except (IndexError, KeyError, TypeError, ValueError):
             raise SystemExit("malformed Binance klines row") from None
+        # The only forward feed is Binance spot native ms/us. Normalize the
+        # opening before comparing the exact source close in its native unit.
+        if source_open >= 10**15:
+            if source_open % 1000:
+                raise SystemExit(
+                    "malformed Binance source close_time: unaligned us open"
+                )
+            open_ms = source_open // 1000
+        else:
+            open_ms = source_open
         if open_ms % 1000:
             raise SystemExit(f"Binance open time {open_ms} is not whole seconds")
+        if open_ms % (DAY_S * 1000):
+            raise SystemExit(
+                "malformed Binance source close_time: not a UTC day boundary"
+            )
+        try:
+            _check_source_close_time(
+                it,
+                open_ms=open_ms,
+                interval_ms=DAY_S * 1000,
+                source_close_policy=SOURCE_CLOSE_POLICY,
+            )
+        except (IndexError, KeyError, TypeError, ValueError) as error:
+            raise SystemExit(f"malformed Binance source close_time: {error}") from None
         rows.append((open_ms // 1000, close))
     return rows
 

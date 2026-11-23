@@ -15,7 +15,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "196d6a4b4e1bead0524de25430553ef26ecbee18f68c3e35cb779261c84697c8"
+DIGEST_PIN = "3b80241e7b36edd0509daf92a098f1cc11271b000c0f317d3138ab3d8fc9c47b"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -30,6 +30,7 @@ def test_digest_pin() -> None:
 
 def test_constants_frozen() -> None:
     assert m.PROTOCOL_ID == "btc_trend_ensemble_v1"
+    assert m.SOURCE_CLOSE_POLICY.value == "strict_source_close_v2"
     assert m.LOOKBACKS == (30, 50, 75, 100, 150, 200)
     assert (m.VOL_WINDOW, m.TARGET_VOL, m.DEADBAND) == (30, 0.20, 0.05)
     assert (m.EARLY_STOP_DD, m.MAX_DD, m.MIN_SHARPE) == (0.25, 0.25, 0.5)
@@ -911,3 +912,85 @@ def test_every_representable_executed_btc_fill_is_counted() -> None:
     assert result["valid"]
     assert result["trades"] == 2
     assert result["turnover"] > 0.5
+
+
+# Binance spot forward source-clock regression only; Bitstamp BACKCAST is unaffected.
+@pytest.mark.parametrize(
+    ("native_unit", "close_shift"),
+    [
+        (1, -m.DAY_S * 1000),
+        (1, -1),
+        (1, 1),
+        (1000, -1),
+        (1000, 1),
+    ],
+)
+def test_binance_daily_refuses_premature_or_offbyone_source_close(
+    native_unit: int,
+    close_shift: int,
+) -> None:
+    source_open_ms = 1735689600000  # 2025-01-01 UTC
+    row = _binance([date(2025, 1, 1)])[0]
+    row[0] = source_open_ms * native_unit
+    row[6] = (source_open_ms + m.DAY_S * 1000) * native_unit - 1 + close_shift
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_binance([row])
+
+
+@pytest.mark.parametrize(("open_unit", "close_unit"), [(1, 1000), (1000, 1)])
+def test_binance_daily_refuses_mixed_native_timestamp_units(
+    open_unit: int,
+    close_unit: int,
+) -> None:
+    source_open_ms = 1735689600000
+    row = _binance([date(2025, 1, 1)])[0]
+    row[0] = source_open_ms * open_unit
+    row[6] = (source_open_ms + m.DAY_S * 1000) * close_unit - 1
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_binance([row])
+
+
+@pytest.mark.parametrize("native_unit", [1, 1000])
+def test_binance_daily_accepts_exact_source_end_and_normalizes_to_seconds(
+    native_unit: int,
+) -> None:
+    source_open_ms = 1735689600000
+    row = _binance([date(2025, 1, 1)])[0]
+    row[0] = source_open_ms * native_unit
+    row[6] = (source_open_ms + m.DAY_S * 1000) * native_unit - 1
+    assert m.parse_binance([row]) == [(source_open_ms // 1000, 100.5)]
+
+
+@pytest.mark.parametrize("bad", [None, 2.5, "1735775999999.0", -1])
+def test_binance_daily_refuses_non_native_source_close(bad: object) -> None:
+    row = _binance([date(2025, 1, 1)])[0]
+    row[6] = bad
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_binance([row])
+
+
+def test_binance_daily_rejected_source_close_is_not_silently_filled(
+    tmp_path: Path,
+) -> None:
+    row = _binance([date(2025, 1, 1)])[0]
+    row[6] = row[0] - 1
+    body = json.dumps([row]).encode()
+    with pytest.raises(SystemExit, match="close_time"):
+        m.fetch_daily(
+            "binance",
+            date(2025, 1, 1),
+            date(2025, 1, 1),
+            tmp_path / "raw",
+            lambda _url: body,
+        )
+    assert (tmp_path / "raw" / "binance_000.json").read_bytes() == body
+
+
+@pytest.mark.parametrize(
+    "bad_open", [True, "1735689600000.0", 1735693200000, 1735689600000001]
+)
+def test_binance_daily_rejects_invalid_native_open(bad_open: object) -> None:
+    row = _binance([date(2025, 1, 1)])[0]
+    row[0] = bad_open
+    with pytest.raises(SystemExit, match="malformed|UTC day boundary"):
+        m.parse_binance([row])

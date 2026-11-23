@@ -2,7 +2,7 @@
 
 Status: **HOLD / unreviewed accounting correction (2026-11-22)**. This source has not been independently approved for economic execution. The original BACKCAST attempt fetched some raw closes but refused before any exposure, return, drawdown or label. No FORWARD result exists.
 
-Protocol digest: `196d6a4b4e1bead0524de25430553ef26ecbee18f68c3e35cb779261c84697c8`
+Protocol digest: `3b80241e7b36edd0509daf92a098f1cc11271b000c0f317d3138ab3d8fc9c47b`
 
 ## Question
 
@@ -55,6 +55,7 @@ All quantities are computed at the close of UTC day t from closes up to and incl
 | FORWARD | Binance BTCUSDT spot daily klines, public API `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d` | 2026-05-01 | 2026-11-23 to 2027-11-22 | decisive, prospective |
 
 - **Daily bars:** a daily bar is the UTC day.
+- **Source candle finality (Binance FORWARD only):** every raw 1d Binance kline must pass versioned `STRICT_SOURCE_CLOSE_V2` source-clock admission: native open/close timestamps in the same unit (ms or microseconds), aligned UTC midnight open, and exact native close `(normalized_open_ms + 86400000) * unit - 1`. Missing, premature, shifted or mixed-unit source closes abort the page before daily close admission. Valid microsecond times are normalized to seconds only AFTER preserving microsecond close precision; no 'source says not final' candle may become a completed signal. Raw page bytes stay write-once and hashed even when validation fails. Bitstamp BACKCAST parsing and frozen historical evidence are unchanged.
 - **Missing days:** a missing day or a non-positive close refuses the run. No fill is applied.
 - **Fetched data:** raw responses are cached and hashed in the receipt.
 - **FORWARD interims:** FORWARD interim reports, labelled `INTERIM_NOT_A_DECISION`, may run monthly. An interim stops the line (`STOPPED_EARLY`) if `TREND__BASE` max DD is 25% or more.

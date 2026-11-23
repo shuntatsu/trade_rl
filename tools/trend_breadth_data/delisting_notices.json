@@ -1,0 +1,1654 @@
+{
+ "articles_scanned": 6642,
+ "catalogs": [
+  161,
+  49,
+  48,
+  157
+ ],
+ "details_fetched": 205,
+ "entries": [
+  {
+   "article_code": "2f1a743334f044abbd82e34093c7b771",
+   "kind": "delist",
+   "release_utc": "2026-10-01T02:45:13.435Z",
+   "symbol": "1000000BOBUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-10-05)"
+  },
+  {
+   "article_code": "4baf8d70485c46e38637bd063c58c4d8",
+   "kind": "delist",
+   "release_utc": "2022-04-04T05:21:50.096Z",
+   "symbol": "1000BTTCUSDT",
+   "title": "Binance Futures Will Delist 1000BTTC and YFII USDT-Margined Contracts"
+  },
+  {
+   "article_code": "f6ebc17e4dbd451b873d9ef25c801237",
+   "kind": "delist",
+   "release_utc": "2026-03-13T14:14:19.653Z",
+   "symbol": "1000WHYUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M and COIN-M Perpetual Contracts (2026-03-17 & 2026-03-18)"
+  },
+  {
+   "article_code": "869c1c15564048e29ae6139578637cd4",
+   "kind": "delist",
+   "release_utc": "2025-11-10T13:45:00.002Z",
+   "symbol": "1000XUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M MYROUSDT and 1000XUSDT Perpetual Contracts (2025-11-14)"
+  },
+  {
+   "article_code": "79211335d1de4f7589ad2d8780580970",
+   "kind": "delist",
+   "release_utc": "2026-01-28T10:14:09.706Z",
+   "symbol": "42USDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "A2ZUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "ACAUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "ACXUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "kind": "delist",
+   "release_utc": "2025-03-21T05:50:20.352Z",
+   "symbol": "AERGOUSDT",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "article_code": "f0e3fc835b9545759e4279c64b200389",
+   "kind": "delist",
+   "release_utc": "2026-07-21T14:15:14.244Z",
+   "symbol": "AERGOUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M AERGOUSDT Perpetual Contract (2026-07-24)"
+  },
+  {
+   "article_code": "e485541c370240adba3929fded74f269",
+   "kind": "migration",
+   "release_utc": "2024-06-14T10:30:01.961Z",
+   "symbol": "AGIXUSDT",
+   "title": "Binance Will Support the Fetch.ai (FET), Ocean Protocol (OCEAN) and SingularityNET (AGIX) Token Merge"
+  },
+  {
+   "article_code": "db54931adb044aa3b9b7997d2128757c",
+   "kind": "swap",
+   "release_utc": "2025-10-31T07:00:01.648Z",
+   "symbol": "AI16ZUSDT",
+   "title": "Binance Alpha and Binance Futures Will Support ai16z (AI16Z) Token Swap, Redenomination, and Rebranding to elizaOS (ELIZAOS) (2025-11-06)"
+  },
+  {
+   "article_code": "20eee4109e06448992f0557bf798bb36",
+   "kind": "delist",
+   "release_utc": "2025-12-11T11:43:46.582Z",
+   "symbol": "AIAUSDT",
+   "title": "Binance Futures Will Delist AIAUSDT USDⓈ-M Perpetual Contract (2025-12-11)"
+  },
+  {
+   "article_code": "ba5d61807b474b0ca9f40250e7fa782c",
+   "kind": "delist",
+   "release_utc": "2026-04-24T11:15:13.345Z",
+   "symbol": "AIUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28)"
+  },
+  {
+   "article_code": "d1cb959677034c45b5149f1d998ae2b1",
+   "kind": "delist",
+   "release_utc": "2022-05-18T10:59:25.804Z",
+   "symbol": "AKROUSDT",
+   "title": "Binance Futures Will Delist AKRO and DODO USDT-Margined Contracts"
+  },
+  {
+   "article_code": "185001cde1614f0e8987c4d39aca8639",
+   "kind": "delist",
+   "release_utc": "2022-05-26T08:58:22.627Z",
+   "symbol": "AKROUSDT",
+   "title": "Delisting of AKRO USDT-Margined Contract Postponed"
+  },
+  {
+   "article_code": "b140faee7cf9482cb10257308abda245",
+   "kind": "delist",
+   "release_utc": "2024-12-18T08:01:12.939Z",
+   "symbol": "AKROUSDT",
+   "title": "Binance Will Delist AKRO, BLZ, WRX on 2024-12-25"
+  },
+  {
+   "article_code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "kind": "delist",
+   "release_utc": "2026-06-26T09:00:15.053Z",
+   "symbol": "ALCXUSDT",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10"
+  },
+  {
+   "article_code": "0274f9d47da1437990bc13eb17b0ec99",
+   "kind": "delist",
+   "release_utc": "2025-04-24T04:00:05.257Z",
+   "symbol": "ALPACAUSDT",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02"
+  },
+  {
+   "article_code": "10fd115c29244067bd4566a70f77e327",
+   "kind": "delist",
+   "release_utc": "2025-09-17T08:45:27.976Z",
+   "symbol": "ALPHAUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M ALPHAUSDT Perpetual Contract (2025-09-23)"
+  },
+  {
+   "article_code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "kind": "delist",
+   "release_utc": "2025-02-17T07:00:24.287Z",
+   "symbol": "AMBUSDT",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24"
+  },
+  {
+   "article_code": "0bfb6cfd10aa4d26926260c0159ef58d",
+   "kind": "delist",
+   "release_utc": "2022-05-13T02:27:22.500Z",
+   "symbol": "ANCUSDT",
+   "title": "Binance Futures Will Delist USDT-Margined ANC Perpetual Contract"
+  },
+  {
+   "article_code": "0dc9c6bdb729413ba54ba68ca83403e1",
+   "kind": "rebrand",
+   "release_utc": "2026-11-15T15:15:02.043Z",
+   "symbol": "ANTHROPICUSDT",
+   "title": "Binance Futures Will Adjust The Contract Size of USDⓈ-Margined ANTHROPICUSDT Pre-IPO Perp and Rename The Ticker to USDⓈ-Margined ANTUSDT Pre-IPO Perp (2026-11-17)"
+  },
+  {
+   "article_code": "3d3ab9f06baf40b993c45a115dcf576e",
+   "kind": "rebrand",
+   "release_utc": "2026-11-17T10:15:01.203Z",
+   "symbol": "ANTHROPICUSDT",
+   "title": "Early Completion of Contract Size Adjustment on USDⓈ-Margined ANTHROPICUSDT Pre-IPO Perp and Rename to USDⓈ-Margined ANTUSDT Pre-IPO Perp (2026-11-17)"
+  },
+  {
+   "article_code": "f73b083ba6834771b07dbe5319917ae5",
+   "kind": "delist",
+   "release_utc": "2024-02-06T07:00:12.575Z",
+   "symbol": "ANTUSDT",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20"
+  },
+  {
+   "article_code": "ce74360a3fd444b2b35da7186f8dd0ad",
+   "kind": "delist",
+   "release_utc": "2024-03-25T04:40:12.437Z",
+   "symbol": "ANTUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M ANTUSDT, DGBUSDT and CTKUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "kind": "delist",
+   "release_utc": "2026-06-26T09:00:15.053Z",
+   "symbol": "ARDRUSDT",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10"
+  },
+  {
+   "article_code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "kind": "delist",
+   "release_utc": "2025-03-21T05:50:20.352Z",
+   "symbol": "ASTUSDT",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "article_code": "a42f51022cb649aea0b4cb808205fd76",
+   "kind": "delist",
+   "release_utc": "2026-05-13T08:00:04.681Z",
+   "symbol": "ATAUSDT",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "article_code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "kind": "delist",
+   "release_utc": "2024-05-08T05:00:26.574Z",
+   "symbol": "AUDIOUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "B3USDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "BADGERUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "82df1b55a0d84c288fa396d5a5cead48",
+   "kind": "delist",
+   "release_utc": "2025-09-29T11:45:19.511Z",
+   "symbol": "BAKEUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M HIFIUSDT and BAKEUSDT Perpetual Contracts (2025-10-03)"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "BALUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "f6ebc17e4dbd451b873d9ef25c801237",
+   "kind": "delist",
+   "release_utc": "2026-03-13T14:14:19.653Z",
+   "symbol": "BDXNUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M and COIN-M Perpetual Contracts (2026-03-17 & 2026-03-18)"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "BETAUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "5798be852fb5449bb438dde4166126dc",
+   "kind": "delist",
+   "release_utc": "2026-01-17T07:56:31.216Z",
+   "symbol": "BIDUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-21)"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "BIFIUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "673183dd8eea4e3cba1596dcec7565d1",
+   "kind": "delist",
+   "release_utc": "2024-03-19T05:05:02.006Z",
+   "symbol": "BLUEBIRDUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M FOOTBALLUSDT and BLUEBIRDUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "b312715afbff4d7493b77089967303b1",
+   "kind": "delist",
+   "release_utc": "2022-08-17T09:55:27.229Z",
+   "symbol": "BLZUSDT",
+   "title": "Binance Futures Will Delist USDT-Margined BLZ Perpetual Contract"
+  },
+  {
+   "article_code": "ebe08acbf4384a6fa7439e1014d6c566",
+   "kind": "delist",
+   "release_utc": "2022-08-25T03:25:00.450Z",
+   "symbol": "BLZUSDT",
+   "title": "Delisting of USDT-Margined BLZ Perpetual Contract Postponed"
+  },
+  {
+   "article_code": "b140faee7cf9482cb10257308abda245",
+   "kind": "delist",
+   "release_utc": "2024-12-18T08:01:12.939Z",
+   "symbol": "BLZUSDT",
+   "title": "Binance Will Delist AKRO, BLZ, WRX on 2024-12-25"
+  },
+  {
+   "article_code": "4d23ada51a2e4fa182835c77d51ba1a9",
+   "kind": "swap",
+   "release_utc": "2023-02-10T04:30:03.357Z",
+   "symbol": "BNXUSDT",
+   "title": "Binance Will Support the BinaryX (BNX) Token Swap and Redenomination Plan"
+  },
+  {
+   "article_code": "2f963977c7274e0583f16f2e26987b61",
+   "kind": "swap",
+   "release_utc": "2025-02-26T02:00:01.827Z",
+   "symbol": "BNXUSDT",
+   "title": "Binance Will Support the BinaryX (BNX) Token Swap and Rebranding to Four (FORM)"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "BOBUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "4ffb7170f2f84ce3a06cc0cf1a788c23",
+   "kind": "delist",
+   "release_utc": "2024-07-08T07:01:09.631Z",
+   "symbol": "BONDUSDT",
+   "title": "Binance Will Delist BOND, DOCK, MDX, POLS on 2024-07-22"
+  },
+  {
+   "article_code": "27eac260521b4f40ab331e1a345887a7",
+   "kind": "delist",
+   "release_utc": "2024-12-06T03:00:04.185Z",
+   "symbol": "BONDUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M MAVIAUSDT, OMGUSDT, and BONDUSDT Perpetual Contracts (2024-12-16)"
+  },
+  {
+   "article_code": "c95b56efd290471ba11c6cb850208d07",
+   "kind": "delist",
+   "release_utc": "2025-09-10T10:14:43.992Z",
+   "symbol": "BSWUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M BSWUSDT Perpetual Contract (2025-09-15)"
+  },
+  {
+   "article_code": "90498d8e2fec42468ec3d659bdfbb78b",
+   "kind": "delist",
+   "release_utc": "2022-08-09T02:59:19.306Z",
+   "symbol": "BTSUSDT",
+   "title": "Binance Futures Will Delist USDT-Margined BTS Perpetual Contract"
+  },
+  {
+   "article_code": "2722e6da4f5141dd9b2fb07b5b1f3f75",
+   "kind": "migration",
+   "release_utc": "2022-01-10T11:15:59.429Z",
+   "symbol": "BTTUSDT",
+   "title": "Binance Will Support the BitTorrent (BTT) Token Migration, Redenomination and Renaming Plan"
+  },
+  {
+   "article_code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "kind": "delist",
+   "release_utc": "2025-03-21T05:50:20.352Z",
+   "symbol": "BURGERUSDT",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "article_code": "dff27dc6bcbb432c902bcbea5e24ddfa",
+   "kind": "swap",
+   "release_utc": "2021-12-16T13:30:18.874Z",
+   "symbol": "BZRXUSDT",
+   "title": "Binance Will Support the bZx Protocol Token (BZRX) Token Swap & Redenomination Plan to OokiDAO Token (OOKI)"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "CHESSUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "kind": "delist",
+   "release_utc": "2025-02-17T07:00:24.287Z",
+   "symbol": "CLVUSDT",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24"
+  },
+  {
+   "article_code": "45852dc155b641bc9e1c23bc41d8ded6",
+   "kind": "swap",
+   "release_utc": "2023-05-18T04:55:04.452Z",
+   "symbol": "COCOSUSDT",
+   "title": "Binance Will Support the Cocos-BCX (COCOS) Token Swap & Rebranding Plan to COMBO (COMBO)"
+  },
+  {
+   "article_code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "kind": "delist",
+   "release_utc": "2025-03-21T05:50:20.352Z",
+   "symbol": "COMBOUSDT",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "article_code": "79211335d1de4f7589ad2d8780580970",
+   "kind": "delist",
+   "release_utc": "2026-01-28T10:14:09.706Z",
+   "symbol": "COMMONUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "article_code": "24aced8c698649d9a552a47eeead5e34",
+   "kind": "delist",
+   "release_utc": "2026-06-05T07:00:07.472Z",
+   "symbol": "COSUSDT",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "CREAMUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "ce74360a3fd444b2b35da7186f8dd0ad",
+   "kind": "delist",
+   "release_utc": "2024-03-25T04:40:12.437Z",
+   "symbol": "CTKUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M ANTUSDT, DGBUSDT and CTKUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "CTXCUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "79211335d1de4f7589ad2d8780580970",
+   "kind": "delist",
+   "release_utc": "2026-01-28T10:14:09.706Z",
+   "symbol": "CUDISUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "article_code": "3188e26f14a1464b91487abad452c04f",
+   "kind": "delist",
+   "release_utc": "2022-11-28T03:30:27.750Z",
+   "symbol": "CVCUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of CVCUSDT Perpetual Futures Contract"
+  },
+  {
+   "article_code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "kind": "delist",
+   "release_utc": "2024-05-06T05:00:17.942Z",
+   "symbol": "CVXUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "DAMUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "21551cde98784f64b374f8d50ff2a438",
+   "kind": "swap",
+   "release_utc": "2024-12-19T03:00:01.847Z",
+   "symbol": "DARUSDT",
+   "title": "Binance Will Support the Mines of Dalarnia (DAR) Token Swap and Rebranding to Dar Open Network (D)"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "DATAUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "21e399dcea734230a3c181daf5407b64",
+   "kind": "delist",
+   "release_utc": "2025-08-06T07:30:06.291Z",
+   "symbol": "DEFIUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M DEFIUSDT and MEMEFI Perpetual Contracts (2025-08-11)"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "DEGENUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "d067b373496c44a4ab8d28f3e90b66ad",
+   "kind": "delist",
+   "release_utc": "2026-04-17T09:00:06.263Z",
+   "symbol": "DEGOUSDT",
+   "title": "Binance Will Delist DEGO, DENT, TRU on 2026-04-28"
+  },
+  {
+   "article_code": "d067b373496c44a4ab8d28f3e90b66ad",
+   "kind": "delist",
+   "release_utc": "2026-04-17T09:00:06.263Z",
+   "symbol": "DENTUSDT",
+   "title": "Binance Will Delist DEGO, DENT, TRU on 2026-04-28"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "DFUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "ce74360a3fd444b2b35da7186f8dd0ad",
+   "kind": "delist",
+   "release_utc": "2024-03-25T04:40:12.437Z",
+   "symbol": "DGBUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M ANTUSDT, DGBUSDT and CTKUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "5798be852fb5449bb438dde4166126dc",
+   "kind": "delist",
+   "release_utc": "2026-01-17T07:56:31.216Z",
+   "symbol": "DMCUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-21)"
+  },
+  {
+   "article_code": "d1cb959677034c45b5149f1d998ae2b1",
+   "kind": "delist",
+   "release_utc": "2022-05-18T10:59:25.804Z",
+   "symbol": "DODOUSDT",
+   "title": "Binance Futures Will Delist AKRO and DODO USDT-Margined Contracts"
+  },
+  {
+   "article_code": "b2871bc40ea84e639c2d63b048403b69",
+   "kind": "delist",
+   "release_utc": "2021-02-05T06:43:31.638Z",
+   "symbol": "DOTECOUSDT",
+   "title": "Binance Futures Will Delist DOTECO USDT-Margined Contract"
+  },
+  {
+   "article_code": "24aced8c698649d9a552a47eeead5e34",
+   "kind": "delist",
+   "release_utc": "2026-06-05T07:00:07.472Z",
+   "symbol": "DUSDT",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "ELFUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "1e89a9ca957c4b0ca7502e60b993e201",
+   "kind": "swap",
+   "release_utc": "2025-05-14T09:00:01.586Z",
+   "symbol": "EOSUSDT",
+   "title": "Binance Will Support the EOS (EOS) Token Swap and Rebranding to Vaulta (A)"
+  },
+  {
+   "article_code": "290a660c0b2e4e888c582cd29ecf9ecc",
+   "kind": "delist",
+   "release_utc": "2026-10-14T06:00:08.049Z",
+   "symbol": "EPICUSDT",
+   "title": "Binance Will Delist EPIC, QUICK on 2026-10-28"
+  },
+  {
+   "article_code": "79211335d1de4f7589ad2d8780580970",
+   "kind": "delist",
+   "release_utc": "2026-01-28T10:14:09.706Z",
+   "symbol": "EPTUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-30)"
+  },
+  {
+   "article_code": "a42f51022cb649aea0b4cb808205fd76",
+   "kind": "delist",
+   "release_utc": "2026-05-13T08:00:04.681Z",
+   "symbol": "FARMUSDT",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "article_code": "e485541c370240adba3929fded74f269",
+   "kind": "migration",
+   "release_utc": "2024-06-14T10:30:01.961Z",
+   "symbol": "FETUSDT",
+   "title": "Binance Will Support the Fetch.ai (FET), Ocean Protocol (OCEAN) and SingularityNET (AGIX) Token Merge"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "FIOUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "FIROUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "kind": "delist",
+   "release_utc": "2025-12-05T10:32:50.574Z",
+   "symbol": "FISUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "article_code": "6392491d998b4cbaa6d4beee0fd898c6",
+   "kind": "delist",
+   "release_utc": "2025-11-18T04:01:13.736Z",
+   "symbol": "FLMUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-21)"
+  },
+  {
+   "article_code": "673183dd8eea4e3cba1596dcec7565d1",
+   "kind": "delist",
+   "release_utc": "2024-03-19T05:05:02.006Z",
+   "symbol": "FOOTBALLUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M FOOTBALLUSDT and BLUEBIRDUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "FORTHUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "3ab5488a00e04d4fb338c77ea28326a8",
+   "kind": "swap",
+   "release_utc": "2024-08-19T11:00:20.299Z",
+   "symbol": "FRONTUSDT",
+   "title": "Binance Will Support the Frontier (FRONT) Token Swap and Rebranding to Self Chain (SLF)"
+  },
+  {
+   "article_code": "aec6fcbc84b749eeab6690e6bcac2f3d",
+   "kind": "swap",
+   "release_utc": "2024-12-24T07:00:11.617Z",
+   "symbol": "FTMUSDT",
+   "title": "Binance Will Support the Fantom (FTM) Token Swap and Rebranding to Sonic (S)"
+  },
+  {
+   "article_code": "3b4c7c08479b48d48189191e37a7adca",
+   "kind": "delist",
+   "release_utc": "2022-11-13T09:47:18.510Z",
+   "symbol": "FTTUSDT",
+   "title": "Binance Will Delist FTT Margin Pairs, USDⓈ-M Futures Contracts and Binance Flexible Products"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "FUNUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "a17352ba70414c96882cd881591dd36d",
+   "kind": "swap",
+   "release_utc": "2025-12-26T03:00:07.655Z",
+   "symbol": "FXSUSDT",
+   "title": "Binance Will Support the Frax Share (FXS) Mainnet Swap and Rebranding to Frax (FRAX)"
+  },
+  {
+   "article_code": "27449abd481b473493b9c058350b4e2e",
+   "kind": "swap",
+   "release_utc": "2024-07-05T02:00:04.434Z",
+   "symbol": "GALUSDT",
+   "title": "Binance Will Support the Galxe (GAL) Token swap, Redenomination, and Rebranding to Gravity (G)"
+  },
+  {
+   "article_code": "131b75b63a71490393034f36de70c92c",
+   "kind": "delist",
+   "release_utc": "2024-11-26T08:30:14.278Z",
+   "symbol": "GFTUSDT",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "GHSTUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "kind": "delist",
+   "release_utc": "2024-05-08T05:00:26.574Z",
+   "symbol": "GLMRUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "HARDUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "HFTUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "82df1b55a0d84c288fa396d5a5cead48",
+   "kind": "delist",
+   "release_utc": "2025-09-29T11:45:19.511Z",
+   "symbol": "HIFIUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M HIFIUSDT and BAKEUSDT Perpetual Contracts (2025-10-03)"
+  },
+  {
+   "article_code": "24aced8c698649d9a552a47eeead5e34",
+   "kind": "delist",
+   "release_utc": "2026-06-05T07:00:07.472Z",
+   "symbol": "HIGHUSDT",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19"
+  },
+  {
+   "article_code": "97b4f3a7d02a486c8d412ada2281b907",
+   "kind": "delist",
+   "release_utc": "2026-04-03T13:59:31.078Z",
+   "symbol": "HIPPOUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "article_code": "f1a8aa29692b4442a8f18be2076e14a0",
+   "kind": "delist",
+   "release_utc": "2023-03-17T07:01:15.726Z",
+   "symbol": "HNTUSDT",
+   "title": "Binance Will Delist HNT and WABI on 2023-03-24"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "HOOKUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "af469aeeab074738bb4a276070a9d11b",
+   "kind": "delist",
+   "release_utc": "2022-06-02T10:18:15.432Z",
+   "symbol": "ICPUSDT",
+   "title": "Binance Futures Will Delist TLM and ICP USDT-Margined Contracts"
+  },
+  {
+   "article_code": "d72915ed7a60473b92f0818d959a227a",
+   "kind": "delist",
+   "release_utc": "2026-08-20T06:00:06.608Z",
+   "symbol": "ICXUSDT",
+   "title": "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03"
+  },
+  {
+   "article_code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "kind": "delist",
+   "release_utc": "2024-05-08T05:00:26.574Z",
+   "symbol": "IDEXUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "IDEXUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "043c8407bb904652a428573a50d07e07",
+   "kind": "delist",
+   "release_utc": "2024-10-23T07:00:37.062Z",
+   "symbol": "IDRTUSDT",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06"
+  },
+  {
+   "article_code": "5702f93568604ea7bfd2f4233f054bd1",
+   "kind": "delist",
+   "release_utc": "2026-06-25T17:00:06.669Z",
+   "symbol": "IPUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-Margined IPUSDT and IPUSDC Perpetual Contracts (2026-06-28)"
+  },
+  {
+   "article_code": "131b75b63a71490393034f36de70c92c",
+   "kind": "delist",
+   "release_utc": "2024-11-26T08:30:14.278Z",
+   "symbol": "IRISUSDT",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "IRUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "ebe57975b8c34e928c7d3fdacfcef32a",
+   "kind": "delist",
+   "release_utc": "2025-11-03T02:30:28.085Z",
+   "symbol": "KDAUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts"
+  },
+  {
+   "article_code": "96698a6a80f64cb1ae27f813032bfaa9",
+   "kind": "migration",
+   "release_utc": "2022-02-09T10:26:34.317Z",
+   "symbol": "KEEPUSDT",
+   "title": "Binance Will Support the NuCypher (NU) and Keep Network (KEEP) Token Merge"
+  },
+  {
+   "article_code": "131b75b63a71490393034f36de70c92c",
+   "kind": "delist",
+   "release_utc": "2024-11-26T08:30:14.278Z",
+   "symbol": "KEYUSDT",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "article_code": "f75f933759ee49d0af1dfbce7e32144c",
+   "kind": "rebrand",
+   "release_utc": "2024-10-16T08:00:03.464Z",
+   "symbol": "KLAYUSDT",
+   "title": "Binance Will Support the Kaia (KLAY) Rebranding to Kaia (KAIA)"
+  },
+  {
+   "article_code": "043c8407bb904652a428573a50d07e07",
+   "kind": "delist",
+   "release_utc": "2024-10-23T07:00:37.062Z",
+   "symbol": "KP3RUSDT",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06"
+  },
+  {
+   "article_code": "17595222999545348c8acdd5dc41c00a",
+   "kind": "swap",
+   "release_utc": "2020-10-03T10:59:24.759Z",
+   "symbol": "LENDUSDT",
+   "title": "Aave (LEND) Token Swap to AAVE Will Be Supported on Binance With Various Service Updates & Settlements"
+  },
+  {
+   "article_code": "d5fc5fdda5c74e3e8780050ed0841267",
+   "kind": "delist",
+   "release_utc": "2025-08-29T11:00:12.480Z",
+   "symbol": "LEVERUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M LEVERUSDT Perpetual Contract (2025-09-03)"
+  },
+  {
+   "article_code": "db7ad1c7aa6248cda735102cdcdc4b8d",
+   "kind": "delist",
+   "release_utc": "2025-03-21T05:50:20.352Z",
+   "symbol": "LINAUSDT",
+   "title": "Binance Will Delist AERGO, AST, BURGER, COMBO, LINA on 2025-03-28"
+  },
+  {
+   "article_code": "2a9feaa556f74dcdaa2192366f0e247c",
+   "kind": "swap",
+   "release_utc": "2025-01-22T09:00:01.361Z",
+   "symbol": "LITUSDT",
+   "title": "Binance Will Support the Litentry (LIT) Token Swap and Rebranding to Heima (HEI)"
+  },
+  {
+   "article_code": "551eeaf9861c47b8ad3482f45abf3f38",
+   "kind": "swap",
+   "release_utc": "2025-07-10T09:00:04.118Z",
+   "symbol": "LOKAUSDT",
+   "title": "Binance Will Support the League of Kingdoms (LOKA) Token Swap and Rebranding to Arena-Z (A2Z)"
+  },
+  {
+   "article_code": "e2fcd2c945654c8d832395335429403e",
+   "kind": "delist",
+   "release_utc": "2024-08-12T07:00:11.329Z",
+   "symbol": "LOOMUSDT",
+   "title": "Binance Will Delist CVP, EPX, FOR, LOOM, REEF, VGX on 2024-08-26"
+  },
+  {
+   "article_code": "cfe97d52a8c840d3ba631835b637e9e7",
+   "kind": "delist",
+   "release_utc": "2024-11-29T04:00:01.809Z",
+   "symbol": "LOOMUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M XEMUSDT, ORBSUSDT and LOOMUSDT Perpetual Contracts (2024-12-09)"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "LRCUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "ef3ce76d5c2d45ee9b6dc3f281cde744",
+   "kind": "delist",
+   "release_utc": "2022-05-12T14:59:01.271Z",
+   "symbol": "LUNAUSDT",
+   "title": "Binance Futures Will Delist LUNA USDT-Margined Contract"
+  },
+  {
+   "article_code": "6a6de383727f4659a3050f7982e1620f",
+   "kind": "swap",
+   "release_utc": "2024-08-28T09:00:07.402Z",
+   "symbol": "MATICUSDT",
+   "title": "Binance Will Support the Polygon (MATIC) Token Swap to Polygon (POL)"
+  },
+  {
+   "article_code": "27eac260521b4f40ab331e1a345887a7",
+   "kind": "delist",
+   "release_utc": "2024-12-06T03:00:04.185Z",
+   "symbol": "MAVIAUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M MAVIAUSDT, OMGUSDT, and BONDUSDT Perpetual Contracts (2024-12-16)"
+  },
+  {
+   "article_code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "kind": "delist",
+   "release_utc": "2024-05-06T05:00:17.942Z",
+   "symbol": "MBLUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "24aced8c698649d9a552a47eeead5e34",
+   "kind": "delist",
+   "release_utc": "2026-06-05T07:00:07.472Z",
+   "symbol": "MBOXUSDT",
+   "title": "Binance Will Delist COS, D, HIGH, MBOX on 2026-06-19"
+  },
+  {
+   "article_code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "kind": "delist",
+   "release_utc": "2024-05-08T05:00:26.574Z",
+   "symbol": "MDTUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "MDTUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "746056ce732d43dda12c1e5ae1b7a059",
+   "kind": "delist",
+   "release_utc": "2025-12-01T08:14:23.757Z",
+   "symbol": "MILKUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "article_code": "c30e6891afa54651ba950f8af144f861",
+   "kind": "delist",
+   "release_utc": "2026-10-21T09:30:01.882Z",
+   "symbol": "MITOUSDT",
+   "title": "Binance Futures Will Delist PTBUSDT and MITOUSDT USDⓈ-M Perpetual Contracts (2026-10-23)"
+  },
+  {
+   "article_code": "bf29506a33a94c17a5d5a01e74e646d2",
+   "kind": "swap",
+   "release_utc": "2025-07-18T09:00:07.268Z",
+   "symbol": "MKRUSDT",
+   "title": "Binance Will Support the Maker (MKR) Token Swap, Redenomination, and Rebranding to Sky (SKY)"
+  },
+  {
+   "article_code": "a42f51022cb649aea0b4cb808205fd76",
+   "kind": "delist",
+   "release_utc": "2026-05-13T08:00:04.681Z",
+   "symbol": "MLNUSDT",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "article_code": "f73b083ba6834771b07dbe5319917ae5",
+   "kind": "delist",
+   "release_utc": "2024-02-06T07:00:12.575Z",
+   "symbol": "MULTIUSDT",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20"
+  },
+  {
+   "article_code": "869c1c15564048e29ae6139578637cd4",
+   "kind": "delist",
+   "release_utc": "2025-11-10T13:45:00.002Z",
+   "symbol": "MYROUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M MYROUSDT and 1000XUSDT Perpetual Contracts (2025-11-14)"
+  },
+  {
+   "article_code": "77d088eda9b040dc9f73bb7e57ae8e26",
+   "kind": "delist",
+   "release_utc": "2025-09-22T07:30:02.610Z",
+   "symbol": "NEIROETHUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M NEIROETHUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "article_code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "kind": "delist",
+   "release_utc": "2026-06-26T09:00:15.053Z",
+   "symbol": "NFPUSDT",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10"
+  },
+  {
+   "article_code": "87a9bdf137f348668a85575ee02b8a27",
+   "kind": "delist",
+   "release_utc": "2026-02-02T08:59:52.762Z",
+   "symbol": "NKNUSDT",
+   "title": "Binance Will Delist ACA, CHESS, DATA, DF, GHST, NKN on 2026-02-13"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "NTRNUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "NULSUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "131b75b63a71490393034f36de70c92c",
+   "kind": "delist",
+   "release_utc": "2024-11-26T08:30:14.278Z",
+   "symbol": "OAXUSDT",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "article_code": "746056ce732d43dda12c1e5ae1b7a059",
+   "kind": "delist",
+   "release_utc": "2025-12-01T08:14:23.757Z",
+   "symbol": "OBOLUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "article_code": "e485541c370240adba3929fded74f269",
+   "kind": "migration",
+   "release_utc": "2024-06-14T10:30:01.961Z",
+   "symbol": "OCEANUSDT",
+   "title": "Binance Will Support the Fetch.ai (FET), Ocean Protocol (OCEAN) and SingularityNET (AGIX) Token Merge"
+  },
+  {
+   "article_code": "97b4f3a7d02a486c8d412ada2281b907",
+   "kind": "delist",
+   "release_utc": "2026-04-03T13:59:31.078Z",
+   "symbol": "OLUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "article_code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "kind": "delist",
+   "release_utc": "2024-06-03T03:00:20.294Z",
+   "symbol": "OMGUSDT",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17"
+  },
+  {
+   "article_code": "27eac260521b4f40ab331e1a345887a7",
+   "kind": "delist",
+   "release_utc": "2024-12-06T03:00:04.185Z",
+   "symbol": "OMGUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M MAVIAUSDT, OMGUSDT, and BONDUSDT Perpetual Contracts (2024-12-16)"
+  },
+  {
+   "article_code": "eedac7aff5b849d58efda6c4b3cec01b",
+   "kind": "delist",
+   "release_utc": "2024-12-14T13:53:34.273Z",
+   "symbol": "OMGUSDT",
+   "title": "Delisting of USDⓈ-M OMGUSDT Perpetual Contract Postponed"
+  },
+  {
+   "article_code": "1e43c128806544018d3cc537a8add3f6",
+   "kind": "delist",
+   "release_utc": "2024-12-20T07:00:00.929Z",
+   "symbol": "OMGUSDT",
+   "title": "Delisting of USDⓈ-M OMGUSDT Perpetual Contract Will Be Further Postponed"
+  },
+  {
+   "article_code": "13d0a79f79ef4406963dcd7f9d1de325",
+   "kind": "swap",
+   "release_utc": "2025-09-10T03:00:01.389Z",
+   "symbol": "OMNIUSDT",
+   "title": "Binance Will Support the Omni Network (OMNI) Token Swap, Redenomination, and Rebranding to Nomina (NOM)"
+  },
+  {
+   "article_code": "4d13052b4be943f5b155cb9150ca902c",
+   "kind": "swap",
+   "release_utc": "2026-02-13T10:00:00.000Z",
+   "symbol": "OMUSDT",
+   "title": "Binance Will Support the MANTRA (OM) Token Swap, Redenomination, and Rebranding to MANTRA (MANTRA)"
+  },
+  {
+   "article_code": "043c8407bb904652a428573a50d07e07",
+   "kind": "delist",
+   "release_utc": "2024-10-23T07:00:37.062Z",
+   "symbol": "OOKIUSDT",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06"
+  },
+  {
+   "article_code": "cfe97d52a8c840d3ba631835b637e9e7",
+   "kind": "delist",
+   "release_utc": "2024-11-29T04:00:01.809Z",
+   "symbol": "ORBSUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M XEMUSDT, ORBSUSDT and LOOMUSDT Perpetual Contracts (2024-12-09)"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "OXTUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "0274f9d47da1437990bc13eb17b0ec99",
+   "kind": "delist",
+   "release_utc": "2025-04-24T04:00:05.257Z",
+   "symbol": "PDAUSDT",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02"
+  },
+  {
+   "article_code": "6392491d998b4cbaa6d4beee0fd898c6",
+   "kind": "delist",
+   "release_utc": "2025-11-18T04:01:13.736Z",
+   "symbol": "PERPUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-21)"
+  },
+  {
+   "article_code": "a42f51022cb649aea0b4cb808205fd76",
+   "kind": "delist",
+   "release_utc": "2026-05-13T08:00:04.681Z",
+   "symbol": "PHBUSDT",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "PIVXUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "a9c1a7bb97064c69a660316bff39f2bd",
+   "kind": "delist",
+   "release_utc": "2026-06-26T09:00:15.053Z",
+   "symbol": "PONDUSDT",
+   "title": "Binance Will Delist ALCX, ARDR, NFP, POND on 2026-07-10"
+  },
+  {
+   "article_code": "53998d26b57f47beb97811ec9f5e582b",
+   "kind": "delist",
+   "release_utc": "2025-11-24T13:45:11.669Z",
+   "symbol": "PONKEUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-28)"
+  },
+  {
+   "article_code": "aa3cc74779bf456e8b100304905b9cc2",
+   "kind": "delist",
+   "release_utc": "2025-11-23T05:57:34.108Z",
+   "symbol": "PORT3USDT",
+   "title": "Binance Futures Will Delist USDⓈ-M PORT3USDT Perpetual Contract (2025-11-23)"
+  },
+  {
+   "article_code": "2f1a743334f044abbd82e34093c7b771",
+   "kind": "delist",
+   "release_utc": "2026-10-01T02:45:13.435Z",
+   "symbol": "PROMPTUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-10-05)"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "PROSUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "c30e6891afa54651ba950f8af144f861",
+   "kind": "delist",
+   "release_utc": "2026-10-21T09:30:01.882Z",
+   "symbol": "PTBUSDT",
+   "title": "Binance Futures Will Delist PTBUSDT and MITOUSDT USDⓈ-M Perpetual Contracts (2026-10-23)"
+  },
+  {
+   "article_code": "97b4f3a7d02a486c8d412ada2281b907",
+   "kind": "delist",
+   "release_utc": "2026-04-03T13:59:31.078Z",
+   "symbol": "PUFFERUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "article_code": "2f1a743334f044abbd82e34093c7b771",
+   "kind": "delist",
+   "release_utc": "2026-10-01T02:45:13.435Z",
+   "symbol": "PUMPBTCUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-10-05)"
+  },
+  {
+   "article_code": "38a74ee47cdc43ebbc672e1dc6968358",
+   "kind": "rebrand",
+   "release_utc": "2025-06-10T08:30:03.096Z",
+   "symbol": "PUMPUSDT",
+   "title": "USDⓈ-Margined PUMPUSDT Perpetual Contract Will Be Renamed to USDⓈ-Margined PUMPBTCUSDT Perpetual Contract (2025-06-13)"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "PYRUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "53998d26b57f47beb97811ec9f5e582b",
+   "kind": "delist",
+   "release_utc": "2025-11-24T13:45:11.669Z",
+   "symbol": "QUICKUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-28)"
+  },
+  {
+   "article_code": "290a660c0b2e4e888c582cd29ecf9ecc",
+   "kind": "delist",
+   "release_utc": "2026-10-14T06:00:08.049Z",
+   "symbol": "QUICKUSDT",
+   "title": "Binance Will Delist EPIC, QUICK on 2026-10-28"
+  },
+  {
+   "article_code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "kind": "delist",
+   "release_utc": "2024-05-06T05:00:17.942Z",
+   "symbol": "RADUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "9a6676662bd5417c92267953f3819dd0",
+   "kind": "delist",
+   "release_utc": "2022-11-14T07:00:04.880Z",
+   "symbol": "RAYUSDT",
+   "title": "Binance Futures Will Delist RAYUSDT and SRMUSDT Perpetual Futures Contracts"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "RDNTUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "e2fcd2c945654c8d832395335429403e",
+   "kind": "delist",
+   "release_utc": "2024-08-12T07:00:11.329Z",
+   "symbol": "REEFUSDT",
+   "title": "Binance Will Delist CVP, EPX, FOR, LOOM, REEF, VGX on 2024-08-26"
+  },
+  {
+   "article_code": "572715f2d96e47769ebbb967c2a6e445",
+   "kind": "delist",
+   "release_utc": "2025-01-15T08:00:06.723Z",
+   "symbol": "REEFUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M REEFUSDT Perpetual Contract (2025-01-22)"
+  },
+  {
+   "article_code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "kind": "delist",
+   "release_utc": "2025-12-05T10:32:50.574Z",
+   "symbol": "REIUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "article_code": "131b75b63a71490393034f36de70c92c",
+   "kind": "delist",
+   "release_utc": "2024-11-26T08:30:14.278Z",
+   "symbol": "RENUSDT",
+   "title": "Binance Will Delist GFT, IRIS, KEY, OAX, REN on 2024-12-10"
+  },
+  {
+   "article_code": "97b4f3a7d02a486c8d412ada2281b907",
+   "kind": "delist",
+   "release_utc": "2026-04-03T13:59:31.078Z",
+   "symbol": "RLSUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2026-04-08 & 2026-04-09)"
+  },
+  {
+   "article_code": "d1f2ae8d99b24439a7a900caa9bb6b3b",
+   "kind": "swap",
+   "release_utc": "2024-07-10T06:30:03.071Z",
+   "symbol": "RNDRUSDT",
+   "title": "Binance Will Support the Render (RNDR) Token Swap and Rebranding to Render (RENDER)"
+  },
+  {
+   "article_code": "9ac36fb4f2ad4bf2b3b27f9c9224739c",
+   "kind": "delist",
+   "release_utc": "2026-02-05T07:14:19.503Z",
+   "symbol": "RVVUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M RVVUSDT and YALAUSDT Perpetual Contracts (2026-02-10)"
+  },
+  {
+   "article_code": "d72915ed7a60473b92f0818d959a227a",
+   "kind": "delist",
+   "release_utc": "2026-08-20T06:00:06.608Z",
+   "symbol": "SCRTUSDT",
+   "title": "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03"
+  },
+  {
+   "article_code": "6ce355dedc5d438abde7b5dc99b3a56d",
+   "kind": "delist",
+   "release_utc": "2022-06-10T10:02:22.935Z",
+   "symbol": "SCUSDT",
+   "title": "Binance Futures Will Delist USDT-Margined SC Perpetual Contract"
+  },
+  {
+   "article_code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "kind": "delist",
+   "release_utc": "2025-12-05T10:32:50.574Z",
+   "symbol": "SKATEUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "article_code": "c045753243994cfcba6a22563389e910",
+   "kind": "delist",
+   "release_utc": "2025-10-18T03:58:50.952Z",
+   "symbol": "SLERFUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M SLERFUSDT and COIN-M CHZUSD Perpetual Contracts (2025-10-20 & 2025-10-21)"
+  },
+  {
+   "article_code": "cb525a5fbb954935afc77630fc5bd0cc",
+   "kind": "delist",
+   "release_utc": "2024-05-08T05:00:26.574Z",
+   "symbol": "SLPUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M IDEXUSDT, SLPUSDT, GLMRUSDT, MDTUSDT and AUDIOUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "kind": "delist",
+   "release_utc": "2024-05-06T05:00:17.942Z",
+   "symbol": "SNTUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "SNTUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "9a6676662bd5417c92267953f3819dd0",
+   "kind": "delist",
+   "release_utc": "2022-11-14T07:00:04.880Z",
+   "symbol": "SRMUSDT",
+   "title": "Binance Futures Will Delist RAYUSDT and SRMUSDT Perpetual Futures Contracts"
+  },
+  {
+   "article_code": "0c1e8975f48d42c4b856c113926c5fdd",
+   "kind": "migration",
+   "release_utc": "2026-09-18T08:30:01.456Z",
+   "symbol": "STGUSDT",
+   "title": "Binance Will Support the Stargate Finance (STG) Token Merge to LayerZero (ZRO)"
+  },
+  {
+   "article_code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "kind": "delist",
+   "release_utc": "2025-02-17T07:00:24.287Z",
+   "symbol": "STMXUSDT",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24"
+  },
+  {
+   "article_code": "d72915ed7a60473b92f0818d959a227a",
+   "kind": "delist",
+   "release_utc": "2026-08-20T06:00:06.608Z",
+   "symbol": "STORJUSDT",
+   "title": "Binance Will Delist ICX, SCRT, STORJ on 2026-09-03"
+  },
+  {
+   "article_code": "a58cc13f78a34fbba11f00ff7144e9ee",
+   "kind": "delist",
+   "release_utc": "2024-05-06T05:00:17.942Z",
+   "symbol": "STPTUSDT",
+   "title": "Binance Futures Will Delist and Update the Leverage & Margin Tiers of USDⓈ-M STPTUSDT, SNTUSDT, MBLUSDT, RADUSDT and CVXUSDT Perpetual Contracts"
+  },
+  {
+   "article_code": "2e6eb8e644664a6ca7b6659a226c41b0",
+   "kind": "swap",
+   "release_utc": "2024-03-08T08:30:31.005Z",
+   "symbol": "STRAXUSDT",
+   "title": "Binance Will Support the Stratis (STRAX) Token Swap and Redenomination Plan"
+  },
+  {
+   "article_code": "53998d26b57f47beb97811ec9f5e582b",
+   "kind": "delist",
+   "release_utc": "2025-11-24T13:45:11.669Z",
+   "symbol": "SWELLUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-28)"
+  },
+  {
+   "article_code": "746056ce732d43dda12c1e5ae1b7a059",
+   "kind": "delist",
+   "release_utc": "2025-12-01T08:14:23.757Z",
+   "symbol": "SXPUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "article_code": "ddac99c0e5044c13a13c7c113e530e2b",
+   "kind": "delist",
+   "release_utc": "2026-03-18T09:00:08.667Z",
+   "symbol": "SXPUSDT",
+   "title": "Binance Will Delist A2Z, FORTH, HOOK, IDEX, LRC, NTRN, RDNT, SXP on 2026-04-01"
+  },
+  {
+   "article_code": "a42f51022cb649aea0b4cb808205fd76",
+   "kind": "delist",
+   "release_utc": "2026-05-13T08:00:04.681Z",
+   "symbol": "SYSUSDT",
+   "title": "Binance Will Delist ATA, FARM, MLN, PHB, SYS on 2026-05-27"
+  },
+  {
+   "article_code": "5798be852fb5449bb438dde4166126dc",
+   "kind": "delist",
+   "release_utc": "2026-01-17T07:56:31.216Z",
+   "symbol": "TANSSIUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-21)"
+  },
+  {
+   "article_code": "af469aeeab074738bb4a276070a9d11b",
+   "kind": "delist",
+   "release_utc": "2022-06-02T10:18:15.432Z",
+   "symbol": "TLMUSDT",
+   "title": "Binance Futures Will Delist TLM and ICP USDT-Margined Contracts"
+  },
+  {
+   "article_code": "746056ce732d43dda12c1e5ae1b7a059",
+   "kind": "delist",
+   "release_utc": "2025-12-01T08:14:23.757Z",
+   "symbol": "TOKENUSDT",
+   "title": "Binance Futures Will Delist Multiple Perpetual Contracts (2025-12-05)"
+  },
+  {
+   "article_code": "034eee2293964e26b915b1ec5c42972a",
+   "kind": "rebrand",
+   "release_utc": "2023-11-06T09:30:14.259Z",
+   "symbol": "TOMOUSDT",
+   "title": "Binance Will Support the TomoChain (TOMO) Rebranding to Viction (VIC)"
+  },
+  {
+   "article_code": "fe307fba935b44698fde4db01e84a7eb",
+   "kind": "rebrand",
+   "release_utc": "2026-06-12T06:00:16.955Z",
+   "symbol": "TONUSDT",
+   "title": "Binance Will Support the Toncoin (TON) Rebranding to Gram (GRAM)"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "TROYUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "d067b373496c44a4ab8d28f3e90b66ad",
+   "kind": "delist",
+   "release_utc": "2026-04-17T09:00:06.263Z",
+   "symbol": "TRUUSDT",
+   "title": "Binance Will Delist DEGO, DENT, TRU on 2026-04-28"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "UFTUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "043c8407bb904652a428573a50d07e07",
+   "kind": "delist",
+   "release_utc": "2024-10-23T07:00:37.062Z",
+   "symbol": "UNFIUSDT",
+   "title": "Binance Will Delist IDRT, KP3R, OOKI, UNFI on 2024-11-06"
+  },
+  {
+   "article_code": "5a4fddd83a25401cabc2ae6271b532a2",
+   "kind": "delist",
+   "release_utc": "2025-09-24T12:00:05.980Z",
+   "symbol": "UXLINKUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M UXLINKUSDT Perpetual Contract (2025-09-26)"
+  },
+  {
+   "article_code": "f73b083ba6834771b07dbe5319917ae5",
+   "kind": "delist",
+   "release_utc": "2024-02-06T07:00:12.575Z",
+   "symbol": "VAIUSDT",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "VANRYUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "a88495062d5947e895999cf73fa8bce1",
+   "kind": "migration",
+   "release_utc": "2026-10-16T07:00:07.611Z",
+   "symbol": "VELODROMEUSDT",
+   "title": "Binance Will Support the Velodrome Finance (VELODROME) Token Merge to Aerodrome (AERO) and the AERO Contract Swap"
+  },
+  {
+   "article_code": "f6ebc17e4dbd451b873d9ef25c801237",
+   "kind": "delist",
+   "release_utc": "2026-03-13T14:14:19.653Z",
+   "symbol": "VFYUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M and COIN-M Perpetual Contracts (2026-03-17 & 2026-03-18)"
+  },
+  {
+   "article_code": "0274f9d47da1437990bc13eb17b0ec99",
+   "kind": "delist",
+   "release_utc": "2025-04-24T04:00:05.257Z",
+   "symbol": "VIBUSDT",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02"
+  },
+  {
+   "article_code": "64cf7544b98e4f2ca7f54ba11fd72d9d",
+   "kind": "delist",
+   "release_utc": "2026-08-03T03:30:10.683Z",
+   "symbol": "VICUSDT",
+   "title": "Binance Will Delist ACX, HFT, PIVX, PYR, VANRY, VIC on 2026-08-17"
+  },
+  {
+   "article_code": "fac9c3e401da4cc8b604566fd261d70c",
+   "kind": "delist",
+   "release_utc": "2025-04-08T06:00:07.355Z",
+   "symbol": "VIDTUSDT",
+   "title": "Binance Announced the First Batch of Vote to Delist Results and Will Delist BADGER, BAL, BETA, CREAM, CTXC, ELF, FIRO, HARD, NULS, PROS, SNT, TROY, UFT, VIDT on 2025-04-16"
+  },
+  {
+   "article_code": "ba5d61807b474b0ca9f40250e7fa782c",
+   "kind": "delist",
+   "release_utc": "2026-04-24T11:15:13.345Z",
+   "symbol": "VINEUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28)"
+  },
+  {
+   "article_code": "f3cc64a8758d4bb394e0830e5b31da97",
+   "kind": "delist",
+   "release_utc": "2025-02-17T07:00:24.287Z",
+   "symbol": "VITEUSDT",
+   "title": "Binance Will Delist AMB, CLV, STMX, VITE on 2025-02-24"
+  },
+  {
+   "article_code": "7621c0ff8a924305b6e8fe78ce2c7fcd",
+   "kind": "delist",
+   "release_utc": "2025-12-05T10:32:50.574Z",
+   "symbol": "VOXELUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-12-10)"
+  },
+  {
+   "article_code": "f1a8aa29692b4442a8f18be2076e14a0",
+   "kind": "delist",
+   "release_utc": "2023-03-17T07:01:15.726Z",
+   "symbol": "WABIUSDT",
+   "title": "Binance Will Delist HNT and WABI on 2023-03-24"
+  },
+  {
+   "article_code": "d26a627649ee44fca27e07672add9ac2",
+   "kind": "delist",
+   "release_utc": "2026-04-09T06:00:05.744Z",
+   "symbol": "WANUSDT",
+   "title": "Binance Will Delist BIFI, FIO, FUN, MDT, OXT, WAN on 2026-04-23"
+  },
+  {
+   "article_code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "kind": "delist",
+   "release_utc": "2024-06-03T03:00:20.294Z",
+   "symbol": "WAVESUSDT",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17"
+  },
+  {
+   "article_code": "0274f9d47da1437990bc13eb17b0ec99",
+   "kind": "delist",
+   "release_utc": "2025-04-24T04:00:05.257Z",
+   "symbol": "WINGUSDT",
+   "title": "Binance Will Delist ALPACA, PDA, VIB, WING on 2025-05-02"
+  },
+  {
+   "article_code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "kind": "delist",
+   "release_utc": "2024-06-03T03:00:20.294Z",
+   "symbol": "WNXMUSDT",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17"
+  },
+  {
+   "article_code": "b140faee7cf9482cb10257308abda245",
+   "kind": "delist",
+   "release_utc": "2024-12-18T08:01:12.939Z",
+   "symbol": "WRXUSDT",
+   "title": "Binance Will Delist AKRO, BLZ, WRX on 2024-12-25"
+  },
+  {
+   "article_code": "6392491d998b4cbaa6d4beee0fd898c6",
+   "kind": "delist",
+   "release_utc": "2025-11-18T04:01:13.736Z",
+   "symbol": "XCNUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2025-11-21)"
+  },
+  {
+   "article_code": "f65faeeefe07417a8b6dd2900ba8da7e",
+   "kind": "delist",
+   "release_utc": "2024-06-03T03:00:20.294Z",
+   "symbol": "XEMUSDT",
+   "title": "Binance Will Delist OMG, WAVES, WNXM, XEM on 2024-06-17"
+  },
+  {
+   "article_code": "cfe97d52a8c840d3ba631835b637e9e7",
+   "kind": "delist",
+   "release_utc": "2024-11-29T04:00:01.809Z",
+   "symbol": "XEMUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M XEMUSDT, ORBSUSDT and LOOMUSDT Perpetual Contracts (2024-12-09)"
+  },
+  {
+   "article_code": "f73b083ba6834771b07dbe5319917ae5",
+   "kind": "delist",
+   "release_utc": "2024-02-06T07:00:12.575Z",
+   "symbol": "XMRUSDT",
+   "title": "Binance Will Delist ANT, MULTI, VAI, XMR on 2024-02-20"
+  },
+  {
+   "article_code": "9ac36fb4f2ad4bf2b3b27f9c9224739c",
+   "kind": "delist",
+   "release_utc": "2026-02-05T07:14:19.503Z",
+   "symbol": "YALAUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M RVVUSDT and YALAUSDT Perpetual Contracts (2026-02-10)"
+  },
+  {
+   "article_code": "4baf8d70485c46e38637bd063c58c4d8",
+   "kind": "delist",
+   "release_utc": "2022-04-04T05:21:50.096Z",
+   "symbol": "YFIIUSDT",
+   "title": "Binance Futures Will Delist 1000BTTC and YFII USDT-Margined Contracts"
+  },
+  {
+   "article_code": "1d2b6970facd470dbba6a674e1595bd4",
+   "kind": "delist",
+   "release_utc": "2026-04-23T15:00:37.768Z",
+   "symbol": "ZKJUSDT",
+   "title": "Binance Futures Will Delist USDⓈ-M Multiple Perpetual Contracts (2026-04-28 & 2026-04-29)"
+  },
+  {
+   "article_code": "5798be852fb5449bb438dde4166126dc",
+   "kind": "delist",
+   "release_utc": "2026-01-17T07:56:31.216Z",
+   "symbol": "ZRCUSDT",
+   "title": "Binance Futures Will Delist Multiple USDⓈ-M Perpetual Contracts (2026-01-21)"
+  }
+ ],
+ "overrides": [],
+ "schema_version": 1,
+ "since_utc": "2020-10-01T00:00:00+00:00",
+ "source": "binance_cms_public_article_api"
+}

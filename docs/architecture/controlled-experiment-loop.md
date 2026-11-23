@@ -46,6 +46,41 @@ evaluation/experiments/bootstrap
 
 `evaluation/experiments` 内部では、`codec.py` がpersisted payloadのdecode/semantic identity、`inspection.py` がread-only filesystem reconstructionとtamper validation、`workflow.py` がmutation commandを所有する。read sideからmutation workflowへの逆依存は作らない。既存の `workflow.StudySnapshot` / `workflow.inspect_study` は明示export契約としてinspection ownerの同一objectをre-exportする。
 
+## Prospective-only write-once JSON evidence publication
+
+`tools.prospective_evidence_publication.publish_json_evidence_once(root=...,
+name=..., payload=...)` は**将来の別途認可された研究のみ**が使う、
+最大1 MiBのcanonical JSON公開APIである。既存の
+`trade_rl.evaluation.experiments.store.StudyStore.publish_json_once`を再利用し、
+同一directory capability上でstagingと排他的hard-link公開を実施する。
+`path.exists()`から`write_text()`するチェック→書込み競争を新たに作らず、
+既存ファイル・dangling symlink・不正なparent・同時publisherをfail-closedで
+拒否する。descriptor-relative nofollowを使えないportable fallbackでは、
+parentの同時置換に対するatomicな保護は保証しない。
+自由形式pathのauthorityは追加せず、出力名は小文字の単一
+`*.json` leafのみ受け付ける。
+
+入力は予約・directory生成前にdeep-immutable JSON値へ一度だけ固定し、
+**検証時と公開時の両canonical JSON serializerが同一snapshotを使う**。
+呼出元がその後で元のmappingやネストしたlistを変更しても、公開bytes・sizeの
+根拠は変わらない。非有限値やunsupported type、1 MiB超を拒否する。
+成功した公開後には別のdescriptor-safe
+readbackでsize・SHA-256の完全一致を検証し、
+`PublishedJsonEvidence(path, sha256, size_bytes)`を返す。公開後の読戻しが
+失敗した場合、既にcommit済みかもしれないため
+`PublishedArtifactCleanupError`で**retryせず現物を調査**させる。
+研究runとposterior scoringの可否・外部の認証・署名・全試行保全・
+他者による事後のファイル改変までは証明しない。
+ファイルmodeはcaller umask/StudyStoreに従い、秘密情報の私有化を保証しない。
+
+特に[agy CLEAN_ALL forward v1](https://github.com/shuntatsu/trade_rl/pull/1327)の
+INTERIM_Aは既に実施記録があり、既存の`tools/agy_clean_all_forward.py`の
+`_write_once`、同プロトコルdigest、過去の結果・ラベルをこの追加APIで
+**遡及修正・再生成・再評価しない**。新しい結果経路に採用するには、
+別途の事前登録・独立研究審査・オーナーG4認可が必要である。
+このコードの合成成功はFS1/unused/final data利用やライブ注文を許可しない。
+
+
 ## Canonical M2 bootstrap preparation
 
 Canonical M2 bootstrapは、real-data development Studyを開始できる状態までを一度だけ構築するpreparation-only boundaryである。公開入口は `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つに限定する。

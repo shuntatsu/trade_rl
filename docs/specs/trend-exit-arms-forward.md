@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it, and no economic result was produced for it.
 
-Protocol digest: `be9374984bf53ae7bd08ded6b585ba9f09837fad39dd20247eae0bc8cfd35590`
+Protocol digest: `ca3c6a79496427b7e47e4bfdb72f2742e57df0afdfde207e4ac3c2664ed0dc9c`
 
 ## Question
 
@@ -42,6 +42,20 @@ All times are UTC. A 4h bar is labelled by its open time and a decision happens 
 **Universe.** Binance USDT-M perpetuals: BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT ADAUSDT DOGEUSDT LINKUSDT DOTUSDT AVAXUSDT LTCUSDT. Each coin has a 1/11 sleeve of equity.
 
 **Data.** 1h klines from the public `https://fapi.binance.com/fapi/v1/klines` endpoint, loaded from 2021-01-01 00:00. 4h and 1d bars are aggregated from 1h bars exactly as the exploratory `feat.agg` does (open of the first hour, max high, min low, close of the last hour, sum of quote volume), labelled by open time. A bar exists only if every one of its hourly bars exists; otherwise it is blank (NaN) and so is every value that uses it. The 1d bar is the UTC day. At a 4h decision close the latest COMPLETED daily bar is used (the causal daily forward-fill alignment).
+
+**Native source-close admission.** Every raw 1h Binance kline (including
+history warm-up and the preclaim connectivity probe) uses the versioned strict
+BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2 clock contract. Native open_time
+and close_time must be integer-form timestamps in the SAME unit (ms or us).
+The exact close is (normalized_open_ms + 3600000) * unit - 1. Native us opens
+must align to ms before the grid conversion; submillisecond source-close drift
+is never rounded away. A premature, late or missing source close, mixed units,
+or unaligned opening fails the whole page/stage before any aggregation, volume
+sizing, order or decision. This applies equally to interim and final stages;
+it is never treated as a tolerated missing-hour gap. Truly absent hourly
+rows still use the existing NaN-hole admission rule. Raw HTTP response bytes
+are still preserved write-once for hash/readback. Historical frozen Dataset
+identities are not reinterpreted.
 
 **Regime and direction.** `regime = mean over N ∈ {20, 50, 100, 200} of sign(close_1d − SMA_N(close_1d))`. Direction is +1 if `regime ≥ 0.5`, −1 if `regime ≤ −0.5`, else 0 (NaN gives 0).
 

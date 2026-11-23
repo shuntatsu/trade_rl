@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_exit_arms_forward as m
 
-DIGEST_PIN = "be9374984bf53ae7bd08ded6b585ba9f09837fad39dd20247eae0bc8cfd35590"
+DIGEST_PIN = "ca3c6a79496427b7e47e4bfdb72f2742e57df0afdfde207e4ac3c2664ed0dc9c"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -35,6 +35,7 @@ def test_digest_pin() -> None:
 
 def test_constants_frozen() -> None:
     assert m.PROTOCOL_ID == "trend_exit_arms_v1"
+    assert m.SOURCE_CLOSE_POLICY.value == "strict_source_close_v2"
     assert len(m.SYMBOLS) == 11 and m.SYMBOLS[0] == "BTCUSDT"
     assert m.REGIME_WINDOWS == (20, 50, 100, 200) and m.REGIME_THRESHOLD == 0.5
     assert (m.SIZE_VOL, m.VOL_DAYS) == (0.5, 30)
@@ -1741,3 +1742,109 @@ def test_authorization_failure_leaves_no_claim(env: dict[str, Any], which: str) 
             symbols=TWO,
         )
     assert _claims(env) == [] and fetched == []
+
+
+# Strict source-close admission is part of the prospective frozen data contract.
+# This is synthetic only; no Binance request, funding read or economic stage runs.
+@pytest.mark.parametrize(
+    ("open_unit", "close_offset"),
+    [
+        (1, -m.HOUR_MS),  # source claims the bar ended before it opened
+        (1, -1),  # one millisecond early
+        (1, 1),  # one millisecond late
+        (1, m.HOUR_MS),
+        (1000, -1),  # one microsecond early
+        (1000, 1),  # one microsecond late
+    ],
+)
+def test_parse_klines_rejects_nonfinal_or_offgrid_native_source_close(
+    open_unit: int,
+    close_offset: int,
+) -> None:
+    open_ms = 1735689600000  # 2025-01-01 00:00 UTC, synthetic
+    row = _kline(open_ms)
+    row[0] = open_ms * open_unit
+    row[6] = (open_ms + m.HOUR_MS) * open_unit - 1 + close_offset
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+@pytest.mark.parametrize("open_unit,close_unit", [(1, 1000), (1000, 1)])
+def test_parse_klines_rejects_mixed_native_timestamp_units(
+    open_unit: int,
+    close_unit: int,
+) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[0] = open_ms * open_unit
+    row[6] = (open_ms + m.HOUR_MS) * close_unit - 1
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+@pytest.mark.parametrize("native_unit", [1, 1000])
+def test_parse_klines_admits_exact_native_completed_hour_only(
+    native_unit: int,
+) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[0] = open_ms * native_unit
+    row[6] = (open_ms + m.HOUR_MS) * native_unit - 1
+    rows = m.parse_klines([row])
+    assert rows[0][0] == open_ms
+    arrs = m.hourly_arrays(rows, open_ms, open_ms)
+    assert arrs["close"].tolist() == [100.0]
+    assert arrs["qv"].tolist() == [500.0]
+
+
+@pytest.mark.parametrize("bad_close", [None, 3.5, "1735693199999.0", -1])
+def test_parse_klines_refuses_non_native_close_time(bad_close: object) -> None:
+    row = _kline(1735689600000)
+    row[6] = bad_close
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])
+
+
+def test_page_parser_fail_closed_without_aggregating_corrupt_source_time(
+    tmp_path: Path,
+) -> None:
+    open_ms = 1735689600000
+    row = _kline(open_ms)
+    row[6] = open_ms - 1
+    raw = json.dumps([row]).encode()
+    with pytest.raises(SystemExit, match="close_time"):
+        m.fetch_klines(
+            "BTCUSDT",
+            open_ms,
+            open_ms,
+            tmp_path / "raw",
+            fetch=lambda _url: raw,
+        )
+    # The source body is preserved exactly; it is not admitted as a tradable bar.
+    assert (tmp_path / "raw" / "BTCUSDT_klines_000.json").read_bytes() == raw
+
+
+def test_preclaim_probe_refuses_nonfinal_source_hour_without_funding_request() -> None:
+    row = _kline(1735689600000)
+    row[6] = row[0] - 1
+    requests: list[str] = []
+
+    def synthetic_fetch(url: str) -> bytes:
+        requests.append(url)
+        if "/klines" not in url:
+            raise AssertionError(
+                "Funding must not be requested after source clock refusal"
+            )
+        return json.dumps([row]).encode()
+
+    with pytest.raises(SystemExit, match="connectivity probe failed"):
+        m.connectivity_probe(synthetic_fetch)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("bad_open", [1735689600000001, "1735689600000.0", True])
+def test_parse_klines_rejects_non_native_or_unaligned_open(bad_open: object) -> None:
+    row = _kline(1735689600000)
+    row[0] = bad_open
+    with pytest.raises(SystemExit, match="close_time"):
+        m.parse_klines([row])

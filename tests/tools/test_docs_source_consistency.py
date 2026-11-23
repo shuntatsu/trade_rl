@@ -106,6 +106,23 @@ def test_commented_out_agy_refusal_does_not_satisfy_source_contract(
         check_historical_agy_status(tmp_path)
 
 
+def test_agy_guard_after_real_data_read_fails_even_before_clock(
+    tmp_path: Path,
+) -> None:
+    _fixture_agy(tmp_path)
+    p = tmp_path / "tools/agy_anchor_oos.py"
+    p.write_text(
+        "def main(argv, *, rows_factory=None):\n"
+        "    args = build_parser().parse_args(argv)\n"
+        "    rows = read_market_data()\n"
+        '    if args.command in {"run", "coverage"} and rows_factory is None:\n'
+        "        return EXIT_REFUSED\n"
+        "    moment = now()\n"
+    )
+    with pytest.raises(ContractViolation, match="pre-data"):
+        check_historical_agy_status(tmp_path)
+
+
 def test_agy_guard_after_clock_does_not_satisfy_source_contract(tmp_path: Path) -> None:
     _fixture_agy(tmp_path)
     p = tmp_path / "tools/agy_anchor_oos.py"

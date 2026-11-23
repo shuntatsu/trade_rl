@@ -125,19 +125,58 @@ def check_historical_agy_status(root: Path) -> None:
     ).body[0]
     assert isinstance(expected, ast.If)
     gate = [
-        node
-        for node in body[: clock[0]]
+        (i, node)
+        for i, node in enumerate(body[: clock[0]])
         if isinstance(node, ast.If) and ast.dump(node.test) == ast.dump(expected.test)
     ]
     if len(gate) != 1:
         raise ContractViolation(
             "historical agy source requires the run/coverage pre-data refusal gate"
         )
+    gate_idx, gate_node = gate[0]
+    # Only passive output stream assignments and pure argument parser setup
+    # may precede refusal; no arbitrary I/O or evaluation.
+    allowed_preflight = {"out", "err", "args"}
+    seen: set[str] = set()
+    for node in body[:gate_idx]:
+        if (
+            not isinstance(node, ast.Assign)
+            or len(node.targets) != 1
+            or not isinstance(node.targets[0], ast.Name)
+            or node.targets[0].id not in allowed_preflight
+            or node.targets[0].id in seen
+        ):
+            raise ContractViolation(
+                "historical agy pre-data refusal must precede all source reads"
+            )
+        name = node.targets[0].id
+        seen.add(name)
+        if name != "args" and any(
+            isinstance(expr, ast.Call) for expr in ast.walk(node.value)
+        ):
+            raise ContractViolation(
+                "historical agy pre-data refusal must precede all source reads"
+            )
+        if name == "args":
+            expr = node.value
+            if not (
+                isinstance(expr, ast.Call)
+                and isinstance(expr.func, ast.Attribute)
+                and expr.func.attr == "parse_args"
+                and isinstance(expr.func.value, ast.Call)
+                and isinstance(expr.func.value.func, ast.Name)
+                and expr.func.value.func.id == "build_parser"
+            ):
+                raise ContractViolation(
+                    "historical agy pre-data refusal must precede all source reads"
+                )
+    if "args" not in seen:
+        raise ContractViolation("historical agy pre-data refusal requires parsed args")
     if not any(
         isinstance(node, ast.Return)
         and isinstance(node.value, ast.Name)
         and node.value.id == "EXIT_REFUSED"
-        for node in gate[0].body
+        for node in gate_node.body
     ):
         raise ContractViolation("historical agy source must fail closed before data")
 

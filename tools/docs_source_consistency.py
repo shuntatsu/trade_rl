@@ -47,6 +47,11 @@ PROTOCOLS = (
         "tools/btc_trend_ensemble.py",
         "docs/specs/btc-trend-ensemble.md",
     ),
+    ProtocolBinding(
+        "agy_clean_all_forward_v1",
+        "tools/agy_clean_all_forward.py",
+        "docs/specs/agy-clean-all-forward.md",
+    ),
 )
 
 _DIGEST_LINE = re.compile(r"^Protocol digest: `([0-9a-f]{64})`[ \t]*$", re.MULTILINE)

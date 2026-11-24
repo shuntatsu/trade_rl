@@ -50,6 +50,23 @@ def test_current_repo_is_source_doc_consistent() -> None:
     check_all(ROOT)
 
 
+def test_merged_agy_clean_all_forward_is_source_bound_once() -> None:
+    """A newly merged research protocol must not bypass digest/spec inventory."""
+    from tools.docs_source_consistency import (
+        PROTOCOLS,
+        check_registered_protocol_coverage,
+    )
+
+    expected = ProtocolBinding(
+        "agy_clean_all_forward_v1",
+        "tools/agy_clean_all_forward.py",
+        "docs/specs/agy-clean-all-forward.md",
+    )
+    assert tuple(b for b in PROTOCOLS if b.source == expected.source) == (expected,)
+    check_registered_protocol_coverage(ROOT)
+    assert check_protocol_digest(ROOT, expected)
+
+
 def test_agy_historical_status_matches_source_and_spec(tmp_path: Path) -> None:
     _fixture_agy(tmp_path)
     check_historical_agy_status(tmp_path)

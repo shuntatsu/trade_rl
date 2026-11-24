@@ -41,12 +41,18 @@ python -m tools.markdown_links --check
 - Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md](specs/funding-carry-multisymbol.md)
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 - Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
+- Daily trend breadth screen (pre-registered, one-shot, class 2 known-used data, not yet run; no economic result): [specs/trend-breadth.md](specs/trend-breadth.md)
 - Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
 - Learning lab method registry (draft, software harness and synthetic tests only): [specs/learning-lab-registry.md](specs/learning-lab-registry.md)
 - RL execution overlay for the agy anchor (development study draft, not yet run): [specs/anchor-rl-execution-dev.md](specs/anchor-rl-execution-dev.md)
+- Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
+- Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md](specs/trend-exit-arms-forward.md)
+- Hierarchical MTF long/short perp system (pre-registered prospective FORWARD from 2026-12-01, not yet run, no data read; software PR, authorizes nothing economic, needs independent review and a per-stage G4 relay): [specs/mtf-combo-forward.md](specs/mtf-combo-forward.md)
+- BTC vol-targeted trend ensemble (HOLD: BACKCAST consumed with a defective result that decides nothing; Amendment 3 FORWARD-only protocol 2026-12-01 to 2027-11-30 awaits review/G4; FORWARD unauthorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
+- Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered; INTERIM_A reported as not a decision, FINAL at or after 2027-05-02): [specs/agy-clean-all-forward.md](specs/agy-clean-all-forward.md)
 
 ## 情報の所有先と更新
 

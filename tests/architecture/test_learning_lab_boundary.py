@@ -250,3 +250,22 @@ def test_anchor_rl_draft_matches_frozen_lab_window_and_trainer_contract() -> Non
         "per-symbol-action `fit_shared_portfolio_ppo` trainer is not this overlay trainer"
         in spec
     )
+
+
+def test_full_ci_runs_actual_learning_lab_agents() -> None:
+    """Core-only imports/skips cannot substitute for a real agent roundtrip."""
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    job = workflow.split("  ppo-runtime:\n", 1)[1].split("  guide:\n", 1)[0]
+    assert (
+        "run: uv sync --extra dev --extra train-sb3 --extra learning-lab --locked"
+        in job
+    )
+    step = job.split("      - name: Real Learning Lab synthetic integration\n", 1)[1]
+    assert (
+        'uv run --no-sync python -c "import torch, stable_baselines3, sb3_contrib, lightgbm"'
+        in step
+    )
+    assert (
+        "uv run --no-sync pytest -q tests/evaluation/test_learning_lab_runner.py"
+        in step
+    )

@@ -450,8 +450,16 @@ def _check_ledger_reconciled(
     ledger: SharedCashPortfolioReplayLedgerEvidence | None,
     dataset: MarketDataset,
     initial_capital: float,
+    *,
+    engine_settlement: bool = False,
 ) -> bool:
     """Rebuild every interval's cash, quantities, equity and turnover from raw fills.
+
+    ``engine_settlement`` (opt-in, default off) additionally accepts the engine's own
+    settlement of a position on an asset that is inactive at the interval's processing bar:
+    a leg whose quantity after the fills is nonzero and whose quantity after the interval is
+    exactly zero adds ``quantity * open * multiplier * delisting_recovery`` to the rebuilt
+    cash. A leg on an active asset still changes only through fills.
 
     The check never trusts the book's own totals: each interval's cash is
     ``cash_before - sum(q * price * multiplier) - cost + funding - borrow + dividend +
@@ -544,6 +552,26 @@ def _check_ledger_reconciled(
             )
             signed_fill_cash -= notional
             filled_notional += abs(notional)
+        settlement_cash = 0.0
+        if engine_settlement:
+            inactive = ~np.asarray(
+                dataset.resolved_array("asset_active")[iv.next_index], dtype=np.bool_
+            )
+            recovery = dataset.resolved_array("delisting_recovery")[iv.next_index]
+            for s in range(n_syms):
+                if (
+                    inactive[s]
+                    and quantities[s] != 0
+                    and len(iv.exact_quantities_after) == n_syms
+                    and Fraction(iv.exact_quantities_after[s]) == 0
+                ):
+                    settlement_cash += (
+                        float(quantities[s])
+                        * float(dataset.open[iv.next_index, s])
+                        * float(multipliers[s])
+                        * float(recovery[s])
+                    )
+                    quantities[s] = Fraction(0)
         after = [Fraction(q) for q in iv.exact_quantities_after]
         if len(after) != n_syms or any(
             not _close(float(a), float(b))
@@ -554,6 +582,7 @@ def _check_ledger_reconciled(
         expected_cash = (
             iv.cash_before
             + signed_fill_cash
+            + settlement_cash
             - iv.interval_cost
             + iv.interval_funding
             - iv.interval_borrow_cost
@@ -665,8 +694,11 @@ def _summarize_replay_cell(
     initial_capital: float,
     causality_passed: bool,
     execution_cost: ExecutionCostConfig | None = None,
+    engine_settlement: bool = False,
 ) -> CellSummary:
     """Summarise one replay cell, following lean-core's terminal-dust rule.
+
+    ``engine_settlement`` is passed to :func:`_check_ledger_reconciled` (default off).
 
     A residual left only because the engine rejected its terminal close for
     ``below_minimum_notional`` is terminal dust (``dev_realdata_study.runner.terminal_dust``):
@@ -679,7 +711,9 @@ def _summarize_replay_cell(
     """
     reasons: list[str] = []
     ledger = result.ledger_evidence
-    reconciled = _check_ledger_reconciled(ledger, dataset, initial_capital)
+    reconciled = _check_ledger_reconciled(
+        ledger, dataset, initial_capital, engine_settlement=engine_settlement
+    )
     if not reconciled:
         reasons.append("ledger_not_reconciled")
     if not causality_passed:

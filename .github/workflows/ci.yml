@@ -46,7 +46,7 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           enable-cache: true
 
@@ -146,7 +146,7 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           enable-cache: true
 
@@ -267,15 +267,22 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           enable-cache: true
 
       - name: Install PPO runtime
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra train-sb3 --extra learning-lab --locked
 
       - name: Real SB3 PPO integration
         run: uv run pytest -q tests/strategies/rl/ tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/evaluation/test_portfolio_family_comparison.py tests/evaluation/test_portfolio_family_attempt.py tests/evaluation/test_portfolio_family_scenario_replay_v2.py tests/evaluation/test_portfolio_family_scenario_attempt_v2.py tests/evaluation/experiments/test_four_family_input_manifest.py tests/tools/test_issue810_portfolio_probability_probe.py
+
+      - name: Real Learning Lab synthetic integration
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -c "import torch, stable_baselines3, sb3_contrib, lightgbm"
+          uv run --no-sync pytest -q tests/evaluation/test_learning_lab_runner.py
+
 
   guide:
     name: Human Guide
@@ -375,7 +382,7 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           enable-cache: true
 
@@ -439,7 +446,7 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
 
       - name: Fetch pull request review evidence
         env:
@@ -525,7 +532,7 @@ jobs:
           check-latest: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
           enable-cache: true
 

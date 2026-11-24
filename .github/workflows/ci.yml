@@ -48,10 +48,14 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
+
+      - name: Docs/source semantic contract
+        run: uv run python -m tools.docs_source_consistency --check
 
       - name: Agent documentation routing
         run: uv run python -m tools.agent_docs_context --check
@@ -69,7 +73,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -87,6 +91,7 @@ jobs:
             tests/tools/test_github_coordination_enrollment_audit.py \
             tests/tools/test_github_coordination_enrollment_transaction.py \
             tests/tools/test_agent_docs_context.py \
+            tests/tools/test_docs_source_consistency.py \
             tests/tools/test_markdown_links.py
 
       - name: Prospective write-once evidence smoke
@@ -148,10 +153,14 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
+
+      - name: Docs/source semantic contract
+        run: uv run python -m tools.docs_source_consistency --check
 
       - name: Agent documentation routing
         run: uv run python -m tools.agent_docs_context --check
@@ -169,7 +178,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -178,6 +187,9 @@ jobs:
         run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
 
       - name: Core tests
+        # Preserve the verified command while exposing every skip reason.
+        env:
+          PYTEST_ADDOPTS: "-rs"
         run: uv run pytest -q tests
 
       - name: Build
@@ -239,6 +251,7 @@ jobs:
           PY
           "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
           "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+          "$GITHUB_WORKSPACE/.venv/bin/python" -I "$GITHUB_WORKSPACE/tests/architecture/installed_typing.py" "$clean/venv/bin/python"
 
       - name: Package identity
         shell: bash
@@ -269,13 +282,21 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
 
       - name: Install PPO runtime
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev --extra train-sb3 --extra learning-lab --locked
 
       - name: Real SB3 PPO integration
         run: uv run pytest -q tests/strategies/rl/ tests/strategies/test_ppo_*.py tests/strategies/test_a2c_*.py tests/integrations/test_ppo_sb3_runtime.py tests/integrations/test_a2c_sb3_runtime.py tests/evaluation/test_portfolio_family_comparison.py tests/evaluation/test_portfolio_family_attempt.py tests/evaluation/test_portfolio_family_scenario_replay_v2.py tests/evaluation/test_portfolio_family_scenario_attempt_v2.py tests/evaluation/experiments/test_four_family_input_manifest.py tests/tools/test_issue810_portfolio_probability_probe.py
+
+      - name: Real Learning Lab synthetic integration
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -c "import torch, stable_baselines3, sb3_contrib, lightgbm"
+          uv run --no-sync pytest -q tests/evaluation/test_learning_lab_runner.py
+
 
   guide:
     name: Human Guide
@@ -377,6 +398,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
 
       - name: Install store runtime
@@ -434,6 +456,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.9"
 
       - name: Fetch pull request review evidence
         env:
@@ -521,6 +545,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
 
       - name: Install review-status runtime

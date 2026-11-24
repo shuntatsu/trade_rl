@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timezone
 
 import numpy as np
@@ -53,16 +54,53 @@ def _native_events(
         row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
         active=active,
     )
-    available_at = np.full(
-        len(raw.timestamps), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
-    )
     assert raw.available_at is not None
-    for index in np.flatnonzero(valid):
+    return (
+        values,
+        valid,
+        _dependency_available_at(raw.available_at, valid, source_start),
+    )
+
+
+def _dependency_available_at(
+    raw_available_at: np.ndarray,
+    valid: np.ndarray,
+    source_start: np.ndarray,
+) -> np.ndarray:
+    """Exact range maxima; linear for the maintained nondecreasing starts.
+
+    RawMarketSeries has already excluded NaT and normalized timestamps to ns.
+    Compare integer timestamps to avoid repeated datetime conversion. A decreasing
+    dependency start requires rebuilding the queue, not forgetting older bars.
+    """
+
+    available_at = np.full(
+        len(raw_available_at), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
+    )
+    raw_ns = raw_available_at.view(np.int64)
+    result_ns = available_at.view(np.int64)
+    candidates: deque[int] = deque()
+    cursor = 0
+    previous_start = 0
+    for event in np.flatnonzero(valid):
+        index = int(event)
         start = int(source_start[index])
         if start < 0 or start > index:
             raise ValueError("feature source range is invalid")
-        available_at[index] = np.max(raw.available_at[start : index + 1])
-    return values, valid, available_at
+        if start < previous_start:
+            candidates.clear()
+            cursor = start
+        while candidates and candidates[0] < start:
+            candidates.popleft()
+        cursor = max(cursor, start)
+        while cursor <= index:
+            while candidates and raw_ns[candidates[-1]] <= raw_ns[cursor]:
+                candidates.pop()
+            candidates.append(cursor)
+            cursor += 1
+        result_ns[index] = raw_ns[candidates[0]]
+        previous_start = start
+    return available_at
 
 
 def align_native_feature(

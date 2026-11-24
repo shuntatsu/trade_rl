@@ -118,6 +118,8 @@ class RidgeForecastStrategy:
         exit_threshold: float,
         one_way_switch_cost: float | None = None,
     ) -> None:
+        if not isinstance(model, RidgeForecastModel):
+            raise TypeError("log-return strategy requires a RidgeForecastModel")
         self.model = model
         config = ForecastIntentConfig(
             entry_threshold=entry_threshold,
@@ -199,6 +201,27 @@ def fit_ridge_forecast_from_training_set(
     x = training.features
     y = training.labels
     weights = training.sample_weights
+    feature_mean, feature_scale, coefficients, intercept = _solve_weighted_ridge(
+        x, y, weights, alpha=alpha
+    )
+
+    return RidgeForecastModel(
+        feature_indices=training.feature_indices,
+        feature_mean=feature_mean,
+        feature_scale=feature_scale,
+        coefficients=coefficients,
+        intercept=intercept,
+        horizon_hours=horizon_hours,
+        alpha=alpha,
+        n_samples=training.n_samples,
+        fit_cutoff=training.fit_cutoff,
+    )
+
+
+def _solve_weighted_ridge(
+    x: np.ndarray, y: np.ndarray, weights: np.ndarray, *, alpha: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """Numeric-only projection; callers own label units and causal selection."""
     weight_sum = float(weights.sum())
 
     feature_mean = np.sum(x * weights[:, None], axis=0) / weight_sum
@@ -220,20 +243,10 @@ def fit_ridge_forecast_from_training_set(
     weighted_x = standardized * sqrt_weights[:, None]
     weighted_y = centered_y * sqrt_weights
     gram = weighted_x.T @ weighted_x
-    regularized = gram + alpha * np.eye(len(training.feature_indices), dtype=np.float64)
+    regularized = gram + alpha * np.eye(x.shape[1], dtype=np.float64)
     coefficients = np.linalg.solve(regularized, weighted_x.T @ weighted_y)
 
-    return RidgeForecastModel(
-        feature_indices=training.feature_indices,
-        feature_mean=feature_mean,
-        feature_scale=feature_scale,
-        coefficients=coefficients,
-        intercept=intercept,
-        horizon_hours=horizon_hours,
-        alpha=alpha,
-        n_samples=training.n_samples,
-        fit_cutoff=training.fit_cutoff,
-    )
+    return feature_mean, feature_scale, coefficients, intercept
 
 
 __all__ = [

@@ -15,8 +15,11 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 import subprocess
+import tempfile
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -670,10 +673,13 @@ def authorization_receipt(
     url: str,
     digest: str,
     commit: str,
+    claim: str,
     fetch: Callable[[int], dict[str, Any]] = _gh_comment,
 ) -> dict[str, Any]:
     if not _COMMIT_RE.fullmatch(commit):
         raise SystemExit("commit must be a full 40-hex SHA")
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise SystemExit("digest must be a full 64-hex SHA-256")
     out: dict[str, Any] = {}
     for role, cid in (
         ("g4_relay", comment_id_from_url(url)),
@@ -689,12 +695,33 @@ def authorization_receipt(
             or first["updated_at"] != second["updated_at"]
         ):
             raise SystemExit(f"{role} comment {cid} changed between fetches")
-        if role == "g4_relay" and not all(
-            token in first["body"] for token in (PROTOCOL_ID, digest, commit)
-        ):
-            raise SystemExit(
-                "G4 relay does not quote this protocol id, digest and exact commit"
-            )
+        if role == "g4_relay":
+            # Only LF and CRLF delimit records; splitlines() also accepts
+            # bare CR, Unicode separators and ASCII control characters.
+            relay_body = first["body"].replace("\r\n", "\n")
+            if re.search(r"[\r\v\f\x1c-\x1e\x85\u2028\u2029]", relay_body):
+                raise SystemExit("G4 relay contains unsupported line separator")
+            lines = relay_body.split("\n")
+            # Treat a field-like line without a colon as malformed, not prose
+            # that can coexist with the one canonical authorization record.
+            identities = [
+                line
+                for line in lines
+                if re.match(r"^\s*G4\s+identity\b", line, re.IGNORECASE)
+            ]
+            if identities != [f"G4 identity: {PROTOCOL_ID} {digest} {commit}"]:
+                raise SystemExit(
+                    "G4 relay does not quote one exact protocol id, digest and commit identity"
+                )
+            # One explicit, unambiguous claim line; citing another stage in prose
+            # or listing several stages must never admit the current stage.
+            claims = [
+                line
+                for line in lines
+                if re.match(r"^\s*G4\s+claim\b", line, re.IGNORECASE)
+            ]
+            if claims != [f"G4 claim: {claim}"]:
+                raise SystemExit(f"G4 claim must name exactly this stage: {claim}")
         out[role] = {
             "comment_id": cid,
             "author": first["user"]["login"],
@@ -732,6 +759,30 @@ def check_clock(stage: Stage, now: datetime) -> None:
         )
 
 
+def _publish_claim(path: Path, record: dict[str, Any]) -> None:
+    """Publish complete JSON without replacement; never expose a partial *.claim."""
+    pending: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".pending-claim-",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            pending = Path(f.name)
+            f.write(json.dumps(record, indent=1, sort_keys=True))
+            f.flush()
+            os.fsync(f.fileno())
+        # A same-directory hard link is exclusive on supporting filesystems.
+        # Unlike replace, it can never overwrite an earlier claim.
+        os.link(pending, path)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
+
+
 def claim_stage(
     name: str,
     digest: str,
@@ -744,24 +795,176 @@ def claim_stage(
     ledger_dir.mkdir(parents=True, exist_ok=True)
     path = ledger_dir / f"{name}.claim"
     try:
-        f = path.open("x", encoding="utf-8")
+        _publish_claim(
+            path,
+            {
+                "stage": name,
+                "protocol_digest": digest,
+                "commit": commit,
+                "authorization_comment_id": auth_comment_id,
+                "claimed_at": now.isoformat(),
+            },
+        )
     except FileExistsError:
         raise SystemExit(f"stage {name} was already claimed: {path}") from None
-    with f:
-        f.write(
-            json.dumps(
-                {
-                    "stage": name,
-                    "protocol_digest": digest,
-                    "commit": commit,
-                    "authorization_comment_id": auth_comment_id,
-                    "claimed_at": now.isoformat(),
-                },
-                indent=1,
-                sort_keys=True,
-            )
-        )
     return path
+
+
+def _validate_g4_ledger_root(root: Path) -> None:
+    if not root.is_absolute():
+        raise SystemExit("G4 ledger root must be a real absolute directory")
+    for part in reversed((root, *root.parents)):
+        try:
+            mode = part.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SystemExit(f"unreadable G4 ledger root: {part}") from exc
+        if not stat.S_ISDIR(mode) or part.is_junction():
+            raise SystemExit("G4 ledger root must be a real absolute directory")
+
+
+def _historical_claim_paths(root: Path) -> list[Path]:
+    """Enumerate the trusted local ledger without silently skipping linked subtrees."""
+    _validate_g4_ledger_root(root)
+    try:
+        root.lstat()
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise SystemExit(f"unreadable historical G4 ledger: {root}") from exc
+    pending = [root]
+    claims: list[Path] = []
+    while pending:
+        directory = pending.pop()
+        try:
+            for path in directory.iterdir():
+                try:
+                    mode = path.lstat().st_mode
+                except FileNotFoundError:
+                    # A concurrent publisher may unlink its own temporary
+                    # non-claim file after iterdir. Never ignore a missing
+                    # historical claim, other entry, or directory error.
+                    if path.name.startswith(".pending-claim-") and path.name.endswith(
+                        ".tmp"
+                    ):
+                        continue
+                    raise
+                if stat.S_ISDIR(mode) and not path.is_junction():
+                    if path.name.endswith(".claim"):
+                        raise SystemExit(f"unsafe historical G4 claim path: {path}")
+                    pending.append(path)
+                elif not stat.S_ISREG(mode):
+                    raise SystemExit(f"unsafe historical G4 ledger entry: {path}")
+                elif path.name.endswith(".claim"):
+                    claims.append(path)
+        except OSError as exc:
+            raise SystemExit(f"unreadable historical G4 ledger: {directory}") from exc
+    return sorted(claims)
+
+
+def _unique_claim_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    record: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in record:
+            raise ValueError("duplicate historical G4 claim key")
+        record[key] = value
+    return record
+
+
+def _read_historical_g4_claims(root: Path) -> dict[Path, dict[str, Any]]:
+    """Validate the complete observed historical roster without changing it."""
+    records: dict[Path, dict[str, Any]] = {}
+    for path in _historical_claim_paths(root):
+        if path.is_symlink() or not path.is_file():
+            raise SystemExit(f"unsafe historical G4 claim path: {path}")
+        try:
+            record = json.loads(
+                path.read_text(encoding="utf-8"), object_pairs_hook=_unique_claim_keys
+            )
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"unreadable historical G4 claim: {path}") from exc
+        if (
+            not isinstance(record, dict)
+            or type(record.get("authorization_comment_id")) is not int
+            or record["authorization_comment_id"] <= 0
+        ):
+            raise SystemExit(f"invalid historical G4 claim: {path}")
+        records[path] = record
+    return records
+
+
+def _require_g4_comment_available(
+    records: dict[Path, dict[str, Any]],
+    comment_id: int,
+    *,
+    current_claim: tuple[Path, dict[str, Any]] | None = None,
+) -> None:
+    """Only a newly created, exactly matching root claim may be excluded."""
+    if type(comment_id) is not int or comment_id <= 0:
+        raise SystemExit("invalid G4 comment ID")
+    if current_claim is not None:
+        path, expected = current_claim
+        if records.get(path) != expected:
+            raise SystemExit(
+                f"current G4 stage claim does not match this attempt: {path}"
+            )
+    for path, record in records.items():
+        if current_claim is not None and path == current_claim[0]:
+            continue
+        if record["authorization_comment_id"] == comment_id:
+            raise SystemExit(f"G4 comment {comment_id} already consumed: {path}")
+
+
+def _check_g4_comment_available(root: Path, comment_id: int) -> None:
+    """Read-only recheck; reject known invalid or consumed authorization."""
+    _require_g4_comment_available(_read_historical_g4_claims(root), comment_id)
+
+
+def reserve_g4_comment(
+    root: Path,
+    comment_id: int,
+    name: str,
+    digest: str,
+    commit: str,
+    now: datetime,
+    *,
+    current_claim: Path | None = None,
+) -> Path:
+    """Consume one owner G4 relay ID per protocol, including historical digests.
+
+    Recheck after the protocol-root stage claim and before stage data access.
+    Only run_stage supplies the freshly created current_claim; its entire record
+    must match. Direct reservations cannot skip pre-existing stage claims.
+    A new conflict does not undo the stage claim.
+    This deliberate fail-closed behavior avoids double use on a retry.
+    """
+    record = {
+        "authorization_comment_id": comment_id,
+        "stage": name,
+        "protocol_digest": digest,
+        "commit": commit,
+        "claimed_at": now.isoformat(),
+    }
+    records = _read_historical_g4_claims(root)
+    stage_path = root / f"{name}.claim"
+    exclusion = None
+    if current_claim is not None:
+        if current_claim != stage_path:
+            raise SystemExit("current G4 claim must be the protocol-root stage claim")
+        exclusion = (current_claim, record)
+    _require_g4_comment_available(records, comment_id, current_claim=exclusion)
+    if current_claim is None and stage_path in records:
+        raise SystemExit(f"stage {name} was already claimed: {stage_path}")
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / f"g4-{comment_id}.claim"
+    try:
+        _publish_claim(marker, record)
+    except FileExistsError:
+        raise SystemExit(
+            f"G4 comment {comment_id} already consumed: {marker}"
+        ) from None
+    return marker
 
 
 def write_ledger_result(
@@ -962,13 +1165,29 @@ def run_stage(
     # provenance only, the root claim is the atomic lock.
     name = claim_name(stage, now)
     ledger_root = ledger_dir
+    historical_claims = _read_historical_g4_claims(ledger_root)
     check_cross_digest(ledger_root, name)
+    _require_g4_comment_available(
+        historical_claims, comment_id_from_url(authorization_url)
+    )
     prior_record = check_disclosed_prior(ledger_root)
     ledger_dir = ledger_root / digest
     commit = harness_commit()
-    auth = authorization_receipt(authorization_url, digest, commit, gh_fetch)
+    auth = authorization_receipt(authorization_url, digest, commit, name, gh_fetch)
+    _check_g4_comment_available(ledger_root, auth["g4_relay"]["comment_id"])
     connectivity_probe(fetch)  # refuses WITHOUT claiming if the exchange is unreachable
-    claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)
+    root_claim = claim_stage(
+        name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root
+    )
+    reserve_g4_comment(
+        ledger_root,
+        auth["g4_relay"]["comment_id"],
+        name,
+        digest,
+        commit,
+        now,
+        current_claim=root_claim,
+    )
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir
     )

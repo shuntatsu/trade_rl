@@ -58,12 +58,18 @@ def _git_sources(repository: Path) -> dict[str, str]:
     names = {
         name
         for name in tracked_names
-        if name.endswith(".py") or name == _ACTIVATION_RESOURCE
+        if name.endswith(".py")
+        or PurePosixPath(name).name == "py.typed"
+        or name == _ACTIVATION_RESOURCE
     }
     present = {
         path.relative_to(repository).as_posix()
         for path in (repository / "trade_rl").rglob("*.py")
     }
+    present.update(
+        path.relative_to(repository).as_posix()
+        for path in (repository / "trade_rl").rglob("py.typed")
+    )
     activation_path = repository / _ACTIVATION_RESOURCE
     if activation_path.exists() or activation_path.is_symlink():
         present.add(_ACTIVATION_RESOURCE)
@@ -125,7 +131,11 @@ def _archive_sources(archive: Path) -> dict[str, str]:
                 if info.is_dir():
                     continue
                 name = path.as_posix()
-                if path.suffix != ".py" and name != _ACTIVATION_RESOURCE:
+                if (
+                    path.suffix != ".py"
+                    and path.name != "py.typed"
+                    and name != _ACTIVATION_RESOURCE
+                ):
                     continue
                 if kind not in (0, stat.S_IFREG):
                     raise ValueError("wheel package payload must be a regular file")
@@ -148,7 +158,11 @@ def _archive_sources(archive: Path) -> dict[str, str]:
                 if len(path.parts) < 2 or path.parts[1] != "trade_rl":
                     continue
                 name = PurePosixPath(*path.parts[1:]).as_posix()
-                if path.suffix != ".py" and name != _ACTIVATION_RESOURCE:
+                if (
+                    path.suffix != ".py"
+                    and path.name != "py.typed"
+                    and name != _ACTIVATION_RESOURCE
+                ):
                     continue
                 if not member.isfile():
                     raise ValueError("sdist package payload must be a regular file")

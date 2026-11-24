@@ -495,6 +495,55 @@ def plan_merged_retirement(
     return tuple(decisions)
 
 
+def _name_summary(category: str, names: set[str]) -> str:
+    """Bound diagnostic size without hiding the total number of differing names."""
+    sample = [
+        ascii(name[:120] + ("..." if len(name) > 120 else ""))
+        for name in sorted(names)[:5]
+    ]
+    return f"{category}={len(names)} [{', '.join(sample)}]"
+
+
+def _readback_differences(
+    expected: dict[str, BranchInfo], actual: dict[str, BranchInfo]
+) -> str:
+    shared = expected.keys() & actual.keys()
+    return "; ".join(
+        (
+            _name_summary("missing", expected.keys() - actual.keys()),
+            _name_summary("unexpected", actual.keys() - expected.keys()),
+            _name_summary(
+                "sha_changed",
+                {name for name in shared if expected[name].sha != actual[name].sha},
+            ),
+            _name_summary(
+                "protection_changed",
+                {
+                    name
+                    for name in shared
+                    if expected[name].protected != actual[name].protected
+                },
+            ),
+        )
+    )
+
+
+def _unique_branch_readback(branches: Sequence[BranchInfo]) -> dict[str, BranchInfo]:
+    """Reject ambiguous paginated rosters before comparing their contents."""
+    by_name: dict[str, BranchInfo] = {}
+    duplicates: set[str] = set()
+    for branch in branches:
+        if branch.name in by_name:
+            duplicates.add(branch.name)
+        by_name[branch.name] = branch
+    if duplicates:
+        raise RuntimeError(
+            "duplicate branch name in retirement readback: "
+            + _name_summary("duplicate_names", duplicates)
+        )
+    return by_name
+
+
 def apply_merged_retirement(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
@@ -546,9 +595,12 @@ def apply_merged_retirement(
         merged_sources = api.merged_pr_source_refs() if queue else ()
     deleted: list[str] = []
     while queue:
-        before = {branch.name: branch for branch in api.branches()}
+        before = _unique_branch_readback(api.branches())
         if before != expected or before.get(default_branch) != main:
-            raise RuntimeError("branch or main changed before retirement")
+            raise RuntimeError(
+                "branch or main changed before retirement: "
+                + _readback_differences(expected, before)
+            )
         open_refs = api.open_pull_request_refs()
         running = api.active_workflow_branch_names()
         fresh = plan_merged_retirement(
@@ -566,14 +618,17 @@ def apply_merged_retirement(
         # The git transport performs one atomic push with one expected SHA
         # lease per ref: concurrent source writes cannot be silently discarded.
         api.delete_branches_with_leases(tuple(batch))
-        after = {branch.name: branch for branch in api.branches()}
+        after = _unique_branch_readback(api.branches())
         expected_after = {
             name: branch
             for name, branch in before.items()
             if name not in {candidate.name for candidate in batch}
         }
         if after != expected_after:
-            raise RuntimeError("post-delete readback differs from exact expected refs")
+            raise RuntimeError(
+                "post-delete readback differs from exact expected refs: "
+                + _readback_differences(expected_after, after)
+            )
         deleted.extend(branch.name for branch in batch)
         expected = after
         queue = queue[len(batch) :]

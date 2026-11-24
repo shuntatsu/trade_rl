@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.architecture.workflow_action_refs import setup_uv_action_matches
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -65,8 +67,19 @@ def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
     refs: list[str] = []
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         text = path.read_text(encoding="utf-8")
-        refs.extend(
-            re.findall(r"(?m)^\s+uses:\s+astral-sh/setup-uv@([^\s#]+)\s*$", text)
-        )
+        refs.extend(match.group("ref") for match in setup_uv_action_matches(text, path))
     assert len(refs) == 16
     assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 16
+
+
+def test_lean_core_reports_skipped_test_reasons_without_changing_final_command() -> (
+    None
+):
+    """A green job with hundreds of skipped tests is not a coverage claim."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    core = source.split("  core:\n", 1)[1].split("\n  ppo-runtime:\n", 1)[0]
+    command = core.split("      - name: Core tests\n", 1)[1].split(
+        "      - name: Build\n", 1
+    )[0]
+    assert 'PYTEST_ADDOPTS: "-rs"' in command
+    assert "run: uv run pytest -q tests" in command

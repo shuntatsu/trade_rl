@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -15,7 +18,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "0904174741f5ae7617999a06fa9ac4eb626c4152e2d3377f8054ca0b8dd694f9"
+DIGEST_PIN = "390559fce698a41d904dd4a35c737ccd75e663a356626ae7089bd59cdcca0277"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -514,7 +517,9 @@ def _comment(
 def _gh(relay_body: str | None = None, **over: Any) -> Any:
     digest = "d" * 64
     relay_body = (
-        relay_body if relay_body is not None else f"{m.PROTOCOL_ID} {digest} {COMMIT}"
+        relay_body
+        if relay_body is not None
+        else f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
     )
 
     def fetch(cid: int) -> dict[str, Any]:
@@ -526,7 +531,7 @@ def _gh(relay_body: str | None = None, **over: Any) -> Any:
 
 
 def test_authorization_ok() -> None:
-    rec = m.authorization_receipt(URL, "d" * 64, COMMIT, _gh())
+    rec = m.authorization_receipt(URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh())
     assert rec["g4_relay"]["comment_id"] == 7040999999
     assert rec["data_scope"]["comment_id"] == m.DATA_SCOPE_COMMENT_ID
     assert len(rec["g4_relay"]["body_sha256"]) == 64
@@ -545,20 +550,30 @@ def test_authorization_ok() -> None:
 )
 def test_authorization_wrong_url(url: str) -> None:
     with pytest.raises(SystemExit, match="Issue #810 comment"):
-        m.authorization_receipt(url, "d" * 64, COMMIT, _gh())
+        m.authorization_receipt(url, "d" * 64, COMMIT, "FORWARD_FINAL", _gh())
 
 
 def test_authorization_owner_and_issue_binding() -> None:
     with pytest.raises(SystemExit, match="not owner-authored"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay={"login": "mallory"}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay={"login": "mallory"})
+        )
     with pytest.raises(SystemExit, match="not owner-authored"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(scope={"login": "mallory"}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(scope={"login": "mallory"})
+        )
     other = "https://api.github.com/repos/shuntatsu/trade_rl/issues/8100"
     with pytest.raises(SystemExit, match="not on Issue #810"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay={"issue_url": other}))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay={"issue_url": other})
+        )
     with pytest.raises(SystemExit, match="not on Issue #810"):
         m.authorization_receipt(
-            URL, "d" * 64, COMMIT, _gh(scope={"issue_url": "x/issues/810"})
+            URL,
+            "d" * 64,
+            COMMIT,
+            "FORWARD_FINAL",
+            _gh(scope={"issue_url": "x/issues/810"}),
         )
 
 
@@ -567,13 +582,13 @@ def test_authorization_edit_between_fetches() -> None:
 
     def fetch(cid: int) -> dict[str, Any]:
         calls[cid] = calls.get(cid, 0) + 1
-        body = f"{m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
+        body = f"G4 identity: {m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
         if cid != m.DATA_SCOPE_COMMENT_ID and calls[cid] == 2:
             body += " edited"
         return _comment(body)
 
     with pytest.raises(SystemExit, match="changed between fetches"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, fetch)
+        m.authorization_receipt(URL, "d" * 64, COMMIT, "FORWARD_FINAL", fetch)
 
     def fetch_ts(cid: int) -> dict[str, Any]:
         calls[cid] = calls.get(cid, 0) + 1
@@ -581,26 +596,28 @@ def test_authorization_edit_between_fetches() -> None:
 
     calls.clear()
     with pytest.raises(SystemExit, match="changed between fetches"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, fetch_ts)
+        m.authorization_receipt(URL, "d" * 64, COMMIT, "FORWARD_FINAL", fetch_ts)
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        f"{m.PROTOCOL_ID} {COMMIT}",
-        f"{m.PROTOCOL_ID} {'d' * 64}",
+        f"G4 identity: {m.PROTOCOL_ID} {COMMIT}",
+        f"G4 identity: {m.PROTOCOL_ID} {'d' * 64}",
         f"{'d' * 64} {COMMIT}",
-        f"{m.PROTOCOL_ID} {'d' * 64} {COMMIT[:12]}",
+        f"G4 identity: {m.PROTOCOL_ID} {'d' * 64} {COMMIT[:12]}",
     ],
 )
 def test_authorization_relay_must_quote_id_digest_commit(body: str) -> None:
     with pytest.raises(SystemExit, match="does not quote"):
-        m.authorization_receipt(URL, "d" * 64, COMMIT, _gh(relay_body=body))
+        m.authorization_receipt(
+            URL, "d" * 64, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
 
 
 def test_authorization_requires_full_commit() -> None:
     with pytest.raises(SystemExit, match="40-hex"):
-        m.authorization_receipt(URL, "d" * 64, "abc1234", _gh())
+        m.authorization_receipt(URL, "d" * 64, "abc1234", "FORWARD_FINAL", _gh())
 
 
 def test_harness_commit_requires_clean_tree(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -684,7 +701,9 @@ def test_interim_without_an_evaluated_day_refuses_before_any_claim() -> None:
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(m, "harness_commit", lambda: COMMIT)
     digest = m.protocol_digest()
-    gh = _gh(relay_body=f"{m.PROTOCOL_ID} {digest} {COMMIT}")
+    gh = _gh(
+        relay_body=f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_INTERIM_2026-12"
+    )
     return {"ledger": tmp_path / "ledger", "tmp": tmp_path, "gh": gh, "digest": digest}
 
 
@@ -706,14 +725,26 @@ def _seed_defective_backcast(ledger: Path, label: str = "TREND_BACKCAST_ONLY") -
 def _run(
     env: dict[str, Any], stage: str, now: datetime, tag: str = "x"
 ) -> dict[str, Any]:
+    name = m.claim_name(m.STAGES[stage], now)
+    # Each distinct synthetic stage receives a separate relay; repeating a
+    # stage deliberately retains its ID so the stage lock is still tested.
+    cid = (
+        7040999999
+        if stage == "FORWARD_FINAL"
+        else 7041000000 + now.year * 12 + now.month
+    )
+    url = URL.rsplit("-", 1)[0] + f"-{cid}"
+    gh = env.get("gh_override") or _gh(
+        relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {name}"
+    )
     return m.run_stage(
         stage,
-        URL,
+        url,
         env["tmp"] / f"work_{stage}_{tag}",
         env["tmp"] / f"out_{stage}_{tag}",
         now=now,
         fetch=fake_market,
-        gh_fetch=env["gh"],
+        gh_fetch=gh,
         ledger_dir=env["ledger"],
     )
 
@@ -730,7 +761,7 @@ def test_clock_refusal_precedes_claim(env: dict[str, Any]) -> None:
 
 
 def test_authorization_refusal_precedes_claim(env: dict[str, Any]) -> None:
-    env2 = {**env, "gh": _gh(relay_body="no quote")}
+    env2 = {**env, "gh_override": _gh(relay_body="no quote")}
     _seed_defective_backcast(env["ledger"])
     with pytest.raises(SystemExit, match="does not quote"):
         _run(env2, "FORWARD_INTERIM", NOW)
@@ -1212,6 +1243,8 @@ def test_root_claim_is_exclusive_and_written_before_the_per_digest_claim(
         (env["ledger"] / env["digest"] / "FORWARD_INTERIM_2026-12.claim").read_text()
     )
     assert root == per and root["protocol_digest"] == env["digest"]
+    marker = env["ledger"] / f"g4-{root['authorization_comment_id']}.claim"
+    assert json.loads(marker.read_text(encoding="utf-8")) == root
     with pytest.raises(SystemExit, match="already claimed"):
         m.claim_stage("FORWARD_INTERIM_2026-12", "x", COMMIT, 1, DEC, env["ledger"])
 
@@ -1274,3 +1307,536 @@ def test_posix_windows_legacy_default_must_not_be_accepted() -> None:
 
     if os.name != "nt":
         assert not m.LEDGER_DIR.is_absolute()
+
+
+@pytest.mark.parametrize(
+    "relay_claim",
+    [
+        "",
+        "G4 claim: FORWARD_INTERIM_2027-01",
+        "G4 claim: FORWARD_FINAL\nG4 claim: FORWARD_INTERIM_2027-01",
+        "G4 claim: FORWARD_FINAL\nG4 claim: final",
+    ],
+)
+def test_btc_g4_exact_stage_required_before_claim(
+    env: dict[str, Any], relay_claim: str
+) -> None:
+    _seed_defective_backcast(env["ledger"])
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("no probe or data request without exact G4 stage")
+
+    with pytest.raises(SystemExit, match="G4 claim"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=FINAL_AT,
+            fetch=unexpected,
+            gh_fetch=_gh(
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{relay_claim}"
+            ),
+            ledger_dir=env["ledger"],
+        )
+    assert not (env["ledger"] / "FORWARD_FINAL.claim").exists()
+
+
+def test_btc_g4_comment_cannot_be_reused_for_another_stage(env: dict[str, Any]) -> None:
+    root = env["ledger"]
+    _seed_defective_backcast(root)
+    prior = m.claim_stage(
+        "FORWARD_INTERIM_2027-01",
+        "9" * 64,
+        COMMIT,
+        7040999999,
+        DEC,
+        root / ("9" * 64),
+    )
+    before = prior.read_bytes()
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("no probe or data request after known G4 consumption")
+
+    def forbid_github(_cid: int) -> dict[str, Any]:
+        raise AssertionError("historical refusal must precede GitHub authorization")
+
+    with pytest.raises(SystemExit, match="already consumed"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=FINAL_AT,
+            fetch=unexpected,
+            gh_fetch=forbid_github,
+            ledger_dir=root,
+        )
+    assert prior.read_bytes() == before
+    assert not (root / "FORWARD_FINAL.claim").exists()
+
+
+@pytest.mark.parametrize("kind", ["stage", "marker"])
+def test_claim_is_complete_before_exclusive_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    real_link = os.link
+    published: list[Path] = []
+
+    def observed_link(src: Any, dst: Any) -> None:
+        source, target = Path(src), Path(dst)
+        assert source.parent == target.parent == root
+        assert source.suffix != ".claim" and not target.exists()
+        assert (
+            json.loads(source.read_text(encoding="utf-8"))["authorization_comment_id"]
+            == 42
+        )
+        real_link(src, dst)
+        published.append(target)
+
+    monkeypatch.setattr(os, "link", observed_link)
+    if kind == "stage":
+        target = m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+    else:
+        target = m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now)
+    assert published == [target]
+    assert list(root.iterdir()) == [target]
+    assert (
+        json.loads(target.read_text(encoding="utf-8"))["authorization_comment_id"] == 42
+    )
+
+
+@pytest.mark.parametrize("kind", ["stage", "marker"])
+def test_failed_claim_flush_never_publishes_partial_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+
+    def fail(_fd: int) -> None:
+        raise OSError("synthetic fsync failure")
+
+    monkeypatch.setattr(os, "fsync", fail)
+    with pytest.raises(OSError, match="synthetic fsync failure"):
+        if kind == "stage":
+            m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+        else:
+            m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now)
+    assert list(root.iterdir()) == []
+
+
+def test_concurrent_g4_publication_has_one_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    real_link = os.link
+    gate = Barrier(2, timeout=10)
+
+    def simultaneous_link(src: Any, dst: Any) -> None:
+        gate.wait()
+        real_link(src, dst)
+
+    monkeypatch.setattr(os, "link", simultaneous_link)
+
+    def reserve(stage: str) -> str:
+        try:
+            m.reserve_g4_comment(root, 42, stage, "d" * 64, COMMIT, now)
+        except SystemExit as exc:
+            assert "already consumed" in str(exc)
+            return "refused"
+        return stage
+
+    stages = ["FORWARD_INTERIM_2027-01", "FORWARD_FINAL"]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(reserve, stages))
+    assert results.count("refused") == 1
+    winner = next(x for x in results if x != "refused")
+    marker = root / "g4-42.claim"
+    assert list(root.iterdir()) == [marker]
+    assert json.loads(marker.read_text(encoding="utf-8"))["stage"] == winner
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "linked",
+        "broken-link",
+        "zero-id",
+        "negative-id",
+        "duplicate-id",
+        "bool-id",
+        "float-id",
+        "string-id",
+        "missing-id",
+        "nested-duplicate",
+        "nonobject",
+        "corrupt",
+        "directory",
+    ],
+)
+def test_g4_invalid_history_refuses_before_claim_or_fetch(
+    env: dict[str, Any], history: str
+) -> None:
+    root = env["ledger"]
+    _seed_defective_backcast(root)
+    ns = root / ("9" * 64)
+    if history in {"linked", "broken-link"}:
+        outside = env["tmp"] / "external-history"
+        if history == "linked":
+            outside.mkdir()
+            (outside / "old.claim").write_text(
+                '{"authorization_comment_id":7040999999}', encoding="utf-8"
+            )
+        try:
+            ns.symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
+    else:
+        ns.mkdir()
+        record = {
+            "zero-id": '{"authorization_comment_id":0}',
+            "negative-id": '{"authorization_comment_id":-1}',
+            "duplicate-id": '{"authorization_comment_id":7040999999,"authorization_comment_id":1}',
+            "bool-id": '{"authorization_comment_id":true}',
+            "float-id": '{"authorization_comment_id":1.0}',
+            "string-id": '{"authorization_comment_id":"1"}',
+            "missing-id": "{}",
+            "nested-duplicate": '{"authorization_comment_id":1,"meta":{"x":1,"x":2}}',
+            "nonobject": "[]",
+            "corrupt": "{",
+            "directory": None,
+        }[history]
+        if record is None:
+            (ns / "old.claim").mkdir()
+        else:
+            (ns / "old.claim").write_text(record, encoding="utf-8")
+
+    def unexpected(_arg: Any) -> Any:
+        raise AssertionError("no external request after invalid ledger history")
+
+    with pytest.raises(SystemExit, match="historical G4|G4 ledger"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=unexpected,
+            gh_fetch=unexpected,
+            ledger_dir=env["ledger"],
+        )
+    assert not (root / "FORWARD_FINAL.claim").exists()
+    assert not (root / "g4-7040999999.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+def test_btc_g4_accepts_single_crlf_stage_claim() -> None:
+    digest = "d" * 64
+    body = (
+        f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    )
+    receipt = m.authorization_receipt(
+        URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+    )
+    assert receipt["g4_relay"]["comment_id"] == 7040999999
+
+
+def test_unreadable_history_refuses_before_external_access(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = env["ledger"]
+    ns = root / ("9" * 64)
+    ns.mkdir(parents=True)
+    real_iterdir = Path.iterdir
+
+    def inaccessible(path: Path) -> Any:
+        if path == ns:
+            raise PermissionError("synthetic historical directory error")
+        return real_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", inaccessible)
+
+    def unexpected(_arg: Any) -> Any:
+        raise AssertionError("no external request after unsafe ledger")
+
+    with pytest.raises(SystemExit, match="unreadable historical G4 ledger"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=unexpected,
+            gh_fetch=unexpected,
+            ledger_dir=env["ledger"],
+        )
+    assert not (root / "FORWARD_FINAL.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+def test_public_run_rechecks_g4_after_root_claim(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = env["ledger"]
+    _seed_defective_backcast(root)
+    now = datetime(2027, 12, 2, 1, tzinfo=UTC)
+    real_claim = m.claim_stage
+
+    def competing_claim(*args: Any, **kwargs: Any) -> Path:
+        path = real_claim(*args, **kwargs)
+        if path.parent == root:
+            # A competing reservation arrives after read-only preflight, before the marker.
+            m._publish_claim(
+                root / "g4-7040999999.claim",
+                {
+                    "stage": "FORWARD_INTERIM_2027-01",
+                    "protocol_digest": "9" * 64,
+                    "commit": COMMIT,
+                    "authorization_comment_id": 7040999999,
+                    "claimed_at": now.isoformat(),
+                },
+            )
+        return path
+
+    monkeypatch.setattr(m, "claim_stage", competing_claim)
+    # The trend probe is deliberately simulated; stage-window access is forbidden.
+    if hasattr(m, "connectivity_probe"):
+        monkeypatch.setattr(m, "connectivity_probe", lambda _fetch: None)
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("stage data must not be read after a G4 conflict")
+
+    with pytest.raises(SystemExit, match="already consumed"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=now,
+            fetch=unexpected,
+            gh_fetch=_gh(
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+            ),
+            ledger_dir=env["ledger"],
+        )
+    assert (root / "FORWARD_FINAL.claim").exists()
+    assert (root / "g4-7040999999.claim").exists()
+    assert not (root / env["digest"] / "FORWARD_FINAL.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "long_id",
+        "long_digest",
+        "long_commit",
+        "duplicate_identity",
+        "conflicting_identity",
+        "missing_identity",
+    ),
+)
+def test_g4_identity_must_be_one_exact_tuple(mutation: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    if mutation == "long_id":
+        identity = identity.replace(m.PROTOCOL_ID, m.PROTOCOL_ID + "_other")
+    elif mutation == "long_digest":
+        identity = identity.replace(digest, digest + "e")
+    elif mutation == "long_commit":
+        identity = identity.replace(COMMIT, "b" + COMMIT)
+    elif mutation == "duplicate_identity":
+        identity += "\n" + identity
+    elif mutation == "conflicting_identity":
+        identity += "\n" + identity.replace(digest, "e" * 64)
+    else:
+        identity = f"{m.PROTOCOL_ID} {digest} {COMMIT}"
+    with pytest.raises(SystemExit, match="does not quote"):
+        m.authorization_receipt(
+            URL,
+            digest,
+            COMMIT,
+            "FORWARD_FINAL",
+            _gh(relay_body=identity + "\nG4 claim: FORWARD_FINAL"),
+        )
+
+
+@pytest.mark.parametrize("digest", ["d" * 63, "d" * 65, "D" * 64, "z" * 64])
+def test_g4_invalid_digest_refuses_before_comment_fetch(digest: str) -> None:
+    def unexpected_fetch(_cid: int) -> dict[str, Any]:
+        pytest.fail("invalid digest must not reach comment fetch")
+
+    with pytest.raises(SystemExit, match="full 64-hex"):
+        m.authorization_receipt(URL, digest, COMMIT, "FORWARD_FINAL", unexpected_fetch)
+
+
+@pytest.mark.parametrize(
+    "separator", ["\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
+)
+def test_g4_refuses_noncanonical_record_separators(separator: str) -> None:
+    digest = "d" * 64
+    body = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}{separator}G4 claim: FORWARD_FINAL"
+    with pytest.raises(SystemExit, match="unsupported line separator"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
+
+
+@pytest.mark.parametrize("field", ["identity", "claim"])
+def test_g4_refuses_malformed_second_record(field: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    claim = "G4 claim: FORWARD_FINAL"
+    extra = (
+        f"G4 identity {m.PROTOCOL_ID} {'e' * 64} {COMMIT}"
+        if field == "identity"
+        else "G4 claim FORWARD_INTERIM_2026-12"
+    )
+    body = "\n".join([identity, claim, extra])
+    with pytest.raises(SystemExit, match="does not quote|must name exactly"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
+
+
+@pytest.mark.parametrize("transient", [True, False])
+def test_g4_reservation_disappearing_entry_only_tolerates_publisher_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transient: bool
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    prior = m.claim_stage("FORWARD_INTERIM_2027-01", "d" * 64, COMMIT, 41, now, root)
+    before = prior.read_bytes()
+    disappearing = root / (
+        ".pending-claim-abc12345.tmp" if transient else "unknown.claim"
+    )
+    disappearing.write_text('{"authorization_comment_id": 99}', encoding="utf-8")
+    real_lstat = Path.lstat
+    vanished = False
+
+    def vanish(path: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal vanished
+        if path == disappearing and not vanished:
+            vanished = True
+            disappearing.unlink()
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", vanish)
+    if transient:
+        marker = m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "e" * 64, COMMIT, now)
+        assert json.loads(marker.read_bytes())["authorization_comment_id"] == 42
+    else:
+        with pytest.raises(SystemExit, match="unreadable historical G4 ledger"):
+            m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "e" * 64, COMMIT, now)
+        assert not (root / "g4-42.claim").exists()
+    assert vanished and prior.read_bytes() == before
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_direct_g4_reservation_cannot_exclude_existing_same_stage_claim(
+    tmp_path: Path, malformed: bool
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    stage = m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+    if malformed:
+        stage.write_text('{"authorization_comment_id":true}', encoding="utf-8")
+    before = stage.read_bytes()
+    with pytest.raises(SystemExit, match="already consumed|invalid historical G4"):
+        m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now)
+    assert stage.read_bytes() == before
+    assert not (root / "g4-42.claim").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "none",
+        "missing",
+        "wrong-digest",
+        "wrong-commit",
+        "wrong-id",
+        "wrong-time",
+        "wrong-stage",
+    ],
+)
+def test_g4_current_root_claim_must_match_fresh_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    previous = m.claim_stage("FORWARD_INTERIM_2027-01", "e" * 64, COMMIT, 41, now, root)
+    previous_bytes = previous.read_bytes()
+    current = m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+    if mutation == "missing":
+        current.unlink()
+    elif mutation != "none":
+        rec = json.loads(current.read_bytes())
+        field, value = {
+            "wrong-digest": ("protocol_digest", "f" * 64),
+            "wrong-commit": ("commit", "b" * 40),
+            "wrong-id": ("authorization_comment_id", 43),
+            "wrong-time": ("claimed_at", "2027-01-19T00:00:00+00:00"),
+            "wrong-stage": ("stage", "FORWARD_INTERIM_2027-01"),
+        }[mutation]
+        rec[field] = value
+        current.write_text(json.dumps(rec), encoding="utf-8")
+    before = current.read_bytes() if current.exists() else None
+    pending = root / ".pending-claim-other123.tmp"
+    pending.write_text("temporary publisher bytes", encoding="utf-8")
+    real_lstat = Path.lstat
+    vanished = False
+
+    def vanish(path: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal vanished
+        if path == pending and not vanished:
+            vanished = True
+            pending.unlink()
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", vanish)
+    if mutation == "none":
+        marker = m.reserve_g4_comment(
+            root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now, current_claim=current
+        )
+        assert json.loads(marker.read_bytes()) == json.loads(current.read_bytes())
+    else:
+        with pytest.raises(SystemExit, match="current G4 stage claim"):
+            m.reserve_g4_comment(
+                root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now, current_claim=current
+            )
+        assert not (root / "g4-42.claim").exists()
+    assert vanished and previous.read_bytes() == previous_bytes
+    assert (current.read_bytes() if current.exists() else None) == before
+
+
+@pytest.mark.parametrize(
+    "mutated",
+    [
+        "G4 claim: FORWARD_FINAL\nG4 claim: FORWARD_FINAL",
+        "g4 CLAIM: FORWARD_FINAL",
+        " G4 claim: FORWARD_FINAL",
+        "G4  claim: FORWARD_FINAL",
+        "G4 claim: FORWARD_FINAL ",
+        "G4 claim: FORWARD_FINAL\nG4 CLAIM FORWARD_INTERIM_2027-01",
+    ],
+)
+def test_g4_exact_stage_refuses_duplicate_or_noncanonical_field(mutated: str) -> None:
+    digest = "d" * 64
+    body = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\n{mutated}"
+    with pytest.raises(SystemExit, match="G4 claim"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
+
+
+@pytest.mark.parametrize("commit", ["a" * 39, "a" * 41, "A" * 40, "z" * 40])
+def test_g4_invalid_commit_refuses_before_comment_fetch(commit: str) -> None:
+    def unexpected(_cid: int) -> dict[str, Any]:
+        pytest.fail("invalid commit must not reach comment fetch")
+
+    with pytest.raises(SystemExit, match="full 40-hex"):
+        m.authorization_receipt(URL, "d" * 64, commit, "FORWARD_FINAL", unexpected)

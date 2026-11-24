@@ -37,6 +37,20 @@ from trade_rl.strategies.rl.intent import (
 )
 from trade_rl.strategies.rl.ppo_training import expected_ppo_realized_timesteps
 
+_ARCHIVE_DECODE_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    EOFError,
+    zipfile.BadZipFile,
+    zlib.error,
+    NotImplementedError,
+)
+try:
+    from lzma import LZMAError
+except ImportError:
+    pass
+else:
+    _ARCHIVE_DECODE_ERRORS += (LZMAError,)
+
 _RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
 _RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
 _RESULT_SCHEMA_V3 = "lean_candidate_result_v3"
@@ -1214,26 +1228,50 @@ def _load_returns(
     expected_keys: frozenset[str],
 ) -> dict[str, np.ndarray]:
     loaded: dict[str, np.ndarray] = {}
+    # A bare NPY would be materialized rather than opened as a lazy archive.
+    # Require the ZIP signature used by the NPZ writer before array decoding.
+    if not payload.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+        raise ValueError("malformed candidate returns archive: expected NPZ")
     try:
         with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
-            keys = frozenset(archive.files)
-            if keys != expected_keys:
+            members = archive.zip.namelist()
+            if len(members) != len(set(members)):
+                raise ValueError("candidate return archive has duplicate members")
+            if set(members) != {f"{key}.npy" for key in expected_keys}:
                 raise ValueError("candidate return keys do not match summary")
-            for key in sorted(keys):
+            # Reject unsupported physical member features before NumPy opens
+            # or decodes an array. Keep all four standard Python ZIP codecs,
+            # so valid historical archives need not be re-encoded.
+            for member in archive.zip.infolist():
+                if member.flag_bits & (1 | (1 << 5) | (1 << 6)):
+                    raise ValueError(
+                        "malformed candidate returns archive: unsupported member flags"
+                    )
+                if member.compress_type not in {
+                    zipfile.ZIP_STORED,
+                    zipfile.ZIP_DEFLATED,
+                    zipfile.ZIP_BZIP2,
+                    zipfile.ZIP_LZMA,
+                }:
+                    raise ValueError(
+                        "malformed candidate returns archive: unsupported compression"
+                    )
+            for key in sorted(expected_keys):
                 try:
-                    value = np.asarray(archive[key])
+                    # Bind the physical member, not NumPy's suffix alias.
+                    value = np.asarray(archive[f"{key}.npy"])
                 except ValueError as error:
                     raise ValueError(
-                        "candidate return arrays must be numeric and pickle-free"
+                        "candidate return arrays must be real numeric and pickle-free"
                     ) from error
-                if not np.issubdtype(value.dtype, np.number):
-                    raise ValueError("candidate return arrays must be numeric")
+                if value.dtype.kind not in {"i", "u", "f"}:
+                    raise ValueError("candidate return arrays must be real numeric")
                 if value.ndim != 1:
                     raise ValueError("candidate return arrays must be one-dimensional")
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
                 loaded[key] = np.ascontiguousarray(value).copy()
-    except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as error:
+    except _ARCHIVE_DECODE_ERRORS as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
 

@@ -8,6 +8,34 @@ on:
       - tests/architecture/test_ci_optional_platform_coverage.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
+      - tests/tools/tier_d_nonrl/test_task18_native_recovery.py
+      - tests/tools/tier_d_nonrl/test_task18_frozen_inputs.py
+      - tools/tier_d_nonrl/task18_native_recovery.py
+      - tools/tier_d_nonrl/task18_native_lineage.py
+      - tools/tier_d_nonrl/task18_native_progress.py
+      - tests/tools/tier_d_nonrl/test_task18_native_progress.py
+      - tests/tools/tier_d_nonrl/test_task18_native_lineage.py
+      - tools/tier_d_nonrl/task18_native_artifact.py
+      - tools/tier_d_nonrl/task18_native_decode.py
+      - tools/tier_d_nonrl/task18_native_oracle.py
+      - tools/tier_d_nonrl/task18_native.py
+      - tools/tier_d_nonrl/task18_frozen_inputs.py
+      - tools/tier_d_nonrl/task18_costs.py
+      - trade_rl/simulation/native_transition.py
+      - trade_rl/simulation/stateful/portfolio_session.py
+      - trade_rl/strategies/forecasts/simple_return.py
+      - trade_rl/strategies/forecasts/ridge.py
+      - trade_rl/strategies/forecasts/supervised.py
+      - tools/tier_d_nonrl/task18_recovery.py
+      - tools/tier_d_nonrl/task18_receipts.py
+      - tools/tier_d_nonrl/task18_recipe.py
+      - trade_rl/evaluation/replay.py
+      - trade_rl/evaluation/decision_value_ledger_oracle.py
+      - trade_rl/artifacts/atomic_write.py
+      - trade_rl/artifacts/verified_file.py
+      - trade_rl/strategies/portfolio_adapter.py
+      - trade_rl/strategies/allocation/buy_and_hold.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
       - tests/evaluation/test_forward_study_seal.py
@@ -30,6 +58,34 @@ on:
       - tests/architecture/test_ci_optional_platform_coverage.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
+      - tests/tools/tier_d_nonrl/test_task18_native_recovery.py
+      - tests/tools/tier_d_nonrl/test_task18_frozen_inputs.py
+      - tools/tier_d_nonrl/task18_native_recovery.py
+      - tools/tier_d_nonrl/task18_native_lineage.py
+      - tools/tier_d_nonrl/task18_native_progress.py
+      - tests/tools/tier_d_nonrl/test_task18_native_progress.py
+      - tests/tools/tier_d_nonrl/test_task18_native_lineage.py
+      - tools/tier_d_nonrl/task18_native_artifact.py
+      - tools/tier_d_nonrl/task18_native_decode.py
+      - tools/tier_d_nonrl/task18_native_oracle.py
+      - tools/tier_d_nonrl/task18_native.py
+      - tools/tier_d_nonrl/task18_frozen_inputs.py
+      - tools/tier_d_nonrl/task18_costs.py
+      - trade_rl/simulation/native_transition.py
+      - trade_rl/simulation/stateful/portfolio_session.py
+      - trade_rl/strategies/forecasts/simple_return.py
+      - trade_rl/strategies/forecasts/ridge.py
+      - trade_rl/strategies/forecasts/supervised.py
+      - tools/tier_d_nonrl/task18_recovery.py
+      - tools/tier_d_nonrl/task18_receipts.py
+      - tools/tier_d_nonrl/task18_recipe.py
+      - trade_rl/evaluation/replay.py
+      - trade_rl/evaluation/decision_value_ledger_oracle.py
+      - trade_rl/artifacts/atomic_write.py
+      - trade_rl/artifacts/verified_file.py
+      - trade_rl/strategies/portfolio_adapter.py
+      - trade_rl/strategies/allocation/buy_and_hold.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
       - tests/evaluation/test_forward_study_seal.py
@@ -68,6 +124,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           python-version: "3.12"
           enable-cache: true
       - name: Install locked dev dependencies
@@ -83,6 +140,24 @@ jobs:
 
       - name: Require both native Windows cases to execute without skips
         run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows.xml 2
+
+      - name: Execute native Windows stopped-arm recovery
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          --junitxml="${{ runner.temp }}/m1-windows-recovery.xml"
+          tests/tools/tier_d_nonrl/test_task18_recovery_native.py::test_native_stopped_nonrl_receipt_is_retained_and_only_cash_resumes
+
+      - name: Require native stopped-arm recovery to execute without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-recovery.xml 1
+
+      - name: Execute full-size native Windows late-receipt stop and resume
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          --junitxml="${{ runner.temp }}/m1-windows-full-native-recovery.xml"
+          tests/tools/tier_d_nonrl/test_task18_native_recovery.py::test_full_size_native_late_receipt_stop_recovery_and_successor
+
+      - name: Require full-size native stopped-arm recovery without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-full-native-recovery.xml 1
 
   forecast-gbm:
     name: LightGBM Forecast Optional Extra
@@ -105,6 +180,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
       - name: Install locked optional forecast dependencies
         run: uv sync --locked --extra dev --extra forecast-gbm
@@ -143,6 +219,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
+          version: "0.13.9"
           enable-cache: true
       - name: Install locked dev dependencies
         run: uv sync --locked --extra dev

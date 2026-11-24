@@ -19,13 +19,22 @@ def require_exact_junit_tests(report: Path, *, expected_tests: int) -> None:
     except (OSError, ET.ParseError) as error:
         raise ValueError("JUnit report is missing or malformed") from error
 
+    # pytest emits unnamespaced JUnit XML. Qualified elements or attributes
+    # can otherwise evade the exact suite, case and outcome counters below.
+    if any(
+        element.tag.startswith("{")
+        or any(name.startswith("{") for name in element.attrib)
+        for element in root.iter()
+    ):
+        raise ValueError("JUnit report contains an unsupported XML namespace")
+
     if root.tag == "testsuite":
         suites = [root]
     elif root.tag == "testsuites":
         suites = list(root.findall("testsuite"))
     else:
         suites = []
-    if len(suites) != 1:
+    if len(suites) != 1 or sum(1 for _ in root.iter("testsuite")) != 1:
         raise ValueError("JUnit report must contain exactly one testsuite")
 
     suite = suites[0]
@@ -38,7 +47,10 @@ def require_exact_junit_tests(report: Path, *, expected_tests: int) -> None:
         raise ValueError(f"Unexpected JUnit test or skipped/failed counts: {counts}")
 
     cases = suite.findall("testcase")
-    if len(cases) != expected_tests:
+    if (
+        len(cases) != expected_tests
+        or sum(1 for _ in root.iter("testcase")) != expected_tests
+    ):
         raise ValueError("JUnit testcase count does not match the declared count")
     seen_identities: set[tuple[str, str]] = set()
     for case in cases:
@@ -54,9 +66,9 @@ def require_exact_junit_tests(report: Path, *, expected_tests: int) -> None:
         if identity in seen_identities:
             raise ValueError("JUnit contains a duplicate testcase identity")
         seen_identities.add(identity)
-        for outcome in ("skipped", "failure", "error"):
-            if case.find(outcome) is not None:
-                raise ValueError("JUnit testcase contains a skipped or failed outcome")
+    for outcome in ("skipped", "failure", "error"):
+        if next(root.iter(outcome), None) is not None:
+            raise ValueError("JUnit report contains a skipped or failed outcome")
 
 
 def main() -> None:

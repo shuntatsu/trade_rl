@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
-from trade_rl.data.native_clock import NativeBarClock
+from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +46,9 @@ def resample_complete_native_bars(
     """
     source_starts, source_ends = source_clock.interval_bounds(source_closes)
     target_starts, target_ends = target_clock.interval_bounds(target_closes)
-    available = _datetime64_values_to_ns_exact(np.asarray(source_available_at))
+    available = _datetime64_values_to_ns_exact(
+        _native_unmasked_array(source_available_at, field_name="source availability")
+    )
     if not isinstance(as_of, np.datetime64):
         raise ValueError("as_of must be a datetime64 scalar")
     cutoff = _datetime64_values_to_ns_exact(np.asarray(as_of))[()]
@@ -68,7 +70,7 @@ def resample_complete_native_bars(
     if np.any(stop <= start) or not np.array_equal(source_starts[start], target_starts):
         raise ValueError("target intervals must contain complete source members")
 
-    raw = np.asarray(source_ohlcv)
+    raw = _native_unmasked_array(source_ohlcv, field_name="source OHLCV")
     if raw.shape != (source_ends.size, 6) or raw.dtype.kind not in "iuf":
         raise ValueError("source OHLCV must be a real numeric N-by-6 array")
     # Reject precision loss at admission rather than silently rounding source

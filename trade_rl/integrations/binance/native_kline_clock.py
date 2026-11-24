@@ -8,7 +8,7 @@ from typing import Literal
 import numpy as np
 
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
-from trade_rl.data.native_clock import NativeBarClock
+from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 from trade_rl.integrations.binance.source_clock import _native_timestamp
 
 
@@ -41,7 +41,9 @@ def validate_native_kline_times(
     starts, closes = clock.interval_bounds(expected_closes)
     if len(rows) != closes.size:
         raise ValueError("Binance rows must cover the entire requested native grid")
-    available = _datetime64_values_to_ns_exact(available_at)
+    available = _datetime64_values_to_ns_exact(
+        _native_unmasked_array(available_at, field_name="kline availability")
+    )
     if available.shape != closes.shape:
         raise ValueError("publication timestamps must match the native close grid")
     if not isinstance(as_of, np.datetime64):

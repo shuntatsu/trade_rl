@@ -200,3 +200,27 @@ def test_derived_output_does_not_alias_source():
     assert not np.shares_memory(out.closes, closes)
     values[:] = 0
     assert out.ohlcv[0, 0] == 100
+
+
+@pytest.mark.parametrize("field", ["closes", "availability", "ohlcv", "target"])
+@pytest.mark.parametrize("view", [False, True])
+def test_missing_mask_cannot_be_discarded_by_native_admission(field, view):
+    closes, values = _fixture()
+    inputs = {
+        "closes": closes,
+        "availability": closes.copy(),
+        "ohlcv": values,
+        "target": np.array(["2024-02-01", "2024-03-01"], dtype="datetime64[D]"),
+    }
+    masked = np.ma.array(inputs[field], mask=False, copy=True)
+    masked.mask.flat[0] = True
+    inputs[field] = masked.astype(masked.dtype).view(np.ndarray) if view else masked
+    if view:
+        assert isinstance(inputs[field].base, np.ma.MaskedArray)
+    with pytest.raises(ValueError, match="masked"):
+        _run(
+            inputs["closes"],
+            inputs["ohlcv"],
+            availability=inputs["availability"],
+            target=inputs["target"],
+        )

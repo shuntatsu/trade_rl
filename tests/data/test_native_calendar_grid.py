@@ -210,3 +210,16 @@ def test_fixed_grid_anchor_preserves_nanosecond_phase() -> None:
     assert starts[0] == anchor
     with pytest.raises(ValueError, match="anchor"):
         clock.interval_bounds(closes - np.timedelta64(1, "ns"))
+
+
+def test_native_clock_requires_an_explicit_unmasked_array() -> None:
+    clock = NativeBarClock(NativeClockKind.UTC_MONTH)
+    closes = np.array(["2024-02-01"], dtype="datetime64[D]")
+    with pytest.raises(ValueError, match="NumPy ndarray"):
+        clock.interval_bounds([closes[0]])  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="masked"):
+        clock.interval_bounds(np.ma.array(closes, mask=[False]))
+    # A genuine ordinary array is still admitted, independently of mask tests.
+    starts, ends = clock.interval_bounds(closes)
+    assert starts[0] == np.datetime64("2024-01-01")
+    assert ends[0] == closes[0]

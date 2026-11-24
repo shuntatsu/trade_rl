@@ -26,6 +26,28 @@ _WEEK_NS = 7 * _NANOSECONDS_PER_DAY
 _MONDAY_ANCHOR_NS = 4 * _NANOSECONDS_PER_DAY
 
 
+def _native_unmasked_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    """Inspect native owner links before a conversion can erase missingness.
+
+    The public clock/resampling APIs require NumPy arrays. A caller who has
+    already materialized a plain array without mask provenance cannot be
+    distinguished from an ordinary array at this boundary.
+    """
+    if not isinstance(value, np.ndarray):
+        raise ValueError(f"{field_name} must be a NumPy ndarray")
+    owner: object = value
+    while True:
+        if np.ma.isMaskedArray(owner):
+            raise ValueError(f"{field_name} must not contain a masked array")
+        if isinstance(owner, np.ndarray):
+            owner = np.ndarray.base.__get__(owner)
+        elif isinstance(owner, memoryview):
+            owner = owner.obj
+        else:
+            break
+    return np.asarray(value)
+
+
 class NativeClockKind(StrEnum):
     """Distinguish elapsed bars from explicitly UTC-aligned calendar bars."""
 
@@ -75,7 +97,9 @@ class NativeBarClock:
         Reject missing, duplicate, reordered, off-grid or unrepresentable
         boundaries rather than infer or fill any missing bar.
         """
-        normalized = _datetime64_values_to_ns_exact(np.asarray(closes))
+        normalized = _datetime64_values_to_ns_exact(
+            _native_unmasked_array(closes, field_name="native closes")
+        )
         if normalized.ndim != 1 or normalized.size == 0:
             raise ValueError("native close grid must be nonempty and one-dimensional")
         if self.kind is NativeClockKind.UTC_MONTH:

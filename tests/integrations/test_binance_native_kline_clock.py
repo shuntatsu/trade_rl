@@ -189,3 +189,18 @@ def test_sub_source_tick_grid_rejected():
             available_at=np.array([end]),
             as_of=end,
         )
+
+
+@pytest.mark.parametrize("field", ["expected_closes", "available_at"])
+def test_masked_native_kline_timestamp_rejected(field):
+    closes = np.array(["2024-02-01"], dtype="datetime64[D]")
+    inputs = {"expected_closes": closes, "available_at": closes.copy()}
+    inputs[field] = np.ma.array(inputs[field], mask=[True])
+    with pytest.raises(ValueError, match="masked"):
+        validate_native_kline_times(
+            [_row("2024-01-01", "2024-02-01")],
+            clock=NativeBarClock(NativeClockKind.UTC_MONTH),
+            timestamp_unit="ms",
+            as_of=_dt("2024-02-02"),
+            **inputs,
+        )

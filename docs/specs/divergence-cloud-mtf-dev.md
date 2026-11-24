@@ -85,3 +85,32 @@ identity is modified.**
 - Extra indicators are research formulas; bit-for-bit TradingView parity is
   not claimed. Future evaluation should include fee/latency stress,
   long/short attribution, unused-data controls and trial-count correction.
+
+
+## Optional family quorum (research prototype)
+
+The default detector retains its existing named-indicator quorum and
+unchanged emitted events. To test correlated-indicator redundancy, opt
+into an immutable tuple of (indicator name, conceptual family) pairs in
+DivergenceConfig.indicator_families, with an integer min_families. The
+mapping must cover the input indicator set exactly, without duplicate or
+blank names. At each confirmed native-bar timestamp, bullish and bearish
+candidates are evaluated separately. Both min_indicators and min_families
+must pass BEFORE emitting events or marking the contributing pivots seen.
+Candidates rejected by the extra family gate are eligible for a later
+confirmation; they must not be consumed prematurely.
+
+The family gate does not imply independent evidence, and does not change
+regular/hidden pooling, pivot or line semantics, event counts, time
+alignment, source availability, feature formulas, or any existing policy.
+The default empty mapping / min_families=1 preserves legacy behavior.
+No canonical Dataset schema, existing feature contract, or accounting
+path is added or modified.
+
+A local post-hoc BTC/ETH 2022-2024 study compared six fixed indicators
+(RSI, CCI / MACD_HIST, PPO / CMF, OBV_SLOPE) under named-only, two-family,
+and three-family quorum while keeping C3 execution unchanged. All 36
+normal/doubled-cost outcomes were retained. This already-consumed study
+was not a winner-selection or independent evaluation. Family-aware
+confirmation reduced activity in some arms but did not establish stable
+net improvement. No economic permission or policy default follows.

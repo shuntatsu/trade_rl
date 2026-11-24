@@ -32,6 +32,9 @@ class DivergenceConfig:
     pivot_source: Literal["close", "high_low"] = "close"
     validate_lines: bool = True
     min_price_change_bps: float = 0.0
+    # Conceptual families are optional; names alone remain the legacy quorum.
+    indicator_families: tuple[tuple[str, str], ...] = ()
+    min_families: int = 1
 
     def __post_init__(self) -> None:
         for name, lo, hi in (
@@ -39,6 +42,7 @@ class DivergenceConfig:
             ("max_bars", 6, 1000),
             ("max_pivots", 1, 20),
             ("min_indicators", 1, 20),
+            ("min_families", 1, 20),
         ):
             v = getattr(self, name)
             if type(v) is not int or not lo <= v <= hi:
@@ -54,6 +58,26 @@ class DivergenceConfig:
             or self.min_price_change_bps < 0
         ):
             raise ValueError("min_price_change_bps must be finite and non-negative")
+        if type(self.indicator_families) is not tuple:
+            raise TypeError("indicator_families must be an immutable tuple")
+        names: set[str] = set()
+        families: set[str] = set()
+        for pair in self.indicator_families:
+            if (
+                type(pair) is not tuple
+                or len(pair) != 2
+                or any(
+                    type(v) is not str or not v.strip() or v != v.strip() for v in pair
+                )
+            ):
+                raise ValueError("family assignments must be pairs of nonempty names")
+            name, family = pair
+            if name in names:
+                raise ValueError("duplicate indicator family assignment")
+            names.add(name)
+            families.add(family)
+        if self.min_families > max(1, len(families)):
+            raise ValueError("min_families exceeds the available indicator families")
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +185,11 @@ def detect_divergences(
         if arr.shape != (n,) or np.isinf(arr).any():
             raise ValueError(f"{name} must be length {n} with finite-or-NaN values")
         src[name] = arr
+    family_by_indicator = dict(cfg.indicator_families)
+    if family_by_indicator and family_by_indicator.keys() != src.keys():
+        raise ValueError(
+            "indicator_families must cover exactly the input indicator names"
+        )
     arrays = {kind: np.zeros(n, dtype=np.int16) for kind in _KINDS}
     events: list[DivergenceEvent] = []
     low_prices = c if cfg.pivot_source == "close" else low_price
@@ -239,7 +268,15 @@ def detect_divergences(
                 for event in candidates
                 if event.kind.startswith("bull") == bullish
             ]
-            if len({event.indicator for event in side}) < cfg.min_indicators:
+            distinct_names = {event.indicator for event in side}
+            if len(distinct_names) < cfg.min_indicators:
+                continue
+            if (
+                cfg.min_families > 1
+                and len({family_by_indicator[name] for name in distinct_names})
+                < cfg.min_families
+            ):
+                # Rejected candidates must remain eligible on future bars.
                 continue
             for event in side:
                 arrays[event.kind][t] += 1

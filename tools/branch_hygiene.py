@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 API_VERSION = "2022-11-28"
+_RETIREMENT_ORIGIN_URLS = frozenset(
+    {
+        "https://github.com/shuntatsu/trade_rl",
+        "https://github.com/shuntatsu/trade_rl.git",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -331,11 +337,13 @@ class GitHubApi:
     def delete_branches_with_leases(self, branches: Sequence[BranchInfo]) -> None:
         if not branches:
             return
-        credential = base64.b64encode(
-            f"x-access-token:{self._token}".encode("utf-8")
-        ).decode("ascii")
-        # Avoid exposing a reversible Base64 credential in the process argv.
-        # Git config via the child environment leaves it out of command lines.
+        if self._repository != "shuntatsu/trade_rl":
+            raise ValueError("branch deletion is restricted to trade_rl")
+        # Revalidate the exact effective Git configuration at each batch.
+        # The child environment replaces GIT_CONFIG_COUNT, so inspecting the
+        # inherited environment alone could hide a different push destination.
+        env = _retirement_push_env(self._token)
+        require_retirement_origin(env=env)
         command = [
             "git",
             "push",
@@ -353,17 +361,26 @@ class GitHubApi:
             text=True,
             capture_output=True,
             check=False,
-            env={
-                **os.environ,
-                "GIT_TERMINAL_PROMPT": "0",
-                "GIT_CONFIG_COUNT": "1",
-                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
-            },
+            env=env,
         )
         if process.returncode != 0:
             detail = process.stderr.strip() or process.stdout.strip()
             raise RuntimeError(f"conditional branch deletion failed: {detail}")
+
+
+def _retirement_push_env(token: str) -> dict[str, str]:
+    credential = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode(
+        "ascii"
+    )
+    # Keep the reversible credential out of argv. Use this same environment
+    # for destination validation and for the subsequent push.
+    return {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
+    }
 
 
 def open_pull_request_branch_names(
@@ -563,24 +580,25 @@ def apply_merged_retirement(
     return tuple(deleted)
 
 
-def require_retirement_origin() -> None:
+def require_retirement_origin(*, env: dict[str, str] | None = None) -> None:
     """Do not let an exact-SHA lease target an unrelated checkout or remote."""
 
-    expected = {
-        "https://github.com/shuntatsu/trade_rl",
-        "https://github.com/shuntatsu/trade_rl.git",
-    }
+    # A standalone preflight must inspect the same effective Git settings
+    # as the eventual transport; the empty token is never used for network I/O.
+    if env is None:
+        env = _retirement_push_env("")
     for argv in (
-        ("git", "remote", "get-url", "origin"),
-        ("git", "remote", "get-url", "--push", "origin"),
+        ("git", "remote", "get-url", "--all", "origin"),
+        ("git", "remote", "get-url", "--push", "--all", "origin"),
     ):
         actual = subprocess.run(
             argv,
             capture_output=True,
             text=True,
             check=True,
-        ).stdout.strip()
-        if actual not in expected:
+            env=env,
+        ).stdout.splitlines()
+        if len(actual) != 1 or actual[0] not in _RETIREMENT_ORIGIN_URLS:
             raise RuntimeError(
                 "merged retirement requires the exact trade_rl HTTPS origin"
             )

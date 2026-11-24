@@ -794,25 +794,23 @@ def test_work_inventory_rejects_default_branch_drift(
 ) -> None:
     api = FakeWorkApi()
     selected = "main"
-    calls = 0
+    events: list[str] = []
+    original_branches = api.branches
 
     def default_branch() -> str:
-        nonlocal calls
-        calls += 1
+        events.append("default")
         return selected
-
-    original_branches = api.branches
 
     def branches() -> tuple[BranchInfo, ...]:
         nonlocal selected
+        events.append("branches")
         rows = original_branches()
-        if not include_workflow_refs:
+        if events.count("branches") == (3 if include_workflow_refs else 2):
             selected = "feature/unregistered"
         return rows
 
     def workflow_refs() -> frozenset[str]:
-        nonlocal selected
-        selected = "feature/unregistered"
+        events.append("workflow")
         return frozenset({"main"})
 
     api.repository_default_branch = default_branch  # type: ignore[method-assign]
@@ -820,14 +818,48 @@ def test_work_inventory_rejects_default_branch_drift(
     setattr(api, "unfinished_workflow_branch_names", workflow_refs)
     with pytest.raises(RuntimeError, match="default branch changed"):
         build_inventory(api, include_workflow_refs=include_workflow_refs)  # type: ignore[arg-type]
-    assert calls == 2
+    expected = ["default", "branches", "branches"]
+    if include_workflow_refs:
+        expected += ["workflow", "workflow", "branches"]
+    assert events == [*expected, "default"]
 
 
 @pytest.mark.parametrize("include_workflow_refs", [False, True])
-def test_work_inventory_stable_default_branch(include_workflow_refs: bool) -> None:
+@pytest.mark.parametrize("default", ["main", "feature/unregistered"])
+def test_work_inventory_stable_default_branch(
+    include_workflow_refs: bool, default: str
+) -> None:
     api = FakeWorkApi()
+    calls = 0
+
+    def default_branch() -> str:
+        nonlocal calls
+        calls += 1
+        return default
+
+    api.repository_default_branch = default_branch  # type: ignore[method-assign]
     setattr(api, "unfinished_workflow_branch_names", lambda: frozenset({"main"}))
     report = build_inventory(api, include_workflow_refs=include_workflow_refs)  # type: ignore[arg-type]
-    assert report["main_sha"] == "a" * 40
+    assert calls == 2
+    assert report["main_sha"] == ("a" if default == "main" else "b") * 40
+    assert [
+        row["name"] for row in report["branches"] if row["reason"] == "default"
+    ] == [default]
     assert report["cleanup_authorized"] is False
     assert report["task_registry_complete"] is False
+
+
+def test_work_inventory_default_branch_readback_failure() -> None:
+    api = FakeWorkApi()
+    calls = 0
+
+    def default_branch() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("default branch API unavailable")
+        return "main"
+
+    api.repository_default_branch = default_branch  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="default branch API unavailable"):
+        build_inventory(api)  # type: ignore[arg-type]

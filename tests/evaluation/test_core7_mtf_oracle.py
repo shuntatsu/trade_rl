@@ -41,6 +41,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v25-combined-reader.json"
+)
+PACKET_V24_PATH = (
+    ROOT
+    / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v24-native-availability.json"
 )
 PACKET_TD8_V15_PATH = (
@@ -88,7 +93,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "16f68e981a4f98398331488a03c3c7b5eee1823458cc597bf4d4b9a18d65f06f"
+    "dd59cf4608cf13cd6eee7243e77d09e187b132aff5da427b0b62ed632b6a698d"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1281,7 +1286,7 @@ def test_v23_terminal_settlement_packet_only_rebinds_source() -> None:
 
 def test_v24_native_availability_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V23_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V24_PATH.read_text(encoding="utf-8"))
     assert _git("hash-object", str(PACKET_V23_PATH)).stdout.strip() == (
         "0345724a0d42e7ccf4f2f2206daaa2b496271ec2"
     )
@@ -1485,3 +1490,58 @@ def test_m2_td8_v17_zip_reader_pin_changes_only_source_binding() -> None:
     assert checked.status == "UNREVIEWED"
     assert checked.errors == ()
     assert not checked.economic_execution_authorized
+
+
+def test_v25_combined_source_preserves_both_immutable_predecessors() -> None:
+    expected = (
+        (
+            PACKET_V24_PATH,
+            "408bf2d5e18d347da2af1d7446a5c2759d312ddeaf2910860a4d8db3d3b45a2b",
+            "16f68e981a4f98398331488a03c3c7b5eee1823458cc597bf4d4b9a18d65f06f",
+        ),
+        (
+            PACKET_TD8_V17_PATH,
+            "c436da280305c36971a25800469b8e5392d8f3d43a7b441aca8ab02b0e8b3288",
+            "c0ad6cfbf54e0747aa570ad74b8d4f3542a729f8a1e2d8cbbc895abd0da0939f",
+        ),
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    for path, raw_digest, canonical_digest in expected:
+        raw = path.read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == raw_digest
+        previous = json.loads(raw)
+        assert assurance_digest(previous) == canonical_digest
+        assert current.keys() == previous.keys()
+        for field in previous:
+            if field not in ("identity", "thesis", "claims"):
+                assert current[field] == previous[field]
+        for field in previous["thesis"]:
+            if field != "limitations":
+                assert current["thesis"][field] == previous["thesis"][field]
+        for field in previous["claims"]:
+            if field != "next_authorized_action":
+                assert current["claims"][field] == previous["claims"][field]
+        check = evaluate_assurance(previous)
+        assert check.status == "UNREVIEWED" and not check.errors
+        assert not check.economic_execution_authorized
+    assert current["thesis"]["limitations"].startswith(
+        json.loads(PACKET_V24_PATH.read_bytes())["thesis"]["limitations"]
+    )
+    assert (
+        "V25 COMBINED READER SOURCE-ONLY BOUNDARY" in current["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "4d2f2240a30527156093ab730ba4efa36950036a",
+        "protocol_head": "4d2f2240a30527156093ab730ba4efa36950036a",
+    }
+    for path in (
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/data/features/multitimeframe.py",
+        "trade_rl/evaluation/terminal_settlement.py",
+        "trade_rl/evaluation/decision_value_dev_study.py",
+        "trade_rl/evaluation/runs/artifact.py",
+    ):
+        assert path in _bound_code_paths(current["identity"]["implementation_head"])
+    check = evaluate_assurance(current)
+    assert check.status == "UNREVIEWED" and not check.errors
+    assert not check.economic_execution_authorized

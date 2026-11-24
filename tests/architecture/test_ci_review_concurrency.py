@@ -112,3 +112,32 @@ def test_review_triggers_and_required_gate_roster_are_preserved() -> None:
         "Generic Independent Research Review",
     ):
         assert f"name: {job}" in text
+
+
+def test_generic_review_requires_all_four_job_results_without_exceptions() -> None:
+    """All four Full lanes are mandatory; the historical optional lane path is gone."""
+    import textwrap
+
+    text = WORKFLOW.read_text(encoding="utf-8")
+    generic = text.split("  independent-review:\n", 1)[1].split(
+        "  ppo-4h-independent-review:\n", 1
+    )[0]
+    assert "needs: [core, ppo-runtime, guide, market-store]" in generic
+    gate = generic.split("      - name: Require comprehensive verification\n", 1)[
+        1
+    ].split("      - name:", 1)[0]
+    env, run = gate.split("        run: |\n", 1)
+    assert textwrap.dedent(env).splitlines() == [
+        "env:",
+        "  CORE_RESULT: ${{ needs.core.result }}",
+        "  PPO_RESULT: ${{ needs.ppo-runtime.result }}",
+        "  GUIDE_RESULT: ${{ needs.guide.result }}",
+        "  MARKET_STORE_RESULT: ${{ needs.market-store.result }}",
+    ]
+    assert textwrap.dedent(run).strip().splitlines() == [
+        "set -euo pipefail",
+        'test "$CORE_RESULT" = "success"',
+        'test "$PPO_RESULT" = "success"',
+        'test "$GUIDE_RESULT" = "success"',
+        'test "$MARKET_STORE_RESULT" = "success"',
+    ]

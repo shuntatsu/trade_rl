@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.rl_family_comparison.contract import fixed_comparison_contract
 from trade_rl.strategies import (
     A2CIntentStrategy,
     fit_a2c_strategy,
@@ -192,7 +191,36 @@ def test_a2c_fit_uses_explicit_cpu_config_and_five_step_rounding(
 
     model = FakeA2C.last
     assert model is not None
-    algorithm = fixed_comparison_contract()["algorithm_settings"]["a2c"]
+    # Assert the core adapter defaults independently of any research protocol.
+    algorithm = {
+        "rollout_steps": 5,
+        "learning_rate": 0.0007,
+        "gamma": 0.99,
+        "gae_lambda": 1.0,
+        "entropy_coefficient": 0.0,
+        "value_coefficient": 0.5,
+        "max_gradient_norm": 0.5,
+        "rmsprop_epsilon": 1e-05,
+        "rmsprop_optimizer_epsilon": 1e-05,
+        "normalize_advantage": False,
+        "optimizer": "RMSprop",
+        "network": [64, 64],
+        "activation": "Tanh",
+        "use_rms_prop": True,
+        "rmsprop_alpha": 0.99,
+        "rmsprop_momentum": 0.0,
+        "rmsprop_weight_decay": 0.0,
+        "rmsprop_centered": False,
+        "rmsprop_capturable": False,
+        "rmsprop_foreach": None,
+        "rmsprop_maximize": False,
+        "rmsprop_differentiable": False,
+        "stats_window_size": 100,
+        "use_sde": False,
+        "shared_feature_extractor": True,
+        "orthogonal_initialization": True,
+        "feature_extractor": "FlattenExtractor",
+    }
     policy_kwargs = model.kwargs["policy_kwargs"]
     optimizer_kwargs = policy_kwargs["optimizer_kwargs"]
     assert policy_kwargs["net_arch"] == {

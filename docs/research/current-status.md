@@ -1514,7 +1514,10 @@ does not alter any active frozen study or its historical results.
 ### PPO/A2C update-family comparison: draft contract and synthetic oracle only
 
 The result-blind PPO/A2C code-contract draft and pure cell-decision oracle are
-implemented in `trade_rl.evaluation.rl_family_comparison`. The proposed study holds the existing
+owned by [trade_rl_research](https://github.com/shuntatsu/trade_rl_research/blob/main/docs/README.md).
+The former source and exact migration identities are recorded in the
+[research migration manifest](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rl_family_comparison_sources.json).
+The proposed study holds the existing
 12-feature task and execution contract fixed, fits the full five-symbol roster
 before 2023, and screens the already reused 2023–2024 development period under
 base, doubled-cost, and one-bar-latency scenarios. PPO and A2C each have five
@@ -1528,8 +1531,9 @@ five-seed medians. A paired symbol votes for A2C only with four of five
 positive same-seed deltas across all years and scenarios and positive median
 deltas; A2C can be selected by uplift only when both families qualify.
 
-Mocked PPO/A2C constructor tests bind the registered hyperparameters to the
-actual fitter arguments, and synthetic-cell tests exercise complete coverage,
+The core's mocked PPO/A2C constructor tests retain independent literal default
+oracles for the original adapter parameters. The migrated research synthetic-cell
+tests retain the registered comparison contract and exercise complete coverage,
 profit screens, paired decisions, the 20% per-symbol drawdown boundary, and
 execution-risk vetoes. No Dataset, model, or replay artifact was opened, and
 no new economic result was generated. No model fit or replay has been run, and this contract

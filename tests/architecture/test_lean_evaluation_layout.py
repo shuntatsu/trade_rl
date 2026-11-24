@@ -85,10 +85,6 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "ppo_normalization_replication.py",
         "ppo_normalization_execution.py",
         "ppo_normalization_activation.json",
-        "rl_family_comparison/__init__.py",
-        "rl_family_comparison/contract.py",
-        "rl_family_comparison/cells.py",
-        "rl_family_comparison/comparison.py",
         "ppo_risk_study.py",
         "dev_realdata_study/__init__.py",
         "dev_realdata_study/__main__.py",
@@ -213,6 +209,7 @@ def test_retired_evaluation_private_paths_are_absent() -> None:
         "seed_robustness.py",
         "strategy_comparison.py",
         "walk_forward",
+        "rl_family_comparison",
     )
     surviving = [path for path in retired if (PACKAGE / path).exists()]
     assert surviving == []

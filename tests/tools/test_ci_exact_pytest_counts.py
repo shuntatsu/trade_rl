@@ -203,3 +203,32 @@ def test_direct_suite_and_escaped_output_are_accepted(tmp_path: Path) -> None:
     ET.SubElement(case, "system-out").text = "<failure>just captured text</failure>"
     ET.ElementTree(suite).write(report, encoding="utf-8", xml_declaration=True)
     require_exact_junit_tests(report, expected_tests=2)
+
+
+@pytest.mark.parametrize(
+    "tag", ["failure", "error", "skipped", "testsuite", "testcase"]
+)
+def test_namespaced_elements_cannot_hide_additional_outcomes(
+    tmp_path: Path, tag: str
+) -> None:
+    report = _report(tmp_path)
+    doc = ET.parse(report)
+    case = doc.getroot().find("testsuite/testcase")
+    assert case is not None
+    ET.SubElement(case, f"{{urn:unexpected}}{tag}")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="namespace"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_namespaced_counter_cannot_conflict_with_pytest_counter(
+    tmp_path: Path,
+) -> None:
+    report = _report(tmp_path)
+    doc = ET.parse(report)
+    suite = doc.getroot().find("testsuite")
+    assert suite is not None
+    suite.set("{urn:unexpected}failures", "1")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="namespace"):
+        require_exact_junit_tests(report, expected_tests=2)

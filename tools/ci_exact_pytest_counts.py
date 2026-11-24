@@ -19,6 +19,15 @@ def require_exact_junit_tests(report: Path, *, expected_tests: int) -> None:
     except (OSError, ET.ParseError) as error:
         raise ValueError("JUnit report is missing or malformed") from error
 
+    # pytest emits unnamespaced JUnit XML. Qualified elements or attributes
+    # can otherwise evade the exact suite, case and outcome counters below.
+    if any(
+        element.tag.startswith("{")
+        or any(name.startswith("{") for name in element.attrib)
+        for element in root.iter()
+    ):
+        raise ValueError("JUnit report contains an unsupported XML namespace")
+
     if root.tag == "testsuite":
         suites = [root]
     elif root.tag == "testsuites":

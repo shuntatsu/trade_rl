@@ -18,6 +18,7 @@ from tests.integrations.market_store.support import (
 from trade_rl.integrations.binance.dataset import (
     BinanceGapPolicy,
     BinanceMarketDataSource,
+    BinanceSourceClosePolicy,
     _parse_kline_rows,
 )
 from trade_rl.integrations.market_store.checksum import (
@@ -48,6 +49,7 @@ from trade_rl.integrations.market_store.embargo import (
 )
 from trade_rl.integrations.market_store.parse import (
     ArchiveContentError,
+    StoreKlineAdmission,
     parse_funding_archive,
     parse_kline_archive,
 )
@@ -602,3 +604,120 @@ def test_a_zero_volume_row_with_a_valid_close_time_is_stored_not_skipped() -> No
     )
     assert parsed.placeholders == ()
     assert len(parsed.rows) == 31 * 24
+
+
+@pytest.mark.parametrize("micro", (False, True))
+def test_new_store_admission_and_file_strict_share_regular_source_clock(
+    micro: bool,
+) -> None:
+    rows = klines(micro=micro)
+    store = parse_kline_archive(
+        zip_csv(rows),
+        spec(),
+        embargo=ENFORCED,
+        admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+    )
+    # Independently reconstruct the expected grid, not from either parser.
+    expected = np.arange(ms_from_utc(JAN) + HOUR_MS, ms_from_utc(FEB) + 1, HOUR_MS)
+    parsed = _parse_kline_rows(
+        rows,
+        interval_ms=HOUR_MS,
+        start_ms=ms_from_utc(JAN),
+        end_ms=ms_from_utc(FEB),
+        source_close_policy=BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2,
+    )
+    np.testing.assert_array_equal(
+        [row.close_time_ms + 1 for row in store.rows], expected
+    )
+    np.testing.assert_array_equal(
+        parsed[0].astype("datetime64[ms]").astype("int64"), expected
+    )
+    np.testing.assert_array_equal(parsed[4], [float(row.close) for row in store.rows])
+    np.testing.assert_array_equal(
+        parsed[5], [float(row.quote_volume) for row in store.rows]
+    )
+    assert store == parse_kline_archive(zip_csv(rows), spec(), embargo=ENFORCED)
+
+
+@pytest.mark.parametrize(
+    "bad_clock", ("micro-close-early", "mixed", "nanoseconds", "signed")
+)
+def test_native_v2_refuses_timestamp_aliases_before_rounding(bad_clock: str) -> None:
+    rows = klines(micro=True)
+    raw = rows[6]
+    if bad_clock == "micro-close-early":
+        raw[6] = str(int(raw[6]) - 1)
+    elif bad_clock == "mixed":
+        raw[6] = str(int(raw[6]) // 1000)
+    elif bad_clock == "nanoseconds":
+        raw[0] = str(int(raw[0]) * 1000)
+        raw[6] = str((int(raw[6]) + 1) * 1000 - 1)
+    else:
+        raw[0] = "+" + raw[0]
+
+    # Historical normalization accepts each of these and loses the raw distinction.
+    legacy = parse_kline_archive(zip_csv(rows), spec(), embargo=ENFORCED)
+    assert (
+        legacy.rows
+        == parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).rows
+    )
+    with pytest.raises(ArchiveContentError, match="source close_time"):
+        parse_kline_archive(
+            zip_csv(rows),
+            spec(),
+            embargo=ENFORCED,
+            admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+        )
+
+
+def test_native_v2_keeps_documented_placeholder_missing_but_refuses_unit_alias() -> (
+    None
+):
+    archive = spec(start=DEC_2020, end=JAN_2021)
+    valid = parse_kline_archive(
+        zip_csv(dec_2020_rows()),
+        archive,
+        embargo=ENFORCED,
+        admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+    )
+    assert len(valid.rows) == 743 and len(valid.placeholders) == 1
+    assert PLACEHOLDER_OPEN_MS not in {row.open_time_ms for row in valid.rows}
+    for open_ms, close_ms in (
+        (str(PLACEHOLDER_OPEN_MS * 1000), REAL_BTC_PLACEHOLDER[6]),
+        (REAL_BTC_PLACEHOLDER[0], str(int(REAL_BTC_PLACEHOLDER[6]) * 1000)),
+        ("+" + REAL_BTC_PLACEHOLDER[0], REAL_BTC_PLACEHOLDER[6]),
+    ):
+        aliased = with_columns(open_ms=open_ms, close_ms=close_ms)
+        assert (
+            len(
+                parse_kline_archive(
+                    zip_csv(dec_2020_rows(aliased)), archive, embargo=ENFORCED
+                ).placeholders
+            )
+            == 1
+        )
+        with pytest.raises(
+            ArchiveContentError, match="placeholder requires native milliseconds"
+        ):
+            parse_kline_archive(
+                zip_csv(dec_2020_rows(aliased)),
+                archive,
+                embargo=ENFORCED,
+                admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+            )
+
+
+def test_native_v2_refuses_zero_volume_early_close_without_inventing_a_bar() -> None:
+    archive = spec(start=DEC_2020, end=JAN_2021)
+    early = with_columns(close_ms=str(PLACEHOLDER_OPEN_MS + 40 * 60 * 1000))
+    rows = dec_2020_rows(early)
+    assert (
+        len(parse_kline_archive(zip_csv(rows), archive, embargo=ENFORCED).rows) == 744
+    )
+    with pytest.raises(ArchiveContentError, match="source close_time"):
+        parse_kline_archive(
+            zip_csv(rows),
+            archive,
+            embargo=ENFORCED,
+            admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+        )

@@ -510,3 +510,34 @@ def test_a_near_miss_placeholder_aborts_the_run_and_stores_nothing() -> None:
         ingest(store, fetcher, plan)
     assert store.klines == {} and store.sources == {}
     assert store.runs[1]["status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    ("micro", "field", "delta"),
+    (
+        (False, 6, -1),
+        (False, 6, 1),
+        (False, 6, -1000),
+        (False, 6, 3_600_000),
+        (True, 6, -1),
+        (True, 6, 1),
+        (True, 0, 1),
+    ),
+)
+def test_new_ingest_refuses_inexact_native_clock_before_writing(
+    micro: bool, field: int, delta: int
+) -> None:
+    spec = month_spec(2024, 1)
+    rows = kline_csv_rows(
+        spec.symbol,
+        ms_from_utc(spec.period_start),
+        ms_from_utc(spec.period_end),
+        micro=micro,
+    )
+    rows[6][field] = str(int(rows[6][field]) + delta)
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(spec.url, zip_csv(rows))
+    with pytest.raises(ArchiveContentError, match="source close_time"):
+        ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
+    assert store.klines == {} and store.sources == {}
+    assert store.runs[1]["status"] == "failed"

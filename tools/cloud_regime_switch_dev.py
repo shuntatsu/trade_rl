@@ -53,10 +53,8 @@ from trade_rl.strategies.portfolio import PortfolioPolicy
 from trade_rl.strategies.portfolio_adapter import CashPortfolioPolicy
 
 REPOSITORY = "shuntatsu/trade_rl"
-PROTOCOL = (
-    Path(__file__).resolve().parents[1]
-    / "docs/specs/cloud-regime-switch-dev-protocol-v1.json"
-)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PROTOCOL = REPO_ROOT / "report/cloud-regime-switch-dev-protocol-v1.json"
 INPUT_ROOT = Path(
     "/home/rei/デスクトップ/dev/trade_rl_divergence_real_dev_20261123/switch_dev_frozen_inputs_20261124"
 )
@@ -74,7 +72,7 @@ def protocol() -> dict:
 def _git(*args: str) -> str:
     return subprocess.run(
         ["git", *args],
-        cwd=PROTOCOL.parents[2],
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,

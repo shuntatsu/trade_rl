@@ -13,6 +13,10 @@ from tools import cloud_regime_switch_dev as study
 
 
 def test_frozen_roster_and_protocol_identity():
+    assert study.PROTOCOL.parent == study.REPO_ROOT / "report"
+    assert hashlib.sha256(study.PROTOCOL.read_bytes()).hexdigest() == (
+        "4a8d3c70c10332bff9d023b493baa88a03f2ee513b11a3d777a7f563605cb0cf"
+    )
     p = study.protocol()
     assert len(p["arms"]) == 11
     assert (
@@ -41,6 +45,11 @@ def test_native_controls_and_ledger(arm):
         assert m["native_fills"] >= 2
         assert m["pre_interval_long_hours"] > 0
         assert m["pre_interval_short_hours"] == 0
+
+
+def test_git_lookup_is_independent_of_protocol_location(monkeypatch, tmp_path):
+    monkeypatch.setattr(study, "PROTOCOL", tmp_path / "protocol.json")
+    assert study._git("rev-parse", "--show-toplevel") == str(study.REPO_ROOT)
 
 
 def test_admission_refuses_dirty_or_mismatched_head(monkeypatch):

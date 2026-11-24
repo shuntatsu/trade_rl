@@ -73,7 +73,7 @@ result-blind review and owner authorization. No independent profitability claim.
 ## Predeclared development comparison v1 (awaiting review and G4)
 
 The frozen machine-readable design is
-[cloud-regime-switch-dev-protocol-v1.json](cloud-regime-switch-dev-protocol-v1.json).
+[cloud-regime-switch-dev-protocol-v1.json](../../report/cloud-regime-switch-dev-protocol-v1.json).
 The 11 arms, six independent asset-year books and three cost/latency
 settings define 198 fixed comparison cells. This is a bounded development
 falsification of S2; S0 and S1 identify regime-routing and divergence effects.

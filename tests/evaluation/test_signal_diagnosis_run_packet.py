@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -10,6 +10,7 @@ resolved from the immutable packet head. They read no market data.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import subprocess
@@ -28,12 +29,20 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json"
+    / "sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "a8fee68557bf2bf5c2fce326fc4955820079bea12cba5b4aedc7aba348ed3e91"
+PINNED_DIGEST = "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+PREVIOUS_CORE7_M2_PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json"
+)
+PREVIOUS_CORE7_M2_PACKET_DIGEST = (
+    "a8fee68557bf2bf5c2fce326fc4955820079bea12cba5b4aedc7aba348ed3e91"
+)
 PREVIOUS_MAIN1288_PACKET_PATH = (
     ROOT
     / "report"
@@ -239,6 +248,27 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     assert result.economic_execution_authorized is False
     assert assurance_digest(record) == PINNED_DIGEST == result.record_digest
     assert b"\r" not in PACKET_PATH.read_bytes()
+
+
+def test_previous_core7_m2_packet_is_immutable_unreviewed_history() -> None:
+    previous = json.loads(PREVIOUS_CORE7_M2_PACKET_PATH.read_text(encoding="utf-8"))
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED" and checked.errors == ()
+    assert checked.economic_execution_authorized is False
+    assert assurance_digest(previous) == PREVIOUS_CORE7_M2_PACKET_DIGEST
+    assert (
+        previous["identity"]["implementation_head"]
+        == "7a09a1fbaa3aa3ea542ab41696415248e1ebaca4"
+    )
+    assert (
+        previous["identity"]["protocol_head"]
+        == "7a09a1fbaa3aa3ea542ab41696415248e1ebaca4"
+    )
+    # Byte identity is independent of clone depth; the predecessor remains
+    # immutable even in a shallow source checkout.
+    assert hashlib.sha256(PREVIOUS_CORE7_M2_PACKET_PATH.read_bytes()).hexdigest() == (
+        "d5810d286318415c7872e48441152f4baf5439c014461ec13b85bce5b342bfcb"
+    )
 
 
 def test_prior_main1288_packet_is_immutable_unreviewed_history() -> None:
@@ -512,6 +542,11 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
             "report/sd2-signal-diagnosis-research-assurance-20261121-after-core7-m2-main.json"
             in text
         )
+        assert (
+            "report/sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json"
+            in text
+        )
+        assert PREVIOUS_CORE7_M2_PACKET_DIGEST in text
         assert (
             "report/sd2-signal-diagnosis-research-assurance-20261120-after-main1288-consistent.json"
             in text

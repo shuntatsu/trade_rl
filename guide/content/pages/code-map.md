@@ -138,7 +138,7 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
 
-Task18のnumeric replayも同じsessionを使います。明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inで、既定経路は従来どおりです。人工専用の凍結入力と保存済み完了armの読取り専用検証はtools側の責務であり、strategyやsimulationが別ledgerを作るものではありません。
+Task18のnumeric replayも同じsessionを使います。明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inで、既定経路は従来どおりです。人工専用の凍結入力、保存済み完了armの読取り専用検証、停止handoffの再確認と一段階の後継runへのpending dispatchはtools側の責務であり、strategyやsimulationが別ledgerを作るものではありません。
 
 ## 境界を見るときのチェック
 

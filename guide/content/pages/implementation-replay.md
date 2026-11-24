@@ -140,7 +140,7 @@ target_weight
 
 ## 同時portfolio policyのopt-in経路
 
-Task18の人工native経路は、凍結した単純リターン予測・費用・実snapshotを照合して各独立口座の数値targetを作ります。明示的な72区間の終端予約（latency+1以上）を指定し、risk適用後の全重みが現在と完全一致する場合の数量HOLDと債務保持をopt-inにできます。既存の既定値は変更しません。完了は全6,599 native区間、厳密flat、未約定なし、および台帳・実費用・Funding・判断の照合を要求します。保存済みの人工完了armは外部pinから読み直し、再実行せず同じsource oracleで確認できます。48-armの市場実行や認可を示すものではありません。
+Task18の人工native経路は、凍結した単純リターン予測・費用・実snapshotを照合して各独立口座の数値targetを作ります。明示的な72区間の終端予約（latency+1以上）を指定し、risk適用後の全重みが現在と完全一致する場合の数量HOLDと債務保持をopt-inにできます。既存の既定値は変更しません。完了は全6,599 native区間、厳密flat、未約定なし、および台帳・実費用・Funding・判断の照合を要求します。保存済みの人工完了armは外部pinから読み直し、再実行せず同じsource oracleで確認できます。停止後に別runでpending armを実行する場合は、先行handoff digestを保存し、RUNNINGからartifact再検証後にのみCOMPLETEDへ進めます。実行失敗は未知のprogressを捏造せずFAILEDにします。後継runの再回復には別途ancestor lineage検証が必要です。48-armの市場実行や認可を示すものではありません。
 
 `run_shared_portfolio_replay`はsimulation-ownedな
 `SharedPortfolioSession`を呼び出すopt-in batch consumerです。eligibleなnative

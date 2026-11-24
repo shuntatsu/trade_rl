@@ -73,7 +73,9 @@ def _run_state(value: Mapping[str, Any]) -> None:
         "completed",
     }:
         raise ValueError("attempt status is unknown")
-    conclusion = value.get("conclusion")
+    if "conclusion" not in value:
+        raise ValueError("attempt conclusion is missing")
+    conclusion = value["conclusion"]
     if state == "completed":
         if type(conclusion) is not str or conclusion not in {
             "success",
@@ -271,6 +273,8 @@ def inspect_expired_lease_evidence(
         attempt = pairs.get(run)
         if attempt is None:
             raise ValueError("artifact run has no matched attempt observation")
+        if "conclusion" not in item:
+            raise ValueError("artifact conclusion is missing")
         observed_attempt = _id(item.get("run_attempt_observed"), "artifact run attempt")
         if (
             item.get("schema") != "github_workflow_artifact_observation_v1"

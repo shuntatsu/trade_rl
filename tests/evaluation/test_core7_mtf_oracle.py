@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v21.json"
+PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v22.json"
+PACKET_V21_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v21.json"
 PACKET_V20_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v20.json"
 PACKET_V19_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
 PACKET_V18_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v18.json"
@@ -67,7 +68,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "e8089f5e66d90da21fba8f3c390cbdff04cdbc493483f755fd80213c63426023"
+    "25fb38d34f587a2b106822900d2c6031a69b53aa77ec0b9009063b5c284e2f8f"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1150,7 +1151,7 @@ def test_v20_packet_remains_immutable_unreviewed_history() -> None:
 
 def test_v21_masked_ndarray_owner_packet_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V20_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]
     assert current["evidence"] == prior["evidence"]
@@ -1165,6 +1166,49 @@ def test_v21_masked_ndarray_owner_packet_only_rebinds_source() -> None:
     assert current["identity"] == {
         "implementation_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
         "protocol_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v21_packet_remains_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V21_PATH)).stdout.strip() == (
+        "b09f06f4ef743d52036a38ca335f56c98bd984a8"
+    )
+    assert assurance_digest(prior) == (
+        "e8089f5e66d90da21fba8f3c390cbdff04cdbc493483f755fd80213c63426023"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+        "protocol_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v22_native_numeric_conversion_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V22 NATIVE NUMERIC CONVERSION BOUNDARY" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "ae83944b7d8773549428c5a71d056bc54763fe12",
+        "protocol_head": "ae83944b7d8773549428c5a71d056bc54763fe12",
     }
     assert "not permitted" in current["claims"]["next_authorized_action"]
     verdict = evaluate_assurance(current)

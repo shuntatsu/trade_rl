@@ -388,3 +388,40 @@ def test_only_closed_and_merged_local_pr_final_heads_count_as_evidence(
     assert api.merged_pr_source_refs() == (
         MergedPullRequestSource("feature/merged", B),
     )
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+@pytest.mark.parametrize("conflicting", [False, True])
+def test_duplicate_branch_readback_aborts_retirement(
+    monkeypatch: pytest.MonkeyPatch, phase: str, conflicting: bool
+) -> None:
+    api = FakeApi()
+    api.current.append(BranchInfo("feature/second", B, False))
+    api.merged.append(MergedPullRequestSource("feature/second", B))
+    decisions = _plan(api)
+    original = api.branches
+
+    def duplicate_readback() -> tuple[BranchInfo, ...]:
+        roster = original()
+        if (phase == "before" and not api.deleted) or (
+            phase == "after" and api.deleted == ["feature/done"]
+        ):
+            # The last occurrence matches the expected roster; dict collapse
+            # must not hide either an identical or contradictory first row.
+            name = "feature/done" if phase == "before" else "main"
+            entry = next(branch for branch in roster if branch.name == name)
+            duplicate = BranchInfo(name, entry.sha, conflicting)
+            return (duplicate, *roster)
+        return roster
+
+    monkeypatch.setattr(api, "branches", duplicate_readback)
+    with pytest.raises(RuntimeError, match="duplicate branch"):
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch="main",
+            expected_main_sha=A,
+            reachable_from_main=frozenset({A, B}),
+            batch_size=1,
+        )
+    assert api.deleted == ([] if phase == "before" else ["feature/done"])

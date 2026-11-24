@@ -478,6 +478,14 @@ def plan_merged_retirement(
     return tuple(decisions)
 
 
+def _unique_branch_readback(branches: Sequence[BranchInfo]) -> dict[str, BranchInfo]:
+    """Reject ambiguous paginated rosters before comparing their contents."""
+    by_name = {branch.name: branch for branch in branches}
+    if len(by_name) != len(branches):
+        raise RuntimeError("duplicate branch name in retirement readback")
+    return by_name
+
+
 def apply_merged_retirement(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
@@ -529,7 +537,7 @@ def apply_merged_retirement(
         merged_sources = api.merged_pr_source_refs() if queue else ()
     deleted: list[str] = []
     while queue:
-        before = {branch.name: branch for branch in api.branches()}
+        before = _unique_branch_readback(api.branches())
         if before != expected or before.get(default_branch) != main:
             raise RuntimeError("branch or main changed before retirement")
         open_refs = api.open_pull_request_refs()
@@ -549,7 +557,7 @@ def apply_merged_retirement(
         # The git transport performs one atomic push with one expected SHA
         # lease per ref: concurrent source writes cannot be silently discarded.
         api.delete_branches_with_leases(tuple(batch))
-        after = {branch.name: branch for branch in api.branches()}
+        after = _unique_branch_readback(api.branches())
         expected_after = {
             name: branch
             for name, branch in before.items()

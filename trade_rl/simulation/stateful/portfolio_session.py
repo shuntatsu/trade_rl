@@ -36,6 +36,37 @@ def _finite_real(value: object, *, name: str) -> float:
     return converted
 
 
+def resolve_agent_stop_index(
+    *,
+    start_index: int,
+    stop_index: int,
+    execution_cost: ExecutionCostConfig,
+    settle_terminal_position: bool,
+    terminal_reserve_bars: int | None = None,
+) -> int:
+    """Resolve the actor boundary without changing the default latency reserve."""
+    if terminal_reserve_bars is not None and (
+        type(terminal_reserve_bars) is not int or not settle_terminal_position
+    ):
+        raise ValueError(
+            "explicit terminal reserve requires an integer and terminal settlement"
+        )
+    if not settle_terminal_position:
+        return stop_index
+    minimum = execution_cost.order_latency_bars + 1
+    reserve = minimum if terminal_reserve_bars is None else terminal_reserve_bars
+    if reserve < minimum:
+        raise ValueError(
+            "terminal reserve must cover order latency and at least one close interval"
+        )
+    agent_stop_index = stop_index - reserve
+    if agent_stop_index <= start_index:
+        raise ValueError(
+            "terminal settlement requires at least one agent interval before the close"
+        )
+    return agent_stop_index
+
+
 class SharedPortfolioSession:
     """Advance one shared account by one native bar per numeric target.
 
@@ -44,7 +75,8 @@ class SharedPortfolioSession:
     snapshots through the strategy-owned observation builder; the session stays
     independent of evaluation and policy DTOs. Terminal intervals are reserved
     from actor decisions and can only be advanced by the internal
-    emergency-flatten path.
+    emergency-flatten path. An explicit terminal reserve can extend, but
+    never shorten, the latency-aware default.
     """
 
     def __init__(
@@ -58,6 +90,7 @@ class SharedPortfolioSession:
         risk: PreTradeRisk | None = None,
         market_order_profile: MarketOrderProfile | None = None,
         settle_terminal_position: bool = False,
+        terminal_reserve_bars: int | None = None,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -96,14 +129,13 @@ class SharedPortfolioSession:
         resolved_cost = (
             ExecutionCostConfig.zero() if execution_cost is None else execution_cost
         )
-        agent_stop_index = stop_index
-        if settle_terminal_position:
-            agent_stop_index = stop_index - resolved_cost.order_latency_bars - 1
-            if agent_stop_index <= start_index:
-                raise ValueError(
-                    "terminal settlement requires at least one agent interval "
-                    "before the close"
-                )
+        agent_stop_index = resolve_agent_stop_index(
+            start_index=start_index,
+            stop_index=stop_index,
+            execution_cost=resolved_cost,
+            settle_terminal_position=settle_terminal_position,
+            terminal_reserve_bars=terminal_reserve_bars,
+        )
 
         _require_available_marks_at_row(
             dataset,

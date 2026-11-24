@@ -215,7 +215,17 @@ common duration or an ordered per-symbol vector; age advances from actual signed
 fills, the locked target is rebound to the exact filled quantity, and risk
 projection still runs afterward. Optional terminal settlement reserves the
 latency-aware close interval and sends a portfolio-wide flat target through the
-same risk and execution path. In this explicit terminal-only step, an
+same risk and execution path. For the numeric portfolio-policy replay and
+`SharedPortfolioSession`, optional `terminal_reserve_bars` explicitly extends
+that reservation: it must be a native integer, settlement must be enabled,
+it must be at least `order_latency_bars + 1`, and at least one actor interval
+must remain. Both owners use the same index resolver. The actor stops at
+`stop_index - terminal_reserve_bars`; only the existing native settlement path
+advances the reserved tail, even when the account is already flat. Omission
+preserves the previous default, and an explicit reserve must be bound by the
+caller's frozen protocol. This is not a guarantee that an illiquid book
+settles, or permission to execute Task18 market data. In this explicit
+terminal-only step, an
 `emergency_flatten_mask` covers nonzero holdings in the selected strategy
 roster, so ordinary `max_turnover` does not scale down the requested close;
 ordinary strategy decisions continue to obey that turnover bound. The target

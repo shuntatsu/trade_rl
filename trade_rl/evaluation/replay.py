@@ -34,7 +34,10 @@ from trade_rl.simulation.native_transition import (
 )
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
-from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+from trade_rl.simulation.stateful.portfolio_session import (
+    SharedPortfolioSession,
+    resolve_agent_stop_index,
+)
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.portfolio import (
     PortfolioPolicy,
@@ -516,23 +519,6 @@ def _observation(
     )
 
 
-def _agent_stop_index(
-    *,
-    start_index: int,
-    stop_index: int,
-    execution_cost: ExecutionCostConfig,
-    settle_terminal_position: bool,
-) -> int:
-    if not settle_terminal_position:
-        return stop_index
-    agent_stop_index = stop_index - execution_cost.order_latency_bars - 1
-    if agent_stop_index <= start_index:
-        raise ValueError(
-            "terminal settlement requires at least one agent interval before the close"
-        )
-    return agent_stop_index
-
-
 def run_single_symbol_replay(
     dataset: MarketDataset,
     strategy: SingleSymbolStrategy,
@@ -613,7 +599,7 @@ def run_single_symbol_replay(
         latest_execution_observation = observation
 
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,
@@ -874,6 +860,7 @@ def _run_shared_cash_replay_core(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     _portfolio_policy: PortfolioPolicy | None = None,
+    terminal_reserve_bars: int | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -965,11 +952,12 @@ def _run_shared_cash_replay_core(
         resolved_gross_budget = 0.0
 
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,
         settle_terminal_position=settle_terminal_position,
+        terminal_reserve_bars=terminal_reserve_bars,
     )
     roster_symbol_indices = tuple(range(dataset.n_symbols))
     _require_available_marks_at_row(
@@ -1000,6 +988,7 @@ def _run_shared_cash_replay_core(
             risk=risk,
             market_order_profile=market_order_profile,
             settle_terminal_position=settle_terminal_position,
+            terminal_reserve_bars=terminal_reserve_bars,
             execution_observer=retain_latest_execution_observation,
         )
         if portfolio_session.agent_stop_index != agent_stop_index:
@@ -1558,8 +1547,13 @@ def run_shared_portfolio_replay(
     market_order_profile: MarketOrderProfile | None = None,
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
+    terminal_reserve_bars: int | None = None,
 ) -> SharedCashPortfolioReplayResult:
-    """Call one simultaneous portfolio policy once for each native bar."""
+    """Call one simultaneous portfolio policy once for each actor interval.
+
+    With settlement enabled, a fixed terminal_reserve_bars may extend the
+    latency-aware default; only the native flatten path can advance that tail.
+    """
 
     if execution_cost is not None and not isinstance(
         execution_cost, ExecutionCostConfig
@@ -1582,6 +1576,7 @@ def run_shared_portfolio_replay(
         settle_terminal_position=settle_terminal_position,
         capture_ledger_evidence=capture_ledger_evidence,
         _portfolio_policy=policy,
+        terminal_reserve_bars=terminal_reserve_bars,
     )
     ledger = (
         None
@@ -1648,7 +1643,7 @@ def run_scripted_shared_cash_replay(
     resolved_execution_cost = (
         ExecutionCostConfig.zero() if execution_cost is None else execution_cost
     )
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,

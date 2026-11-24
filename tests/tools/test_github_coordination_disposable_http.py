@@ -620,3 +620,90 @@ def test_rest_disposable_repository_guard_is_independent_of_cli(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         GitHubGitObjectHttpApi(repository=repository, token="test-token")
+
+
+def test_source_bound_rest_reader_exists_and_is_disposable_only() -> None:
+    from tools.github_coordination_disposable_e2e import GitHubEnrollmentReadHttpApi
+
+    api = GitHubEnrollmentReadHttpApi(repository=REPOSITORY, token="safe")
+    assert api is not None
+    with pytest.raises(ValueError, match="disposable"):
+        GitHubEnrollmentReadHttpApi(repository="shuntatsu/trade_rl", token="safe")
+
+
+def test_source_bound_rest_gets_fixed_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.github_coordination_disposable_e2e import GitHubEnrollmentReadHttpApi
+
+    api = GitHubEnrollmentReadHttpApi(repository=REPOSITORY, token="secret")
+    seen: list[urllib.request.Request] = []
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            return b'{"id":123}'
+
+    class Opener:
+        def open(self, request: urllib.request.Request, *, timeout: int) -> Response:
+            seen.append(request)
+            return Response()
+
+    def builder(*handlers: object) -> Opener:
+        assert len(handlers) == 1 and isinstance(handlers[0], _NoRedirect)
+        return Opener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", builder)
+    for suffix in (
+        "",
+        "issues/1067",
+        "git/ref/heads/main",
+        "git/ref/heads/coordination/task-registry",
+        "git/ref/heads/agent/T1067-P0/e0001-worker-a",
+    ):
+        api._request_json("GET", suffix)
+    assert len(seen) == 5
+    assert all(
+        r.full_url.startswith("https://api.github.com/repos/" + REPOSITORY)
+        and r.get_header("Authorization") == "Bearer secret"
+        for r in seen
+    )
+
+
+@pytest.mark.parametrize(
+    "method,suffix,query",
+    [
+        ("GET", "issues/0", None),
+        ("GET", "issues/001", None),
+        ("GET", "issues/-1", None),
+        ("GET", "issues/1067/comments", None),
+        ("GET", "issues/1067?redirect=evil", None),
+        ("GET", "git/ref/heads/provenance/branch-retention", None),
+        ("GET", "git/ref/heads/main?x=1", None),
+        ("GET", "git/ref/heads/agent/../e0001-worker-a", None),
+        ("GET", "git/ref/heads/agent/X../e0001-worker-a", None),
+        ("GET", "git/ref/heads/coordination/other", None),
+        ("GET", "git/ref/heads/agent/X/e0001-worker-a", {"extra": "yes"}),
+        ("POST", "issues/1067", None),
+        ("GET", "", {"extra": "yes"}),
+    ],
+)
+def test_source_bound_rest_invalid_path_is_rejected_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    suffix: str,
+    query: dict[str, str] | None,
+) -> None:
+    from tools.github_coordination_disposable_e2e import GitHubEnrollmentReadHttpApi
+
+    api = GitHubEnrollmentReadHttpApi(repository=REPOSITORY, token="safe")
+
+    def forbid(*_args: object) -> None:
+        raise AssertionError("Unexpected network access")
+
+    monkeypatch.setattr(urllib.request, "build_opener", forbid)
+    with pytest.raises(ValueError, match="REST reader|GET"):
+        api._request_json(method, suffix, query=query)

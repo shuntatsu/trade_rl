@@ -9,7 +9,7 @@ REQUEST_MARKER = "<!-- ppo-4h-gemini-review-request-v1 -->"
 UPLOAD = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 DOWNLOAD = "actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317"
 SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
-SETUP_UV = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
+SETUP_UV = "astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"
 
 
 def _job(text: str, name: str, next_name: str | None) -> str:

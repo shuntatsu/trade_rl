@@ -48,11 +48,11 @@ jobs:
       - name: Set up pinned uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.10.0"
+          version: "0.13.9"
           enable-cache: false
 
       - name: Verify version and frozen dependency plan without execution
         run: |
           python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
-          uv --version | grep -Fx 'uv 0.10.0'
+          uv --version | grep -Eq '^uv 0\.13\.9([[:space:]]|$)'
           uv sync --locked --dry-run --extra train-sb3

@@ -49,6 +49,8 @@ python -m tools.markdown_links --check
 - Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
 - Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
+- Learning lab method registry (draft, software harness and synthetic tests only): [specs/learning-lab-registry.md](specs/learning-lab-registry.md)
+- RL execution overlay for the agy anchor (development study draft, not yet run): [specs/anchor-rl-execution-dev.md](specs/anchor-rl-execution-dev.md)
 - Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
 - Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md](specs/trend-exit-arms-forward.md)
 - Hierarchical MTF long/short perp system (pre-registered prospective FORWARD from 2026-12-01, not yet run, no data read; software PR, authorizes nothing economic, needs independent review and a per-stage G4 relay): [specs/mtf-combo-forward.md](specs/mtf-combo-forward.md)

@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_exit_arms_forward as m
 
-DIGEST_PIN = "ca3c6a79496427b7e47e4bfdb72f2742e57df0afdfde207e4ac3c2664ed0dc9c"
+DIGEST_PIN = "9d6731a2b8e2c59d4728e3cbca6af28d216a1fdcfd940995b50ff0d5d794a3ed"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -1855,3 +1855,52 @@ def test_parse_klines_rejects_non_native_or_unaligned_open(bad_open: object) -> 
     row[0] = bad_open
     with pytest.raises(SystemExit, match="close_time"):
         m.parse_klines([row])
+
+
+# Regression: do not allow a POSIX-relative Windows literal to fork the single-use ledger.
+def test_stage_refuses_relative_ledger_before_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    when = datetime(2027, 1, 20, 9, tzinfo=UTC)
+    for dirname in ("cwd1", "cwd2"):
+        root = tmp_path / dirname
+        root.mkdir()
+        monkeypatch.chdir(root)
+        # The argument must be rejected before any API call, claim or data read.
+        with pytest.raises(SystemExit, match="absolute.*ledger|ledger.*absolute"):
+            m.run_stage(
+                "FORWARD_INTERIM",
+                URL,
+                root / "work",
+                root / "out",
+                now=when,
+                ledger_dir=Path("relative_ledger"),
+                fetch=lambda _url: (_ for _ in ()).throw(AssertionError("data read")),
+            )
+        assert not any(root.iterdir())
+
+
+def test_claim_identity_is_utc_and_naive_datetimes_refuse() -> None:
+    from datetime import timedelta, timezone
+
+    jst = timezone(timedelta(hours=9))
+    stage = m.STAGES["FORWARD_INTERIM"]
+    assert (
+        m.claim_name(stage, datetime(2026, 12, 1, 0, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-11"
+    )
+    assert (
+        m.claim_name(stage, datetime(2026, 12, 1, 9, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-12"
+    )
+    with pytest.raises(SystemExit, match="timezone-aware"):
+        m.claim_name(stage, datetime(2026, 12, 1))
+    with pytest.raises(SystemExit, match="timezone-aware"):
+        m.check_clock(stage, datetime(2026, 12, 1))
+
+
+def test_posix_windows_legacy_default_must_not_be_accepted() -> None:
+    import os
+
+    if os.name != "nt":
+        assert not m.LEDGER_DIR.is_absolute()

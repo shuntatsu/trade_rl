@@ -544,6 +544,29 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 二次元maskに加え、欠損フラグを隠したmasked arrayも、清算対象へ
 変換せず、口座を変更する前に拒否する。
 正しいbool maskの既存の精算金額・保有数量・回復率は維持する。
+`BookState` の数量・mark価格・契約倍率および公開会計更新の数値vectorも、
+`np.asarray` が欠損maskを捨てて隠れた値を使用しないよう、masked arrayを
+正規化前に拒否する。リスト・タプル・`deque`・`UserList`に加えて、
+ABC `Sequence`未登録でも`__len__`と`__getitem__`を実装する添字型コンテナ、
+およびobject配列に内包されたmasked arrayも同様に拒否する。
+入れ子の添字値を検査と同時に一度だけsnapshotへ保存し、NumPyへの変換は
+そのsnapshotから行う。原コンテナの二度読みで新たなmasked値を取り込まない。
+検査中のコンテナ参照は保持し、動的な子の`id`再利用による検査省略も防ぐ。
+循環参照は数値配列へ正規化する前に拒否する。
+任意の`__array__`・`__array_interface__`・`__array_struct__`を持つ
+不透明なadapterは欠損情報の保持を確認できないため、変換前に拒否する。
+配列インターフェースの属性参照が失敗してもValueErrorで閉じる。
+また、未検査の独自`__float__`・`__index__`で欠損値を数値化しないよう、
+終端のscalarは既存のnative数値・文字列型、Decimal、Fractionおよび
+native NumPy scalarに限定する。ndarray subclassのdtypeやtolistの
+上書きは信用せず、native dtypeと要素で検査する。
+objectを含む構造化配列は拒否する。元のMaskedArrayへの参照が
+呼出し前に失われた場合の欠損情報の復元までは保証しない。
+通常の数値ndarray・リスト・タプル・`deque`・`UserList`・安定した添字型
+数値コンテナの受理は維持する。
+特に精算価格・回復率・split・配当・再評価・funding付き
+mark-to-marketは、拒否時にcash・保有・費用・履歴を更新しない。
+通常の非masked数値vectorと既存の会計・経済意味は変えない。
 
 Stateful `execute_orders` の処理途中で例外が発生した場合、呼出元の
 `BookState`と`OrderBookState`は書き換えず、同一`MarketExecutor`の

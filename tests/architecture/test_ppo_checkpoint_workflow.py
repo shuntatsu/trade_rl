@@ -92,7 +92,7 @@ def test_checkpoint_workflow_uses_runner_python_without_managed_downloads() -> N
     assert "check-latest: false" in runner_step
 
     uv_step = text[uv:sync]
-    uv_sha = "68559e99cc807c1eb7e9238fd43a15bba460eec2"
+    uv_sha = "1db35dd8eee11c5894872e0b383ae6c406cf738d"
     assert "uses: astral-sh/setup-uv@" + uv_sha in uv_step
     assert 'version: "0.13.9"' in uv_step
     assert "enable-cache: false" in uv_step

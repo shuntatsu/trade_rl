@@ -23,6 +23,12 @@ train-sb3 = [
     "stable-baselines3==2.3.2",
     "torch==2.4.1",
 ]
+learning-lab = [
+    "stable-baselines3==2.3.2",
+    "sb3-contrib==2.3.0",
+    "torch==2.4.1",
+    "lightgbm[scikit-learn]==4.7.0",
+]
 oracle = [
     "scipy>=1.14,<1.18",
 ]
@@ -47,6 +53,7 @@ where = ["."]
 include = ["trade_rl*"]
 
 [tool.setuptools.package-data]
+"trade_rl" = ["py.typed"]
 "trade_rl.evaluation" = ["ppo_normalization_activation.json"]
 "trade_rl.integrations.market_store" = ["migrations/*.sql"]
 

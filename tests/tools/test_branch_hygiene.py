@@ -10,20 +10,28 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
     from tools.branch_hygiene import GitHubApi
 
     observed: dict[str, object] = {}
+    checked_urls: list[list[str]] = []
+    checked_envs: list[object] = []
 
     class Process:
         returncode = 0
         stdout = ""
         stderr = ""
 
-    def fake_run(command: list[str], **kwargs: object) -> Process:
+    def fake_run(command: list[str] | tuple[str, ...], **kwargs: object) -> Process:
+        if tuple(command[:3]) == ("git", "remote", "get-url"):
+            checked_urls.append(list(command))
+            checked_envs.append(kwargs.get("env"))
+            result = Process()
+            result.stdout = "https://github.com/shuntatsu/trade_rl.git\n"
+            return result
         observed["command"] = command
         observed["kwargs"] = kwargs
         return Process()
 
     monkeypatch.setattr("tools.branch_hygiene.subprocess.run", fake_run)
     api = GitHubApi(
-        repository="owner/repo",
+        repository="shuntatsu/trade_rl",
         token="secret-token",
         api_url="https://api.github.com",
     )
@@ -34,6 +42,10 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
 
     api.delete_branches_with_leases(branches)
 
+    assert checked_urls == [
+        ["git", "remote", "get-url", "--all", "origin"],
+        ["git", "remote", "get-url", "--push", "--all", "origin"],
+    ]
     command = observed["command"]
     assert isinstance(command, list)
     assert "--atomic" in command
@@ -54,6 +66,8 @@ def test_delete_uses_atomic_exact_sha_leases(monkeypatch: pytest.MonkeyPatch) ->
     assert isinstance(kwargs, dict)
     git_env = kwargs["env"]
     assert isinstance(git_env, dict)
+    assert len(checked_envs) == 2
+    assert all(env is git_env for env in checked_envs)
     assert git_env["GIT_CONFIG_COUNT"] == "1"
     assert git_env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
     assert git_env["GIT_CONFIG_VALUE_0"] == f"AUTHORIZATION: basic {encoded}"

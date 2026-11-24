@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import subprocess
 from dataclasses import replace
@@ -38,6 +39,9 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
+    ROOT / "report" / "issue1131-1134-core7-mtf-ppo-research-assurance-v17.json"
+)
+PACKET_V16_PATH = (
     ROOT / "report" / "issue1131-1134-core7-mtf-ppo-research-assurance-v16.json"
 )
 PACKET_V15_PATH = (
@@ -63,7 +67,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "c796337242e66f70d4ebc8ddc21ad4b8da4e4a5e4bdc670b3b53225299f30009"
+    "c0ad6cfbf54e0747aa570ad74b8d4f3542a729f8a1e2d8cbbc895abd0da0939f"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -882,7 +886,7 @@ def test_td8_v15_packet_rebinds_only_shared_reader_source() -> None:
 
 def test_m2_td8_v16_packet_rebinds_only_candidate_reader_source() -> None:
     old: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
     assert assurance_digest(old) == (
         "a720a5fc9afa15ef2e131b008f0a43d2e8c14ad45840f20a36c1d7db71f326e6"
     )
@@ -904,3 +908,43 @@ def test_m2_td8_v16_packet_rebinds_only_candidate_reader_source() -> None:
     assert review.status == "UNREVIEWED"
     assert review.errors == ()
     assert not review.economic_execution_authorized
+
+
+def test_m2_td8_v16_packet_is_immutable_unreviewed_history() -> None:
+    assert (
+        hashlib.sha256(PACKET_V16_PATH.read_bytes()).hexdigest()
+        == "bcaf59791d4d3bc4b5c2169f14d4ff9a2a2569bbf4f7916fc09dcf86e6d35e55"
+    )
+    previous = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
+    assert (
+        assurance_digest(previous)
+        == "c796337242e66f70d4ebc8ddc21ad4b8da4e4a5e4bdc670b3b53225299f30009"
+    )
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED"
+    assert checked.errors == ()
+    assert not checked.economic_execution_authorized
+
+
+def test_m2_td8_v17_zip_reader_pin_changes_only_source_binding() -> None:
+    prior = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
+    current = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "8104d3becf3c19643b461363ecdfff6e2f478bcc",
+        "protocol_head": "8104d3becf3c19643b461363ecdfff6e2f478bcc",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    checked = evaluate_assurance(current)
+    assert checked.status == "UNREVIEWED"
+    assert checked.errors == ()
+    assert not checked.economic_execution_authorized

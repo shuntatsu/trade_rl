@@ -311,6 +311,8 @@ def test_cell_mode_refuses_symlinked_output_root(monkeypatch, tmp_path):
         "duplicate",
         "pending",
         "changed_attempt",
+        "missing_updated_at",
+        "malformed_updated_at",
     ],
 )
 def test_exact_full_ci_admission(monkeypatch, fault):
@@ -320,6 +322,7 @@ def test_exact_full_ci_admission(monkeypatch, fault):
     run = dict(
         id=123,
         run_attempt=1,
+        updated_at="2026-11-24T02:00:00Z",
         name="CI",
         path=".github/workflows/ci.yml",
         head_sha=head,
@@ -357,6 +360,10 @@ def test_exact_full_ci_admission(monkeypatch, fault):
         jobs[0]["head_sha"] = "b" * 40
     if fault == "duplicate":
         jobs.append(deepcopy(jobs[0]))
+    if fault == "missing_updated_at":
+        del run["updated_at"]
+    if fault == "malformed_updated_at":
+        run["updated_at"] = "2026-11-24Z"
     runs = [run]
     if fault == "pending":
         runs.append(dict(run, id=124, status="in_progress", conclusion=None))
@@ -372,7 +379,64 @@ def test_exact_full_ci_admission(monkeypatch, fault):
 
     monkeypatch.setattr(study, "_github_api_read", api)
     if fault is None:
-        assert study._require_full_ci(head, 1355) == (123, 1)
+        assert study._require_full_ci(head, 1355) == (123, 1, "2026-11-24T02:00:00Z")
     else:
-        with pytest.raises(ValueError, match="CI"):
+        with pytest.raises(ValueError, match="CI|timestamp"):
             study._require_full_ci(head, 1355)
+
+
+@pytest.mark.parametrize(
+    "created,updated,accepted",
+    [
+        ("2026-11-24T03:00:00Z", "2026-11-24T03:00:00Z", True),
+        ("2026-11-24T00:00:00Z", "2026-11-24T00:00:00Z", False),
+        ("2026-11-24T01:30:00Z", "2026-11-24T01:30:00Z", False),
+        ("2026-11-24T02:00:00Z", "2026-11-24T02:00:00Z", False),
+        ("2026-11-24T03:00:00Z", "2026-11-24T04:00:00Z", False),
+    ],
+)
+def test_owner_comment_created_after_gates(monkeypatch, created, updated, accepted):
+    from types import SimpleNamespace
+
+    head = "a" * 40
+    packet = {
+        "identity": {"implementation_head": head, "protocol_head": head},
+        "thesis": {"limitations": study._sha(study.PROTOCOL)},
+    }
+    url = "https://github.com/shuntatsu/trade_rl/pull/1355#issuecomment-456"
+    body = study.authorization_body(packet)
+
+    def api(path):
+        if path.endswith("/reviews/123"):
+            return {
+                "id": 123,
+                "commit_id": head,
+                "submitted_at": "2026-11-24T01:00:00Z",
+            }
+        if path.endswith("/issues/comments/456"):
+            return {
+                "id": 456,
+                "html_url": url,
+                "issue_url": "https://api.github.com/repos/shuntatsu/trade_rl/issues/1355",
+                "user": {"id": 148511409, "login": "shuntatsu", "type": "User"},
+                "body": body,
+                "created_at": created,
+                "updated_at": updated,
+            }
+        pytest.fail(path)
+
+    def verified(*args, api_read, **kwargs):
+        api_read("repos/shuntatsu/trade_rl/pulls/1355/reviews/123")
+        return SimpleNamespace(status="PASS")
+
+    monkeypatch.setattr(study, "_git", lambda *a: "" if a[0] == "status" else head)
+    monkeypatch.setattr(study, "_github_api_read", api)
+    monkeypatch.setattr(study, "verify_github_review", verified)
+    monkeypatch.setattr(
+        study, "_require_full_ci", lambda *a: (789, 1, "2026-11-24T02:00:00Z")
+    )
+    if accepted:
+        assert study._authorize(packet, 1355, 123, url)["ci_run_id"] == 789
+    else:
+        with pytest.raises(ValueError, match="owner authorization"):
+            study._authorize(packet, 1355, 123, url)

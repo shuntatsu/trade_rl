@@ -12,7 +12,9 @@ import hashlib
 import json
 import math
 import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
 
@@ -96,7 +98,19 @@ def authorization_body(packet: dict) -> str:
     )
 
 
-def _require_full_ci(head: str, pr: int) -> tuple[int, int]:
+def _github_timestamp(value: object) -> datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise ValueError("GitHub gate timestamp is missing or malformed")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+            raise ValueError("noncanonical GitHub timestamp")
+        return parsed
+    except ValueError as exc:
+        raise ValueError("GitHub gate timestamp is malformed") from exc
+
+
+def _require_full_ci(head: str, pr: int) -> tuple[int, int, str]:
     """Require the exact-head review-event Full CI, not Fast Push or old Green."""
     root = f"repos/{REPOSITORY}/actions/runs"
 
@@ -178,7 +192,8 @@ def _require_full_ci(head: str, pr: int) -> tuple[int, int]:
         ):
             raise ValueError(f"exact-head CI job is not uniquely Green: {name}")
     final = _github_api_read(f"{root}/{run_id}")
-    fields = ("id", "run_attempt", "status", "conclusion")
+    fields = ("id", "run_attempt", "status", "conclusion", "updated_at")
+    _github_timestamp(run.get("updated_at"))
     if (
         not isinstance(final, dict)
         or not relevant(final)
@@ -190,7 +205,7 @@ def _require_full_ci(head: str, pr: int) -> tuple[int, int]:
         )
     ):
         raise ValueError("CI run changed during admission")
-    return run_id, attempt
+    return run_id, attempt, run["updated_at"]
 
 
 def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
@@ -202,31 +217,71 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         raise ValueError("clean exact protocol/implementation HEAD required")
     if _sha(PROTOCOL) not in packet["thesis"]["limitations"]:
         raise ValueError("packet must bind exact protocol bytes")
+    review_path = f"repos/{REPOSITORY}/pulls/{pr}/reviews/{review_id}"
+    review_snapshot: dict = {}
+
+    def review_api(path: str) -> object:
+        row = _github_api_read(path)
+        if path == review_path and isinstance(row, dict):
+            review_snapshot.clear()
+            review_snapshot.update(row)
+        return row
+
     review = verify_github_review(
         packet,
         repository=REPOSITORY,
         pr_number=pr,
         review_id=review_id,
-        api_read=_github_api_read,
+        api_read=review_api,
     )
     if review.status != "PASS":
         raise ValueError("authenticated independent research review has not passed")
-    ci_run_id, ci_attempt = _require_full_ci(head, pr)
-    _, number, _ = parse_g4_url(owner_url)
+    reviewed_at = _github_timestamp(review_snapshot.get("submitted_at"))
+    ci_run_id, ci_attempt, ci_updated_at = _require_full_ci(head, pr)
+    _, number, comment_id = parse_g4_url(owner_url)
     if number != pr:
         raise ValueError("owner approval must belong to the exact review PR")
-    owner = fetch_comment(owner_url)
+    owner_path = f"repos/{REPOSITORY}/issues/comments/{comment_id}"
+    owner_metadata: dict = {}
+
+    def owner_gh(args: Sequence[str]) -> str:
+        if list(args) != ["api", owner_path]:
+            raise ValueError("unexpected owner authorization lookup")
+        row = _github_api_read(owner_path)
+        if not isinstance(row, dict):
+            raise ValueError("owner authorization metadata is malformed")
+        owner_metadata.clear()
+        owner_metadata.update(row)
+        return json.dumps(row)
+
+    owner = fetch_comment(owner_url, gh=owner_gh)
+    created_at = owner_metadata.get("created_at")
+    if created_at != owner.updated_at or _github_timestamp(created_at) <= max(
+        reviewed_at, _github_timestamp(ci_updated_at)
+    ):
+        raise ValueError(
+            "owner authorization must be newly created after review and Full CI"
+        )
     if owner.body.strip() != authorization_body(packet):
         raise ValueError("separate exact owner authorization is required")
-    again = fetch_comment(owner_url)
-    if (again.body_sha256, again.updated_at) != (owner.body_sha256, owner.updated_at):
+    again = fetch_comment(owner_url, gh=owner_gh)
+    if (again.body_sha256, again.updated_at, owner_metadata.get("created_at")) != (
+        owner.body_sha256,
+        owner.updated_at,
+        created_at,
+    ):
         raise ValueError("owner authorization changed during admission")
+    if _github_api_read(review_path) != review_snapshot:
+        raise ValueError("independent research review changed during admission")
     return {
         "head": head,
         "packet_digest": assurance_digest(packet),
         "review_id": review_id,
         "ci_run_id": ci_run_id,
         "ci_run_attempt": ci_attempt,
+        "ci_run_updated_at": ci_updated_at,
+        "review_submitted_at": review_snapshot["submitted_at"],
+        "owner_created_at": created_at,
         "pr": pr,
         "owner_comment": owner_url,
         "owner_body_sha256": owner.body_sha256,

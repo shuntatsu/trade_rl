@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json"
+    / "sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+PINNED_DIGEST = "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -624,3 +624,46 @@ def test_the_static_closure_covers_every_shared_dependency_of_the_runner() -> No
     ):
         assert needed in bound, needed
     assert not any(path.startswith("tests/") for path in bound)
+
+
+def test_previous_current_main_packet_is_immutable_after_real_request_fix() -> None:
+    path = (
+        ROOT
+        / "report/sd2-signal-diagnosis-research-assurance-20261124-after-current-main.json"
+    )
+    assert (
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        == "7cf568426b1450fb518b214a11a119b1e013f41414fd9a68d22dc20a286fb9cd"
+    )
+    prior = json.loads(path.read_text(encoding="utf-8"))
+    assert (
+        assurance_digest(prior)
+        == "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+    )
+    checked = evaluate_assurance(prior)
+    assert checked.status == "UNREVIEWED" and checked.errors == ()
+    assert not checked.economic_execution_authorized
+    current = packet()
+    assert current["identity"] == {
+        "implementation_head": "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
+        "protocol_head": "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
+    }
+    assert current["mechanism"] == prior["mechanism"]
+    assert (
+        current["evidence"]
+        | {
+            "independent_reconstruction": prior["evidence"][
+                "independent_reconstruction"
+            ]
+        }
+        == prior["evidence"]
+    )
+    assert (
+        "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+        in current["thesis"]["limitations"]
+    )
+    for doc in (STATUS, ARCHITECTURE):
+        assert (
+            "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+            in _flat(doc)
+        )

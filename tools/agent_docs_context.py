@@ -51,12 +51,15 @@ def _heading_positions(source: str) -> list[tuple[str, int]]:
             html_comment = "-->" not in value[comment_start.end() :]
         elif marker:
             chars = marker.group(1)
+            suffix = value[marker.end() :]
             if fence is None:
-                fence = (chars[0], len(chars))
+                # Backtick info strings cannot contain backticks; tilde info can.
+                if chars[0] != "`" or "`" not in suffix:
+                    fence = (chars[0], len(chars))
             elif (
                 fence[0] == chars[0]
                 and len(chars) >= fence[1]
-                and not value[marker.end() :].strip()
+                and not suffix.strip(" \t")
             ):
                 fence = None
         elif fence is None:

@@ -147,3 +147,25 @@ def test_single_line_comment_and_inline_marker_are_allowed() -> None:
         "marker for 目的", "`<!--` should stay inline\nmarker for 目的"
     )
     assert render(source, ("all",)) == source
+
+
+def test_backtick_in_fence_info_cannot_hide_unknown_heading() -> None:
+    source = _fixture() + "\n```bad`info\n## New mandatory rule\n```\n"
+    with pytest.raises(ValueError, match="unclosed|unmapped"):
+        split_sections(source)
+
+
+def test_invalid_backtick_fence_opener_is_ordinary_text() -> None:
+    source = _fixture().replace("marker for 目的", "marker for 目的\n```bad`info")
+    assert render(source, ("all",)) == source
+
+
+def test_non_ascii_space_cannot_close_fence() -> None:
+    source = _fixture() + "\n```markdown\ntext\n```\u00a0\n"
+    with pytest.raises(ValueError, match="unclosed"):
+        split_sections(source)
+
+
+def test_tilde_fence_info_may_contain_backtick() -> None:
+    source = _fixture() + "\n~~~example`info\n## Not a heading\n~~~\t \n"
+    assert render(source, ("all",)) == source

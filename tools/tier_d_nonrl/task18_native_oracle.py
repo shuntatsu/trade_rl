@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import Protocol
 
 import numpy as np
 
@@ -20,15 +21,26 @@ from tools.tier_d_nonrl.task18_recipe import build_task18_protocol
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.decision_value_ledger_oracle import (
+    SettledLedgerInput,
     verify_paired_economic_ledger,
 )
-from trade_rl.evaluation.replay import SharedCashPortfolioReplayResult
+from trade_rl.evaluation.replay import SharedCashPortfolioReplayDecision
+from trade_rl.evaluation.series import ReturnSeries
 from trade_rl.simulation.execution import MarketExecutor
 
 _PROTOCOL = build_task18_protocol()
 _PLAN = _PROTOCOL.index_plan
 _ECONOMICS = _PROTOCOL.economics
 _ARMS = {arm.arm_id: arm for arm in _PROTOCOL.arms}
+
+
+class NativeArmEvidence(SettledLedgerInput, Protocol):
+    """The same oracle accepts live native evidence or immutable restored facts."""
+
+    @property
+    def returns(self) -> ReturnSeries: ...
+    @property
+    def decisions(self) -> tuple[SharedCashPortfolioReplayDecision, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +60,7 @@ def _near(left: float, right: float, *, atol: float = 1e-8) -> bool:
 
 
 def _costs_match(
-    dataset: MarketDataset, arm_id: str, result: SharedCashPortfolioReplayResult
+    dataset: MarketDataset, arm_id: str, result: NativeArmEvidence
 ) -> bool:
     wrapped = result.ledger_evidence
     if wrapped is None or dataset.funding_price_rate is None:
@@ -201,7 +213,7 @@ def _costs_match(
 def _decisions_match(
     dataset: MarketDataset,
     arm_id: str,
-    result: SharedCashPortfolioReplayResult,
+    result: NativeArmEvidence,
     frozen: FrozenTask18Inputs,
 ) -> bool:
     wrapped = result.ledger_evidence
@@ -313,7 +325,7 @@ def _decisions_match(
 def verify_native_arm(
     dataset: MarketDataset,
     arm_id: str,
-    result: SharedCashPortfolioReplayResult,
+    result: NativeArmEvidence,
     *,
     frozen: FrozenTask18Inputs,
 ) -> NativeArmVerification:

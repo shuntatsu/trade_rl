@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "d0cf3c36a83e9d210a68530e6ddda9a4df8011dd10c358e5ba0844e0c87a1f95"
+      "sha256": "5c683f8ec2967a9692ec670346450f00ab1c8cc233b5305b8871a4c11df211cb"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -251,7 +251,7 @@
       "id": "single-symbol-replay",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "c919eb406161451d35a69c269559c023d11c13767d043cda1b6a75d9e2572834",
+      "source_sha256": "a8616158ffd13e5a27b900bebd861667f458ddbf21e4447bb2ebe5bf7ab0cec9",
       "label_ja": "共通評価リプレイ",
       "description_ja": "Dataset・Strategy・Risk・Executionを一つの評価経路へ結び、共通accountingから比較可能な結果を作ります。PPOの保有期間制約は実約定数量に基づく共有規則を通します。",
       "variables": [],
@@ -263,7 +263,7 @@
       "id": "scripted-shared-cash-replay",
       "symbol": "trade_rl.evaluation.replay.run_scripted_shared_cash_replay",
       "kind": "function",
-      "source_sha256": "45b7b3659b412395cf73672b98b4f16ef8b5db42a2d001c72d1edaac5a918d5d",
+      "source_sha256": "59a1c2cd56e538a1ce2581085f72576ba39bb54b6c5d7bd7b4ad399cb367fa0e",
       "label_ja": "固定action sequenceによる共通資金replay",
       "description_ja": "事前検証したsymbolごとのaction sequenceを既存のshared risk・MarketExecutor・ledgerへ通します。Noneはpending targetを進め、HOLD_QUANTITYはriskがweightを変えない場合だけ実BookStateのexact quantityを保ってremainderをcancelします。strategy interfaceやledger schemaは変えません。",
       "variables": [
@@ -282,9 +282,9 @@
       "id": "shared-portfolio-policy-replay",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "299aaa0c03bf75419cc96bdd02c578c64a497a6a4575b815d708617adaf647a2",
+      "source_sha256": "67dee31bc39af78e06e132595f42edf4597c5d347a207314c8108486e3257022",
       "label_ja": "全銘柄portfolio policyの共通replay",
-      "description_ja": "1 native barごとにdetached snapshotを一つ渡し、全symbol順のnumeric targetを既存のshared PreTradeRisk・MarketExecutor・BookState loopへ通します。numeric actionには別ledger schemaを使い、legacy intent resultは変更しません。",
+      "description_ja": "1 native barごとにdetached snapshotを一つ渡し、全symbol順のnumeric targetを既存のshared PreTradeRisk・MarketExecutor・BookState loopへ通します。numeric actionには別ledger schemaを使い、legacy intent resultは変更しません。 明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inであり、既存既定値を変えません。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
@@ -295,9 +295,9 @@
       "id": "shared-portfolio-session",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "387de0b34a9e3cc9aa800522ebb0dbb202c9a8d8558af7e42db1bbdf3534df2e",
+      "source_sha256": "2e1a8658201440a13079c49f6a932bc30bcfa278c84f8ffd0a0403bf1b666a55",
       "label_ja": "native barごとにportfolio状態を継続",
-      "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。",
+      "description_ja": "同じBookState・MarketExecutor・indexを次のbarへ引き継ぎ、riskとexecutionは共通native transitionを使います。外部book viewはcloneで、actorがterminal flattenを指定できません。 予約の明示延長とrisk後の重み一致HOLD・債務保持をopt-inで受け入れます。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",

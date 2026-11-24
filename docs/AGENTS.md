@@ -195,9 +195,9 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 
 ### Independent Research Review / PR lifecycle
 
-PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。
+PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。 Generic gateの前提はLean Core・PPO Runtime・Human Guide・Market Store PostgreSQLの4ジョブすべての`success`であり、`skipped`・空値・未定義・失敗を許容しない。4h PPO専用研究レビューの既存契約は変更しない。
 
-1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
+1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（Generic: core, ppo-runtime, guide, market-store／4h PPO専用: core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
 2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。4h PPO専用reviewやG0–G5/economic reviewは従来の独立性要件を維持する。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:

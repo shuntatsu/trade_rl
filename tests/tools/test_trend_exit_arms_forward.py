@@ -1786,7 +1786,15 @@ def test_connectivity_failure_refuses_without_claiming(
 @pytest.mark.parametrize("which", ["relay_edit", "scope_owner", "relay_quote"])
 def test_authorization_failure_leaves_no_claim(env: dict[str, Any], which: str) -> None:
     calls = {"n": 0}
-    good = f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}"
+    good = (
+        f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\n"
+        "G4 claim: FORWARD_FINAL"
+    )
+    expected = {
+        "relay_edit": "g4_relay.*changed between fetches",
+        "scope_owner": "data_scope.*not owner-authored",
+        "relay_quote": "does not quote one exact protocol",
+    }[which]
 
     def gh(cid: int) -> dict[str, Any]:
         calls["n"] += 1
@@ -1804,7 +1812,7 @@ def test_authorization_failure_leaves_no_claim(env: dict[str, Any], which: str) 
         fetched.append(url)
         return fake_market(url)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit, match=expected):
         m.run_stage(
             "FORWARD_FINAL",
             URL,
@@ -1817,6 +1825,7 @@ def test_authorization_failure_leaves_no_claim(env: dict[str, Any], which: str) 
             symbols=TWO,
         )
     assert _claims(env) == [] and fetched == []
+    assert calls["n"] == (4 if which == "scope_owner" else 2)
 
 
 # Strict source-close admission is part of the prospective frozen data contract.
@@ -1954,6 +1963,9 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
         fetched.append(url)
         return fake_market(url)
 
+    def forbid_github(_cid: int) -> dict[str, Any]:
+        raise AssertionError("historical refusal must precede GitHub authorization")
+
     with pytest.raises(
         SystemExit, match="already consumed|unreadable historical G4 claim"
     ):
@@ -1964,9 +1976,7 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
             env["tmp"] / "unused_output",
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=fetch,
-            gh_fetch=_gh(
-                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
-            ),
+            gh_fetch=forbid_github,
             ledger_dir=env["ledger"],
             symbols=TWO,
         )

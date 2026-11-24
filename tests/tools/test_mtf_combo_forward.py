@@ -1991,6 +1991,9 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
         fetched.append(url)
         return fake_market(url)
 
+    def forbid_github(_cid: int) -> dict[str, Any]:
+        raise AssertionError("historical refusal must precede GitHub authorization")
+
     with pytest.raises(
         SystemExit, match="already consumed|unreadable historical G4 claim"
     ):
@@ -2001,9 +2004,7 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
             env["tmp"] / "unused_output",
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=fetch,
-            gh_fetch=_gh(
-                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
-            ),
+            gh_fetch=forbid_github,
             ledger_dir=env["ledger"],
             symbols=TWO,
         )

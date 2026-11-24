@@ -1358,6 +1358,9 @@ def test_btc_g4_comment_cannot_be_reused_for_another_stage(env: dict[str, Any]) 
     def unexpected(_url: str) -> bytes:
         raise AssertionError("no probe or data request after known G4 consumption")
 
+    def forbid_github(_cid: int) -> dict[str, Any]:
+        raise AssertionError("historical refusal must precede GitHub authorization")
+
     with pytest.raises(SystemExit, match="already consumed"):
         m.run_stage(
             "FORWARD_FINAL",
@@ -1366,9 +1369,7 @@ def test_btc_g4_comment_cannot_be_reused_for_another_stage(env: dict[str, Any]) 
             env["tmp"] / "o",
             now=FINAL_AT,
             fetch=unexpected,
-            gh_fetch=_gh(
-                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
-            ),
+            gh_fetch=forbid_github,
             ledger_dir=root,
         )
     assert prior.read_bytes() == before

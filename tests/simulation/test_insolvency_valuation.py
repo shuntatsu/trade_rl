@@ -648,6 +648,7 @@ def test_completed_only_portfolio_replay_does_not_clip_retained_terminal_debt():
                 return PortfolioTargetProposal((-0.5,))
             return PortfolioTargetProposal(snapshot.account.weights, (0,))
 
+    observed = []
     with pytest.raises(
         ValueError, match="return series values must be greater than -1"
     ):
@@ -661,4 +662,9 @@ def test_completed_only_portfolio_replay_does_not_clip_retained_terminal_debt():
             insolvency_valuation="retain_debt",
             hold_unchanged_risk_target=True,
             capture_ledger_evidence=True,
+            on_native_advance=observed.append,
         )
+
+    assert [(v.native_advances, v.next_index) for v in observed] == [(1, 1), (2, 2)]
+    assert observed[-1].portfolio_value == -501.0
+    assert observed[-1].max_drawdown == pytest.approx(1.501)

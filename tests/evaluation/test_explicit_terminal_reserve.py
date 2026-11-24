@@ -274,3 +274,78 @@ def test_task18_full_size_native_cash_replay_matches_frozen_clock_counts():
         initial_capital=initial_capital,
         expected_start_index=plan.actor_start_inclusive,
     )
+
+
+def test_native_advance_observer_reports_actor_and_reserved_intervals_without_ledger_drift():
+    market = _market(12)
+    before = _run(market, _Policy(), reserve=3)
+    observed = []
+    after = run_shared_portfolio_replay(
+        market,
+        _Policy(),
+        start_index=0,
+        stop_index=11,
+        initial_capital=1000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+        settle_terminal_position=True,
+        terminal_reserve_bars=3,
+        capture_ledger_evidence=True,
+        on_native_advance=observed.append,
+    )
+    assert len(observed) == 11
+    assert [o.next_index for o in observed] == list(range(1, 12))
+    assert all(o.native_advances == o.next_index for o in observed)
+    assert all(o.portfolio_value == 1000.0 and o.max_drawdown == 0.0 for o in observed)
+    assert canonical_json_bytes(
+        after.ledger_evidence.to_mapping()
+    ) == canonical_json_bytes(before.ledger_evidence.to_mapping())
+
+
+def test_native_advance_observation_precedes_fallible_replay_diagnostics(monkeypatch):
+    from trade_rl.evaluation import replay
+
+    market = _market(12)
+    observed = []
+    original = replay._ExecutedEntryPrices.ingest
+
+    def fail_after_second_native_advance(self, *args, **kwargs):
+        if len(observed) == 2:
+            raise RuntimeError("injected diagnostic failure")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        replay._ExecutedEntryPrices, "ingest", fail_after_second_native_advance
+    )
+    with pytest.raises(RuntimeError, match="injected diagnostic failure"):
+        run_shared_portfolio_replay(
+            market,
+            _Policy(cash=True),
+            start_index=2,
+            stop_index=11,
+            initial_capital=1000.0,
+            capture_ledger_evidence=True,
+            on_native_advance=observed.append,
+        )
+    assert [(o.native_advances, o.next_index) for o in observed] == [(1, 3), (2, 4)]
+    assert observed[-1].portfolio_value == 1000.0
+
+
+def test_native_advance_observer_failure_aborts_dispatch_and_invalid_observer_fails_before_policy():
+    market = _market(12)
+    policy = _Policy(cash=True)
+
+    def fail(observer):
+        assert observer.native_advances == 1
+        raise OSError("checkpoint write failure")
+
+    with pytest.raises(OSError, match="checkpoint write failure"):
+        run_shared_portfolio_replay(
+            market, policy, start_index=0, stop_index=11, on_native_advance=fail
+        )
+    assert policy.calls == [0]
+    policy = _Policy(cash=True)
+    with pytest.raises(TypeError, match="on_native_advance"):
+        run_shared_portfolio_replay(
+            market, policy, start_index=0, stop_index=11, on_native_advance=1
+        )
+    assert policy.calls == []

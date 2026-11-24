@@ -54,7 +54,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "1fa456c863749f93601626fd0081e2e6e37543ecb73983368d2d9097ec78b4f4"
+      "sha256": "b6d95033f2767bb2be7e1688b7b2e111b9fece64fb8057a083d5b48b08c13125"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -120,9 +120,9 @@
       "id": "portfolio-replay-run",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "67dee31bc39af78e06e132595f42edf4597c5d347a207314c8108486e3257022",
+      "source_sha256": "256c94699be9ee80e71ef0e3b43b6fb94c93f2315b5be9d19015d2ca693e20d4",
       "label_ja": "全銘柄portfolio policyを実行",
-      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorをsimulation-owned sessionのshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenはsessionが所有します。 明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inであり、既存既定値を変えません。",
+      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorをsimulation-owned sessionのshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenはsessionが所有します。 明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inであり、既存既定値を変えません。 任意のon_native_advanceは実行後・診断前の観測済み進捗をimmutable scalar DTOで通知し、例外は後続実行を停止します。",
       "variables": [
         {
           "name": "policy",

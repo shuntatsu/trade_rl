@@ -265,3 +265,53 @@ def test_native_artifact_refuses_foreign_run_and_completed_redeclaration(persist
                 arm_id=published.receipt.arm_id,
                 expected_pins=published.pins,
             )
+
+
+def test_late_completed_artifact_must_match_observed_partial_frontier(persisted_arm):
+    from tools.tier_d_nonrl.task18_native_artifact import load_completed_native_arm
+    from tools.tier_d_nonrl.task18_receipts import ArmAttemptProgress
+
+    root, attempt, run, published, _ = persisted_arm
+    ledger = json.loads(
+        (root / "arms" / published.receipt.arm_id / "native-ledger.json").read_bytes()
+    )
+    interval = ledger["intervals"][63]
+    progress = ArmAttemptProgress(
+        64,
+        interval["next_index"],
+        interval["portfolio_value_after"],
+        interval["max_drawdown_after"],
+    )
+    running = replace(run.arms[0], progress=progress)
+    correct = replace(run, arms=(running, *run.arms[1:]))
+    assert (
+        load_completed_native_arm(
+            root,
+            attempt=attempt,
+            run=correct,
+            arm_id=running.arm_id,
+            expected_pins=published.pins,
+        ).receipt
+        == published.receipt
+    )
+    bad = replace(
+        correct,
+        arms=(
+            replace(
+                running,
+                progress=replace(
+                    progress,
+                    last_observed_equity_usdt=progress.last_observed_equity_usdt + 1.0,
+                ),
+            ),
+            *run.arms[1:],
+        ),
+    )
+    with pytest.raises(ValueError, match="contradicts observed"):
+        load_completed_native_arm(
+            root,
+            attempt=attempt,
+            run=bad,
+            arm_id=running.arm_id,
+            expected_pins=published.pins,
+        )

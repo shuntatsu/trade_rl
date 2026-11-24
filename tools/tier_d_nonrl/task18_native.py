@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -29,10 +29,13 @@ from tools.tier_d_nonrl.task18_native_oracle import (
     NativeArmVerification,
     verify_native_arm,
 )
+from tools.tier_d_nonrl.task18_native_progress import progress_from_advance
+from tools.tier_d_nonrl.task18_receipts import ArmAttemptProgress
 from tools.tier_d_nonrl.task18_recipe import ArmSpec, build_task18_protocol
 from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import (
+    NativeReplayAdvance,
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
@@ -292,7 +295,12 @@ class SyntheticNativeAttempt:
         ):
             raise ValueError("native attempt source or frozen snapshot differs")
 
-    def iter_arms(self, arm_ids: tuple[str, ...]) -> Iterator[NativeArmObservation]:
+    def iter_arms(
+        self,
+        arm_ids: tuple[str, ...],
+        *,
+        on_progress: Callable[[str, ArmAttemptProgress], None] | None = None,
+    ) -> Iterator[NativeArmObservation]:
         """Stream selected recipe-ordered arms; every arm starts one fresh book.
 
         A caller must supply an already verified pending roster for recovery.
@@ -309,8 +317,15 @@ class SyntheticNativeAttempt:
             raise ValueError(
                 "native dispatch requires a nonempty ordered exact arm subset"
             )
+        if on_progress is not None and not callable(on_progress):
+            raise TypeError("on_progress must be callable")
         for arm_id in arm_ids:
             arm = _ARMS[arm_id]
+
+            def observe(advance: NativeReplayAdvance) -> None:
+                assert on_progress is not None
+                on_progress(arm_id, progress_from_advance(advance))
+
             policy = _IndependentArmPolicy(self.dataset, self.frozen, arm)
             result = run_shared_portfolio_replay(
                 self.dataset,
@@ -325,6 +340,7 @@ class SyntheticNativeAttempt:
                 capture_ledger_evidence=True,
                 insolvency_valuation="retain_debt",
                 hold_unchanged_risk_target=True,
+                on_native_advance=observe if on_progress is not None else None,
             )
             verification = verify_native_arm(
                 self.dataset, arm_id, result, frozen=self.frozen

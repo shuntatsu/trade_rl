@@ -211,6 +211,8 @@ def test_full_size_native_recovery_is_an_actual_windows_exact_count_case() -> No
         "tests/tools/tier_d_nonrl/test_task18_frozen_inputs.py",
         "tools/tier_d_nonrl/task18_native_recovery.py",
         "tools/tier_d_nonrl/task18_native_lineage.py",
+        "tools/tier_d_nonrl/task18_native_progress.py",
+        "tests/tools/tier_d_nonrl/test_task18_native_progress.py",
         "tests/tools/tier_d_nonrl/test_task18_native_lineage.py",
         "tools/tier_d_nonrl/task18_native_artifact.py",
         "tools/tier_d_nonrl/task18_native_decode.py",

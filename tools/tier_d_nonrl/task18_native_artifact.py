@@ -31,6 +31,10 @@ from tools.tier_d_nonrl.task18_native_oracle import (
     NativeArmVerification,
     verify_native_arm,
 )
+from tools.tier_d_nonrl.task18_native_progress import (
+    require_progress_matches_ledger,
+    validate_observed_progress,
+)
 from tools.tier_d_nonrl.task18_receipts import (
     ArmReceipt,
     ExternalArmVerificationReport,
@@ -159,6 +163,12 @@ def _validate_run(attempt: SyntheticNativeAttempt, run: RunReceipt) -> Task18Pro
         )
     # A partially observed initial balance is never an arbitrary number.
     for arm in run.arms:
+        if arm.progress is not None:
+            if arm.status not in ("RUNNING", "INTERRUPTED", "FAILED"):
+                raise ValueError(
+                    "observed native progress belongs to an incomplete attempted slot"
+                )
+            validate_observed_progress(arm.progress)
         if arm.initial_equity_usdt is not None and (
             not _finite_number(arm.initial_equity_usdt)
             or float(arm.initial_equity_usdt)
@@ -294,6 +304,12 @@ def _receipt(
         or not report.cost_oracle_passed
     ):
         raise ValueError("refuse a completion receipt for failed native verification")
+    if old.progress is not None:
+        if evidence.ledger_evidence is None:
+            raise ValueError("missing completed ledger for observed progress")
+        require_progress_matches_ledger(
+            old.progress, evidence.ledger_evidence.intervals.intervals
+        )
     source_report = run.source_report
     if source_report is None:
         raise ValueError("missing source report")

@@ -140,6 +140,8 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 
 Task18のnumeric replayも同じsessionを使います。明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inで、既定経路は従来どおりです。人工専用の凍結入力、保存済み完了armの読取り専用検証、外部pin付き祖先handoffの再確認と累積pendingの後継runへのdispatchはtools側の責務であり、人工全行列の検証driverはtests側で固定fixtureと証拠を扱い、strategyやsimulationが別ledgerを作るものではありません。
 
+共通replayの任意native advance observerは実行の観測事実のみを返し、人工Task18の進捗保存・checkpoint間隔・失敗receiptへの反映はtools側で所有します。
+
 ## 境界を見るときのチェック
 
 - data層へstrategy判断を入れていないか。

@@ -42,7 +42,13 @@ from tools.tier_d_nonrl.task18_native_lineage import (
     validate_generation_paths,
     verify_successor_lineage,
 )
-from tools.tier_d_nonrl.task18_receipts import ArmReceipt, RunReceipt, SourceBinding
+from tools.tier_d_nonrl.task18_native_progress import NativeProgressTracker
+from tools.tier_d_nonrl.task18_receipts import (
+    ArmAttemptProgress,
+    ArmReceipt,
+    RunReceipt,
+    SourceBinding,
+)
 from tools.tier_d_nonrl.task18_recipe import Task18Protocol
 from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
@@ -421,7 +427,9 @@ def resume_synthetic_pending(
     immutable lineage record binds the successor to the original handoff.
     Write RUNNING before dispatch and promote only after publishing and
     independently reopening the actual arm artifact. Execution exceptions
-    preserve a FAILED record with unknown progress (not fabricated counts).
+    preserve a FAILED record with the latest actually observed progress, or
+    unknown before the first returned native advance. Forced stop preserves
+    only the last durable checkpoint, not an inferred actual stop position.
     Publication errors leave the slot RUNNING for later stopped recovery.
     The exclusive-owner assumption still applies. This is not a stop detector,
     power-loss proof, distributed single-writer lease, or historical execution
@@ -493,14 +501,35 @@ def resume_synthetic_pending(
         running = replace(old, status="RUNNING", reason_code="RUN_IN_PROGRESS")
         run = _replace_arm(run, running)
         _write_run(attempt_dir, run)
+        tracker = NativeProgressTracker()
+
+        def observe_progress(observed_id: str, progress: ArmAttemptProgress) -> None:
+            nonlocal run
+            if observed_id != arm_id:
+                raise ValueError("native progress belongs to a different arm")
+            if tracker.observe(progress):
+                run = _replace_arm(run, replace(running, progress=progress))
+                _write_run(attempt_dir, run)
+
         try:
-            observation = next(opened.attempt.iter_arms((arm_id,)))
+            observation = next(
+                opened.attempt.iter_arms((arm_id,), on_progress=observe_progress)
+            )
+            if (
+                tracker.latest is None
+                or tracker.latest.native_advances_observed
+                != observation.verification.advances
+            ):
+                raise ValueError(
+                    "native completion lacks the observed progress frontier"
+                )
         except Exception:
             failed = replace(
                 running,
                 status="FAILED",
                 reason_code="PROCESS_FAILED",
                 error_code="NATIVE_ARM_EXECUTION_FAILED",
+                progress=tracker.latest,
             )
             run = _replace_arm(run, failed)
             _write_run(attempt_dir, run)

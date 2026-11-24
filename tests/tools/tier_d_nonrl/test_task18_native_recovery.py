@@ -158,7 +158,13 @@ def _publish_then_wait(base: Path, pin_data: str) -> None:
         time.sleep(0.1)
 
 
-def _resume(base: Path, pin_data: str, *, stop_after_publish: bool = False) -> None:
+def _resume(
+    base: Path,
+    pin_data: str,
+    *,
+    stop_after_publish: bool = False,
+    stop_at_partial: bool = False,
+) -> None:
     from tools.tier_d_nonrl import task18_native as native
     from tools.tier_d_nonrl import task18_native_recovery as recovery
 
@@ -169,11 +175,21 @@ def _resume(base: Path, pin_data: str, *, stop_after_publish: bool = False) -> N
     calls = []
     original = native.run_shared_portfolio_replay
     original_publish = recovery.publish_completed_native_arm
+    original_decide = native._IndependentArmPolicy.decide_portfolio
 
     def checked_dispatch(dataset, policy, **kwargs):
         calls.append(policy._arm.arm_id)
         assert calls == [arm_id], "completed or unrequested arm dispatched"
         return original(dataset, policy, **kwargs)
+
+    def checked_decide(self, snapshot):
+        if stop_at_partial and snapshot.index == 2903 + 67:
+            atomic_write_bytes(
+                base / "partial-ready", b"67 returned native advances; checkpoint at 64"
+            )
+            while True:
+                time.sleep(0.1)
+        return original_decide(self, snapshot)
 
     def checked_publish(root, **kwargs):
         published = original_publish(root, **kwargs)
@@ -215,6 +231,7 @@ def _resume(base: Path, pin_data: str, *, stop_after_publish: bool = False) -> N
         patch.object(
             native, "run_shared_portfolio_replay", side_effect=checked_dispatch
         ),
+        patch.object(native._IndependentArmPolicy, "decide_portfolio", checked_decide),
         patch.object(
             recovery, "publish_completed_native_arm", side_effect=checked_publish
         ),
@@ -232,7 +249,7 @@ def _resume(base: Path, pin_data: str, *, stop_after_publish: bool = False) -> N
             successor_run_label=label,
             arm_ids=(arm_id,),
         )
-    assert not stop_after_publish
+    assert not stop_after_publish and not stop_at_partial
     assert calls == [arm_id]
     assert resumed.run.run_id == f"task18-synthetic-successor:{pins['handoff']}:{label}"
     assert resumed.predecessor_handoff_sha256 == pins["handoff"]
@@ -579,7 +596,7 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
     # further dispatch and cannot produce a completion artifact.
     failed_root = base / "failed-successor"
 
-    def fail_after_enrollment(*args):
+    def fail_after_enrollment(*args, **kwargs):
         pending = json.loads(
             (failed_root / "attempt" / "stopped-run.json").read_bytes()
         )
@@ -614,6 +631,91 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
         and _snapshot(base / "handoff") == handoff
     )
 
+    from tools.tier_d_nonrl.task18_native import _IndependentArmPolicy
+
+    observed_failure_root = base / "observed-failure"
+    original_decide = _IndependentArmPolicy.decide_portfolio
+
+    def fail_after_actual_advances(self, snapshot):
+        if snapshot.index == 2906:
+            raise RuntimeError("injected after three actual native advances")
+        return original_decide(self, snapshot)
+
+    with patch.object(
+        _IndependentArmPolicy, "decide_portfolio", fail_after_actual_advances
+    ):
+        with pytest.raises(RuntimeError, match="after three actual"):
+            resume_synthetic_pending(
+                base / "handoff",
+                observed_failure_root,
+                successor_run_label="observed-failure",
+                arm_ids=(_CASH, "PAIR-02-NONRL"),
+                **kwargs,
+            )
+    observed_failed = json.loads(
+        (observed_failure_root / "attempt" / "stopped-run.json").read_bytes()
+    )
+    observed_slots = {a["arm_id"]: a for a in observed_failed["arms"]}
+    assert observed_slots[_CASH]["status"] == "FAILED"
+    assert observed_slots[_CASH]["progress"] == {
+        "native_advances_observed": 3,
+        "last_native_index": 2906,
+        "last_observed_equity_usdt": 100000.0,
+        "max_drawdown_observed": 0.0,
+    }
+    assert observed_slots[_CASH]["external_report"] is None
+    assert observed_slots["PAIR-02-NONRL"]["status"] == "NOT_ATTEMPTED"
+    assert not (observed_failure_root / "attempt" / "arms").exists()
+    assert (
+        _snapshot(base / "retained") == before
+        and _snapshot(base / "handoff") == handoff
+    )
+
+    # The second fault boundary is an actual process stop inside native
+    # replay, deliberately after 67 returned intervals. Only the last
+    # durable checkpoint at 64 is available to the recovery reader.
+    partial_context = context | {
+        "destination": "partial",
+        "label": "partial-generation",
+    }
+    _stop_after_publication(
+        base,
+        "resume-partial-stop",
+        partial_context,
+        ready_name="partial-ready",
+        log_name="partial.log",
+    )
+    partial = base / "partial"
+    partial_state = json.loads((partial / "attempt" / "stopped-run.json").read_bytes())
+    slot = next(a for a in partial_state["arms"] if a["arm_id"] == _CASH)
+    assert slot["status"] == "RUNNING" and slot["external_report"] is None
+    assert slot["progress"] == {
+        "native_advances_observed": 64,
+        "last_native_index": 2967,
+        "last_observed_equity_usdt": 100000.0,
+        "max_drawdown_observed": 0.0,
+    }
+    assert not (partial / "attempt" / "arms").exists()
+    expected_partial = json.loads(expected_lineage)
+    expected_partial["successor_run_id"] = (
+        f"task18-synthetic-successor:{plan.sha256}:partial-generation"
+    )
+    partial_lineage = canonical_json_bytes(expected_partial)
+    assert (partial / "lineage.json").read_bytes() == partial_lineage
+    partial_pins = tuple(
+        _pin(partial / "attempt", n) for n in sorted(_snapshot(partial / "attempt"))
+    )
+    partial_frontier = inspect_synthetic_stopped_recovery(
+        partial,
+        partial_pins,
+        attempt=attempt,
+        expected_source_binding=source,
+        ancestors=ancestry,
+        expected_lineage_sha256=hashlib.sha256(partial_lineage).hexdigest(),
+    )
+    assert partial_frontier.completed_arm_ids == (_NONRL,)
+    assert partial_frontier.pending_arm_ids[0] == _CASH
+
     # An occupied output cannot be overwritten or executed again.
     occupied_root = base / "retained-second"
     occupied = _snapshot(occupied_root)
@@ -635,11 +737,16 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "prepare":
         _publish_then_wait(Path(sys.argv[2]), sys.argv[3])
-    elif len(sys.argv) == 4 and sys.argv[1] in ("resume", "resume-stop"):
+    elif len(sys.argv) == 4 and sys.argv[1] in (
+        "resume",
+        "resume-stop",
+        "resume-partial-stop",
+    ):
         _resume(
             Path(sys.argv[2]),
             sys.argv[3],
             stop_after_publish=sys.argv[1] == "resume-stop",
+            stop_at_partial=sys.argv[1] == "resume-partial-stop",
         )
     else:
         raise SystemExit("closed synthetic native recovery test worker only")

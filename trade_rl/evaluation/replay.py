@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Literal
@@ -290,6 +290,20 @@ class SharedCashPortfolioReplayLedgerEvidence:
             decision.to_mapping() for decision in self.decisions
         )
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class NativeReplayAdvance:
+    """Observed post-execution frontier, before fallible replay diagnostics.
+
+    This is not a completed replay, a persisted checkpoint, or evidence that
+    an unobserved internal transition committed. Negative equity is retained.
+    """
+
+    native_advances: int
+    next_index: int
+    portfolio_value: float
+    max_drawdown: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -864,6 +878,7 @@ def _run_shared_cash_replay_core(
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
+    on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -1089,6 +1104,18 @@ def _run_shared_cash_replay_core(
         stateful_evidence = execution_observation
         if stateful_evidence.next_index != execution.next_index:
             raise RuntimeError("execution observer index differs from replay result")
+        # The native advance returned and its observer identity is consistent.
+        # Report that fact before diagnostics, ledger construction, or the
+        # final ReturnSeries can fail. No mutable account is exposed.
+        if on_native_advance is not None:
+            on_native_advance(
+                NativeReplayAdvance(
+                    native_advances=execution.next_index - start_index,
+                    next_index=execution.next_index,
+                    portfolio_value=float(execution.book.portfolio_value),
+                    max_drawdown=float(execution.book.max_drawdown),
+                )
+            )
         split_factors = dataset.resolved_array("split_factor")[execution.next_index]
         desired_quantities[:] *= split_factors
         executed_entry_prices.apply_split(split_factors)
@@ -1555,6 +1582,7 @@ def run_shared_portfolio_replay(
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
+    on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
     """Call one simultaneous portfolio policy once for each actor interval.
 
@@ -1563,7 +1591,10 @@ def run_shared_portfolio_replay(
     The optional retained-debt and final-risk equality HOLD conventions
     preserve the independent-account native boundary. A retained-debt terminal
     loss outside ReturnSeries' domain fails rather than returning a clipped
-    successful result. Defaults preserve existing replay behavior.
+    successful result. An optional synchronous observer receives immutable
+    facts after each returned native advance, before fallible diagnostics.
+    Observer exceptions abort replay; unobserved internal state is not claimed.
+    Defaults preserve existing replay behavior.
     """
 
     if execution_cost is not None and not isinstance(
@@ -1572,6 +1603,9 @@ def run_shared_portfolio_replay(
         raise TypeError("execution_cost must be an ExecutionCostConfig or None")
     if risk is not None and not isinstance(risk, PreTradeRisk):
         raise TypeError("risk must be a PreTradeRisk or None")
+
+    if on_native_advance is not None and not callable(on_native_advance):
+        raise TypeError("on_native_advance must be callable")
 
     result, decisions = _run_shared_cash_replay_core(
         dataset,
@@ -1590,6 +1624,7 @@ def run_shared_portfolio_replay(
         terminal_reserve_bars=terminal_reserve_bars,
         insolvency_valuation=insolvency_valuation,
         hold_unchanged_risk_target=hold_unchanged_risk_target,
+        on_native_advance=on_native_advance,
     )
     ledger = (
         None

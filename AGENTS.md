@@ -20,6 +20,7 @@
 - Bugfixでは再現→RED→修正→GREENを基本とする。新function/classは可能ならproduction投入前に小さなfake/mockで主要な入出力・失敗を確認する。fakeだけで統合/E2Eを代替しない。
 - local-firstのtargeted tests・Ruff・format・mypy、影響に応じたintegrationを確認し、final diff/status/HEADを点検してpushする。詳細の実行コマンドはdocs/AGENTS.mdとCIを正本とする。
 - `.md`を変更したときは `python -m tools.markdown_links --check` で全追跡Markdownの相対リンクを検証し、authority・Guide fingerprint・研究根拠は各専用検査で別途確認する。リンクが通ることは仕様や研究の正当性を意味しない。
+- コード・仕様書の意味上の不一致は `python -m tools.docs_source_consistency --check` で登録済み契約を検査し、Fast/Full CIで拒否する。歴史的INVALID/HOLD、source/spec digest、as-of会計反例の照合であり、登録されていない自然文すべての正しさを保証しない。新しい研究規範には独立した合成テストとreviewも追加する。
 
 ## PR / integration safety
 

@@ -382,7 +382,7 @@ class Panel:
     times: np.ndarray  # epoch seconds of c_j
     symbols: tuple[str, ...]
     close: np.ndarray  # 4h close, NaN where the bar is incomplete
-    mark_px: np.ndarray  # close carried over short holes inside an episode, else NaN
+    mark_px: np.ndarray  # completed 4h close carried through confirmation, else NaN
     fill_qv: np.ndarray
     regime: np.ndarray
     vol: np.ndarray
@@ -476,6 +476,7 @@ def build_panel(
         "no_notice_symbols": [],
         "notice_late": 0,
         "funding_events_unpriced": 0,
+        "funding_events_unpriced_while_marked": 0,
         "funding_mark_fallbacks": 0,
     }
     ev_times: dict[int, np.ndarray] = {}
@@ -511,7 +512,7 @@ def build_panel(
             j_first, j_last = lo + int(fin[0]), lo + int(fin[-1])
             # The 24-hour absence is not observable at the earlier last fill.
             # Settle at the first 4h close after confirmation, carrying only
-            # the last actually traded mark across the dead hours.
+            # the last completed 4h close across the dead hours.
             j_confirm = (
                 (ep.end + DEAD_RUN_HOURS + 3) // 4 - 1 if ep.delisted else nb - 1
             )
@@ -571,9 +572,13 @@ def build_panel(
                 if math.isfinite(price) and price > 0.0:
                     info["funding_mark_fallbacks"] += 1
             if not (math.isfinite(price) and price > 0.0):
-                info["funding_events_unpriced"] += (
-                    1  # outside every episode: no position
-                )
+                info["funding_events_unpriced"] += 1
+                # The previous mark is the price boundary for units held over
+                # this funding interval. If it exists, a zero cash flow cannot
+                # be inferred merely because the event price is malformed.
+                prior_mark = float(mark_px[j - 1, k])
+                if math.isfinite(prior_mark) and prior_mark > 0.0:
+                    info["funding_events_unpriced_while_marked"] += 1
                 continue
             fund[j, k] += price * rate
     panel = Panel(
@@ -594,11 +599,16 @@ def build_panel(
 
 
 def panel_problems(panel: Panel, info: dict[str, Any]) -> list[str]:
-    """Data problems that make the stage INVALID: a non-positive price and funding coverage."""
+    """Refuse non-positive marks, unpriceable potential holding costs and poor coverage."""
     problems: list[str] = []
     px = panel.mark_px
     if np.any(np.isfinite(px) & (px <= 0.0)):
         problems.append("non-positive price in an episode")
+    unpriced = info["funding_events_unpriced_while_marked"]
+    if unpriced:
+        problems.append(
+            f"unpriced funding while prior mark exists: {unpriced} event(s)"
+        )
     elig = eligible_matrix(panel)
     total = int(elig.sum())
     uncovered = 0
@@ -625,9 +635,11 @@ def panel_problems(panel: Panel, info: dict[str, Any]) -> list[str]:
 
 
 def eligible_matrix(panel: Panel) -> np.ndarray:
-    """A symbol is eligible at a close when its regime and 30-day volatility exist (which needs
-    200 consecutive complete daily bars of its current listing episode), it has a price and it is
-    not inside a forced-close window."""
+    """Breadth eligibility uses finite regime, volatility and carried mark, without a notice.
+
+    A markable symbol can lack a completed tradable candle. Trend entry and
+    actual execution have separate close and volume requirements.
+    """
     return (
         np.isfinite(panel.regime)
         & np.isfinite(panel.vol)
@@ -717,9 +729,13 @@ def rebalance_rows(times: np.ndarray) -> np.ndarray:
 def ew_weights(
     panel: Panel, n_min: int = N_MIN, budget: float = SIDE_BUDGET
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Equal-weight long control: ``budget / N_t`` on every eligible symbol at each monthly
-    rebalance row and at the first row with ``N_t >= n_min`` (flat while ``N_t < n_min``); between rebalances a symbol that leaves the
-    eligible set is closed and nobody is added. Returns ``(weights, forced re-target mask)``."""
+    """Equal-weight long control: ``budget / N_t`` at monthly/first qualifying rebalance.
+
+    Before the first qualifying rebalance, or at a monthly rebalance below
+    the minimum, target zero. Between rebalances retain surviving targets,
+    even below the minimum, and clear targets of ineligible symbols.
+    Return ``(weights, forced re-target mask)``.
+    """
     elig = eligible_matrix(panel)
     n_t = elig.sum(axis=1)
     reb = rebalance_rows(panel.times)
@@ -1031,7 +1047,7 @@ class _Book:
     def settle(self, j: int, k: int) -> None:
         """Write-off only at observed dead-run confirmation, not retrospectively.
 
-        Mark at the last traded price and charge the adverse settlement cost.
+        Use the last completed 4h accounting mark and charge the adverse cost.
         The gap does not create a tradable bar or an executable fill.
         """
         self.pending[k] = np.nan
@@ -1844,6 +1860,9 @@ def breadth_report(panel: Panel, info: dict[str, Any], n_min: int) -> dict[str, 
         "notice_late": info["notice_late"],
         "funding_mark_fallbacks": info["funding_mark_fallbacks"],
         "funding_events_unpriced": info["funding_events_unpriced"],
+        "funding_events_unpriced_while_marked": info[
+            "funding_events_unpriced_while_marked"
+        ],
         "funding_uncovered_fraction": info.get("funding_uncovered_fraction"),
     }
 

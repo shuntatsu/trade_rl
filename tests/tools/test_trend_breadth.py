@@ -19,7 +19,7 @@ import pytest
 
 from tools import trend_breadth as m
 
-DIGEST_PIN = "2b691b98370c3b4b8bf36f51c4982b015e50f9c8f74ced2776e365355f99d016"
+DIGEST_PIN = "81f44e20b9170dab67e1fcf269cf452e19bff84b94a60c366b11dbdb1ee9e3aa"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2021, 1, 1, tzinfo=UTC).timestamp())
@@ -472,6 +472,78 @@ def test_funding_events_map_to_the_bar_they_are_paid_over() -> None:
     assert info["funding_mark_fallbacks"] == 1
 
 
+@pytest.mark.parametrize("bad_open", [0.0, -1.0])
+def test_unpriceable_funding_during_a_markable_interval_is_invalid(
+    bad_open: float,
+) -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours = 48
+    hourly = {k: np.full(hours, 100.0) for k in ("open", "high", "low", "close")}
+    hourly["qv"] = np.full(hours, 1e9)
+    hourly["vol"] = np.full(hours, 1e6)
+    hourly["open"][5] = bad_open
+    funding_at = int((start.timestamp() + 5 * 3600) * 1000)
+    panel, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=hours)),
+        {"ZZZUSDT": [(funding_at, 0.01, math.nan)]},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert panel.mark_px[0, 0] == 100.0  # units could already be held
+    assert info["funding_events_unpriced"] == 1
+    assert info["funding_events_unpriced_while_marked"] == 1
+    # A timestamp alone cannot establish actual funding cash-flow coverage.
+    problems = m.panel_problems(panel, info)
+    assert "unpriced funding while prior mark exists: 1 event(s)" in problems
+    assert m.decide({}, problems)["label"] == m.LABEL_INVALID
+
+
+def test_missing_funding_open_uses_the_previous_completed_mark() -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours = 48
+    hourly = {k: np.full(hours, 100.0) for k in ("open", "high", "low", "close")}
+    hourly["qv"] = np.full(hours, 1e9)
+    hourly["vol"] = np.full(hours, 1e6)
+    hourly["open"][5] = np.nan
+    funding_at = int((start.timestamp() + 5 * 3600) * 1000)
+    panel, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=hours)),
+        {"ZZZUSDT": [(funding_at, 0.01, math.nan)]},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert panel.fund[1, 0] == pytest.approx(1.0)
+    assert info["funding_events_unpriced"] == 0
+    assert info["funding_events_unpriced_while_marked"] == 0
+    assert info["funding_mark_fallbacks"] == 1
+    assert m.panel_problems(panel, info) == []
+
+
+def test_unpriced_funding_before_any_mark_is_counted_not_a_cash_flow() -> None:
+    start = datetime(2021, 1, 1, tzinfo=UTC)
+    hours = 48
+    live = np.arange(hours) >= 12
+    hourly = {
+        k: np.where(live, 100.0, np.nan) for k in ("open", "high", "low", "close")
+    }
+    hourly["qv"] = np.where(live, 1e9, 0.0)
+    hourly["vol"] = np.where(live, 1e6, 0.0)
+    funding_at = int((start.timestamp() + 5 * 3600) * 1000)
+    panel, info = m.build_panel(
+        {"ZZZUSDT": hourly},
+        m.Stage("T", start, start + timedelta(hours=hours)),
+        {"ZZZUSDT": [(funding_at, 0.01, math.nan)]},
+        {},
+        ("ZZZUSDT",),
+    )
+    assert np.isnan(panel.mark_px[0, 0])
+    assert info["funding_events_unpriced"] == 1
+    assert info["funding_events_unpriced_while_marked"] == 0
+    assert m.panel_problems(panel, info) == []
+
+
 # ----------------------------------------------------------------------------- weights
 
 
@@ -589,6 +661,50 @@ def test_rebalance_rows_and_ew_weights() -> None:
     # fewer than n_min eligible: flat
     w3, _ = m.ew_weights(p, n_min=5)
     assert (w3 == 0).all()
+
+
+def test_eligible_mark_does_not_imply_a_tradable_close() -> None:
+    close = np.array([[np.nan, 100.0], [np.nan, 100.0], [100.0, 100.0]])
+    panel = mk_panel(
+        close,
+        qv=np.where(np.isfinite(close), 1e12, 0.0),
+        mark_px=np.full(close.shape, 100.0),
+    )
+    # The carried mark still contributes to the common breadth denominator.
+    assert m.eligible_matrix(panel).all()
+    w = m.trend_weights(panel, n_min=2)
+    assert np.allclose(w[:2], [[0.0, 0.45], [0.0, 0.45]])
+    # EW targets all eligible symbols, but the missing close must not fill.
+    ew, force = m.ew_weights(panel, n_min=2)
+    assert np.allclose(ew[:2], [[0.45, 0.45], [0.45, 0.45]])
+    cell = m.simulate_weights(panel, ew, 0.0, 0, force)
+    assert cell["valid"] and cell["fills"] == 1
+    assert cell["equity"].tolist() == pytest.approx([1.0] * 4)
+
+
+def test_ew_below_minimum_between_rebalances_retains_other_targets() -> None:
+    # A drop below N_min just before month start does not itself rebalance.
+    t0 = int(datetime(2021, 1, 31, 16, tzinfo=UTC).timestamp())
+    forced = np.zeros((4, 2), dtype=bool)
+    forced[1:, 1] = True
+    panel = mk_panel(np.full((4, 2), 100.0), forced=forced, t0=t0)
+    assert m.eligible_matrix(panel).sum(axis=1).tolist() == [2, 1, 1, 1]
+    ew, force = m.ew_weights(panel, n_min=2)
+    assert np.allclose(ew, [[0.45, 0.45], [0.45, 0.0], [0.0, 0.0], [0.0, 0.0]])
+    assert force.all(axis=1).tolist() == [True, False, True, False]
+
+
+def test_pending_target_units_are_fixed_at_attempt_not_later_trade() -> None:
+    # Pending target: 0.5 * 100000 / 100 = 500 units at a non-tradable mark.
+    panel = mk_panel(
+        [np.nan, 200.0, 300.0],
+        qv=np.array([[0.0], [1e12], [1e12]]),
+        mark_px=np.array([[100.0], [200.0], [300.0]]),
+    )
+    cell = m.simulate_weights(panel, np.array([[0.5], [0.5]]), 0.0, 0)
+    assert cell["valid"] and cell["fills"] == 1
+    # The unchanged target fills 500 units at 200, not newly sized 250 units.
+    assert cell["equity"].tolist() == pytest.approx([1.0, 1.0, 1.0, 1.5])
 
 
 def test_trend_weights_long_only_is_the_clipped_book() -> None:
@@ -746,7 +862,9 @@ def test_prices_of_held_symbols_must_be_positive() -> None:
     p = mk_panel([100.0, 0.0, 100.0])
     cell = m.simulate_weights(p, _w(2, 0.5), 0.0, 0)
     assert not cell["valid"]
-    bad = m.panel_problems(p, {"_ev_times": {}})
+    bad = m.panel_problems(
+        p, {"_ev_times": {}, "funding_events_unpriced_while_marked": 0}
+    )
     assert "non-positive price in an episode" in bad
 
 
@@ -1838,6 +1956,31 @@ def test_end_to_end_fake_archives_write_once_and_ledger(env: dict[str, Any]) -> 
         _run(env, tag="x")
 
 
+def test_fake_archive_unpriced_markable_funding_refuses_before_cells(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage, hourly, funding, _ = small_universe()
+    sym = "AAAUSDT"
+    start_ms = int(stage.grid_start.timestamp()) * 1000
+    # Vision has no mark price; choose a synthetic funding timestamp after
+    # the first completed 4h bar, within the initial listed day.
+    t = next(t for t, *_ in funding[sym] if t >= start_ms + 8 * m.HOUR_MS)
+    h = (t - start_ms) // m.HOUR_MS
+    assert np.isfinite(hourly[sym]["close"][h])
+    hourly[sym]["open"][h] = 0.0
+    root = env["tmp"] / "unpriced_funding_archives"
+    write_archives(root, hourly, funding, stage)
+
+    def forbidden_replay(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("unpriceable markable funding must refuse before cells")
+
+    monkeypatch.setattr(m, "evaluate_cells", forbidden_replay)
+    res = _run(env, tag="unpriced", archive_root=root)
+    assert res["label"] == m.LABEL_INVALID
+    assert res["cells"] == {}
+    assert "unpriced funding while prior mark exists: 1 event(s)" in res["problems"]
+
+
 def test_end_to_end_matches_the_in_memory_pipeline(env: dict[str, Any]) -> None:
     res = _run(env)
     p, _ = scenario(0)
@@ -2270,6 +2413,9 @@ def test_unannounced_delisting_confirmation_rounds_up_to_next_close(
     h = np.arange(hours)
     live, relisted = h < 43, h >= 67
     price = np.where(live, 100.0, np.where(relisted, 200.0, np.nan))
+    # The final three live hours are NOT a completed 4h candle. Their
+    # different price may not become the last completed 4h accounting mark.
+    price[40:43] = 180.0
     hourly = {k: price.copy() for k in ("open", "high", "low", "close")}
     hourly["qv"] = np.where(live | relisted, 1e9, 0.0)
     hourly["vol"] = np.where(live | relisted, 1e6, 0.0)
@@ -2289,6 +2435,8 @@ def test_unannounced_delisting_confirmation_rounds_up_to_next_close(
     )
     # Confirm at hour 67; first 4h close >=67 is hour 68, row 16.
     assert full.events == ((16, 0),)
+    assert full.mark_px[9, 0] == pytest.approx(100.0)
+    assert np.isnan(full.close[10:17, 0]).all()
     assert full.mark_px[16, 0] == pytest.approx(100.0)
     assert full.mark_px[17, 0] == pytest.approx(200.0)
     assert np.isnan(full.close[16, 0])

@@ -396,6 +396,9 @@ def main() -> None:
         )
         return
     name = f"{a.symbol}_{a.year}_{a.arm}_{a.scenario}"
+    # Match the summary reader: do not publish into an aliased study root.
+    if OUTPUT_ROOT.is_symlink():
+        raise ValueError("output root must not be a symlink")
     OUTPUT_ROOT.mkdir(exist_ok=True)
     destination = OUTPUT_ROOT / name
     destination.mkdir()  # exclusive claim: no silent rerun or overwrite

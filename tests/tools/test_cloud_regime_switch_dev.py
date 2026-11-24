@@ -255,3 +255,45 @@ def test_empty_result_root_is_inconclusive_without_market_read(monkeypatch, tmp_
     assert result["recorded_cells"] == 0
     assert result["required_cells"] == 198
     assert not study.OUTPUT_ROOT.exists()
+
+
+def test_cell_mode_refuses_symlinked_output_root(monkeypatch, tmp_path):
+    import sys
+
+    target = tmp_path / "other_study"
+    target.mkdir()
+    alias = tmp_path / "output"
+    alias.symlink_to(target, target_is_directory=True)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("attempted market load through aliased root")
+
+    monkeypatch.setattr(study, "OUTPUT_ROOT", alias)
+    monkeypatch.setattr(study, "_authorize", lambda *args: {})
+    monkeypatch.setattr(study, "_load_fixed", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "study",
+            "--packet",
+            str(study.PROTOCOL),
+            "--pr",
+            "1",
+            "--review-id",
+            "2",
+            "--owner-comment-url",
+            "synthetic-only",
+            "--symbol",
+            "BTCUSDT",
+            "--year",
+            "2022",
+            "--arm",
+            "CASH",
+            "--scenario",
+            "normal",
+        ],
+    )
+    with pytest.raises(ValueError, match="output root must not be a symlink"):
+        study.main()
+    assert list(target.iterdir()) == []

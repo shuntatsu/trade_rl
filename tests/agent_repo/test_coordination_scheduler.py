@@ -263,3 +263,37 @@ def test_scheduler_excludes_leased_blocked_and_active_hard_conflicts() -> None:
         statuses,
         leased_task_ids=frozenset({"ACTIVE", "LEASED"}),
     ) == ("READY",)
+
+
+@pytest.mark.parametrize(
+    "alias",
+    (
+        "./docs/AGENTS.md",
+        "docs/./AGENTS.md",
+        "docs//AGENTS.md",
+        "docs//**",
+        "./docs/**",
+    ),
+)
+def test_conflict_model_detects_equivalent_file_resource_paths(alias: str) -> None:
+    canonical = _packet("A", resource_keys=("file:docs/AGENTS.md",))
+    alternative = _packet("B", resource_keys=(f"file:{alias}",))
+    assert classify_conflict(canonical, alternative) is ConflictLevel.HARD
+    assert classify_conflict(alternative, canonical) is ConflictLevel.HARD
+    unrelated = _packet("C", resource_keys=("file:docs-other/AGENTS.md",))
+    assert classify_conflict(alternative, unrelated) is ConflictLevel.NONE
+
+
+def test_scheduler_excludes_active_file_resource_alias_conflicts() -> None:
+    active = _packet("ACTIVE", resource_keys=("file:docs/AGENTS.md",))
+    conflict = _packet("CONFLICT", resource_keys=("file:./docs//AGENTS.md",))
+    independent = _packet("INDEPENDENT", resource_keys=("file:docs/README.md",))
+    assert ready_tasks(
+        (active, conflict, independent),
+        {
+            "ACTIVE": _healthy(TaskPhase.EXECUTING),
+            "CONFLICT": _healthy(TaskPhase.READY),
+            "INDEPENDENT": _healthy(TaskPhase.READY),
+        },
+        leased_task_ids=("ACTIVE",),
+    ) == ("INDEPENDENT",)

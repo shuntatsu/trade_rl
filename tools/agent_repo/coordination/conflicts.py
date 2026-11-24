@@ -33,8 +33,9 @@ def _split_key(key: str) -> tuple[str, str]:
 
 
 def _file_prefix(value: str) -> str:
-    normalized = value.replace("\\", "/").strip("/")
-    if not normalized or ".." in normalized.split("/"):
+    parts = value.replace("\\", "/").split("/")
+    normalized = "/".join(part for part in parts if part not in ("", "."))
+    if not normalized or ".." in parts:
         raise ValueError(f"invalid file resource key: {value}")
     for suffix in ("/**", "/*"):
         if normalized.endswith(suffix):

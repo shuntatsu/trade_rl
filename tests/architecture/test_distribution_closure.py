@@ -292,3 +292,67 @@ def test_activation_resource_checkout_drift_fails_closed(
     )
     with pytest.raises(ValueError, match="worktree|source|regular|symlink"):
         _verify(checkout, archive)
+
+
+TYPE_MARKER = "trade_rl/py.typed"
+
+
+def _add_type_marker(checkout: Path) -> None:
+    (checkout / TYPE_MARKER).write_bytes(b"")
+    _git(checkout, "add", TYPE_MARKER)
+    _git(
+        checkout,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "inline type marker fixture",
+    )
+
+
+@pytest.mark.parametrize("extension", [".whl", ".tar.gz"])
+def test_inline_type_marker_matches_distribution(
+    checkout: Path, extension: str
+) -> None:
+    _add_type_marker(checkout)
+    archive = checkout.parent / ("typed" + extension)
+    _archive(archive, [(SOURCE, CONTENT), (TYPE_MARKER, b"")])
+    _verify(checkout, archive)
+
+
+@pytest.mark.parametrize("extension", [".whl", ".tar.gz"])
+@pytest.mark.parametrize("kind", ["missing", "changed", "extra"])
+def test_inline_type_marker_drift_fails_closed(
+    checkout: Path, extension: str, kind: str
+) -> None:
+    entries = [(SOURCE, CONTENT)]
+    if kind != "extra":
+        _add_type_marker(checkout)
+    if kind == "changed":
+        entries.append((TYPE_MARKER, b"partial\n"))
+    elif kind == "extra":
+        entries.append((TYPE_MARKER, b""))
+    archive = checkout.parent / ("typed-drift" + extension)
+    _archive(archive, entries)
+    with pytest.raises(ValueError, match="source mismatch"):
+        _verify(checkout, archive)
+
+
+def test_untracked_inline_type_marker_is_rejected(checkout: Path) -> None:
+    (checkout / TYPE_MARKER).write_bytes(b"")
+    archive = checkout.parent / "typed.whl"
+    _archive(archive, [(SOURCE, CONTENT)])
+    with pytest.raises(ValueError, match="untracked"):
+        _verify(checkout, archive)
+
+
+def test_type_marker_hidden_in_wheel_data_scheme_is_rejected(checkout: Path) -> None:
+    archive = checkout.parent / "typed.whl"
+    _archive(
+        archive,
+        [(SOURCE, CONTENT), ("pkg.data/purelib/trade_rl/py.typed", b"")],
+    )
+    with pytest.raises(ValueError, match="path"):
+        _verify(checkout, archive)

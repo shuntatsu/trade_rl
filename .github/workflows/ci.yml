@@ -239,6 +239,7 @@ jobs:
           PY
           "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
           "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+          "$GITHUB_WORKSPACE/.venv/bin/python" -I "$GITHUB_WORKSPACE/tests/architecture/installed_typing.py" "$clean/venv/bin/python"
 
       - name: Package identity
         shell: bash

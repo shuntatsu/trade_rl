@@ -1103,6 +1103,22 @@ from trade_rl.risk import PreTradeRisk
 
 一方、historicalに存在したprivate module pathはpublic contractの証拠ではない。private path移動のためだけのshimは原則追加しない。
 
+外部研究packageが使うtyped extension boundary (#1359) は、既存の次の
+import先とsignatureを維持対象とする。別の実行engineや会計adapterは追加しない。
+
+| import先 | 対象 |
+|---|---|
+| `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
+| `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
+| `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
+| `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
+| `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
+| `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
+| `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+
+`trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。
+このmarkerは全private moduleを安定APIと宣言するものではなく、NumPy arrayのshape・金融・因果性のruntime契約を静的型検査だけで保証するものでもない。外部研究は検証済みcore commit/wheel digestにpinし、互換性変更をIssue/PRと再テストで扱う。optional trainerのimportや既存artifact/source identityは変更しない。
+
 ## Architecture change rule
 
 Packageを追加・移動・削除するときは同じ変更で次を行う。
@@ -1117,4 +1133,4 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceは研究authorityであるためこの一般則への明示的な例外としてclosure対象にする。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（型不一致7件の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。

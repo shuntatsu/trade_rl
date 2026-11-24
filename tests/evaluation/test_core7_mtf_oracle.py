@@ -37,7 +37,12 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v22.json"
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v23-terminal-settlement.json"
+)
+PACKET_V22_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v22.json"
 PACKET_V21_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v21.json"
 PACKET_V20_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v20.json"
 PACKET_V19_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
@@ -68,7 +73,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "25fb38d34f587a2b106822900d2c6031a69b53aa77ec0b9009063b5c284e2f8f"
+    "48a97b98a0dd79046134675a0f2fe84990905ee8e8dbe0afa594f5ae6bb79c9c"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1194,7 +1199,7 @@ def test_v21_packet_remains_immutable_unreviewed_history() -> None:
 
 def test_v22_native_numeric_conversion_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V22_PATH.read_text(encoding="utf-8"))
     assert current["schema_version"] == prior["schema_version"]
     assert current["mechanism"] == prior["mechanism"]
     assert current["evidence"] == prior["evidence"]
@@ -1215,6 +1220,48 @@ def test_v22_native_numeric_conversion_only_rebinds_source() -> None:
     assert verdict.status == "UNREVIEWED"
     assert verdict.errors == ()
     assert verdict.economic_execution_authorized is False
+
+
+def test_v23_terminal_settlement_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V22_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V22_PATH)).stdout.strip() == (
+        "069d082681eaf9bbfc8fe5c0b2e9e3902cc2836f"
+    )
+    assert (
+        assurance_digest(prior)
+        == "25fb38d34f587a2b106822900d2c6031a69b53aa77ec0b9009063b5c284e2f8f"
+    )
+    assert current.keys() == prior.keys()
+    for field in prior:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == prior[field]
+    assert current["thesis"].keys() == prior["thesis"].keys()
+    assert current["claims"].keys() == prior["claims"].keys()
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert (
+        "V23 SHARED TERMINAL SETTLEMENT SOURCE-ONLY BOUNDARY"
+        in current["thesis"]["limitations"]
+    )
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "3f9f2f3db34214b7e2cc88cbc556860d7d085cb6",
+        "protocol_head": "3f9f2f3db34214b7e2cc88cbc556860d7d085cb6",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    for packet in (prior, current):
+        verdict = evaluate_assurance(packet)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False
+    paths = _bound_code_paths("3f9f2f3db34214b7e2cc88cbc556860d7d085cb6")
+    assert "trade_rl/evaluation/terminal_settlement.py" in paths
+    assert "trade_rl/evaluation/dev_realdata_study/runner.py" in paths
 
 
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:

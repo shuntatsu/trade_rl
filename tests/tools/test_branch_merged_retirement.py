@@ -431,3 +431,171 @@ def test_duplicate_branch_readback_aborts_retirement(
         )
     assert calls == readback_index
     assert api.deleted == ["feature/done", "feature/second"][: readback_index // 2]
+
+
+@pytest.mark.parametrize("readback_index", [1, 2, 3, 4])
+@pytest.mark.parametrize(
+    ("mutation", "category", "name"),
+    [
+        ("missing", "missing", "feature/keep"),
+        ("unexpected", "unexpected", "feature/new"),
+        ("sha", "sha_changed", "feature/keep"),
+        ("protection", "protection_changed", "feature/keep"),
+    ],
+)
+def test_roster_mismatch_reports_category_and_stops_next_batch(
+    monkeypatch: pytest.MonkeyPatch,
+    readback_index: int,
+    mutation: str,
+    category: str,
+    name: str,
+) -> None:
+    api = FakeApi()
+    api.current.extend(
+        [BranchInfo("feature/second", B, False), BranchInfo("feature/keep", C, False)]
+    )
+    api.merged.append(MergedPullRequestSource("feature/second", B))
+    decisions = _plan(api)
+    original = api.branches
+    calls = 0
+
+    def changed_readback() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
+        roster = original()
+        if calls != readback_index:
+            return roster
+        if mutation == "missing":
+            return tuple(entry for entry in roster if entry.name != name)
+        if mutation == "unexpected":
+            return (*roster, BranchInfo(name, D, False))
+        return tuple(
+            BranchInfo(
+                name, D if mutation == "sha" else entry.sha, mutation == "protection"
+            )
+            if entry.name == name
+            else entry
+            for entry in roster
+        )
+
+    monkeypatch.setattr(api, "branches", changed_readback)
+    with pytest.raises(RuntimeError) as error:
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch="main",
+            expected_main_sha=A,
+            reachable_from_main=frozenset({A, B}),
+            batch_size=1,
+        )
+    message = str(error.value)
+    assert ("before retirement" if readback_index % 2 else "post-delete") in message
+    assert f"{category}=1" in message
+    assert name in message
+    assert calls == readback_index
+    assert api.deleted == ["feature/done", "feature/second"][: readback_index // 2]
+
+
+def test_duplicate_readback_diagnostic_names_the_duplicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = FakeApi()
+    decisions = _plan(api)
+    roster = api.branches()
+    monkeypatch.setattr(api, "branches", lambda: (*roster, roster[1]))
+    with pytest.raises(RuntimeError, match="duplicate branch") as error:
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch="main",
+            expected_main_sha=A,
+            reachable_from_main=frozenset({A, B}),
+        )
+    assert "feature/done" in str(error.value)
+    assert api.deleted == []
+
+
+def test_roster_diagnostic_is_bounded_and_counts_all_differences() -> None:
+    api = FakeApi()
+    decisions = _plan(api)
+    api.current.extend(
+        BranchInfo(f"feature/extra-{index:03d}", C, False) for index in range(40)
+    )
+    with pytest.raises(RuntimeError) as error:
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch="main",
+            expected_main_sha=A,
+            reachable_from_main=frozenset({A, B}),
+        )
+    message = str(error.value)
+    assert "unexpected=40" in message
+    assert "feature/extra-000" in message
+    assert "feature/extra-039" not in message
+    assert len(message) < 1000
+    assert api.deleted == []
+
+
+@pytest.mark.parametrize("different", [False, True])
+def test_paginated_api_duplicate_is_refused_before_any_deletion(
+    monkeypatch: pytest.MonkeyPatch, different: bool
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl", token="fake", api_url="https://github.invalid"
+    )
+    branches = (
+        BranchInfo("main", A, False),
+        BranchInfo("feature/done", B, False),
+        *(BranchInfo(f"feature/keep-{index:03d}", C, False) for index in range(98)),
+    )
+    decisions = plan_merged_retirement(
+        branches,
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_main=frozenset({A, B}),
+        merged_pr_sources=(MergedPullRequestSource("feature/done", B),),
+    )
+    pages: list[int] = []
+
+    def row(branch: BranchInfo) -> dict[str, object]:
+        return {
+            "name": branch.name,
+            "commit": {"sha": branch.sha},
+            "protected": branch.protected,
+        }
+
+    def request(
+        method: str, suffix: str, *, query: dict[str, str]
+    ) -> list[dict[str, object]]:
+        assert method == "GET" and suffix == "branches"
+        assert query["per_page"] == "100"
+        page = int(query["page"])
+        pages.append(page)
+        if page == 1:
+            return [row(branch) for branch in branches]
+        assert page == 2
+        return [row(BranchInfo("feature/done", C if different else B, different))]
+
+    def unexpected_delete(_branches: tuple[BranchInfo, ...]) -> None:
+        pytest.fail("ambiguous paginated readback must not reach deletion")
+
+    monkeypatch.setattr(api, "_request_json", request)
+    monkeypatch.setattr(
+        api,
+        "merged_pr_source_refs",
+        lambda: (MergedPullRequestSource("feature/done", B),),
+    )
+    monkeypatch.setattr(api, "delete_branches_with_leases", unexpected_delete)
+    with pytest.raises(RuntimeError, match="duplicate_names=1.*feature/done"):
+        apply_merged_retirement(
+            api,
+            decisions,
+            default_branch="main",
+            expected_main_sha=A,
+            reachable_from_main=frozenset({A, B}),
+        )
+    assert pages == [1, 2]

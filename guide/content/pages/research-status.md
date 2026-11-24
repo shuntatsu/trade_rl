@@ -53,6 +53,8 @@ Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実デー
 
 別の全48-arm人工検証（2026-11-24）では、固定した9,504行から316,752 native区間を実際に処理し、48/48 armが厳密flat・未処理注文ゼロで完了、192ファイルの保存・再検証・SHA/size照合が成功しました。4ワーカー・6バッチの実行/保存/読み戻しは計約387秒（約818区間/秒）でした。これは人工データのソフトウェア実測で、歴史的NONRL 48-cellの未完了状態・経済HOLDを変更しません。詳細は研究status正本のsource/witness digestを参照してください。
 
+歴史的R1/R2の保存releaseも読み取り専用で照合しました。3資産・ZIP内87ファイル・歴史的source pin 14件が一致し、R2の元planと4予測ファイルは保存されています。ただしR2は完成0、途中停止1、未実行47で、現行recipeとはsourceとprotocolが異なります。元市場Dataset本体と実行環境は未確認です。予測値や市場配列は展開せず、復旧・経済実行の認可はHOLDのままです。
+
 ### 条件付きfour-arm Ridge開発screen
 
 attempt 01では全12行の計算が完了しましたが、screen全体の判定は `FAILED_SCREEN` です。3つのシナリオすべてでcash以外の3 armの費用反映後リターンは正でした。一方、latency 2 barsでは正のcost proxy armが2.6777%で、position-aware `cost=0` の2.8971%を下回り、必要な比較条件を満たしませんでした。全行は終端flat・残注文0で、実現ledger最大DDは20%未満でしたが、勝者や将来利益の証拠ではありません。全12行とDD・費用・fundingの詳細は正本の研究statusに記録しています。rootの別readbackとN2の71/71 source-M34 metadata/public-loader checksは完了しました。詳細reportとevidence packageは[M34のGitHub release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に公開済みです（release ID `422708600`、tagはM34）。

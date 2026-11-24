@@ -4,6 +4,7 @@ import math
 from array import array
 from collections import UserList, deque
 from decimal import Decimal
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -1374,3 +1375,125 @@ def test_normal_numeric_object_array_still_converts_to_prices() -> None:
     prices = np.array([100.0, 50.0], dtype=object)
     book = BookState.zero(2, 1_000.0, prices)
     np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+class _MaskedFloatScalar:
+    def __init__(self, value: float) -> None:
+        self.hidden = np.ma.array(value, mask=True)
+
+    def __float__(self) -> float:
+        return float(self.hidden.data)
+
+
+class _MaskedIndexScalar:
+    def __init__(self, value: int) -> None:
+        self.hidden = np.ma.array(value, mask=True)
+
+    def __index__(self) -> int:
+        return int(self.hidden.data)
+
+
+@pytest.mark.parametrize("scalar_type", (_MaskedFloatScalar, _MaskedIndexScalar))
+@pytest.mark.parametrize("wrapper", ("direct", "nested", "object_array"))
+def test_untrusted_scalar_converter_cannot_hide_masked_financial_input(
+    scalar_type: type, wrapper: str
+) -> None:
+    adapter = scalar_type(100)
+    if wrapper == "direct":
+        value: object = [adapter]
+    elif wrapper == "nested":
+        value = [[adapter]]
+    else:
+        objects = np.empty(1, dtype=object)
+        objects[0] = adapter
+        value = objects
+    with pytest.raises(ValueError, match="opaque scalar"):
+        BookState.zero(1, 1_000.0, value)
+
+
+def test_opaque_masked_scalar_settlement_refuses_atomically() -> None:
+    book = BookState(
+        quantities=np.array([1.0]),
+        cash=1_000.0,
+        mark_prices=np.array([100.0]),
+        peak_value=1_100.0,
+    )
+    before = book.clone()
+    with pytest.raises(ValueError, match="opaque scalar"):
+        book.settle_positions(
+            mask=np.array([True]),
+            prices=[_MaskedFloatScalar(100.0)],
+            recovery=np.array([1.0]),
+        )
+    _assert_cash_and_inventory_unchanged(book, before)
+    assert book.termination_reason == before.termination_reason
+
+
+@pytest.mark.parametrize(
+    "values",
+    (
+        [100.0, 50.0],
+        [Decimal("100.0"), Decimal("50.0")],
+        [Fraction(100, 1), Fraction(50, 1)],
+        [np.float64(100.0), np.int64(50)],
+    ),
+)
+def test_native_numeric_scalar_atoms_remain_admitted(values: object) -> None:
+    book = BookState.zero(2, 1_000.0, values)
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+class _MisreportedNumericDtype(np.ndarray):
+    @property
+    def dtype(self) -> np.dtype:
+        return np.dtype(np.float64)
+
+
+class _MisreportedArrayList(np.ndarray):
+    def tolist(self) -> list[float]:
+        return [100.0]
+
+
+@pytest.mark.parametrize(
+    ("subclass", "element"),
+    (
+        (_MisreportedNumericDtype, _MaskedFloatScalar(100.0)),
+        (_MisreportedArrayList, np.ma.array(100.0, mask=True)),
+    ),
+)
+@pytest.mark.parametrize("nested", (False, True))
+def test_ndarray_subclass_cannot_override_native_object_admission(
+    subclass: type, element: object, nested: bool
+) -> None:
+    raw = np.empty(1, dtype=object)
+    raw[0] = element
+    wrapped = raw.view(subclass)
+    with pytest.raises(ValueError, match="masked array|opaque scalar"):
+        BookState.zero(1, 1_000.0, [wrapped] if nested else wrapped)
+
+
+def test_native_numeric_ndarray_subclass_remains_admitted() -> None:
+    class NumericView(np.ndarray):
+        pass
+
+    raw = np.array([100.0, 50.0])
+    book = BookState.zero(2, 1_000.0, raw.view(NumericView))
+    np.testing.assert_array_equal(book.mark_prices, raw)
+
+
+def test_untrusted_numpy_scalar_subclass_is_refused() -> None:
+    class OpaqueScalar(np.float64):
+        def __float__(self) -> float:
+            return 100.0
+
+    with pytest.raises(ValueError, match="opaque scalar"):
+        BookState.zero(1, 1_000.0, [OpaqueScalar(100.0)])
+
+
+def test_structured_object_dtype_cannot_bypass_scalar_admission() -> None:
+    raw = np.empty(1, dtype=[("price", object)])
+    raw["price"][0] = _MaskedFloatScalar(100.0)
+    with pytest.raises(ValueError, match="opaque array-like"):
+        BookState.zero(1, 1_000.0, raw)
+    with pytest.raises(ValueError, match="opaque scalar"):
+        BookState.zero(1, 1_000.0, [raw[0]])

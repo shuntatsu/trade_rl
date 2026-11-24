@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
-SETUP_UV = "astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2"
+SETUP_UV = "astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"
 
 
 def test_all_ci_uv_jobs_preinstall_python_from_runner_toolcache() -> None:
@@ -57,6 +57,19 @@ def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
     assert "uv sync --extra dev --extra train-sb3" in source
     assert "uv sync --extra dev --extra store" in source
     assert "uv run pytest -q tests" in source
+
+
+def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
+    """A reviewed SHA update must cover *all* 16 Action steps, not just Core CI."""
+    workflows = ROOT / ".github" / "workflows"
+    refs: list[str] = []
+    for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
+        text = path.read_text(encoding="utf-8")
+        refs.extend(
+            re.findall(r"(?m)^\s+uses:\s+astral-sh/setup-uv@([^\s#]+)\s*$", text)
+        )
+    assert len(refs) == 16
+    assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 16
 
 
 def test_lean_core_reports_skipped_test_reasons_without_changing_final_command() -> (

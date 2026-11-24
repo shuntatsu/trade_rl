@@ -122,16 +122,28 @@ def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
         if _has_masked_origin(item):
             raise ValueError(f"{field_name} must not contain a masked array")
         if isinstance(item, np.ndarray):
-            if item.dtype.kind != "O":
-                parent[index] = np.asarray(item).copy()
+            # Strip the ndarray subclass without converting its native dtype.
+            # Overridden dtype/tolist must not bypass object admission.
+            native = np.asarray(item)
+            if not native.dtype.hasobject:
+                parent[index] = native.copy()
                 continue
+            if native.dtype.kind != "O":
+                raise ValueError(
+                    f"{field_name} must not contain opaque array-like values"
+                )
             if id(item) in active:
                 raise ValueError(f"{field_name} must not contain cyclic arrays")
             active[id(item)] = item
             pending.append((item, None, 0))
-            pending.append((item.tolist(), parent, index))
+            pending.append((native.tolist(), parent, index))
             continue
         if isinstance(item, np.generic):
+            dtype = np.generic.dtype.__get__(item)
+            if type(item) is not dtype.type or dtype.hasobject:
+                raise ValueError(
+                    f"{field_name} must not contain opaque scalar converters"
+                )
             parent[index] = item
             continue
         if _has_opaque_numpy_protocol(item):
@@ -147,6 +159,20 @@ def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
             for pos in range(len(children) - 1, -1, -1):
                 pending.append((children[pos], snapshot, pos))
             continue
+        # NumPy must not invoke an untrusted scalar __float__ or __index__
+        # after validation. Native number/text atoms retain casting.
+        if type(item) not in (
+            bool,
+            int,
+            float,
+            complex,
+            str,
+            bytes,
+            bytearray,
+            Decimal,
+            Fraction,
+        ):
+            raise ValueError(f"{field_name} must not contain opaque scalar converters")
         parent[index] = item
     return root[0]
 
@@ -157,7 +183,8 @@ def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
         raise ValueError(f"{field_name} must not be a masked array")
     checked = (
         value
-        if isinstance(value, np.ndarray) and value.dtype.kind != "O"
+        if isinstance(value, np.ndarray)
+        and not np.ndarray.dtype.__get__(value).hasobject
         else _checked_vector_snapshot(value, field_name=field_name)
     )
     vector = np.asarray(checked, dtype=np.float64).reshape(-1).copy()

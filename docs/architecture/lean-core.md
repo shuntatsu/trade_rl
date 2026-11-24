@@ -556,6 +556,12 @@ ABC `Sequence`未登録でも`__len__`と`__getitem__`を実装する添字型�
 任意の`__array__`・`__array_interface__`・`__array_struct__`を持つ
 不透明なadapterは欠損情報の保持を確認できないため、変換前に拒否する。
 配列インターフェースの属性参照が失敗してもValueErrorで閉じる。
+また、未検査の独自`__float__`・`__index__`で欠損値を数値化しないよう、
+終端のscalarは既存のnative数値・文字列型、Decimal、Fractionおよび
+native NumPy scalarに限定する。ndarray subclassのdtypeやtolistの
+上書きは信用せず、native dtypeと要素で検査する。
+objectを含む構造化配列は拒否する。元のMaskedArrayへの参照が
+呼出し前に失われた場合の欠損情報の復元までは保証しない。
 通常の数値ndarray・リスト・タプル・`deque`・`UserList`・安定した添字型
 数値コンテナの受理は維持する。
 特に精算価格・回復率・split・配当・再評価・funding付き

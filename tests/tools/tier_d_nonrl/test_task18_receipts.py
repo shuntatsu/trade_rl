@@ -961,7 +961,10 @@ def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
     [
         (None, True),
         (100_000.0, True),
+        (0.0, True),
+        (-100_000.0, True),
         (2**53, True),
+        (-(2**53), True),
         (float("nan"), False),
         (float("inf"), False),
         (float("-inf"), False),
@@ -970,42 +973,69 @@ def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
         ("100000", False),
         (10**500, False),
         (2**53 + 1, False),
+        (-(2**53 + 1), False),
     ],
 )
+@pytest.mark.parametrize("runtime_completed", (False, True))
+@pytest.mark.parametrize("all_partial", (False, True))
 def test_partial_receipt_initial_equity_is_optional_but_numeric(
-    status, reason, error, initial, well_formed
+    status, reason, error, initial, well_formed, runtime_completed, all_partial
 ) -> None:
     run = _complete_run()
-    partial = replace(
-        run.arms[0],
-        status=status,
-        reason_code=reason,
-        error_code=error,
-        initial_equity_usdt=initial,
-        terminal_equity_usdt=None,
-        max_drawdown=None,
-        terminal_flat=None,
-        pending_order_count=None,
-        native_ledger_sha256=None,
-        arm_result_sha256=None,
-        external_report=None,
+    # A partial observation is a numeric declaration, not proof of the
+    # frozen initial-capital match required of a completed arm.
+    affected = run.arms if all_partial else run.arms[:1]
+    partials = tuple(
+        replace(
+            arm,
+            status=status,
+            reason_code=reason,
+            error_code=error,
+            initial_equity_usdt=initial,
+            terminal_equity_usdt=None,
+            max_drawdown=None,
+            terminal_flat=None,
+            pending_order_count=None,
+            native_ledger_sha256=None,
+            arm_result_sha256=None,
+            external_report=None,
+        )
+        for arm in affected
     )
     result = evaluate_run_receipt(
-        replace(run, runtime_completed=False, arms=(partial,) + run.arms[1:]),
+        replace(
+            run,
+            runtime_completed=runtime_completed,
+            arms=partials + run.arms[len(partials) :],
+        ),
         build_task18_protocol(),
     )
     unattempted_with_equity = status == "NOT_ATTEMPTED" and initial is not None
     assert result.declared_metrics_well_formed is (
         well_formed and not unattempted_with_equity
     )
-    assert (f"initial equity is invalid: {partial.arm_id}" in result.issues) is (
-        not well_formed
-    )
-    assert (
-        f"unattempted arm has completion facts: {partial.arm_id}" in result.issues
-    ) is unattempted_with_equity
-    if well_formed and not unattempted_with_equity:
-        assert result.issues == ("run runtime did not complete",)
+    expected_issues = []
+    for partial in partials:
+        if not well_formed:
+            expected_issues.append(f"initial equity is invalid: {partial.arm_id}")
+        if unattempted_with_equity:
+            expected_issues.append(
+                f"unattempted arm has completion facts: {partial.arm_id}"
+            )
+    if all_partial:
+        expected_issues.append(
+            "one or more completed arm reports are absent or do not match their declarations"
+        )
+    if not runtime_completed:
+        expected_issues.append("run runtime did not complete")
+    assert result.issues == tuple(expected_issues)
+    assert result.roster_complete
+    assert result.declaration_consistent
+    assert result.source_report_matches
+    assert result.arm_reports_match is (not all_partial)
+    assert result.declared_runtime_completed is runtime_completed
     assert not result.declared_arm_statuses_complete
+    assert not result.terminal_claims_pass_diagnostic
+    assert not result.drawdown_claims_pass_diagnostic
     assert not result.diagnostic_pair_arithmetic_available
     assert result.adoption_status == "NOT_ESTABLISHED"

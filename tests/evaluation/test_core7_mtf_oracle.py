@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
+PACKET_PATH = ROOT / "report" / "issue1134-core7-mtf-ppo-research-assurance-v15.json"
+PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
 PACKET_V11_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
@@ -57,7 +58,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    "a720a5fc9afa15ef2e131b008f0a43d2e8c14ad45840f20a36c1d7db71f326e6"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -824,7 +825,7 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
 def test_v14_packet_rebinds_merged_1307_source_without_economic_change() -> None:
     """v14 only re-pins the merged #1307 source (opt-in engine settlement, default off)."""
     old: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
     assert assurance_digest(old) == (
         "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
     )
@@ -841,6 +842,32 @@ def test_v14_packet_rebinds_merged_1307_source_without_economic_change() -> None
     assert new["identity"] == {
         "implementation_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
         "protocol_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+    }
+    review = evaluate_assurance(new)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
+
+
+def test_td8_v15_packet_rebinds_only_shared_reader_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    )
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "0b302186748f6a581ff029ce432ff63b747e6ed7",
+        "protocol_head": "0b302186748f6a581ff029ce432ff63b747e6ed7",
     }
     review = evaluate_assurance(new)
     assert review.status == "UNREVIEWED"

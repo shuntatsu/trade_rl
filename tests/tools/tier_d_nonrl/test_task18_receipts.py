@@ -950,6 +950,7 @@ def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
 @pytest.mark.parametrize(
     ("status", "reason", "error"),
     [
+        ("NOT_ATTEMPTED", "NOT_STARTED", None),
         ("RUNNING", "RUN_IN_PROGRESS", None),
         ("INTERRUPTED", "PROCESS_INTERRUPTED", None),
         ("FAILED", "PROCESS_FAILED", "SYNTHETIC_FAILURE"),
@@ -960,9 +961,13 @@ def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
     [
         (None, True),
         (100_000.0, True),
+        (2**53, True),
         (float("nan"), False),
         (float("inf"), False),
+        (float("-inf"), False),
         (True, False),
+        (False, False),
+        ("100000", False),
         (10**500, False),
         (2**53 + 1, False),
     ],
@@ -989,9 +994,18 @@ def test_partial_receipt_initial_equity_is_optional_but_numeric(
         replace(run, runtime_completed=False, arms=(partial,) + run.arms[1:]),
         build_task18_protocol(),
     )
-    assert result.declared_metrics_well_formed is well_formed
+    unattempted_with_equity = status == "NOT_ATTEMPTED" and initial is not None
+    assert result.declared_metrics_well_formed is (
+        well_formed and not unattempted_with_equity
+    )
     assert (f"initial equity is invalid: {partial.arm_id}" in result.issues) is (
         not well_formed
     )
+    assert (
+        f"unattempted arm has completion facts: {partial.arm_id}" in result.issues
+    ) is unattempted_with_equity
+    if well_formed and not unattempted_with_equity:
+        assert result.issues == ("run runtime did not complete",)
+    assert not result.declared_arm_statuses_complete
     assert not result.diagnostic_pair_arithmetic_available
     assert result.adoption_status == "NOT_ESTABLISHED"

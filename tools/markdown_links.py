@@ -305,15 +305,28 @@ def _destination(source: str, start: int) -> str | None:
         target = source[begin:index]
         if depth != 0:
             return None
+    destination_end = index
     while index < len(source) and source[index] in " \t\r\n":
         index += 1
-    if index < len(source) and source[index] in ('"', "'"):
-        quote = source[index]
-        index += 1
-        end = source.find(quote, index)
-        if end < 0:
+    if index < len(source) and source[index] in ('"', "'", "("):
+        if index == destination_end:
             return None
-        index = end + 1
+        opener = source[index]
+        closer = ")" if opener == "(" else opener
+        index += 1
+        title_start = index
+        while index < len(source):
+            char = source[index]
+            if char == closer and not _escaped(source, index):
+                break
+            if opener == "(" and char == "(" and not _escaped(source, index):
+                return None
+            index += 1
+        if index == len(source) or re.search(
+            r"\r?\n[ \t]*\r?\n", source[title_start:index]
+        ):
+            return None
+        index += 1
         while index < len(source) and source[index] in " \t\r\n":
             index += 1
     if index >= len(source) or source[index] != ")":

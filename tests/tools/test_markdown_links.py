@@ -248,3 +248,46 @@ def test_local_link_diagnostics_preserve_source_order() -> None:
         (1, "z.md"),
         (1, "a.md"),
     ]
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "(description)",
+        r"(escaped \) delimiter)",
+        r'"escaped \" delimiter"',
+        r"'escaped \' delimiter'",
+    ],
+)
+def test_valid_titled_links_check_missing_and_unsafe_targets(
+    tmp_path: Path, title: str
+) -> None:
+    _write(
+        tmp_path,
+        "README.md",
+        f"[Missing](missing.md {title})\n[Unsafe](javascript:alert(1) {title})\n",
+    )
+    count, problems = check_links(tmp_path, (Path("README.md"),))
+    assert count == 1
+    assert [(problem.line, problem.reason) for problem in problems] == [
+        (1, "missing local target"),
+        (2, "unsupported URI scheme"),
+    ]
+
+
+def test_parenthesized_title_resolves_angle_destination(tmp_path: Path) -> None:
+    _write(tmp_path, "with space.md", "# Target\n")
+    _write(tmp_path, "README.md", "[Link](<with space.md> (title))\n")
+    assert check_links(tmp_path, (Path("README.md"),)) == (1, [])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[link](missing.md (nested (title)))",
+        "[link](missing.md (unclosed)",
+        "[link](<missing.md>(no separator))",
+    ],
+)
+def test_malformed_parenthesized_titles_are_not_links(text: str) -> None:
+    assert destinations(text) == []

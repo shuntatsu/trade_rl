@@ -201,7 +201,7 @@ def test_full_size_native_recovery_is_an_actual_windows_exact_count_case() -> No
         "tests/tools/tier_d_nonrl/test_task18_native_recovery.py"
         "::test_full_size_native_late_receipt_stop_recovery_and_successor" in job
     )
-    assert "m1-windows-full-native-recovery.xml" in job
+    assert '--junitxml="${{ runner.temp }}/m1-windows-full-native-recovery.xml"' in job
     assert (
         "python -m tools.ci_exact_pytest_counts m1-windows-full-native-recovery.xml 1"
         in job

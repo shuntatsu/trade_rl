@@ -160,6 +160,7 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
     endpoint = f"actions/runs/{run.run_id}/artifacts"
     artifacts: list[dict[str, Any]] = []
     seen: set[int] = set()
+    seen_nodes: set[str] = set()
     expected_total: int | None = None
     page = 1
     while True:
@@ -190,7 +191,10 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
             item = _artifact(value, run)
             if item["id"] in seen:
                 raise ValueError("duplicate artifact id")
+            if item["node_id"] in seen_nodes:
+                raise ValueError("duplicate artifact node_id")
             seen.add(item["id"])
+            seen_nodes.add(item["node_id"])
             artifacts.append(item)
         if len(artifacts) == count:
             return sorted(artifacts, key=lambda item: item["id"])

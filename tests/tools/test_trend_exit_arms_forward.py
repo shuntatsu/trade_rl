@@ -8,10 +8,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -20,7 +23,7 @@ import pytest
 
 from tools import trend_exit_arms_forward as m
 
-DIGEST_PIN = "d3f2a0b4158ff3b7cb751ff8639587322ed80136ad7828afcb60524ee9a414b4"
+DIGEST_PIN = "2c3954e9412e8c8f4667b5c4ad5ace5677f8ddd4a4cedd7a309c88b7bc57da90"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -713,13 +716,20 @@ def test_oracle_scenario_is_nontrivial() -> None:
     assert base["fills"] > 10 and base["capped_fills"] > 0
     assert base["price_pnl"]["short"] != 0.0 and base["price_pnl"]["long"] != 0.0
     assert base["funding_total"] != 0.0 and base["costs_total"] > 0.0
-    # the arms differ from the rule only through the short leg
+    # The oracle must distinguish each challenger from the BASELINE SHORT LEG, not compare
+    # unrelated long and short totals.  Decisions on the long leg must remain identical.
+    assert m.CHALLENGERS == ("A1_SHORT_TRAIL3", "A2_SHORT_HALF", "A3_SHORT_TIME30")
+    base_short = base["price_pnl"]["short"]
+    assert math.isfinite(base_short)
+    w0 = m.arm_weights(sig, "A0_RULE")
     for arm in m.CHALLENGERS:
         other = cells[m.cell_name(arm, "BASE")]
-        assert other["price_pnl"]["long"] != base["price_pnl"]["short"]
-    w0, w1 = m.arm_weights(sig, "A0_RULE"), m.arm_weights(sig, "A1_SHORT_TRAIL3")
-    assert np.array_equal(np.maximum(w0, 0), np.maximum(w1, 0))  # longs identical
-    assert (np.abs(w1) <= np.abs(w0) + 1e-15).all()  # exits only de-risk
+        other_short = other["price_pnl"]["short"]
+        assert math.isfinite(other_short), arm
+        assert other_short != base_short, arm
+        w = m.arm_weights(sig, arm)
+        assert np.array_equal(np.maximum(w0, 0), np.maximum(w, 0)), arm
+        assert (np.minimum(w, 0) >= np.minimum(w0, 0) - 1e-15).all(), arm
 
 
 # ----------------------------------------------------------------------------- decision
@@ -1913,3 +1923,399 @@ def test_parse_klines_rejects_non_native_or_unaligned_open(bad_open: object) -> 
     row[0] = bad_open
     with pytest.raises(SystemExit, match="close_time"):
         m.parse_klines([row])
+
+
+@pytest.mark.parametrize("historical", ["marker", "legacy", "malformed"])
+def test_preexisting_g4_refusal_does_not_consume_new_stage(
+    env: dict[str, Any], historical: str
+) -> None:
+    root = env["ledger"] / m.PROTOCOL_ID
+    before = datetime(2027, 1, 20, tzinfo=UTC)
+    if historical == "marker":
+        m.reserve_g4_comment(
+            root, 7040999999, "FORWARD_INTERIM_2027-01", "9" * 64, COMMIT, before
+        )
+    elif historical == "legacy":
+        m.claim_stage(
+            "FORWARD_INTERIM_2027-01",
+            "9" * 64,
+            COMMIT,
+            7040999999,
+            before,
+            root / ("9" * 64),
+        )
+    else:
+        root.mkdir(parents=True)
+        (root / "broken.claim").write_text("invalid JSON", encoding="utf-8")
+    previous = {p: p.read_bytes() for p in root.rglob("*.claim")}
+    fetched: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        fetched.append(url)
+        return fake_market(url)
+
+    with pytest.raises(
+        SystemExit, match="already consumed|unreadable historical G4 claim"
+    ):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "unused_work",
+            env["tmp"] / "unused_output",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=fetch,
+            gh_fetch=_gh(
+                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+            ),
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert {p: p.read_bytes() for p in root.rglob("*.claim")} == previous
+    assert fetched == []
+
+
+# Regression: do not allow a POSIX-relative Windows literal to fork the single-use ledger.
+def test_stage_refuses_relative_ledger_before_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    when = datetime(2027, 1, 20, 9, tzinfo=UTC)
+    for dirname in ("cwd1", "cwd2"):
+        root = tmp_path / dirname
+        root.mkdir()
+        monkeypatch.chdir(root)
+        # The argument must be rejected before any API call, claim or data read.
+        with pytest.raises(SystemExit, match="absolute.*ledger|ledger.*absolute"):
+            m.run_stage(
+                "FORWARD_INTERIM",
+                URL,
+                root / "work",
+                root / "out",
+                now=when,
+                ledger_dir=Path("relative_ledger"),
+                fetch=lambda _url: (_ for _ in ()).throw(AssertionError("data read")),
+            )
+        assert not any(root.iterdir())
+
+
+def test_claim_identity_is_utc_and_naive_datetimes_refuse() -> None:
+    from datetime import timedelta, timezone
+
+    jst = timezone(timedelta(hours=9))
+    stage = m.STAGES["FORWARD_INTERIM"]
+    assert (
+        m.claim_name(stage, datetime(2026, 12, 1, 0, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-11"
+    )
+    assert (
+        m.claim_name(stage, datetime(2026, 12, 1, 9, 30, tzinfo=jst))
+        == "FORWARD_INTERIM_2026-12"
+    )
+    with pytest.raises(SystemExit, match="timezone-aware"):
+        m.claim_name(stage, datetime(2026, 12, 1))
+    with pytest.raises(SystemExit, match="timezone-aware"):
+        m.check_clock(stage, datetime(2026, 12, 1))
+
+
+def test_posix_windows_legacy_default_must_not_be_accepted() -> None:
+    import os
+
+    if os.name != "nt":
+        assert not m.LEDGER_DIR.is_absolute()
+
+
+def test_g4_accepts_one_crlf_claim() -> None:
+    digest = "d" * 64
+    body = f"{m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    assert (
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )["g4_relay"]["comment_id"]
+        == 7040999999
+    )
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "G4 claim: FORWARD_INTERIM_2027-01, FORWARD_FINAL\nG4 claim: FORWARD_FINAL",
+        "G4 claim: FORWARD_INTERIM_2027-01\r\nG4 claim: FORWARD_FINAL",
+        "G4 claim: FORWARD_FINAL\nG4 claim: final",
+        "G4 claim: FORWARD_FINAL\n G4 claim: FORWARD_INTERIM_2027-01",
+        "G4 claim: FORWARD_INTERIM_2027-01",
+    ],
+)
+def test_g4_invalid_claim_refuses_public_run_before_side_effects(
+    env: dict[str, Any], lines: str
+) -> None:
+    def fetch(_url: str) -> bytes:
+        raise AssertionError("invalid authorization must not fetch")
+
+    with pytest.raises(SystemExit, match="G4 claim"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=fetch,
+            gh_fetch=_gh(
+                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{lines}"
+            ),
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert not env["ledger"].exists()
+    assert not (env["tmp"] / "w").exists()
+    assert not (env["tmp"] / "o").exists()
+
+
+@pytest.mark.parametrize("kind", ["stage", "marker"])
+def test_claim_is_complete_before_exclusive_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    real_link = os.link
+    published: list[Path] = []
+
+    def observed_link(src: Any, dst: Any) -> None:
+        source, target = Path(src), Path(dst)
+        assert source.parent == target.parent == root
+        assert source.suffix != ".claim" and not target.exists()
+        assert (
+            json.loads(source.read_text(encoding="utf-8"))["authorization_comment_id"]
+            == 42
+        )
+        real_link(src, dst)
+        published.append(target)
+
+    monkeypatch.setattr(os, "link", observed_link)
+    if kind == "stage":
+        target = m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+    else:
+        target = m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now)
+    assert published == [target]
+    assert list(root.iterdir()) == [target]
+    assert (
+        json.loads(target.read_text(encoding="utf-8"))["authorization_comment_id"] == 42
+    )
+
+
+@pytest.mark.parametrize("kind", ["stage", "marker"])
+def test_failed_claim_flush_never_publishes_partial_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+
+    def fail(_fd: int) -> None:
+        raise OSError("synthetic fsync failure")
+
+    monkeypatch.setattr(os, "fsync", fail)
+    with pytest.raises(OSError, match="synthetic fsync failure"):
+        if kind == "stage":
+            m.claim_stage("FORWARD_FINAL", "d" * 64, COMMIT, 42, now, root)
+        else:
+            m.reserve_g4_comment(root, 42, "FORWARD_FINAL", "d" * 64, COMMIT, now)
+    assert list(root.iterdir()) == []
+
+
+def test_concurrent_g4_publication_has_one_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ledger"
+    now = datetime(2027, 1, 20, tzinfo=UTC)
+    real_link = os.link
+    gate = Barrier(2, timeout=10)
+
+    def simultaneous_link(src: Any, dst: Any) -> None:
+        gate.wait()
+        real_link(src, dst)
+
+    monkeypatch.setattr(os, "link", simultaneous_link)
+
+    def reserve(stage: str) -> str:
+        try:
+            m.reserve_g4_comment(root, 42, stage, "d" * 64, COMMIT, now)
+        except SystemExit as exc:
+            assert "already consumed" in str(exc)
+            return "refused"
+        return stage
+
+    stages = ["FORWARD_INTERIM_2027-01", "FORWARD_FINAL"]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(reserve, stages))
+    assert results.count("refused") == 1
+    winner = next(x for x in results if x != "refused")
+    marker = root / "g4-42.claim"
+    assert list(root.iterdir()) == [marker]
+    assert json.loads(marker.read_text(encoding="utf-8"))["stage"] == winner
+
+
+@pytest.mark.parametrize("linked", ["root", "parent"])
+def test_symlinked_ledger_refuses_before_authorization(
+    env: dict[str, Any], linked: str
+) -> None:
+    real = env["tmp"] / "other_ledger"
+    real.mkdir()
+    try:
+        if linked == "parent":
+            env["ledger"].symlink_to(real, target_is_directory=True)
+        else:
+            env["ledger"].mkdir()
+            (env["ledger"] / m.PROTOCOL_ID).symlink_to(real, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    def unexpected(_arg: Any) -> Any:
+        raise AssertionError("unsafe ledger must be rejected before external access")
+
+    with pytest.raises(SystemExit, match="G4 ledger root"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=unexpected,
+            gh_fetch=unexpected,
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert not list(real.iterdir())
+
+
+def test_public_run_rechecks_g4_after_root_claim(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = env["ledger"] / m.PROTOCOL_ID
+    now = datetime(2027, 12, 2, 1, tzinfo=UTC)
+    real_claim = m.claim_stage
+
+    def competing_claim(*args: Any, **kwargs: Any) -> Path:
+        path = real_claim(*args, **kwargs)
+        if path.parent == root:
+            # A competing reservation arrives after read-only preflight, before the marker.
+            m._publish_claim(
+                root / "g4-7040999999.claim",
+                {
+                    "stage": "FORWARD_INTERIM_2027-01",
+                    "protocol_digest": "9" * 64,
+                    "commit": COMMIT,
+                    "authorization_comment_id": 7040999999,
+                    "claimed_at": now.isoformat(),
+                },
+            )
+        return path
+
+    monkeypatch.setattr(m, "claim_stage", competing_claim)
+    # The trend probe is deliberately simulated; stage-window access is forbidden.
+    if hasattr(m, "connectivity_probe"):
+        monkeypatch.setattr(m, "connectivity_probe", lambda _fetch: None)
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("stage data must not be read after a G4 conflict")
+
+    with pytest.raises(SystemExit, match="already consumed"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=now,
+            fetch=unexpected,
+            gh_fetch=_gh(
+                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+            ),
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert (root / "FORWARD_FINAL.claim").exists()
+    assert (root / "g4-7040999999.claim").exists()
+    assert not (root / env["digest"] / "FORWARD_FINAL.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+@pytest.mark.parametrize(
+    "history", ["linked", "broken-link", "zero-id", "negative-id", "duplicate-id"]
+)
+def test_g4_invalid_history_refuses_before_claim_or_fetch(
+    env: dict[str, Any], history: str
+) -> None:
+    root = env["ledger"] / m.PROTOCOL_ID
+    root.mkdir(parents=True)
+    ns = root / ("9" * 64)
+    if history in {"linked", "broken-link"}:
+        outside = env["tmp"] / "external-history"
+        if history == "linked":
+            outside.mkdir()
+            (outside / "old.claim").write_text(
+                '{"authorization_comment_id":7040999999}', encoding="utf-8"
+            )
+        try:
+            ns.symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
+    else:
+        ns.mkdir()
+        record = {
+            "zero-id": '{"authorization_comment_id":0}',
+            "negative-id": '{"authorization_comment_id":-1}',
+            "duplicate-id": '{"authorization_comment_id":7040999999,"authorization_comment_id":1}',
+        }[history]
+        (ns / "old.claim").write_text(record, encoding="utf-8")
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("no market request after invalid ledger history")
+
+    with pytest.raises(SystemExit, match="historical G4|G4 ledger"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=unexpected,
+            gh_fetch=_gh(
+                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+            ),
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert not (root / "FORWARD_FINAL.claim").exists()
+    assert not (root / "g4-7040999999.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+def test_unreadable_history_refuses_before_external_access(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = env["ledger"] / m.PROTOCOL_ID
+    ns = root / ("9" * 64)
+    ns.mkdir(parents=True)
+    real_iterdir = Path.iterdir
+
+    def inaccessible(path: Path) -> Any:
+        if path == ns:
+            raise PermissionError("synthetic historical directory error")
+        return real_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", inaccessible)
+
+    def unexpected(_arg: Any) -> Any:
+        raise AssertionError("no external request after unsafe ledger")
+
+    with pytest.raises(SystemExit, match="unreadable historical G4 ledger"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=datetime(2027, 12, 2, 1, tzinfo=UTC),
+            fetch=unexpected,
+            gh_fetch=unexpected,
+            ledger_dir=env["ledger"],
+            symbols=TWO,
+        )
+    assert not (root / "FORWARD_FINAL.claim").exists()
+    assert not (env["tmp"] / "w").exists()

@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it, and no economic result was produced for it.
 
-Protocol digest: `d3f2a0b4158ff3b7cb751ff8639587322ed80136ad7828afcb60524ee9a414b4`
+Protocol digest: `2c3954e9412e8c8f4667b5c4ad5ace5677f8ddd4a4cedd7a309c88b7bc57da90`
 
 ## Question
 
@@ -153,7 +153,8 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 
 - FORWARD reads are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247). The same-account review route is [Issue #810 comment 7082120805](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7082120805).
 - Each stage run also needs its own G4 relay on Issue #810 that quotes this protocol id, the digest and the full code commit.
-- The stage-specific G4 relay additionally requires exactly one standalone line `G4 claim: <claim name>` with the exact UTC `claim_name` (`FORWARD_INTERIM_YYYY-MM` or `FORWARD_FINAL`). An ambiguous/missing/multiple claim line fails closed even when the protocol id, digest and commit match. The relay comment ID is consumed **once across all stages, months and digest namespaces of this protocol**: before any stage-window data access the harness scans existing claims, exclusively creates a `g4-<comment ID>.claim` marker at the protocol ledger root, and refuses reused or malformed historical claims. The stage root claim is already consumed at that point and is never rolled back on a G4 conflict or later failure. These are additional software gates, not a G4 authorization grant. The ledger root must be a durable, shared, absolute filesystem path to enforce cross-run uniqueness.
+- The stage-specific G4 relay additionally requires exactly one standalone line `G4 claim: <claim name>` with the exact UTC `claim_name` (`FORWARD_INTERIM_YYYY-MM` or `FORWARD_FINAL`). LF and CRLF line endings are accepted; every claim-like line must participate in the exact comparison. An ambiguous/missing/multiple claim line fails closed even when the protocol id, digest and commit match. The relay comment ID is consumed **once across all stages, months and digest namespaces of this protocol**: before any stage-window data access the harness scans existing claims, exclusively creates a `g4-<comment ID>.claim` marker at the protocol ledger root, and refuses reused or malformed historical claims. A read-only historical-claim check rejects already-consumed or malformed G4 evidence before the stage root claim (and before any connectivity probe). After the stage root claim, the check is repeated and the exclusive marker is created; a new concurrent conflict or later failure never rolls back that claim. These are additional software gates, not a G4 authorization grant. The ledger root and its ancestors must be real (non-symlink) absolute directories on a durable shared filesystem supporting exclusive same-directory hard links. Stage and G4 claims are fully written and flushed in non-claim temporary files before atomic no-replace publication. Failed writes cannot expose a partial claim; existing claims are never overwritten.
+- Before reading historical results or requesting authorization, enumerate the local ledger without following links. Refuse symbolic links, junctions, nonregular entries, unreadable directories and nonregular claim paths; every historical claim must decode as an unambiguous JSON object with a positive native integer authorization comment ID. Duplicate keys, including duplicates in nested objects, are rejected. These checks preserve the existing ledger root, historical claims and result bytes. They are software fail-closed checks for a trusted local filesystem, not a guarantee against hostile concurrent filesystem mutation, power loss or distributed ledger races.
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
 - The checkout must be clean: any modified tracked file or any untracked, non-ignored file refuses the run (`git status --porcelain --untracked-files=all`).
 - The G4 relay is written by the planner and posted from the owner's GitHub account. The harness verifies account identity (owner login), the issue, the quoted protocol id, digest and commit, and that the content is unchanged between two fetches. It does NOT verify human authorship; the operator confirms the owner's approval before each stage.
@@ -182,3 +183,22 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 - Interim decision statistics are computed on partial data for information; with fewer than a few days they are degenerate.
 - Duplicated code: the data fetch, authorization, ledger and clock machinery is copied from `mtf_combo_forward` (PR #1333, not merged) so this PR is self-contained. A shared helper module is a follow-up.
 - Dependencies: the tests use pandas only for the optional frame parity oracle (`uv run --with pandas`); the CI core job skips it.
+
+
+## 2026-11-24 software admission amendment (Issue #1347; prospective only)
+
+The single-use stage ledger MUST resolve to one absolute filesystem location before any
+claim, owner-relay fetch, exchange connectivity probe, or market request. The legacy
+Windows `C:\trade_rl_runs\...` default remains unchanged on Windows, but is NOT
+an absolute path on POSIX: fail closed there unless the caller provides a verified
+absolute ledger directory. Existing claims and consumed BACKCAST history are preserved;
+no cross-machine or shared-filesystem coordination is asserted.
+
+Interim claim months and stage-clock comparisons use the same timezone-aware instant
+normalized to UTC. Naive datetimes are refused before side effects. This closes the
+local-CWD/UTC identity bypass without changing any strategy, indicator, cost, stage
+window or result decision rule. Re-pin the spec/harness digest and repeat independent
+software-review and Full CI gates on this prospective source; previous-head receipts
+are not reusable. **No economic stage, G4 relay grant, market-data use, or trading is
+authorized by this amendment.** Separate per-stage G4 relay binding and relay-comment
+ID replay prevention remain OPEN under Issue #1347.

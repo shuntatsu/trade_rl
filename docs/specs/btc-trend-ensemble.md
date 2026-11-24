@@ -2,7 +2,7 @@
 
 Status: **HOLD / Amendment 3 awaiting independent review (2026-11-23).** This source has not been independently approved for economic execution. The first BACKCAST attempt (digest `e0912608…`) refused before any exposure, return, drawdown or label. **A second BACKCAST under Amendment 1 (digest `7e276c4f…`, code `e0ac8908`) ran once and wrote a result labelled `TREND_BACKCAST_ONLY`** ([Issue #810 comment 7078583793](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078583793)); that result was computed by the defective `_account` that Amendment 2 corrects. It is defective, is not evidence for the rule, is not relabelled and is not re-scored; the label `TREND_BACKCAST_ONLY` stays on record unchanged and plays no part in any decision. BACKCAST is consumed and is refused under every digest. The corrected protocol decides on FORWARD alone, and no FORWARD result exists. The FORWARD decision window starts 2026-12-01 (Amendment 3); the earlier 2026-11-23 start was never run or read.
 
-Protocol digest: `0694b3b1197e7d2921e7854943ca3e6f6785b4bc893ae1c3a77c4453d8533053`
+Protocol digest: `6f4b5849634b417de9d1113e0826a2a76d2ff219847ba79da3f74bd341a5e77b`
 
 ## Question
 
@@ -95,6 +95,8 @@ A cell is invalid if, at any day:
 
 - FORWARD reads are covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247).
 - Each FORWARD stage also needs its own G4 relay on Issue #810 that quotes this protocol id, the digest and the full code commit. Earlier relays and reviews do not authorize this digest.
+- A relay must contain exactly one standalone line `G4 claim: <claim name>` matching the exact UTC stage name (FORWARD_INTERIM_YYYY-MM or FORWARD_FINAL); LF and CRLF are accepted, while missing, mismatched or ambiguous lines refuse. The comment ID is consumed once across all stages and digest namespaces of this protocol. Known reused or malformed history refuses before the connectivity probe or any new claim. After the root stage claim the check is repeated and a `g4-<comment ID>.claim` marker is published exclusively; a concurrent conflict or later failure never rolls back the stage claim. Both stage and marker claims are written to a same-directory temporary file, flushed and fsynced, then published without replacement using a hard link; unsupported filesystems refuse. No stage/data access is authorized by this software change.
+- Before reading historical results or requesting authorization, enumerate the local ledger without following links. Refuse symbolic links, junctions, nonregular entries, unreadable directories and nonregular claim paths; every historical claim must decode as an unambiguous JSON object with a positive native integer authorization comment ID. Duplicate keys, including duplicates in nested objects, are rejected. These checks preserve the existing ledger root, historical claims and result bytes. They are software fail-closed checks for a trusted local filesystem, not a guarantee against hostile concurrent filesystem mutation, power loss or distributed ledger races.
 - The harness must fetch both comments twice. Each must be owner-authored and unchanged between the fetches.
 - The checkout must be clean.
 - A connectivity probe (one BTCUSDT 1d page dated 2026-10-01 to 2026-10-07, before 2026-11-01) and the authorization fetches run **before** the claim. Any failure refuses without claiming, so an outage cannot burn a stage, and no stage-window data is read by the probe. The probe page is known-used pre-FORWARD data covered by the owner scope relay [Issue #810 comment 7040247247](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040247247); it is never scored.
@@ -168,3 +170,21 @@ Status: HOLD pending independent review and G4. Review 6020387665 (BLOCKED at he
 **M3, L5, L6.** The description of the old `_account` defect is corrected in Amendment 2; source-candle finality is stated as coming from the stage window; the defective BACKCAST headline numbers are disclosed as prior exposure.
 
 **Unchanged.** The rule, cells, costs, deadband, lookbacks, volatility target, decision conditions 1 to 5 and the accounting of Amendment 2. The protocol digest changes; earlier reviews and G4 relays do not authorize it.
+
+
+## 2026-11-24 software admission amendment (Issue #1347; prospective only)
+
+The single-use stage ledger MUST resolve to one absolute filesystem location before any
+claim, owner-relay fetch, exchange connectivity probe, or market request. The legacy
+Windows `C:\trade_rl_runs\...` default remains unchanged on Windows, but is NOT
+an absolute path on POSIX: fail closed there unless the caller provides a verified
+absolute ledger directory. Existing claims and consumed BACKCAST history are preserved;
+no cross-machine or shared-filesystem coordination is asserted.
+
+Interim claim months and stage-clock comparisons use the same timezone-aware instant
+normalized to UTC. Naive datetimes are refused before side effects. This closes the
+local-CWD/UTC identity bypass without changing any strategy, indicator, cost, stage
+window or result decision rule. Re-pin the spec/harness digest and repeat independent
+software-review and Full CI gates on this prospective source; previous-head receipts
+are not reusable. **No economic stage, G4 relay grant, market-data use, or trading is
+authorized by this amendment.** The prospective stage-specific G4 binding and replay-prevention amendment above remains on HOLD pending independent review and exact-head Full CI under Issue #1347.

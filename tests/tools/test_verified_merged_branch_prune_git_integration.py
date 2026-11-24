@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tools import branch_hygiene as hygiene
 from tools.branch_hygiene import BranchInfo, GitHubApi
 
 
@@ -45,12 +46,13 @@ def test_real_atomic_exact_sha_lease_deletes_only_verified_tip(
 ) -> None:
     checkout, remote, sha = isolated_git
     monkeypatch.chdir(checkout)
+    assert _remote_tip(remote) == sha
+    monkeypatch.setattr(hygiene, "_RETIREMENT_ORIGIN_URLS", frozenset({str(remote)}))
     api = GitHubApi(
         repository="shuntatsu/trade_rl",
         token="fixture-token",
         api_url="https://api.github.com",
     )
-    assert _remote_tip(remote) == sha
     api.delete_branches_with_leases((BranchInfo("feat/merged", sha, False),))
     assert _remote_tip(remote) is None
     assert _git("rev-parse", "refs/heads/main", cwd=remote) == sha
@@ -67,12 +69,23 @@ def test_real_stale_sha_lease_cannot_delete_a_changed_remote_branch(
     new_sha = _git("rev-parse", "HEAD", cwd=checkout)
     _git("push", "origin", "feat/merged", cwd=checkout)
     monkeypatch.chdir(checkout)
+    assert new_sha != old_sha
+    monkeypatch.setattr(hygiene, "_RETIREMENT_ORIGIN_URLS", frozenset({str(remote)}))
     api = GitHubApi(
         repository="shuntatsu/trade_rl",
         token="fixture-token",
         api_url="https://api.github.com",
     )
-    assert new_sha != old_sha
+    # A second, otherwise valid lease must not be applied when the first
+    # lease fails: the actual two-ref transport must remain atomic.
+    _git("update-ref", "refs/heads/feat/second", old_sha, cwd=remote)
     with pytest.raises(RuntimeError, match="conditional branch deletion failed"):
-        api.delete_branches_with_leases((BranchInfo("feat/merged", old_sha, False),))
+        api.delete_branches_with_leases(
+            (
+                BranchInfo("feat/merged", old_sha, False),
+                BranchInfo("feat/second", old_sha, False),
+            )
+        )
     assert _remote_tip(remote) == new_sha
+    assert _git("rev-parse", "refs/heads/feat/second", cwd=remote) == old_sha
+    assert _git("rev-parse", "refs/heads/main", cwd=remote) == old_sha

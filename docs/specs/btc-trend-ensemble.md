@@ -2,7 +2,7 @@
 
 Status: **HOLD / Amendment 3 awaiting independent review (2026-11-23).** This source has not been independently approved for economic execution. The first BACKCAST attempt (digest `e0912608…`) refused before any exposure, return, drawdown or label. **A second BACKCAST under Amendment 1 (digest `7e276c4f…`, code `e0ac8908`) ran once and wrote a result labelled `TREND_BACKCAST_ONLY`** ([Issue #810 comment 7078583793](https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7078583793)); that result was computed by the defective `_account` that Amendment 2 corrects. It is defective, is not evidence for the rule, is not relabelled and is not re-scored; the label `TREND_BACKCAST_ONLY` stays on record unchanged and plays no part in any decision. BACKCAST is consumed and is refused under every digest. The corrected protocol decides on FORWARD alone, and no FORWARD result exists. The FORWARD decision window starts 2026-12-01 (Amendment 3); the earlier 2026-11-23 start was never run or read.
 
-Protocol digest: `0694b3b1197e7d2921e7854943ca3e6f6785b4bc893ae1c3a77c4453d8533053`
+Protocol digest: `0904174741f5ae7617999a06fa9ac4eb626c4152e2d3377f8054ca0b8dd694f9`
 
 ## Question
 
@@ -168,3 +168,22 @@ Status: HOLD pending independent review and G4. Review 6020387665 (BLOCKED at he
 **M3, L5, L6.** The description of the old `_account` defect is corrected in Amendment 2; source-candle finality is stated as coming from the stage window; the defective BACKCAST headline numbers are disclosed as prior exposure.
 
 **Unchanged.** The rule, cells, costs, deadband, lookbacks, volatility target, decision conditions 1 to 5 and the accounting of Amendment 2. The protocol digest changes; earlier reviews and G4 relays do not authorize it.
+
+
+## 2026-11-24 software admission amendment (Issue #1347; prospective only)
+
+The single-use stage ledger MUST resolve to one absolute filesystem location before any
+claim, owner-relay fetch, exchange connectivity probe, or market request. The legacy
+Windows `C:\trade_rl_runs\...` default remains unchanged on Windows, but is NOT
+an absolute path on POSIX: fail closed there unless the caller provides a verified
+absolute ledger directory. Existing claims and consumed BACKCAST history are preserved;
+no cross-machine or shared-filesystem coordination is asserted.
+
+Interim claim months and stage-clock comparisons use the same timezone-aware instant
+normalized to UTC. Naive datetimes are refused before side effects. This closes the
+local-CWD/UTC identity bypass without changing any strategy, indicator, cost, stage
+window or result decision rule. Re-pin the spec/harness digest and repeat independent
+software-review and Full CI gates on this prospective source; previous-head receipts
+are not reusable. **No economic stage, G4 relay grant, market-data use, or trading is
+authorized by this amendment.** Separate per-stage G4 relay binding and relay-comment
+ID replay prevention remain OPEN under Issue #1347.

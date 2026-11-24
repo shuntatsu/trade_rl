@@ -1243,6 +1243,8 @@ def test_root_claim_is_exclusive_and_written_before_the_per_digest_claim(
         (env["ledger"] / env["digest"] / "FORWARD_INTERIM_2026-12.claim").read_text()
     )
     assert root == per and root["protocol_digest"] == env["digest"]
+    marker = env["ledger"] / f"g4-{root['authorization_comment_id']}.claim"
+    assert json.loads(marker.read_text(encoding="utf-8")) == root
     with pytest.raises(SystemExit, match="already claimed"):
         m.claim_stage("FORWARD_INTERIM_2026-12", "x", COMMIT, 1, DEC, env["ledger"])
 
@@ -1545,4 +1547,55 @@ def test_unreadable_history_refuses_before_external_access(
             ledger_dir=env["ledger"],
         )
     assert not (root / "FORWARD_FINAL.claim").exists()
+    assert not (env["tmp"] / "w").exists()
+
+
+def test_public_run_rechecks_g4_after_root_claim(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = env["ledger"]
+    _seed_defective_backcast(root)
+    now = datetime(2027, 12, 2, 1, tzinfo=UTC)
+    real_claim = m.claim_stage
+
+    def competing_claim(*args: Any, **kwargs: Any) -> Path:
+        path = real_claim(*args, **kwargs)
+        if path.parent == root:
+            # A competing reservation arrives after read-only preflight, before the marker.
+            m._publish_claim(
+                root / "g4-7040999999.claim",
+                {
+                    "stage": "FORWARD_INTERIM_2027-01",
+                    "protocol_digest": "9" * 64,
+                    "commit": COMMIT,
+                    "authorization_comment_id": 7040999999,
+                    "claimed_at": now.isoformat(),
+                },
+            )
+        return path
+
+    monkeypatch.setattr(m, "claim_stage", competing_claim)
+    # The trend probe is deliberately simulated; stage-window access is forbidden.
+    if hasattr(m, "connectivity_probe"):
+        monkeypatch.setattr(m, "connectivity_probe", lambda _fetch: None)
+
+    def unexpected(_url: str) -> bytes:
+        raise AssertionError("stage data must not be read after a G4 conflict")
+
+    with pytest.raises(SystemExit, match="already consumed"):
+        m.run_stage(
+            "FORWARD_FINAL",
+            URL,
+            env["tmp"] / "w",
+            env["tmp"] / "o",
+            now=now,
+            fetch=unexpected,
+            gh_fetch=_gh(
+                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+            ),
+            ledger_dir=env["ledger"],
+        )
+    assert (root / "FORWARD_FINAL.claim").exists()
+    assert (root / "g4-7040999999.claim").exists()
+    assert not (root / env["digest"] / "FORWARD_FINAL.claim").exists()
     assert not (env["tmp"] / "w").exists()

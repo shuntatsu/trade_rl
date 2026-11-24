@@ -51,6 +51,7 @@ python -m tools.markdown_links --check
 - C2/C3 native-ledger directional and post-exit diagnostics (used historical data): [specs/divergence-cloud-attribution-dev.md](specs/divergence-cloud-attribution-dev.md)
 - C2 conditional short-risk R1/R2 overlay (known-used only): [specs/cloud-regime-short-gate-dev.md](specs/cloud-regime-short-gate-dev.md)
 - R2 short-gate negative controls N0/N1-N3 (known-used only): [specs/divergence-short-null-controls-dev.md](specs/divergence-short-null-controls-dev.md)
+- Cloud trend-strength exits and ATR entry sizing (synthetic only): [specs/cloud-trend-adx-atr-dev.md](specs/cloud-trend-adx-atr-dev.md)
 
 ## 情報の所有先と更新
 

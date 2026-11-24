@@ -8,6 +8,16 @@ on:
       - tests/architecture/test_ci_optional_platform_coverage.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
+      - tools/tier_d_nonrl/task18_recovery.py
+      - tools/tier_d_nonrl/task18_receipts.py
+      - tools/tier_d_nonrl/task18_recipe.py
+      - trade_rl/evaluation/replay.py
+      - trade_rl/evaluation/decision_value_ledger_oracle.py
+      - trade_rl/artifacts/atomic_write.py
+      - trade_rl/artifacts/verified_file.py
+      - trade_rl/strategies/portfolio_adapter.py
+      - trade_rl/strategies/allocation/buy_and_hold.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
       - tests/evaluation/test_forward_study_seal.py
@@ -30,6 +40,16 @@ on:
       - tests/architecture/test_ci_optional_platform_coverage.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
+      - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
+      - tools/tier_d_nonrl/task18_recovery.py
+      - tools/tier_d_nonrl/task18_receipts.py
+      - tools/tier_d_nonrl/task18_recipe.py
+      - trade_rl/evaluation/replay.py
+      - trade_rl/evaluation/decision_value_ledger_oracle.py
+      - trade_rl/artifacts/atomic_write.py
+      - trade_rl/artifacts/verified_file.py
+      - trade_rl/strategies/portfolio_adapter.py
+      - trade_rl/strategies/allocation/buy_and_hold.py
       - tests/evaluation/test_dev_realdata_phase2_trials.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
       - tests/evaluation/test_forward_study_seal.py
@@ -83,6 +103,15 @@ jobs:
 
       - name: Require both native Windows cases to execute without skips
         run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows.xml 2
+
+      - name: Execute native Windows stopped-arm recovery
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          --junitxml="${{ runner.temp }}/m1-windows-recovery.xml"
+          tests/tools/tier_d_nonrl/test_task18_recovery_native.py::test_native_stopped_nonrl_receipt_is_retained_and_only_cash_resumes
+
+      - name: Require native stopped-arm recovery to execute without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-recovery.xml 1
 
   forecast-gbm:
     name: LightGBM Forecast Optional Extra

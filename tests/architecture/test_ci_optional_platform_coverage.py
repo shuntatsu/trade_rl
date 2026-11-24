@@ -168,3 +168,27 @@ def test_linux_optional_jobs_use_runner_toolcache_without_uv_python_download() -
     assert "actions/setup-python@" not in windows
     assert source.count("UV_PYTHON_DOWNLOADS: never") == 2
     assert source.count("UV_PYTHON_PREFERENCE: only-system") == 2
+
+
+def test_native_recovery_runs_on_windows_without_skips() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    job = _job(source, "windows-job-object", "forecast-gbm")
+    assert (
+        "tests/tools/tier_d_nonrl/test_task18_recovery_native.py"
+        "::test_native_stopped_nonrl_receipt_is_retained_and_only_cash_resumes" in job
+    )
+    assert "m1-windows-recovery.xml" in job
+    assert "python -m tools.ci_exact_pytest_counts m1-windows-recovery.xml 1" in job
+    for dependency in (
+        "tests/tools/tier_d_nonrl/test_task18_recovery_native.py",
+        "tools/tier_d_nonrl/task18_recovery.py",
+        "tools/tier_d_nonrl/task18_receipts.py",
+        "tools/tier_d_nonrl/task18_recipe.py",
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/evaluation/decision_value_ledger_oracle.py",
+        "trade_rl/artifacts/atomic_write.py",
+        "trade_rl/artifacts/verified_file.py",
+        "trade_rl/strategies/portfolio_adapter.py",
+        "trade_rl/strategies/allocation/buy_and_hold.py",
+    ):
+        assert source.count("      - " + dependency + "\n") == 2

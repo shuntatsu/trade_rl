@@ -189,8 +189,6 @@ def _stage(bundle, *, digest=None):
     return stage_stopped_recovery(
         source,
         destination,
-        stopped,
-        candidates,
         pins,
         expected_source_commit="a" * 40,
         expected_frozen_plan_sha256=_sha(b"synthetic frozen inputs"),
@@ -524,3 +522,180 @@ def test_symlinked_bundle_directory_refused_before_descendant_enumeration(
     with pytest.raises(ValueError, match="directory"):
         _stage(bundle)
     assert not destination.exists()
+
+
+def _reopen(destination: Path, expected_digest: str):
+    from tools.tier_d_nonrl.task18_recovery import load_staged_recovery
+
+    return load_staged_recovery(
+        destination,
+        expected_handoff_sha256=expected_digest,
+        expected_source_commit="a" * 40,
+        expected_frozen_plan_sha256=_sha(b"synthetic frozen inputs"),
+    )
+
+
+def test_reopen_published_handoff_without_original_python_objects(bundle):
+    source, destination, _, _, _ = bundle
+    expected = _stage(bundle)
+    # The original attempt is not consulted by a fresh process.
+    source.rename(source.with_name("archived"))
+    before = _snapshot(destination)
+    reopened = _reopen(destination, expected.sha256)
+    assert reopened.canonical_bytes() == expected.canonical_bytes()
+    assert reopened.pending_arm_ids == expected.pending_arm_ids
+    assert reopened.execution_authorized is False
+    assert _snapshot(destination) == before
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        "digest",
+        "ledger",
+        "missing",
+        "foreign",
+        "frozen",
+        "receipt",
+        "noncanonical",
+        "duplicate_json",
+        "foreign_path",
+        "changed_roster",
+        "receipt_report",
+        "unknown_field",
+        "oversized_metadata",
+    ),
+)
+def test_reopen_refuses_mutated_published_handoff(bundle, failure):
+    import json
+
+    source, destination, _, candidates, _ = bundle
+    expected = _stage(bundle)
+    before_source = _snapshot(source)
+    manifest = destination / "recovery.json"
+    payload = json.loads(manifest.read_bytes())
+    expected_digest = expected.sha256
+    last = candidates[-1].arm_id
+    ledger = destination / f"arms/{last}/native-ledger.json"
+    receipt = destination / f"arms/{last}/receipt.json"
+
+    def repin(path: Path, raw: bytes) -> None:
+        path.write_bytes(raw)
+        relative = path.relative_to(destination).as_posix()
+        pin = next(p for p in payload["files"] if p["path"] == relative)
+        pin.update(sha256=_sha(raw), size_bytes=len(raw))
+
+    if failure == "digest":
+        expected_digest = "f" * 64
+    elif failure == "ledger":
+        ledger.write_bytes(b"bad")
+    elif failure == "missing":
+        receipt.unlink()
+    elif failure == "foreign":
+        (destination / "foreign").write_bytes(b"foreign")
+    elif failure == "frozen":
+        repin(destination / "frozen-plan.bin", b"modified frozen plan")
+    elif failure == "receipt":
+        receipt.write_bytes(b"tampered")
+    elif failure == "noncanonical":
+        raw = manifest.read_bytes() + b"\n"
+        manifest.write_bytes(raw)
+        expected_digest = _sha(raw)
+    elif failure == "duplicate_json":
+        raw = manifest.read_bytes().replace(
+            b'"execution_authorized":false',
+            b'"execution_authorized":true,"execution_authorized":false',
+        )
+        manifest.write_bytes(raw)
+        expected_digest = _sha(raw)
+    elif failure == "foreign_path":
+        payload["files"][0]["path"] = "../outside"
+    elif failure == "changed_roster":
+        payload["completed_arm_ids"].pop()
+        payload["pending_arm_ids"].insert(0, last)
+    elif failure == "receipt_report":
+        record = json.loads(receipt.read_bytes())
+        record["external_report"]["run_id"] = "foreign"
+        # Recalculate its self-declared binding as well, so the reader must
+        # actually reject the cross-run report, not only its checksum.
+        report = record["external_report"]
+        report.pop("binding_sha256")
+        report["binding_sha256"] = _sha(
+            json.dumps(
+                report,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode()
+        )
+        repin(receipt, canonical_json_bytes(record))
+    elif failure == "unknown_field":
+        payload["unexpected"] = True
+    elif failure == "oversized_metadata":
+        raw = b" " * (4 * 1024 * 1024 + 1)
+        repin(receipt, raw)
+    if failure in {
+        "frozen",
+        "foreign_path",
+        "changed_roster",
+        "receipt_report",
+        "unknown_field",
+        "oversized_metadata",
+    }:
+        raw = canonical_json_bytes(payload)
+        manifest.write_bytes(raw)
+        expected_digest = _sha(raw)
+    before = _snapshot(destination)
+    with pytest.raises((ValueError, OSError)):
+        _reopen(destination, expected_digest)
+    assert _snapshot(destination) == before
+    assert _snapshot(source) == before_source
+
+
+def test_inspect_reads_disk_without_run_objects_and_refuses_swapped_slot(bundle):
+    from tools.tier_d_nonrl.task18_recovery import inspect_stopped_recovery
+
+    source, _, stopped, candidates, pins = bundle
+    expected = _plan(stopped, candidates, pins)
+    before = _snapshot(source)
+    actual = inspect_stopped_recovery(
+        source,
+        pins,
+        expected_source_commit="a" * 40,
+        expected_frozen_plan_sha256=_sha(b"synthetic frozen inputs"),
+    )
+    assert actual.canonical_bytes() == expected.canonical_bytes()
+    assert _snapshot(source) == before
+    first = f"arms/{candidates[0].arm_id}/receipt.json"
+    second = f"arms/{candidates[1].arm_id}/receipt.json"
+    swapped = {first: before[second], second: before[first]}
+    for path, raw in swapped.items():
+        (source / path).write_bytes(raw)
+    pins = tuple(
+        replace(p, sha256=_sha(swapped[p.path]), size_bytes=len(swapped[p.path]))
+        if p.path in swapped
+        else p
+        for p in pins
+    )
+    with pytest.raises(ValueError, match="file slot"):
+        inspect_stopped_recovery(
+            source,
+            pins,
+            expected_source_commit="a" * 40,
+            expected_frozen_plan_sha256=_sha(b"synthetic frozen inputs"),
+        )
+
+
+def test_staged_handoff_never_grants_execution_authority_even_if_resealed(bundle):
+    import json
+
+    _, destination, _, _, _ = bundle
+    _stage(bundle)
+    path = destination / "recovery.json"
+    payload = json.loads(path.read_bytes())
+    payload["execution_authorized"] = True
+    raw = canonical_json_bytes(payload)
+    path.write_bytes(raw)
+    with pytest.raises(ValueError, match="reconstructed handoff"):
+        _reopen(destination, _sha(raw))

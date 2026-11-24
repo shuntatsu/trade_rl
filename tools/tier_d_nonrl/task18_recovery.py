@@ -9,26 +9,32 @@ interpret the opaque frozen execution plan, native ledger or verifier report.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import tempfile
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from typing import Any, BinaryIO
 
 from tools.tier_d_nonrl.task18_receipts import (
+    ArmAttemptProgress,
     ArmReceipt,
     ExternalArmVerificationReport,
+    ExternalSourceVerificationReport,
     RunReceipt,
+    SourceBinding,
     _finite_number,
     evaluate_run_receipt,
 )
-from tools.tier_d_nonrl.task18_recipe import build_task18_protocol
+from tools.tier_d_nonrl.task18_recipe import SourceFilePin, build_task18_protocol
 from trade_rl._validation import require_git_sha, require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.artifacts.verified_file import open_regular_binary
+from trade_rl.artifacts.verified_file import open_regular_binary, read_verified_bytes
 
 _SCHEMA = "task18_stopped_recovery_handoff_v1"
+_MAX_METADATA_BYTES = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +109,8 @@ def _receipt_bytes(arm: ArmReceipt) -> bytes:
 def _expected_receipt_pin(
     expected: dict[str, tuple[str, int | None]], path: str, raw: bytes
 ) -> None:
+    if len(raw) > _MAX_METADATA_BYTES:
+        raise ValueError("recovery receipt exceeds metadata byte limit")
     expected[path] = (hashlib.sha256(raw).hexdigest(), len(raw))
 
 
@@ -209,7 +217,7 @@ def plan_stopped_recovery(
             raise ValueError("frozen plan differs from pre-stop digest")
         if pin.sha256 != digest or (size is not None and pin.size_bytes != size):
             raise ValueError(f"recovery file pin differs from receipt: {path}")
-    return RecoveryHandoff(
+    plan = RecoveryHandoff(
         original_run_id=stopped.run_id,
         source_commit=expected_source_commit,
         protocol_digest=stopped.protocol_digest,
@@ -218,6 +226,9 @@ def plan_stopped_recovery(
         pending_arm_ids=tuple(pending),
         files=tuple(by_path[p] for p in sorted(by_path)),
     )
+    if len(plan.canonical_bytes()) > _MAX_METADATA_BYTES:
+        raise ValueError("recovery handoff exceeds metadata byte limit")
+    return plan
 
 
 def _plain_directory(path: Path) -> Path:
@@ -254,24 +265,29 @@ def _check_bundle_roster(root: Path, pins: tuple[RecoveryFilePin, ...]) -> None:
             raise ValueError("recovery bundle file must be a regular file")
 
 
-def _copy_pinned_file(source: Path, destination: Path, pin: RecoveryFilePin) -> None:
-    """Stream the exact bytes into private staging; no unbounded decode or read."""
+def _stream_pinned_file(
+    source: Path, pin: RecoveryFilePin, writer: BinaryIO | None = None
+) -> None:
+    """Validate a bounded stream, optionally copying the exact verified bytes."""
     digest = hashlib.sha256()
     remaining = pin.size_bytes
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with (
-        open_regular_binary(source, field=pin.path) as reader,
-        destination.open("xb") as writer,
-    ):
+    with open_regular_binary(source, field=pin.path) as reader:
         while remaining:
             chunk = reader.read(min(1024 * 1024, remaining))
             if not chunk:
                 raise ValueError(f"truncated recovery file: {pin.path}")
             digest.update(chunk)
-            writer.write(chunk)
+            if writer is not None:
+                writer.write(chunk)
             remaining -= len(chunk)
         if reader.read(1) or digest.hexdigest() != pin.sha256:
             raise ValueError(f"recovery file size or digest mismatch: {pin.path}")
+
+
+def _copy_pinned_file(source: Path, destination: Path, pin: RecoveryFilePin) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("xb") as writer:
+        _stream_pinned_file(source, pin, writer)
         writer.flush()
         os.fsync(writer.fileno())
 
@@ -279,8 +295,6 @@ def _copy_pinned_file(source: Path, destination: Path, pin: RecoveryFilePin) -> 
 def stage_stopped_recovery(
     source: Path,
     destination: Path,
-    stopped: RunReceipt,
-    candidates: tuple[ArmReceipt, ...],
     pins: tuple[RecoveryFilePin, ...],
     *,
     expected_source_commit: str,
@@ -292,19 +306,19 @@ def stage_stopped_recovery(
     Source and destination parent must be controlled by the exclusive stopped
     attempt owner. This is not a process-stop detector, concurrent-writer
     security boundary, plan decoder, native ledger verifier or resume runner.
+    Read declarations from pinned files, not the stopped process's memory.
     No existing receipt is rewritten and no new completion is manufactured.
     """
     require_sha256(expected_handoff_sha256, field="expected recovery handoff")
-    plan = plan_stopped_recovery(
-        stopped,
-        candidates,
+    source = _plain_directory(Path(source))
+    plan, _ = _read_bundle_plan(
+        source,
         pins,
         expected_source_commit=expected_source_commit,
         expected_frozen_plan_sha256=expected_frozen_plan_sha256,
     )
     if plan.sha256 != expected_handoff_sha256:
         raise ValueError("recovery handoff digest mismatch")
-    source = _plain_directory(Path(source))
     destination = Path(destination)
     if ".." in destination.parts or not destination.name:
         raise ValueError("invalid recovery destination")
@@ -329,9 +343,249 @@ def stage_stopped_recovery(
     return plan
 
 
+def _object(value: object) -> dict[str, Any]:
+    if type(value) is not dict:
+        raise ValueError("recovery metadata requires a JSON object")
+    return dict(value)
+
+
+def _array(value: Any) -> list[Any]:
+    if type(value) is not list:
+        raise ValueError("recovery metadata requires a JSON array")
+    return value
+
+
+def _decode_metadata(raw: bytes) -> dict[str, Any]:
+    if not raw or len(raw) > _MAX_METADATA_BYTES:
+        raise ValueError("recovery metadata exceeds byte limit or is empty")
+    try:
+        value = _object(json.loads(raw.decode("utf-8")))
+        # Noncanonical whitespace, duplicate keys and nonfinite numbers cannot
+        # round-trip. Only the exact canonical format produced by stage is read.
+        if canonical_json_bytes(value) != raw:
+            raise ValueError("recovery metadata is not canonical")
+    except (UnicodeError, RecursionError, TypeError, OverflowError) as exc:
+        raise ValueError("invalid recovery metadata") from exc
+    return value
+
+
+def _parse_arm(value: object) -> ArmReceipt:
+    data = _object(value)
+    report = data["external_report"]
+    if report is not None:
+        fields = _object(report)
+        fields.pop("binding_sha256")
+        data["external_report"] = ExternalArmVerificationReport(**fields)
+    progress = data["progress"]
+    if progress is not None:
+        data["progress"] = ArmAttemptProgress(**_object(progress))
+    arm = ArmReceipt(**data)
+    if canonical_json_bytes(arm.to_mapping()) != canonical_json_bytes(value):
+        raise ValueError("arm receipt fields or binding digest differ")
+    return arm
+
+
+def _parse_run(value: dict[str, Any]) -> RunReceipt:
+    data = dict(value)
+    if data.pop("schema") != "task18_run_receipt_v3":
+        raise ValueError("unsupported stopped-run schema")
+    binding = _object(data["source_binding"])
+    binding.pop("manifest_sha256")
+    binding["files"] = tuple(
+        SourceFilePin(**_object(item)) for item in _array(binding["files"])
+    )
+    data["source_binding"] = SourceBinding(**binding)
+    report = data["source_report"]
+    if report is not None:
+        fields = _object(report)
+        fields.pop("binding_sha256")
+        fields["source_files"] = tuple(
+            SourceFilePin(**_object(item)) for item in _array(fields["source_files"])
+        )
+        data["source_report"] = ExternalSourceVerificationReport(**fields)
+    data["arms"] = tuple(_parse_arm(item) for item in _array(data["arms"]))
+    run = RunReceipt(**data)
+    if canonical_json_bytes(run.to_mapping()) != canonical_json_bytes(value):
+        raise ValueError("stopped-run fields or binding digests differ")
+    return run
+
+
+def _read_pinned_metadata(root: Path, pin: RecoveryFilePin) -> dict[str, Any]:
+    if pin.size_bytes > _MAX_METADATA_BYTES:
+        raise ValueError("recovery metadata exceeds byte limit")
+    raw = read_verified_bytes(
+        root / pin.path,
+        expected_digest=pin.sha256,
+        expected_size_bytes=pin.size_bytes,
+        field=pin.path,
+    )
+    return _decode_metadata(raw)
+
+
+def _bundle_pins(
+    pins: tuple[RecoveryFilePin, ...],
+) -> tuple[dict[str, RecoveryFilePin], tuple[str, ...]]:
+    protocol = build_task18_protocol()
+    if (
+        type(pins) is not tuple
+        or len(pins) > 3 + 4 * len(protocol.arms)
+        or any(type(pin) is not RecoveryFilePin for pin in pins)
+    ):
+        raise ValueError("invalid recovery file pin roster")
+    by_path = {pin.path: pin for pin in pins}
+    paths = {"frozen-plan.bin", "source-verification.json", "stopped-run.json"}
+    receipts: list[str] = []
+    for arm in protocol.arms:
+        prefix = f"arms/{arm.arm_id}/"
+        receipt_path = prefix + "receipt.json"
+        if receipt_path in by_path:
+            receipts.append(receipt_path)
+            paths.update(
+                prefix + name
+                for name in (
+                    "receipt.json",
+                    "native-ledger.json",
+                    "result.json",
+                    "verification.json",
+                )
+            )
+    # No supplied path is used for I/O until it matches the recipe-derived roster.
+    if len(by_path) != len(pins) or by_path.keys() != paths:
+        raise ValueError(
+            "recovery handoff contains missing, duplicate or foreign file paths"
+        )
+    return by_path, tuple(receipts)
+
+
+def _read_bundle_plan(
+    root: Path,
+    pins: tuple[RecoveryFilePin, ...],
+    *,
+    expected_source_commit: str,
+    expected_frozen_plan_sha256: str,
+    manifest_pin: RecoveryFilePin | None = None,
+) -> tuple[RecoveryHandoff, frozenset[str]]:
+    require_git_sha(expected_source_commit)
+    require_sha256(expected_frozen_plan_sha256, field="pre-stop frozen plan")
+    by_path, receipt_paths = _bundle_pins(pins)
+    if by_path["frozen-plan.bin"].sha256 != expected_frozen_plan_sha256:
+        raise ValueError("frozen plan differs from pre-stop digest")
+    _check_bundle_roster(root, pins if manifest_pin is None else (*pins, manifest_pin))
+    try:
+        stopped = _parse_run(_read_pinned_metadata(root, by_path["stopped-run.json"]))
+        candidates = tuple(
+            _parse_arm(_read_pinned_metadata(root, by_path[path]))
+            for path in receipt_paths
+        )
+        # Bind each recovered receipt to its actual slot filename before any
+        # plan is constructed, even when two files were swapped and re-pinned.
+        if any(
+            path != f"arms/{candidate.arm_id}/receipt.json"
+            for path, candidate in zip(receipt_paths, candidates, strict=True)
+        ):
+            raise ValueError("recovery receipt differs from its file slot")
+        plan = plan_stopped_recovery(
+            stopped,
+            candidates,
+            pins,
+            expected_source_commit=expected_source_commit,
+            expected_frozen_plan_sha256=expected_frozen_plan_sha256,
+        )
+    except (TypeError, KeyError, OverflowError, RecursionError, UnicodeError) as exc:
+        raise ValueError("invalid recovery handoff records") from exc
+    return plan, frozenset(("stopped-run.json", *receipt_paths))
+
+
+def _verify_remaining_files(
+    root: Path,
+    plan: RecoveryHandoff,
+    metadata_paths: frozenset[str],
+    manifest_pin: RecoveryFilePin | None = None,
+) -> None:
+    for pin in plan.files:
+        if pin.path not in metadata_paths:
+            _stream_pinned_file(root / pin.path, pin)
+    if manifest_pin is not None:
+        _stream_pinned_file(root / manifest_pin.path, manifest_pin)
+    _check_bundle_roster(
+        root, plan.files if manifest_pin is None else (*plan.files, manifest_pin)
+    )
+
+
+def inspect_stopped_recovery(
+    root: Path,
+    pins: tuple[RecoveryFilePin, ...],
+    *,
+    expected_source_commit: str,
+    expected_frozen_plan_sha256: str,
+) -> RecoveryHandoff:
+    """Read-only inspection of an externally pinned stopped bundle.
+
+    The exclusive stopped-attempt owner supplies the pins. No provenance,
+    native ledger interpretation or execution authority is inferred from them.
+    """
+    root = _plain_directory(Path(root))
+    plan, metadata_paths = _read_bundle_plan(
+        root,
+        pins,
+        expected_source_commit=expected_source_commit,
+        expected_frozen_plan_sha256=expected_frozen_plan_sha256,
+    )
+    _verify_remaining_files(root, plan, metadata_paths)
+    return plan
+
+
+def load_staged_recovery(
+    root: Path,
+    *,
+    expected_source_commit: str,
+    expected_frozen_plan_sha256: str,
+    expected_handoff_sha256: str,
+) -> RecoveryHandoff:
+    """Reopen a published handoff without the original run's Python objects.
+
+    The owner supplies independent pre-stop/source/handoff pins. Reconstruct
+    the typed declarations and replay the same admission checks as stage;
+    stream-verify every retained artifact before returning the pending roster.
+    The stopped bundle must still be exclusive-owner controlled. This does
+    not authorize an execution or authenticate a verifier producer.
+    """
+    require_sha256(expected_handoff_sha256, field="expected recovery handoff")
+    root = _plain_directory(Path(root))
+    with open_regular_binary(
+        root / "recovery.json", field="recovery handoff"
+    ) as reader:
+        raw = reader.read(_MAX_METADATA_BYTES + 1)
+    if len(raw) > _MAX_METADATA_BYTES:
+        raise ValueError("recovery handoff exceeds metadata byte limit")
+    if hashlib.sha256(raw).hexdigest() != expected_handoff_sha256:
+        raise ValueError("recovery handoff digest mismatch")
+    manifest_pin = RecoveryFilePin("recovery.json", expected_handoff_sha256, len(raw))
+    try:
+        data = _decode_metadata(raw)
+        pins = tuple(RecoveryFilePin(**_object(item)) for item in _array(data["files"]))
+    except (TypeError, KeyError, OverflowError, RecursionError, UnicodeError) as exc:
+        raise ValueError("invalid recovery handoff records") from exc
+    plan, metadata_paths = _read_bundle_plan(
+        root,
+        pins,
+        expected_source_commit=expected_source_commit,
+        expected_frozen_plan_sha256=expected_frozen_plan_sha256,
+        manifest_pin=manifest_pin,
+    )
+    # The complete canonical declaration, including all roster fields and the
+    # non-authority flag, must match the independently reconstructed plan.
+    if plan.canonical_bytes() != raw:
+        raise ValueError("reconstructed handoff does not match published manifest")
+    _verify_remaining_files(root, plan, metadata_paths, manifest_pin)
+    return plan
+
+
 __all__ = [
     "RecoveryFilePin",
     "RecoveryHandoff",
+    "inspect_stopped_recovery",
+    "load_staged_recovery",
     "plan_stopped_recovery",
     "stage_stopped_recovery",
 ]

@@ -403,3 +403,46 @@ def test_preflight_inputs_reject_fractional_identity_before_enrollment(
             replace(lease, task_revision=1.0)
         else:
             replace(packet, parent_issue=1067.0)
+
+
+def test_local_registry_preflight_rejects_matching_null_oids() -> None:
+    candidate = _enrollment()
+    with pytest.raises(ValueError, match="expected_registry_oid"):
+        require_local_registry_preflight(
+            None,
+            candidate,
+            expected_registry_oid="0" * 40,
+            observed_registry_oid="0" * 40,
+            enumerated_task_ids=(),
+        )
+
+
+def test_enrollment_readback_rejects_matching_null_oids() -> None:
+    candidate = _enrollment()
+    with pytest.raises(ValueError, match="expected_registry_oid"):
+        require_enrollment_readback(
+            candidate,
+            candidate,
+            expected_registry_oid="0" * 40,
+            observed_registry_oid="0" * 40,
+            observed_branch_sha=HEAD,
+        )
+
+
+def test_enrollment_accepts_nonzero_registry_oid_with_leading_zeroes() -> None:
+    candidate = _enrollment()
+    oid = "0" * 39 + "1"
+    require_local_registry_preflight(
+        None,
+        candidate,
+        expected_registry_oid=oid,
+        observed_registry_oid=oid,
+        enumerated_task_ids=(),
+    )
+    require_enrollment_readback(
+        candidate,
+        candidate,
+        expected_registry_oid=oid,
+        observed_registry_oid=oid,
+        observed_branch_sha=HEAD,
+    )

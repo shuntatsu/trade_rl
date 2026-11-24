@@ -291,3 +291,90 @@ def test_parenthesized_title_resolves_angle_destination(tmp_path: Path) -> None:
 )
 def test_malformed_parenthesized_titles_are_not_links(text: str) -> None:
     assert destinations(text) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            '[ok](README.md "literal [not link](missing.md)")',
+            [(1, "README.md")],
+        ),
+        (
+            "[ok](README.md 'literal [not link](javascript:alert(1))')",
+            [(1, "README.md")],
+        ),
+        (
+            r'[ok](README.md "escaped \"quote\" [not link](missing.md)") '
+            "[next](AGENTS.md)",
+            [(1, "README.md"), (1, "AGENTS.md")],
+        ),
+        (
+            '[ok](README.md "literal [not link](missing.md)")\n[next](AGENTS.md)',
+            [(1, "README.md"), (2, "AGENTS.md")],
+        ),
+        (
+            '![image](img.png "literal [not link](missing.md)") [next](AGENTS.md)',
+            [(1, "img.png"), (1, "AGENTS.md")],
+        ),
+        (
+            '[outer [inner](real.md "literal [not link](missing.md)")](outer.md)',
+            [(1, "real.md")],
+        ),
+        (
+            '[ok](README.md "title\n[reference]: missing.md\n")\n[next](AGENTS.md)',
+            [(1, "README.md"), (4, "AGENTS.md")],
+        ),
+        (
+            '[bad](README.md "unclosed [real](AGENTS.md)',
+            [(1, "AGENTS.md")],
+        ),
+        (
+            "[bad](\n\n[real](AGENTS.md))",
+            [(3, "AGENTS.md")],
+        ),
+        (
+            "[bad](foo(bar [real](AGENTS.md)))",
+            [(1, "AGENTS.md")],
+        ),
+        (
+            "[bad](<path\n[real](AGENTS.md)>)",
+            [(2, "AGENTS.md")],
+        ),
+        (
+            '[ok](README.md "title")\n\n[reference]: AGENTS.md',
+            [(1, "README.md"), (3, "AGENTS.md")],
+        ),
+        (
+            "[ok](<name [literal](path).md>) [next](AGENTS.md)",
+            [(1, "name [literal](path).md"), (1, "AGENTS.md")],
+        ),
+        (
+            r"[ok](<name\>literal.md>) [next](AGENTS.md)",
+            [(1, r"name\>literal.md"), (1, "AGENTS.md")],
+        ),
+    ],
+)
+def test_inline_link_consumes_destination_and_literal_title(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+def test_invalid_backtick_fence_cannot_hide_link() -> None:
+    assert destinations(" ```bad`info\n[real](missing.md)\n") == [(2, "missing.md")]
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~"])
+def test_non_ascii_space_does_not_end_fence(marker: str) -> None:
+    source = (
+        f"{marker}md\n{marker}\u00a0\n[literal](missing.md)\n"
+        f"{marker}\n[real](README.md)\n"
+    )
+    assert destinations(source) == [(5, "README.md")]
+
+
+def test_tilde_fence_info_with_backtick_is_valid() -> None:
+    assert destinations(
+        "~~~bad`info\n[literal](missing.md)\n~~~\t \n[real](README.md)"
+    ) == [(4, "README.md")]

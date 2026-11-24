@@ -142,7 +142,7 @@ def _mask_block_code(markdown: str) -> str:
             if marker is not None and (
                 marker.group(1)[0] == fence[0]
                 and len(marker.group(1)) >= len(fence)
-                and not logical[marker.end() :].strip()
+                and not logical[marker.end() :].strip(" \t")
             ):
                 fence = None
             output.append(_blank(raw))
@@ -161,7 +161,9 @@ def _mask_block_code(markdown: str) -> str:
             output.append(_blank(raw))
             paragraph = False
             continue
-        if marker is not None:
+        if marker is not None and (
+            marker.group(1)[0] != "`" or "`" not in logical[marker.end() :]
+        ):
             fence = marker.group(1)
             output.append(_blank(raw))
             indented = False
@@ -272,25 +274,37 @@ def _mask_comments(source: str) -> str:
     return "".join(chars)
 
 
-def _destination(source: str, start: int) -> str | None:
-    """Parse one valid inline destination, including nested/escaped parens."""
+def _destination(source: str, start: int) -> tuple[str, int] | None:
+    """Parse an inline destination and return its exclusive consumed end."""
     index = start
     while index < len(source) and source[index] in " \t\r\n":
         index += 1
     if index == len(source):
         return None
     if source[index] == "<":
-        close = source.find(">", index + 1)
-        if close < 0:
+        begin = index + 1
+        index = begin
+        while index < len(source):
+            char = source[index]
+            if char in "\r\n" or (char == "<" and not _escaped(source, index)):
+                return None
+            if char == ">" and not _escaped(source, index):
+                break
+            index += 1
+        if index == len(source):
             return None
-        target = source[index + 1 : close]
-        index = close + 1
+        target = source[begin:index]
+        index += 1
     else:
         begin = index
         depth = 0
         while index < len(source):
             char = source[index]
-            if char == "\\" and index + 1 < len(source):
+            if (
+                char == "\\"
+                and index + 1 < len(source)
+                and source[index + 1] in string.punctuation
+            ):
                 index += 2
                 continue
             if char == "(":
@@ -299,8 +313,12 @@ def _destination(source: str, start: int) -> str | None:
                 if depth == 0:
                     break
                 depth -= 1
-            elif char in " \t\r\n" and depth == 0:
+            elif char in " \t\r\n":
+                if depth:
+                    return None
                 break
+            elif ord(char) < 32 or ord(char) == 127:
+                return None
             index += 1
         target = source[begin:index]
         if depth != 0:
@@ -329,9 +347,13 @@ def _destination(source: str, start: int) -> str | None:
         index += 1
         while index < len(source) and source[index] in " \t\r\n":
             index += 1
-    if index >= len(source) or source[index] != ")":
+    if (
+        index >= len(source)
+        or source[index] != ")"
+        or re.search(r"\r?\n[ \t]*\r?\n", source[start:index])
+    ):
         return None
-    return target
+    return target, index + 1
 
 
 def destinations(markdown: str) -> list[tuple[int, str]]:
@@ -339,7 +361,11 @@ def destinations(markdown: str) -> list[tuple[int, str]]:
     text = _mask_comments(_mask_inline_code(_mask_block_code(markdown)))
     targets: list[tuple[int, str]] = []
     stack: list[tuple[bool, bool]] = []  # is_image, contains_nested_link
+    reference_text = list(text)
+    consumed_end = 0
     for index, char in enumerate(text):
+        if index < consumed_end:
+            continue
         if char == "[" and not _escaped(text, index):
             is_image = (
                 index > 0 and text[index - 1] == "!" and not _escaped(text, index - 1)
@@ -348,17 +374,20 @@ def destinations(markdown: str) -> list[tuple[int, str]]:
         elif char == "]" and stack and not _escaped(text, index):
             is_image, nested_link = stack.pop()
             if index + 1 < len(text) and text[index + 1] == "(":
-                target = _destination(text, index + 2)
-                if (
-                    target is not None
-                    and not any(image for image, _ in stack)
-                    and (is_image or not nested_link)
-                ):
-                    targets.append((text.count("\n", 0, index) + 1, target))
-                    if not is_image:
-                        # CommonMark forbids a link nested inside another link.
-                        stack = [(image, True) for image, _ in stack]
-    for number, line in enumerate(text.splitlines(), start=1):
+                parsed = _destination(text, index + 2)
+                if parsed is not None and (is_image or not nested_link):
+                    target, consumed_end = parsed
+                    # A recognized destination/title is not inline Markdown.
+                    # Mask it for the separate reference-definition scan too.
+                    reference_text[index + 1 : consumed_end] = _blank(
+                        text[index + 1 : consumed_end]
+                    )
+                    if not any(image for image, _ in stack):
+                        targets.append((text.count("\n", 0, index) + 1, target))
+                        if not is_image:
+                            # CommonMark forbids a link nested inside another link.
+                            stack = [(image, True) for image, _ in stack]
+    for number, line in enumerate("".join(reference_text).splitlines(), start=1):
         reference = _REFERENCE.match(line)
         if reference is not None:
             targets.append((number, reference.group(1).strip("<>")))

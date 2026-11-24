@@ -97,7 +97,9 @@ def _state_and_conclusion(
     allowed = _RUN_STATES if name == "run" else _JOB_STATES
     if status not in allowed:
         raise ValueError(f"{name} status is unknown")
-    conclusion = value.get("conclusion")
+    if "conclusion" not in value:
+        raise ValueError(f"{name} conclusion is missing")
+    conclusion = value["conclusion"]
     if status == "completed":
         if _text(conclusion, f"{name} conclusion") not in _CONCLUSIONS:
             raise ValueError(f"{name} conclusion is unknown")

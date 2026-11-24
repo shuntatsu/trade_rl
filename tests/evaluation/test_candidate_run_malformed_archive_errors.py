@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import zlib
 
+import numpy as np
 import pytest
 
 from trade_rl.evaluation.runs import artifact as candidate_artifact
@@ -18,8 +20,10 @@ def test_load_returns_normalizes_zlib_decompression_failure(
 
     monkeypatch.setattr(candidate_artifact.np, "load", fail_decompression)
 
+    payload = io.BytesIO()
+    np.savez(payload, symbol_0_strategy_0=np.asarray([0.0]))
     with pytest.raises(ValueError, match="malformed candidate returns archive"):
         candidate_artifact._load_returns(
-            b"corrupt-npz",
+            payload.getvalue(),
             expected_keys=frozenset({"symbol_0_strategy_0"}),
         )

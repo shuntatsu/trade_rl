@@ -1214,20 +1214,27 @@ def _load_returns(
     expected_keys: frozenset[str],
 ) -> dict[str, np.ndarray]:
     loaded: dict[str, np.ndarray] = {}
+    # A bare NPY would be materialized rather than opened as a lazy archive.
+    # Require the ZIP signature used by the NPZ writer before array decoding.
+    if not payload.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+        raise ValueError("malformed candidate returns archive: expected NPZ")
     try:
         with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
-            keys = frozenset(archive.files)
-            if keys != expected_keys:
+            members = archive.zip.namelist()
+            if len(members) != len(set(members)):
+                raise ValueError("candidate return archive has duplicate members")
+            if set(members) != {f"{key}.npy" for key in expected_keys}:
                 raise ValueError("candidate return keys do not match summary")
-            for key in sorted(keys):
+            for key in sorted(expected_keys):
                 try:
-                    value = np.asarray(archive[key])
+                    # Bind the physical member, not NumPy's suffix alias.
+                    value = np.asarray(archive[f"{key}.npy"])
                 except ValueError as error:
                     raise ValueError(
-                        "candidate return arrays must be numeric and pickle-free"
+                        "candidate return arrays must be real numeric and pickle-free"
                     ) from error
-                if not np.issubdtype(value.dtype, np.number):
-                    raise ValueError("candidate return arrays must be numeric")
+                if value.dtype.kind not in {"i", "u", "f"}:
+                    raise ValueError("candidate return arrays must be real numeric")
                 if value.ndim != 1:
                     raise ValueError("candidate return arrays must be one-dimensional")
                 if not np.isfinite(value).all():

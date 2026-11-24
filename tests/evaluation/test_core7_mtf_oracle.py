@@ -40,6 +40,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v24-native-availability.json"
+)
+PACKET_V23_PATH = (
+    ROOT
+    / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v23-terminal-settlement.json"
 )
 PACKET_V22_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v22.json"
@@ -73,7 +78,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "48a97b98a0dd79046134675a0f2fe84990905ee8e8dbe0afa594f5ae6bb79c9c"
+    "16f68e981a4f98398331488a03c3c7b5eee1823458cc597bf4d4b9a18d65f06f"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1224,7 +1229,7 @@ def test_v22_native_numeric_conversion_only_rebinds_source() -> None:
 
 def test_v23_terminal_settlement_packet_only_rebinds_source() -> None:
     prior: dict[str, Any] = json.loads(PACKET_V22_PATH.read_text(encoding="utf-8"))
-    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V23_PATH.read_text(encoding="utf-8"))
     assert _git("hash-object", str(PACKET_V22_PATH)).stdout.strip() == (
         "069d082681eaf9bbfc8fe5c0b2e9e3902cc2836f"
     )
@@ -1262,6 +1267,47 @@ def test_v23_terminal_settlement_packet_only_rebinds_source() -> None:
     paths = _bound_code_paths("3f9f2f3db34214b7e2cc88cbc556860d7d085cb6")
     assert "trade_rl/evaluation/terminal_settlement.py" in paths
     assert "trade_rl/evaluation/dev_realdata_study/runner.py" in paths
+
+
+def test_v24_native_availability_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V23_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V23_PATH)).stdout.strip() == (
+        "0345724a0d42e7ccf4f2f2206daaa2b496271ec2"
+    )
+    assert assurance_digest(prior) == (
+        "48a97b98a0dd79046134675a0f2fe84990905ee8e8dbe0afa594f5ae6bb79c9c"
+    )
+    assert current.keys() == prior.keys()
+    for field in prior:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == prior[field]
+    assert current["thesis"].keys() == prior["thesis"].keys()
+    assert current["claims"].keys() == prior["claims"].keys()
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert (
+        "V24 NATIVE AVAILABILITY SOURCE-ONLY BOUNDARY"
+        in current["thesis"]["limitations"]
+    )
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "7fed977b7bfd416f2fa623fd6b3f5bf246f6669f",
+        "protocol_head": "7fed977b7bfd416f2fa623fd6b3f5bf246f6669f",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    for packet in (prior, current):
+        verdict = evaluate_assurance(packet)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False
+    assert "trade_rl/data/features/multitimeframe.py" in _bound_code_paths(
+        "7fed977b7bfd416f2fa623fd6b3f5bf246f6669f"
+    )
 
 
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
@@ -1309,4 +1355,4 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     spec_text = SPEC_PATH.read_text(encoding="utf-8")
     assert PINNED_PROTOCOL_DIGEST in spec_text
     assert PINNED_PACKET_DIGEST in spec_text
-    assert head in spec_text
+    assert f"- Pinned Implementation Head: `{head}`" in spec_text

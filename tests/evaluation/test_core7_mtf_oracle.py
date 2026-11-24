@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import subprocess
 from dataclasses import replace
@@ -41,6 +42,15 @@ PACKET_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v24-native-availability.json"
+)
+PACKET_TD8_V15_PATH = (
+    ROOT / "report" / "issue1134-core7-mtf-ppo-research-assurance-v15.json"
+)
+PACKET_TD8_V16_PATH = (
+    ROOT / "report" / "issue1131-1134-core7-mtf-ppo-research-assurance-v16.json"
+)
+PACKET_TD8_V17_PATH = (
+    ROOT / "report" / "issue1131-1134-core7-mtf-ppo-research-assurance-v17.json"
 )
 PACKET_V23_PATH = (
     ROOT
@@ -1356,3 +1366,122 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec_text
     assert PINNED_PACKET_DIGEST in spec_text
     assert f"- Pinned Implementation Head: `{head}`" in spec_text
+
+
+def test_v14_packet_rebinds_merged_1307_source_without_economic_change() -> None:
+    """v14 only re-pins the merged #1307 source (opt-in engine settlement, default off)."""
+    old: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
+    )
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+        "protocol_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+    }
+    review = evaluate_assurance(new)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
+
+
+def test_td8_v15_packet_rebinds_only_shared_reader_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_TD8_V15_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    )
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "0b302186748f6a581ff029ce432ff63b747e6ed7",
+        "protocol_head": "0b302186748f6a581ff029ce432ff63b747e6ed7",
+    }
+    review = evaluate_assurance(new)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
+
+
+def test_m2_td8_v16_packet_rebinds_only_candidate_reader_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_TD8_V15_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_TD8_V16_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "a720a5fc9afa15ef2e131b008f0a43d2e8c14ad45840f20a36c1d7db71f326e6"
+    )
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "04f895c75b020995738f624fb67a79635eca19a0",
+        "protocol_head": "04f895c75b020995738f624fb67a79635eca19a0",
+    }
+    review = evaluate_assurance(new)
+    assert review.status == "UNREVIEWED"
+    assert review.errors == ()
+    assert not review.economic_execution_authorized
+
+
+def test_m2_td8_v16_packet_is_immutable_unreviewed_history() -> None:
+    assert (
+        hashlib.sha256(PACKET_TD8_V16_PATH.read_bytes()).hexdigest()
+        == "bcaf59791d4d3bc4b5c2169f14d4ff9a2a2569bbf4f7916fc09dcf86e6d35e55"
+    )
+    previous = json.loads(PACKET_TD8_V16_PATH.read_text(encoding="utf-8"))
+    assert (
+        assurance_digest(previous)
+        == "c796337242e66f70d4ebc8ddc21ad4b8da4e4a5e4bdc670b3b53225299f30009"
+    )
+    checked = evaluate_assurance(previous)
+    assert checked.status == "UNREVIEWED"
+    assert checked.errors == ()
+    assert not checked.economic_execution_authorized
+
+
+def test_m2_td8_v17_zip_reader_pin_changes_only_source_binding() -> None:
+    prior = json.loads(PACKET_TD8_V16_PATH.read_text(encoding="utf-8"))
+    current = json.loads(PACKET_TD8_V17_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "8104d3becf3c19643b461363ecdfff6e2f478bcc",
+        "protocol_head": "8104d3becf3c19643b461363ecdfff6e2f478bcc",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    checked = evaluate_assurance(current)
+    assert checked.status == "UNREVIEWED"
+    assert checked.errors == ()
+    assert not checked.economic_execution_authorized

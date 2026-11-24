@@ -55,10 +55,15 @@ PACKET_V25_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v25-combined-reader.json"
 )
-PACKET_PATH = (
+PACKET_V26_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v26-task18-integration.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v27-observed-progress.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -110,7 +115,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "6851e0eefb7559667c276ff099f66714e96a7624adda632303cc9c25f09cbc25"
+    "68e950d75af514eaba7babcd5e2245494cf9703e77d6fbce7b7d04b231fe4d88"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1692,7 +1697,7 @@ def test_v17_packet_immutable_and_v18_preserves_economic_contract() -> None:
 
 
 def test_v26_task18_combined_source_preserves_both_immutable_predecessors() -> None:
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V26_PATH.read_bytes())
     predecessors = (
         (
             PACKET_V25_PATH,
@@ -1757,3 +1762,44 @@ def test_v26_task18_combined_source_preserves_both_immutable_predecessors() -> N
     check = evaluate_assurance(current)
     assert check.status == "UNREVIEWED" and not check.errors
     assert not check.economic_execution_authorized
+
+
+def test_v27_observed_progress_source_preserves_v26_and_economic_boundary() -> None:
+    raw = PACKET_V26_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "c0e6b756910067b5570f59fef48b5d2d754916bc33125617d5901ee90da41aef"
+    )
+    previous = json.loads(raw)
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert (
+        assurance_digest(previous)
+        == "6851e0eefb7559667c276ff099f66714e96a7624adda632303cc9c25f09cbc25"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert (
+        "V27 OBSERVED PROGRESS SOURCE-ONLY BOUNDARY" in current["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "fea10b6133c4ad5aef17763d0f4b52d2a785a8cb",
+        "protocol_head": "fea10b6133c4ad5aef17763d0f4b52d2a785a8cb",
+    }
+    assert "trade_rl/evaluation/replay.py" in _bound_code_paths(
+        current["identity"]["implementation_head"]
+    )
+    for packet in (previous, current):
+        check = evaluate_assurance(packet)
+        assert check.status == "UNREVIEWED" and not check.errors
+        assert not check.economic_execution_authorized

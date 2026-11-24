@@ -37,7 +37,23 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v23-terminal-settlement.json"
+)
+PACKET_V22_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v22.json"
+PACKET_V21_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v21.json"
+PACKET_V20_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v20.json"
+PACKET_V19_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v19.json"
+PACKET_V18_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v18.json"
+PACKET_V17_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v17.json"
+PACKET_V16_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v16.json"
+PACKET_V15_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v15.json"
+PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
+PACKET_M1_FORK_V14_PATH = (
+    ROOT / "report" / "issue1112-m1-core7-mtf-ppo-research-assurance-v14.json"
+)
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
 PACKET_V11_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v11.json"
@@ -57,7 +73,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    "48a97b98a0dd79046134675a0f2fe84990905ee8e8dbe0afa594f5ae6bb79c9c"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -773,6 +789,481 @@ def test_v13_packet_only_rebinds_source_without_economic_reclassification() -> N
     assert verdict.economic_execution_authorized is False
 
 
+def test_v13_packet_is_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(prior) == (
+        "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "f9be9737fe27facdb1dfd3147e436196c3d6d278",
+        "protocol_head": "f9be9737fe27facdb1dfd3147e436196c3d6d278",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_main_1307_canonical_v14_is_unchanged_after_merging_m1() -> None:
+    # Another merged PR published its independent v14 first; never replace it.
+    old: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    packet: dict[str, Any] = json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(packet) == (
+        "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"
+    )
+    assert packet["identity"] == {
+        "implementation_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+        "protocol_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
+    }
+    assert packet["schema_version"] == old["schema_version"]
+    assert packet["mechanism"] == old["mechanism"]
+    assert packet["evidence"] == old["evidence"]
+    assert packet["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert packet["claims"][field] == old["claims"][field]
+    result = evaluate_assurance(packet)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
+
+
+def test_parallel_m1_v14_preserved_byte_exact_in_separate_archive() -> None:
+    assert _git("hash-object", str(PACKET_M1_FORK_V14_PATH)).stdout.strip() == (
+        "7fff1ae1841c1039ea90c4e4267e0a4032ed7ee7"
+    )
+    data: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
+    assert assurance_digest(data) == (
+        "be04c734d837ad1037ce2ab692cadc6cc9979d2672f7d103dfd8b16d3a03b1cb"
+    )
+    assert (
+        data["mechanism"]
+        == json.loads(PACKET_V14_PATH.read_text(encoding="utf-8"))["mechanism"]
+    )
+    assert evaluate_assurance(data).status == "UNREVIEWED"
+
+
+def test_v14_masked_vector_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "MASKED FINANCIAL VECTOR" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+        "protocol_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v14_packet_is_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
+    assert assurance_digest(prior) == (
+        "be04c734d837ad1037ce2ab692cadc6cc9979d2672f7d103dfd8b16d3a03b1cb"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+        "protocol_head": "f20fbb116ff73c20867a07a05d3f6d7877fcbf48",
+    }
+    result = evaluate_assurance(prior)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
+
+
+def test_v15_nested_masked_vector_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(
+        PACKET_M1_FORK_V14_PATH.read_text(encoding="utf-8")
+    )
+    current: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "NESTED M1 MASKED FINANCIAL VECTOR" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+        "protocol_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v15_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "460167479a86d52bec498abaf7fd6e7156b9b6d98e2bc85b40521038875844f9"
+    )
+    assert old["identity"] == {
+        "implementation_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+        "protocol_head": "397646acfc357669f9b5d08709a7b8054d19820d",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v16_array_like_packet_only_rebinds_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V15_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    assert "V16 MASKED ARRAY-LIKE INPUT REFUSAL" in new["thesis"]["limitations"]
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+        "protocol_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+    }
+    assert "not permitted" in new["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(new)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v16_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "62a7005b01a9b5ea851fe4517c73c4fcf365c98cd602570e4a28913b9a27bd84"
+    )
+    assert old["identity"] == {
+        "implementation_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+        "protocol_head": "13471eeda89e28262e2c1522b2aa6d0a54db938c",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v17_snapshot_packet_only_rebinds_source() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V16_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V17_PATH.read_text(encoding="utf-8"))
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    assert "V17 M1 INDEXABLE MASKED VECTOR" in new["thesis"]["limitations"]
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "9e1083a80f96569bf230f1ccd820df3576f5fdfb",
+        "protocol_head": "9e1083a80f96569bf230f1ccd820df3576f5fdfb",
+    }
+    assert "not permitted" in new["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(new)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v17_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V17_PATH.read_text(encoding="utf-8"))
+    assert assurance_digest(old) == (
+        "d7a11ca94530fd2f2dca35ba57a928e0078b52f0a89ef14bf1725b509a01c11b"
+    )
+    assert old["identity"] == {
+        "implementation_head": "9e1083a80f96569bf230f1ccd820df3576f5fdfb",
+        "protocol_head": "9e1083a80f96569bf230f1ccd820df3576f5fdfb",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v18_merged_main_source_packet_preserves_fork_and_protocol() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V17_PATH.read_text(encoding="utf-8"))
+    new: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
+    assert new["schema_version"] == old["schema_version"]
+    assert new["mechanism"] == old["mechanism"]
+    assert new["evidence"] == old["evidence"]
+    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
+    assert (
+        "V18 CONCURRENT CORE7 SOURCE-FORK RECONCILIATION"
+        in new["thesis"]["limitations"]
+    )
+    for field in old["thesis"]:
+        if field != "limitations":
+            assert new["thesis"][field] == old["thesis"][field]
+    for field in old["claims"]:
+        if field != "next_authorized_action":
+            assert new["claims"][field] == old["claims"][field]
+    assert new["identity"] == {
+        "implementation_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+        "protocol_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+    }
+    assert "not permitted" in new["claims"]["next_authorized_action"]
+    assert _git("hash-object", str(PACKET_V14_PATH)).stdout.strip() == (
+        "374092b7ff1430b55d813b0a35334f563726e770"
+    )
+    assert _git("hash-object", str(PACKET_M1_FORK_V14_PATH)).stdout.strip() == (
+        "7fff1ae1841c1039ea90c4e4267e0a4032ed7ee7"
+    )
+    result = evaluate_assurance(new)
+    assert result.status == "UNREVIEWED"
+    assert result.errors == ()
+    assert result.economic_execution_authorized is False
+
+
+def test_v18_packet_is_immutable_unreviewed_history() -> None:
+    old: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V18_PATH)).stdout.strip() == (
+        "c80bf17daa2cbbba9b2749479152c762a690bf7c"
+    )
+    assert (
+        assurance_digest(old)
+        == "ebd32575b29118d857ae7c0a207939dc4beb6c57f59eccd1f2febfe922c60c7b"
+    )
+    assert old["identity"] == {
+        "implementation_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+        "protocol_head": "82eb90a22a43b4452f2af7c3cc27c31768ae6667",
+    }
+    verdict = evaluate_assurance(old)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v19_transient_descriptor_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V18_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V19 TRANSIENT OPAQUE ARRAY DESCRIPTOR" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+        "protocol_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v19_packet_remains_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
+    assert (
+        _git("hash-object", str(PACKET_V19_PATH)).stdout.strip()
+        == "cb0aa1922263540d3eef0defbb0452ce93adebe6"
+    )
+    assert (
+        assurance_digest(prior)
+        == "fb8bcc67cb696fc487a4fda704615c6150d23bedb51324c45b30f7ccdef792dc"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+        "protocol_head": "3cd4ae29abd73a7e19b9f166d8af308874e81a1a",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v20_masked_memoryview_owner_packet_preserves_authority() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V19_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V20_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V20 MASKED FINANCIAL MEMORYVIEW ORIGIN" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
+        "protocol_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v20_packet_remains_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V20_PATH.read_text(encoding="utf-8"))
+    assert (
+        _git("hash-object", str(PACKET_V20_PATH)).stdout.strip()
+        == "666ffe532999aa0000cac13387f7e7e9c44b1afe"
+    )
+    assert (
+        assurance_digest(prior)
+        == "d11973554924d1e4074cd33f1cb86729a60a2503867893931d74873b248b112a"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
+        "protocol_head": "a6d1a936f8ea63f9c411d07313eea572a24912b9",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v21_masked_ndarray_owner_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V20_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V21 NATIVE NDARRAY MASKED BASE" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+        "protocol_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v21_packet_remains_immutable_unreviewed_history() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V21_PATH)).stdout.strip() == (
+        "b09f06f4ef743d52036a38ca335f56c98bd984a8"
+    )
+    assert assurance_digest(prior) == (
+        "e8089f5e66d90da21fba8f3c390cbdff04cdbc493483f755fd80213c63426023"
+    )
+    assert prior["identity"] == {
+        "implementation_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+        "protocol_head": "1f1f65265835edb9bad565f7ca27915907c2fa79",
+    }
+    verdict = evaluate_assurance(prior)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v22_native_numeric_conversion_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V21_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_V22_PATH.read_text(encoding="utf-8"))
+    assert current["schema_version"] == prior["schema_version"]
+    assert current["mechanism"] == prior["mechanism"]
+    assert current["evidence"] == prior["evidence"]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert "V22 NATIVE NUMERIC CONVERSION BOUNDARY" in current["thesis"]["limitations"]
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "ae83944b7d8773549428c5a71d056bc54763fe12",
+        "protocol_head": "ae83944b7d8773549428c5a71d056bc54763fe12",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    verdict = evaluate_assurance(current)
+    assert verdict.status == "UNREVIEWED"
+    assert verdict.errors == ()
+    assert verdict.economic_execution_authorized is False
+
+
+def test_v23_terminal_settlement_packet_only_rebinds_source() -> None:
+    prior: dict[str, Any] = json.loads(PACKET_V22_PATH.read_text(encoding="utf-8"))
+    current: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
+    assert _git("hash-object", str(PACKET_V22_PATH)).stdout.strip() == (
+        "069d082681eaf9bbfc8fe5c0b2e9e3902cc2836f"
+    )
+    assert (
+        assurance_digest(prior)
+        == "25fb38d34f587a2b106822900d2c6031a69b53aa77ec0b9009063b5c284e2f8f"
+    )
+    assert current.keys() == prior.keys()
+    for field in prior:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == prior[field]
+    assert current["thesis"].keys() == prior["thesis"].keys()
+    assert current["claims"].keys() == prior["claims"].keys()
+    for field in prior["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == prior["thesis"][field]
+    assert current["thesis"]["limitations"].startswith(prior["thesis"]["limitations"])
+    assert (
+        "V23 SHARED TERMINAL SETTLEMENT SOURCE-ONLY BOUNDARY"
+        in current["thesis"]["limitations"]
+    )
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    assert current["identity"] == {
+        "implementation_head": "3f9f2f3db34214b7e2cc88cbc556860d7d085cb6",
+        "protocol_head": "3f9f2f3db34214b7e2cc88cbc556860d7d085cb6",
+    }
+    assert "not permitted" in current["claims"]["next_authorized_action"]
+    for packet in (prior, current):
+        verdict = evaluate_assurance(packet)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False
+    paths = _bound_code_paths("3f9f2f3db34214b7e2cc88cbc556860d7d085cb6")
+    assert "trade_rl/evaluation/terminal_settlement.py" in paths
+    assert "trade_rl/evaluation/dev_realdata_study/runner.py" in paths
+
+
 def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     record: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
     assert PINNED_PROTOCOL_DIGEST in record["mechanism"]["authorities"]["evidence"]
@@ -819,30 +1310,3 @@ def test_core7_mtf_packet_stays_unreviewed_and_pinned() -> None:
     assert PINNED_PROTOCOL_DIGEST in spec_text
     assert PINNED_PACKET_DIGEST in spec_text
     assert head in spec_text
-
-
-def test_v14_packet_rebinds_merged_1307_source_without_economic_change() -> None:
-    """v14 only re-pins the merged #1307 source (opt-in engine settlement, default off)."""
-    old: dict[str, Any] = json.loads(PACKET_V13_PATH.read_text(encoding="utf-8"))
-    new: dict[str, Any] = json.loads(PACKET_PATH.read_text(encoding="utf-8"))
-    assert assurance_digest(old) == (
-        "1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09"
-    )
-    assert new["schema_version"] == old["schema_version"]
-    assert new["mechanism"] == old["mechanism"]
-    assert new["evidence"] == old["evidence"]
-    assert new["thesis"]["limitations"].startswith(old["thesis"]["limitations"])
-    for field in old["thesis"]:
-        if field != "limitations":
-            assert new["thesis"][field] == old["thesis"][field]
-    for field in old["claims"]:
-        if field != "next_authorized_action":
-            assert new["claims"][field] == old["claims"][field]
-    assert new["identity"] == {
-        "implementation_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
-        "protocol_head": "66d03d6d9a420474b137ce3a084bcca330db9954",
-    }
-    review = evaluate_assurance(new)
-    assert review.status == "UNREVIEWED"
-    assert review.errors == ()
-    assert not review.economic_execution_authorized

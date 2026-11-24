@@ -1440,6 +1440,8 @@ def authorization_receipt(
 ) -> dict[str, Any]:
     if not _COMMIT_RE.fullmatch(commit):
         raise SystemExit("commit must be a full 40-hex SHA")
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise SystemExit("digest must be a full 64-hex SHA-256")
     out: dict[str, Any] = {}
     for role, cid in (
         ("g4_relay", comment_id_from_url(url)),
@@ -1456,18 +1458,29 @@ def authorization_receipt(
         ):
             raise SystemExit(f"{role} comment {cid} changed between fetches")
         if role == "g4_relay":
-            if not all(
-                token in first["body"] for token in (PROTOCOL_ID, digest, commit)
-            ):
+            # Only LF and CRLF delimit records; splitlines() also accepts
+            # bare CR, Unicode separators and ASCII control characters.
+            relay_body = first["body"].replace("\r\n", "\n")
+            if re.search(r"[\r\v\f\x1c-\x1e\x85\u2028\u2029]", relay_body):
+                raise SystemExit("G4 relay contains unsupported line separator")
+            lines = relay_body.split("\n")
+            # Treat a field-like line without a colon as malformed, not prose
+            # that can coexist with the one canonical authorization record.
+            identities = [
+                line
+                for line in lines
+                if re.match(r"^\s*G4\s+identity\b", line, re.IGNORECASE)
+            ]
+            if identities != [f"G4 identity: {PROTOCOL_ID} {digest} {commit}"]:
                 raise SystemExit(
-                    "G4 relay does not quote this protocol id, digest and exact commit"
+                    "G4 relay does not quote one exact protocol id, digest and commit identity"
                 )
             # One explicit, unambiguous claim line; citing another stage in prose
             # or listing several stages must never admit the current stage.
             claims = [
                 line
-                for line in first["body"].splitlines()
-                if re.match(r"^\s*G4\s+claim\s*:", line, re.IGNORECASE)
+                for line in lines
+                if re.match(r"^\s*G4\s+claim\b", line, re.IGNORECASE)
             ]
             if claims != [f"G4 claim: {claim}"]:
                 raise SystemExit(f"G4 claim must name exactly this stage: {claim}")

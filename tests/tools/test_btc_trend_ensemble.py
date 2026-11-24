@@ -18,7 +18,7 @@ import pytest
 
 from tools import btc_trend_ensemble as m
 
-DIGEST_PIN = "6f4b5849634b417de9d1113e0826a2a76d2ff219847ba79da3f74bd341a5e77b"
+DIGEST_PIN = "837a61d29502880a27d58794b7445c4d418c0ec29871b85e308b04d748e8cbe7"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 
@@ -519,7 +519,7 @@ def _gh(relay_body: str | None = None, **over: Any) -> Any:
     relay_body = (
         relay_body
         if relay_body is not None
-        else f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
+        else f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
     )
 
     def fetch(cid: int) -> dict[str, Any]:
@@ -582,7 +582,7 @@ def test_authorization_edit_between_fetches() -> None:
 
     def fetch(cid: int) -> dict[str, Any]:
         calls[cid] = calls.get(cid, 0) + 1
-        body = f"{m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
+        body = f"G4 identity: {m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
         if cid != m.DATA_SCOPE_COMMENT_ID and calls[cid] == 2:
             body += " edited"
         return _comment(body)
@@ -602,10 +602,10 @@ def test_authorization_edit_between_fetches() -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        f"{m.PROTOCOL_ID} {COMMIT}",
-        f"{m.PROTOCOL_ID} {'d' * 64}",
+        f"G4 identity: {m.PROTOCOL_ID} {COMMIT}",
+        f"G4 identity: {m.PROTOCOL_ID} {'d' * 64}",
         f"{'d' * 64} {COMMIT}",
-        f"{m.PROTOCOL_ID} {'d' * 64} {COMMIT[:12]}",
+        f"G4 identity: {m.PROTOCOL_ID} {'d' * 64} {COMMIT[:12]}",
     ],
 )
 def test_authorization_relay_must_quote_id_digest_commit(body: str) -> None:
@@ -702,7 +702,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(m, "harness_commit", lambda: COMMIT)
     digest = m.protocol_digest()
     gh = _gh(
-        relay_body=f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_INTERIM_2026-12"
+        relay_body=f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_INTERIM_2026-12"
     )
     return {"ledger": tmp_path / "ledger", "tmp": tmp_path, "gh": gh, "digest": digest}
 
@@ -735,7 +735,7 @@ def _run(
     )
     url = URL.rsplit("-", 1)[0] + f"-{cid}"
     gh = env.get("gh_override") or _gh(
-        relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {name}"
+        relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {name}"
     )
     return m.run_stage(
         stage,
@@ -1335,7 +1335,7 @@ def test_btc_g4_exact_stage_required_before_claim(
             now=FINAL_AT,
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{relay_claim}"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{relay_claim}"
             ),
             ledger_dir=env["ledger"],
         )
@@ -1367,7 +1367,7 @@ def test_btc_g4_comment_cannot_be_reused_for_another_stage(env: dict[str, Any]) 
             now=FINAL_AT,
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=root,
         )
@@ -1499,7 +1499,7 @@ def test_g4_invalid_history_refuses_before_claim_or_fetch(
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=env["ledger"],
         )
@@ -1510,7 +1510,9 @@ def test_g4_invalid_history_refuses_before_claim_or_fetch(
 
 def test_btc_g4_accepts_single_crlf_stage_claim() -> None:
     digest = "d" * 64
-    body = f"{m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    body = (
+        f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    )
     receipt = m.authorization_receipt(
         URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
     )
@@ -1591,7 +1593,7 @@ def test_public_run_rechecks_g4_after_root_claim(
             now=now,
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=env["ledger"],
         )
@@ -1599,3 +1601,77 @@ def test_public_run_rechecks_g4_after_root_claim(
     assert (root / "g4-7040999999.claim").exists()
     assert not (root / env["digest"] / "FORWARD_FINAL.claim").exists()
     assert not (env["tmp"] / "w").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "long_id",
+        "long_digest",
+        "long_commit",
+        "duplicate_identity",
+        "conflicting_identity",
+        "missing_identity",
+    ),
+)
+def test_g4_identity_must_be_one_exact_tuple(mutation: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    if mutation == "long_id":
+        identity = identity.replace(m.PROTOCOL_ID, m.PROTOCOL_ID + "_other")
+    elif mutation == "long_digest":
+        identity = identity.replace(digest, digest + "e")
+    elif mutation == "long_commit":
+        identity = identity.replace(COMMIT, "b" + COMMIT)
+    elif mutation == "duplicate_identity":
+        identity += "\n" + identity
+    elif mutation == "conflicting_identity":
+        identity += "\n" + identity.replace(digest, "e" * 64)
+    else:
+        identity = f"{m.PROTOCOL_ID} {digest} {COMMIT}"
+    with pytest.raises(SystemExit, match="does not quote"):
+        m.authorization_receipt(
+            URL,
+            digest,
+            COMMIT,
+            "FORWARD_FINAL",
+            _gh(relay_body=identity + "\nG4 claim: FORWARD_FINAL"),
+        )
+
+
+@pytest.mark.parametrize("digest", ["d" * 63, "d" * 65, "D" * 64, "z" * 64])
+def test_g4_invalid_digest_refuses_before_comment_fetch(digest: str) -> None:
+    def unexpected_fetch(_cid: int) -> dict[str, Any]:
+        pytest.fail("invalid digest must not reach comment fetch")
+
+    with pytest.raises(SystemExit, match="full 64-hex"):
+        m.authorization_receipt(URL, digest, COMMIT, "FORWARD_FINAL", unexpected_fetch)
+
+
+@pytest.mark.parametrize(
+    "separator", ["\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
+)
+def test_g4_refuses_noncanonical_record_separators(separator: str) -> None:
+    digest = "d" * 64
+    body = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}{separator}G4 claim: FORWARD_FINAL"
+    with pytest.raises(SystemExit, match="unsupported line separator"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
+
+
+@pytest.mark.parametrize("field", ["identity", "claim"])
+def test_g4_refuses_malformed_second_record(field: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    claim = "G4 claim: FORWARD_FINAL"
+    extra = (
+        f"G4 identity {m.PROTOCOL_ID} {'e' * 64} {COMMIT}"
+        if field == "identity"
+        else "G4 claim FORWARD_INTERIM_2026-12"
+    )
+    body = "\n".join([identity, claim, extra])
+    with pytest.raises(SystemExit, match="does not quote|must name exactly"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )

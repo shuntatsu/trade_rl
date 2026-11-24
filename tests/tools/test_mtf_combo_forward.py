@@ -23,7 +23,7 @@ import pytest
 
 from tools import mtf_combo_forward as m
 
-DIGEST_PIN = "69cd6e9c0c0cf9fd0137cde3534bbe13e828af76c431612ca92fd58584127c63"
+DIGEST_PIN = "19a6f8dcd8bfc4820b86d7165e9fb492d99f70da21131c912022d6c20d62c5e8"
 COMMIT = "a" * 40
 URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-7040999999"
 T0 = int(datetime(2026, 12, 1, tzinfo=UTC).timestamp())
@@ -1264,7 +1264,7 @@ def _gh(relay_body: str | None = None, **over: Any) -> Any:
     relay_body = (
         relay_body
         if relay_body is not None
-        else f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
+        else f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
     )
 
     def fetch(cid: int) -> dict[str, Any]:
@@ -1277,13 +1277,13 @@ def _gh(relay_body: str | None = None, **over: Any) -> Any:
 
 def test_g4_relay_requires_exact_stage_claim() -> None:
     digest = "d" * 64
-    good = f"{m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
+    good = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\nG4 claim: FORWARD_FINAL"
     rec = m.authorization_receipt(
         URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=good)
     )
     assert rec["g4_relay"]["comment_id"] == 7040999999
     for invalid in (
-        f"{m.PROTOCOL_ID} {digest} {COMMIT}",
+        f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}",
         good.replace("FORWARD_FINAL", "FORWARD_INTERIM_2027-01"),
         good + "\nG4 claim: FORWARD_INTERIM_2027-01",
         good.replace("G4 claim:", "Not G4 claim:"),
@@ -1361,7 +1361,7 @@ def test_authorization_edit_between_fetches() -> None:
 
     def fetch(cid: int) -> dict[str, Any]:
         calls[cid] = calls.get(cid, 0) + 1
-        body = f"{m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
+        body = f"G4 identity: {m.PROTOCOL_ID} {'d' * 64} {COMMIT}"
         return _comment(body, updated=f"t{calls[cid]}")
 
     with pytest.raises(SystemExit, match="changed between fetches"):
@@ -1500,7 +1500,7 @@ def test_stage_window_interim_ends_at_last_settled_4h_close() -> None:
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(m, "harness_commit", lambda: COMMIT)
     digest = m.protocol_digest()
-    gh = _gh(relay_body=f"{m.PROTOCOL_ID} {digest} {COMMIT}")
+    gh = _gh(relay_body=f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}")
     return {"ledger": tmp_path / "ledger", "tmp": tmp_path, "gh": gh, "digest": digest}
 
 
@@ -1523,7 +1523,7 @@ def _run(
     )
     url = f"https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-{cid}"
     gh = _gh(
-        relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {stage_claim}"
+        relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: {stage_claim}"
     )
     return m.run_stage(
         stage,
@@ -2002,7 +2002,7 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=fetch,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=env["ledger"],
             symbols=TWO,
@@ -2013,7 +2013,9 @@ def test_preexisting_g4_refusal_does_not_consume_new_stage(
 
 def test_g4_accepts_one_crlf_claim() -> None:
     digest = "d" * 64
-    body = f"{m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    body = (
+        f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}\r\nG4 claim: FORWARD_FINAL\r\n"
+    )
     assert (
         m.authorization_receipt(
             URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
@@ -2047,7 +2049,7 @@ def test_g4_invalid_claim_refuses_public_run_before_side_effects(
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=fetch,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{lines}"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\n{lines}"
             ),
             ledger_dir=env["ledger"],
             symbols=TWO,
@@ -2213,7 +2215,7 @@ def test_public_run_rechecks_g4_after_root_claim(
             now=now,
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=env["ledger"],
             symbols=TWO,
@@ -2265,7 +2267,7 @@ def test_g4_invalid_history_refuses_before_claim_or_fetch(
             now=datetime(2027, 12, 2, 1, tzinfo=UTC),
             fetch=unexpected,
             gh_fetch=_gh(
-                relay_body=f"{m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
+                relay_body=f"G4 identity: {m.PROTOCOL_ID} {env['digest']} {COMMIT}\nG4 claim: FORWARD_FINAL"
             ),
             ledger_dir=env["ledger"],
             symbols=TWO,
@@ -2307,3 +2309,77 @@ def test_unreadable_history_refuses_before_external_access(
         )
     assert not (root / "FORWARD_FINAL.claim").exists()
     assert not (env["tmp"] / "w").exists()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "long_id",
+        "long_digest",
+        "long_commit",
+        "duplicate_identity",
+        "conflicting_identity",
+        "missing_identity",
+    ),
+)
+def test_g4_identity_must_be_one_exact_tuple(mutation: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    if mutation == "long_id":
+        identity = identity.replace(m.PROTOCOL_ID, m.PROTOCOL_ID + "_other")
+    elif mutation == "long_digest":
+        identity = identity.replace(digest, digest + "e")
+    elif mutation == "long_commit":
+        identity = identity.replace(COMMIT, "b" + COMMIT)
+    elif mutation == "duplicate_identity":
+        identity += "\n" + identity
+    elif mutation == "conflicting_identity":
+        identity += "\n" + identity.replace(digest, "e" * 64)
+    else:
+        identity = f"{m.PROTOCOL_ID} {digest} {COMMIT}"
+    with pytest.raises(SystemExit, match="does not quote"):
+        m.authorization_receipt(
+            URL,
+            digest,
+            COMMIT,
+            "FORWARD_FINAL",
+            _gh(relay_body=identity + "\nG4 claim: FORWARD_FINAL"),
+        )
+
+
+@pytest.mark.parametrize("digest", ["d" * 63, "d" * 65, "D" * 64, "z" * 64])
+def test_g4_invalid_digest_refuses_before_comment_fetch(digest: str) -> None:
+    def unexpected_fetch(_cid: int) -> dict[str, Any]:
+        pytest.fail("invalid digest must not reach comment fetch")
+
+    with pytest.raises(SystemExit, match="full 64-hex"):
+        m.authorization_receipt(URL, digest, COMMIT, "FORWARD_FINAL", unexpected_fetch)
+
+
+@pytest.mark.parametrize(
+    "separator", ["\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]
+)
+def test_g4_refuses_noncanonical_record_separators(separator: str) -> None:
+    digest = "d" * 64
+    body = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}{separator}G4 claim: FORWARD_FINAL"
+    with pytest.raises(SystemExit, match="unsupported line separator"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )
+
+
+@pytest.mark.parametrize("field", ["identity", "claim"])
+def test_g4_refuses_malformed_second_record(field: str) -> None:
+    digest = "d" * 64
+    identity = f"G4 identity: {m.PROTOCOL_ID} {digest} {COMMIT}"
+    claim = "G4 claim: FORWARD_FINAL"
+    extra = (
+        f"G4 identity {m.PROTOCOL_ID} {'e' * 64} {COMMIT}"
+        if field == "identity"
+        else "G4 claim FORWARD_INTERIM_2026-12"
+    )
+    body = "\n".join([identity, claim, extra])
+    with pytest.raises(SystemExit, match="does not quote|must name exactly"):
+        m.authorization_receipt(
+            URL, digest, COMMIT, "FORWARD_FINAL", _gh(relay_body=body)
+        )

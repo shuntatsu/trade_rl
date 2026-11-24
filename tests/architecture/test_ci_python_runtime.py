@@ -70,3 +70,16 @@ def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
         )
     assert len(refs) == 16
     assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 16
+
+
+def test_lean_core_reports_skipped_test_reasons_without_changing_final_command() -> (
+    None
+):
+    """A green job with hundreds of skipped tests is not a coverage claim."""
+    source = WORKFLOW.read_text(encoding="utf-8")
+    core = source.split("  core:\n", 1)[1].split("\n  ppo-runtime:\n", 1)[0]
+    command = core.split("      - name: Core tests\n", 1)[1].split(
+        "      - name: Build\n", 1
+    )[0]
+    assert 'PYTEST_ADDOPTS: "-rs"' in command
+    assert "run: uv run pytest -q tests" in command

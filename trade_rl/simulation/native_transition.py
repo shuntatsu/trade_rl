@@ -128,6 +128,7 @@ def execute_native_target_transition(
     hold_current_quantity_symbols: tuple[int, ...] = (),
     emergency_flatten_mask: object | None = None,
     reduce_only_mask: object | None = None,
+    hold_unchanged_risk_target: bool = False,
 ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
     """Apply hard risk and execute exactly one native interval.
 
@@ -135,7 +136,11 @@ def execute_native_target_transition(
     transition accepts only numeric portfolio targets, applies risk against the
     pre-execution book, and advances the canonical MarketExecutor once. Exact
     quantity holds survive only when risk leaves their proposed weights intact.
+    The opt-in independent-account convention also holds the whole book when
+    the final risk-approved vector exactly equals the existing weights.
     """
+    if type(hold_unchanged_risk_target) is not bool:
+        raise ValueError("hold_unchanged_risk_target must be boolean")
     proposed_weights, hold_symbols, emergency_mask, reduce_mask = (
         _validate_native_target_request(
             executor,
@@ -162,6 +167,10 @@ def execute_native_target_transition(
         for index in hold_symbols
         if risk_target.weights[index] == proposed_weights[index]
     )
+    if hold_unchanged_risk_target and np.array_equal(
+        risk_target.weights, current_weights
+    ):
+        effective_holds = tuple(range(len(current_weights)))
     if effective_holds:
         execution = executor.execute_interval(
             book,

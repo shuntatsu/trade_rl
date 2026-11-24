@@ -37,7 +37,8 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue888-core7-terminal-reserve-assurance-v15.json"
+PACKET_PATH = ROOT / "report" / "issue888-core7-native-prerequisites-assurance-v16.json"
+PACKET_V15_PATH = ROOT / "report" / "issue888-core7-terminal-reserve-assurance-v15.json"
 PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
 PACKET_V12_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v12.json"
@@ -58,7 +59,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "e93ba3a057602c47a1985cad8125c67d4269a84c642555a5e673e1845ac9a21a"
+    "d565685ff3ab55bf7f103c80566238a61799039552c53fba89713ed4b1c0a364"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -860,7 +861,7 @@ def test_v14_packet_is_immutable_and_terminal_reserve_successor_only_rebinds_sou
         == "efaa5ee70118544f22e9a007cd5d8f04a17182d46b77d44cb6ee0b90e318415c"
     )
     old = json.loads(raw)
-    new = json.loads(PACKET_PATH.read_bytes())
+    new = json.loads(PACKET_V15_PATH.read_bytes())
     assert (
         assurance_digest(old)
         == "d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158"

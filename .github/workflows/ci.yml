@@ -53,6 +53,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Docs/source semantic contract
+        run: uv run python -m tools.docs_source_consistency --check
+
       - name: Agent documentation routing
         run: uv run python -m tools.agent_docs_context --check
 
@@ -69,7 +72,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py
@@ -87,6 +90,7 @@ jobs:
             tests/tools/test_github_coordination_enrollment_audit.py \
             tests/tools/test_github_coordination_enrollment_transaction.py \
             tests/tools/test_agent_docs_context.py \
+            tests/tools/test_docs_source_consistency.py \
             tests/tools/test_markdown_links.py
 
       - name: Prospective write-once evidence smoke
@@ -153,6 +157,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Docs/source semantic contract
+        run: uv run python -m tools.docs_source_consistency --check
+
       - name: Agent documentation routing
         run: uv run python -m tools.agent_docs_context --check
 
@@ -169,7 +176,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/issue810_joint_fee_only_fixture.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py
 
       - name: Research transport types
         run: uv run mypy tools/ppo_checkpoint_actions.py tools/ppo_4h_indicator_smoke_actions.py tools/ppo_4h_gemini_review.py tools/ppo_normalization_actions.py

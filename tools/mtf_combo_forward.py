@@ -1600,7 +1600,17 @@ def _historical_claim_paths(root: Path) -> list[Path]:
         directory = pending.pop()
         try:
             for path in directory.iterdir():
-                mode = path.lstat().st_mode
+                try:
+                    mode = path.lstat().st_mode
+                except FileNotFoundError:
+                    # A concurrent publisher may unlink its own temporary
+                    # non-claim file after iterdir. Never ignore a missing
+                    # historical claim, other entry, or directory error.
+                    if path.name.startswith(".pending-claim-") and path.name.endswith(
+                        ".tmp"
+                    ):
+                        continue
+                    raise
                 if stat.S_ISDIR(mode) and not path.is_junction():
                     if path.name.endswith(".claim"):
                         raise SystemExit(f"unsafe historical G4 claim path: {path}")
@@ -1623,15 +1633,10 @@ def _unique_claim_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return record
 
 
-def _check_g4_comment_available(
-    root: Path, comment_id: int, *, current_claim: Path | None = None
-) -> None:
-    """Read-only preflight; reject known invalid or consumed authorization."""
-    if type(comment_id) is not int or comment_id <= 0:
-        raise SystemExit("invalid G4 comment ID")
+def _read_historical_g4_claims(root: Path) -> dict[Path, dict[str, Any]]:
+    """Validate the complete observed historical roster without changing it."""
+    records: dict[Path, dict[str, Any]] = {}
     for path in _historical_claim_paths(root):
-        if path == current_claim:
-            continue  # only the root claim created by this attempt
         if path.is_symlink() or not path.is_file():
             raise SystemExit(f"unsafe historical G4 claim path: {path}")
         try:
@@ -1646,8 +1651,35 @@ def _check_g4_comment_available(
             or record["authorization_comment_id"] <= 0
         ):
             raise SystemExit(f"invalid historical G4 claim: {path}")
+        records[path] = record
+    return records
+
+
+def _require_g4_comment_available(
+    records: dict[Path, dict[str, Any]],
+    comment_id: int,
+    *,
+    current_claim: tuple[Path, dict[str, Any]] | None = None,
+) -> None:
+    """Only a newly created, exactly matching root claim may be excluded."""
+    if type(comment_id) is not int or comment_id <= 0:
+        raise SystemExit("invalid G4 comment ID")
+    if current_claim is not None:
+        path, expected = current_claim
+        if records.get(path) != expected:
+            raise SystemExit(
+                f"current G4 stage claim does not match this attempt: {path}"
+            )
+    for path, record in records.items():
+        if current_claim is not None and path == current_claim[0]:
+            continue
         if record["authorization_comment_id"] == comment_id:
             raise SystemExit(f"G4 comment {comment_id} already consumed: {path}")
+
+
+def _check_g4_comment_available(root: Path, comment_id: int) -> None:
+    """Read-only recheck; reject known invalid or consumed authorization."""
+    _require_g4_comment_available(_read_historical_g4_claims(root), comment_id)
 
 
 def reserve_g4_comment(
@@ -1657,27 +1689,38 @@ def reserve_g4_comment(
     digest: str,
     commit: str,
     now: datetime,
+    *,
+    current_claim: Path | None = None,
 ) -> Path:
     """Consume one owner G4 relay ID per protocol, including historical digests.
 
     Recheck after the protocol-root stage claim and before stage data access.
+    Only run_stage supplies the freshly created current_claim; its entire record
+    must match. Direct reservations cannot skip pre-existing stage claims.
     A new conflict does not undo the stage claim.
     This deliberate fail-closed behavior avoids double use on a retry.
     """
-    _check_g4_comment_available(root, comment_id, current_claim=root / f"{name}.claim")
+    record = {
+        "authorization_comment_id": comment_id,
+        "stage": name,
+        "protocol_digest": digest,
+        "commit": commit,
+        "claimed_at": now.isoformat(),
+    }
+    records = _read_historical_g4_claims(root)
+    stage_path = root / f"{name}.claim"
+    exclusion = None
+    if current_claim is not None:
+        if current_claim != stage_path:
+            raise SystemExit("current G4 claim must be the protocol-root stage claim")
+        exclusion = (current_claim, record)
+    _require_g4_comment_available(records, comment_id, current_claim=exclusion)
+    if current_claim is None and stage_path in records:
+        raise SystemExit(f"stage {name} was already claimed: {stage_path}")
     root.mkdir(parents=True, exist_ok=True)
     marker = root / f"g4-{comment_id}.claim"
     try:
-        _publish_claim(
-            marker,
-            {
-                "authorization_comment_id": comment_id,
-                "stage": name,
-                "protocol_digest": digest,
-                "commit": commit,
-                "claimed_at": now.isoformat(),
-            },
-        )
+        _publish_claim(marker, record)
     except FileExistsError:
         raise SystemExit(
             f"G4 comment {comment_id} already consumed: {marker}"
@@ -1873,17 +1916,28 @@ def run_stage(
     # across every digest; the per-digest subfolder only keeps provenance.
     name = claim_name(stage, now)
     ledger_root = ledger_dir / PROTOCOL_ID
-    _historical_claim_paths(ledger_root)
+    historical_claims = _read_historical_g4_claims(ledger_root)
     check_cross_digest(ledger_root, stage, name)
+    _require_g4_comment_available(
+        historical_claims, comment_id_from_url(authorization_url)
+    )
     ledger_dir = ledger_root / digest
     commit = harness_commit()
     auth = authorization_receipt(authorization_url, digest, commit, name, gh_fetch)
     _check_g4_comment_available(ledger_root, auth["g4_relay"]["comment_id"])
     # The protocol-root claim is the atomic single-use lock across digests (exclusive create);
     # the per-digest copy only records provenance.
-    claim_stage(name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root)
+    root_claim = claim_stage(
+        name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_root
+    )
     reserve_g4_comment(
-        ledger_root, auth["g4_relay"]["comment_id"], name, digest, commit, now
+        ledger_root,
+        auth["g4_relay"]["comment_id"],
+        name,
+        digest,
+        commit,
+        now,
+        current_claim=root_claim,
     )
     claim = claim_stage(
         name, digest, commit, auth["g4_relay"]["comment_id"], now, ledger_dir

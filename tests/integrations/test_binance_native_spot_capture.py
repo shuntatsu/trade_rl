@@ -281,3 +281,36 @@ def test_later_final_capture_does_not_change_earlier_week():
             _one(
                 **common, captures=captures, source_closes=closes, target_closes=closes
             )
+
+
+@pytest.mark.parametrize(
+    "field,invalid,rounded",
+    [
+        ("h", "100", "100.0000000000000001"),
+        ("l", "100.0000000000000001", "100"),
+    ],
+)
+@pytest.mark.parametrize("endpoint", ["o", "c"])
+def test_decimal_ohlc_violation_cannot_be_hidden_by_float_rounding(
+    field, invalid, rounded, endpoint
+):
+    msg = _message("2024-02-01", "2024-03-01", interval="1M")
+    kline = msg["data"]["k"]
+    kline.update(o="100", c="100", h="103", l="98")
+    kline[field] = invalid
+    kline[endpoint] = rounded
+    assert float(invalid) == float(rounded)
+    with pytest.raises(ValueError, match="OHLC"):
+        _one(captures=[(_encode(msg), np.datetime64("2024-03-01T00:00:02"))])
+
+
+def test_valid_decimal_ohlc_may_round_to_equal_float64():
+    msg = _message("2024-02-01", "2024-03-01", interval="1M")
+    msg["data"]["k"].update(
+        o="100.0000000000000001",
+        h="100.0000000000000002",
+        l="100",
+        c="100.0000000000000001",
+    )
+    result = _one(captures=[(_encode(msg), np.datetime64("2024-03-01T00:00:02"))])
+    np.testing.assert_array_equal(result.ohlcv[0, :4], [100, 100, 100, 100])

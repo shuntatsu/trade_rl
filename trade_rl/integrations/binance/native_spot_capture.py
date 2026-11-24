@@ -50,15 +50,16 @@ def _integer(value: object) -> int:
     return value
 
 
-def _number(value: object) -> float:
+def _number(value: object) -> tuple[Decimal, float]:
     # Spot encodes these decimal fields as strings. Reject coercion, nonfinite
     # values and loss of a nonzero amount to zero before native float64 admission.
     if type(value) is not str or re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value) is None:
         raise ValueError("captured kline OHLCV must be unsigned decimal text")
+    exact = Decimal(value)
     number = float(value)
-    if not math.isfinite(number) or (number == 0 and Decimal(value) != 0):
+    if not math.isfinite(number) or (number == 0 and exact != 0):
         raise ValueError("captured kline OHLCV is outside finite float64 range")
-    return number
+    return exact, number
 
 
 def _validate_interval(clock: NativeBarClock, interval: str) -> None:
@@ -171,7 +172,13 @@ def resample_captured_spot_klines(
             raise ValueError(
                 "capture event must follow inclusive close and precede receipt"
             )
-        values = [_number(kline.get(key)) for key in ("o", "h", "l", "c", "v", "q")]
+        parsed = [_number(kline.get(key)) for key in ("o", "h", "l", "c", "v", "q")]
+        op, hi, lo, cl = (pair[0] for pair in parsed[:4])
+        # Check the provider decimals before float64 rounding can conceal
+        # an inverted high/low. The shared resampler validates float OHLCV.
+        if hi < max(op, cl) or lo > min(op, cl):
+            raise ValueError("invalid exact captured OHLC range")
+        values = [pair[1] for pair in parsed]
         rows.append([start, *values[:5], end, values[5]])
         ohlcv[i] = values
         available[i] = receipt

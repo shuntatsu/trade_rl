@@ -1298,12 +1298,21 @@ def authorization_receipt(
 
 
 # ----------------------------------------------------------------------------- ledger & clocks
+def _utc(now: datetime) -> datetime:
+    """Refuse naive datetimes; normalize an aware instant before claim identity."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise SystemExit("now must be a timezone-aware datetime")
+    return now.astimezone(UTC)
+
+
 def claim_name(stage: Stage, now: datetime) -> str:
     """Ledger name: interims are once per UTC month."""
+    now = _utc(now)
     return f"{stage.name}_{now:%Y-%m}" if stage.interim else stage.name
 
 
 def check_clock(stage: Stage, now: datetime) -> None:
+    now = _utc(now)
     if stage.not_before is not None and now < stage.not_before:
         raise SystemExit(
             f"{stage.name} may not run before {stage.not_before.isoformat()}"
@@ -1505,7 +1514,9 @@ def run_stage(
     symbols: tuple[str, ...] = SYMBOLS,
 ) -> dict[str, Any]:
     stage = STAGES[stage_name] if isinstance(stage_name, str) else stage_name
-    now = now or datetime.now(UTC)
+    now = _utc(now or datetime.now(UTC))
+    if not ledger_dir.is_absolute():
+        raise SystemExit(f"ledger directory must be an absolute path: {ledger_dir}")
     check_clock(stage, now)
     if output_dir.exists():
         raise SystemExit(f"output directory exists: {output_dir}")

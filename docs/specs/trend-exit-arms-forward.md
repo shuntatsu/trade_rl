@@ -2,7 +2,7 @@
 
 Status: Active (not frozen until an independent review approves the exact head). This protocol is fixed before the first FORWARD bar (2026-12-01 00:00 UTC) exists. No stage has run. No Binance kline dated 2026-12-01 or later was read to write it, and no economic result was produced for it.
 
-Protocol digest: `ca3c6a79496427b7e47e4bfdb72f2742e57df0afdfde207e4ac3c2664ed0dc9c`
+Protocol digest: `9d6731a2b8e2c59d4728e3cbca6af28d216a1fdcfd940995b50ff0d5d794a3ed`
 
 ## Question
 
@@ -181,3 +181,22 @@ Each link can fail: persistence can end (a mean-reverting year); the short-leg a
 - Interim decision statistics are computed on partial data for information; with fewer than a few days they are degenerate.
 - Duplicated code: the data fetch, authorization, ledger and clock machinery is copied from `mtf_combo_forward` (PR #1333, not merged) so this PR is self-contained. A shared helper module is a follow-up.
 - Dependencies: the tests use pandas only for the optional frame parity oracle (`uv run --with pandas`); the CI core job skips it.
+
+
+## 2026-11-24 software admission amendment (Issue #1347; prospective only)
+
+The single-use stage ledger MUST resolve to one absolute filesystem location before any
+claim, owner-relay fetch, exchange connectivity probe, or market request. The legacy
+Windows `C:\trade_rl_runs\...` default remains unchanged on Windows, but is NOT
+an absolute path on POSIX: fail closed there unless the caller provides a verified
+absolute ledger directory. Existing claims and consumed BACKCAST history are preserved;
+no cross-machine or shared-filesystem coordination is asserted.
+
+Interim claim months and stage-clock comparisons use the same timezone-aware instant
+normalized to UTC. Naive datetimes are refused before side effects. This closes the
+local-CWD/UTC identity bypass without changing any strategy, indicator, cost, stage
+window or result decision rule. Re-pin the spec/harness digest and repeat independent
+software-review and Full CI gates on this prospective source; previous-head receipts
+are not reusable. **No economic stage, G4 relay grant, market-data use, or trading is
+authorized by this amendment.** Separate per-stage G4 relay binding and relay-comment
+ID replay prevention remain OPEN under Issue #1347.

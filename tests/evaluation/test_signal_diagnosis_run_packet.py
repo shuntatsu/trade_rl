@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json"
+    / "sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
+PINNED_DIGEST = "e89bcb29086cd4e00543a041e47e7019cb04dca87fde4bfc9fa4bef5d69a3d7c"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -643,7 +643,13 @@ def test_previous_current_main_packet_is_immutable_after_real_request_fix() -> N
     checked = evaluate_assurance(prior)
     assert checked.status == "UNREVIEWED" and checked.errors == ()
     assert not checked.economic_execution_authorized
-    current = packet()
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
         "protocol_head": "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
@@ -665,5 +671,85 @@ def test_previous_current_main_packet_is_immutable_after_real_request_fix() -> N
     for doc in (STATUS, ARCHITECTURE):
         assert (
             "921a28a50d4051181ae049c55356e5a5cfaae6943259ab839e2f5e566f09906a"
+            in _flat(doc)
+        )
+
+
+def test_integrated_core7_packet_preserves_real_request_predecessor() -> None:
+    path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json"
+    )
+    raw = path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "aeb1366ecbac19d4e808c3f7ca2ade4dda6b60705fe1b683b28fa1815a9b1a26"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
+    )
+    current = packet()
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and verdict.errors == ()
+        assert not verdict.economic_execution_authorized
+    assert current["mechanism"] == prior["mechanism"]
+    for field in prior["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == prior["claims"][field]
+    for field in prior["thesis"]:
+        if field not in ("limitations", "cheapest_falsifier"):
+            assert current["thesis"][field] == prior["thesis"][field]
+    assert current["thesis"]["cheapest_falsifier"] == prior["thesis"][
+        "cheapest_falsifier"
+    ].replace(
+        "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
+        "d691f3b5eee72be1ee58e907213640b103aab0a7",
+    )
+    for field in prior["evidence"]:
+        if field != "independent_reconstruction":
+            assert current["evidence"][field] == prior["evidence"][field]
+    assert (
+        "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
+        in current["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "d691f3b5eee72be1ee58e907213640b103aab0a7",
+        "protocol_head": "d691f3b5eee72be1ee58e907213640b103aab0a7",
+    }
+    assert bound_code_paths(
+        "6879447ccd17f8a3ff9516c18ddcd9836b8055bd"
+    ) == bound_code_paths("d691f3b5eee72be1ee58e907213640b103aab0a7")
+    changed = _git(
+        "diff",
+        "--name-only",
+        "6879447ccd17f8a3ff9516c18ddcd9836b8055bd",
+        "d691f3b5eee72be1ee58e907213640b103aab0a7",
+        "--",
+        *bound_code_paths("6879447ccd17f8a3ff9516c18ddcd9836b8055bd"),
+    )
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == [
+        "trade_rl/data/features/multitimeframe.py",
+        "trade_rl/evaluation/decision_value_dev_study.py",
+        "trade_rl/evaluation/decision_value_ledger_oracle.py",
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/evaluation/runs/artifact.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/native_transition.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/strategies/forecasts/ridge.py",
+        "trade_rl/strategies/forecasts/supervised.py",
+    ]
+    for doc in (STATUS, ARCHITECTURE):
+        assert (
+            "sd2-signal-diagnosis-research-assurance-20261124-real-request-boundary.json"
+            in _flat(doc)
+        )
+        assert (
+            "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
             in _flat(doc)
         )

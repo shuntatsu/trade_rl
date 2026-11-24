@@ -8,6 +8,7 @@ Use the [documentation index](docs/README.md) to find the authoritative contract
 
 - [Lean core architecture](docs/architecture/lean-core.md) — causal data, risk, execution and common accounting.
 - [Package boundaries](docs/architecture/package-boundaries.md) — source ownership and public API.
+- [Repository separation plan](docs/plans/repository-split.md) — proposed core/research boundary and staged migration; no source move or new study authorization yet.
 - [Current research decisions](docs/research/current-status.md) — recorded evidence, limitations and next gates.
 - [Final-data authorization](docs/architecture/final-evaluation-authorization.md) — sealed/unused evaluation boundary.
 - [Human Guide](https://shuntatsu.github.io/trade_rl/) ([maintenance](guide/README.md)) — readable but **non-authoritative**.

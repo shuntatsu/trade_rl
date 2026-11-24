@@ -7,11 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.branch_hygiene import (
-    BranchInfo,
-    _push_branches_with_leases,
-    _retirement_push_env,
-)
+from tools import branch_hygiene as hygiene
+from tools.branch_hygiene import BranchInfo, GitHubApi
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
@@ -50,10 +47,13 @@ def test_real_atomic_exact_sha_lease_deletes_only_verified_tip(
     checkout, remote, sha = isolated_git
     monkeypatch.chdir(checkout)
     assert _remote_tip(remote) == sha
-    _push_branches_with_leases(
-        (BranchInfo("feat/merged", sha, False),),
-        env=_retirement_push_env("fixture-token"),
+    monkeypatch.setattr(hygiene, "_RETIREMENT_ORIGIN_URLS", frozenset({str(remote)}))
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl",
+        token="fixture-token",
+        api_url="https://api.github.com",
     )
+    api.delete_branches_with_leases((BranchInfo("feat/merged", sha, False),))
     assert _remote_tip(remote) is None
     assert _git("rev-parse", "refs/heads/main", cwd=remote) == sha
 
@@ -70,9 +70,22 @@ def test_real_stale_sha_lease_cannot_delete_a_changed_remote_branch(
     _git("push", "origin", "feat/merged", cwd=checkout)
     monkeypatch.chdir(checkout)
     assert new_sha != old_sha
+    monkeypatch.setattr(hygiene, "_RETIREMENT_ORIGIN_URLS", frozenset({str(remote)}))
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl",
+        token="fixture-token",
+        api_url="https://api.github.com",
+    )
+    # A second, otherwise valid lease must not be applied when the first
+    # lease fails: the actual two-ref transport must remain atomic.
+    _git("update-ref", "refs/heads/feat/second", old_sha, cwd=remote)
     with pytest.raises(RuntimeError, match="conditional branch deletion failed"):
-        _push_branches_with_leases(
-            (BranchInfo("feat/merged", old_sha, False),),
-            env=_retirement_push_env("fixture-token"),
+        api.delete_branches_with_leases(
+            (
+                BranchInfo("feat/merged", old_sha, False),
+                BranchInfo("feat/second", old_sha, False),
+            )
         )
     assert _remote_tip(remote) == new_sha
+    assert _git("rev-parse", "refs/heads/feat/second", cwd=remote) == old_sha
+    assert _git("rev-parse", "refs/heads/main", cwd=remote) == old_sha

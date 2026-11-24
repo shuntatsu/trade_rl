@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 API_VERSION = "2022-11-28"
+_RETIREMENT_ORIGIN_URLS = frozenset(
+    {
+        "https://github.com/shuntatsu/trade_rl",
+        "https://github.com/shuntatsu/trade_rl.git",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -338,7 +344,28 @@ class GitHubApi:
         # inherited environment alone could hide a different push destination.
         env = _retirement_push_env(self._token)
         require_retirement_origin(env=env)
-        _push_branches_with_leases(branches, env=env)
+        command = [
+            "git",
+            "push",
+            "--atomic",
+            "--porcelain",
+        ]
+        command.extend(
+            f"--force-with-lease=refs/heads/{branch.name}:{branch.sha}"
+            for branch in branches
+        )
+        command.append("origin")
+        command.extend(f":refs/heads/{branch.name}" for branch in branches)
+        process = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+        if process.returncode != 0:
+            detail = process.stderr.strip() or process.stdout.strip()
+            raise RuntimeError(f"conditional branch deletion failed: {detail}")
 
 
 def _retirement_push_env(token: str) -> dict[str, str]:
@@ -354,36 +381,6 @@ def _retirement_push_env(token: str) -> dict[str, str]:
         "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
         "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
     }
-
-
-def _push_branches_with_leases(
-    branches: Sequence[BranchInfo], *, env: dict[str, str]
-) -> None:
-    """Low-level Git transport; caller must validate the retirement destination."""
-    if not branches:
-        return
-    command = [
-        "git",
-        "push",
-        "--atomic",
-        "--porcelain",
-    ]
-    command.extend(
-        f"--force-with-lease=refs/heads/{branch.name}:{branch.sha}"
-        for branch in branches
-    )
-    command.append("origin")
-    command.extend(f":refs/heads/{branch.name}" for branch in branches)
-    process = subprocess.run(
-        command,
-        text=True,
-        capture_output=True,
-        check=False,
-        env=env,
-    )
-    if process.returncode != 0:
-        detail = process.stderr.strip() or process.stdout.strip()
-        raise RuntimeError(f"conditional branch deletion failed: {detail}")
 
 
 def open_pull_request_branch_names(
@@ -586,10 +583,10 @@ def apply_merged_retirement(
 def require_retirement_origin(*, env: dict[str, str] | None = None) -> None:
     """Do not let an exact-SHA lease target an unrelated checkout or remote."""
 
-    expected = {
-        "https://github.com/shuntatsu/trade_rl",
-        "https://github.com/shuntatsu/trade_rl.git",
-    }
+    # A standalone preflight must inspect the same effective Git settings
+    # as the eventual transport; the empty token is never used for network I/O.
+    if env is None:
+        env = _retirement_push_env("")
     for argv in (
         ("git", "remote", "get-url", "--all", "origin"),
         ("git", "remote", "get-url", "--push", "--all", "origin"),
@@ -601,7 +598,7 @@ def require_retirement_origin(*, env: dict[str, str] | None = None) -> None:
             check=True,
             env=env,
         ).stdout.splitlines()
-        if len(actual) != 1 or actual[0] not in expected:
+        if len(actual) != 1 or actual[0] not in _RETIREMENT_ORIGIN_URLS:
             raise RuntimeError(
                 "merged retirement requires the exact trade_rl HTTPS origin"
             )

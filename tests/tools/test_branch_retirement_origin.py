@@ -85,7 +85,14 @@ def test_transport_checks_same_environment_as_push(
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "remote.origin.pushurl")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", EXPECTED)
-    require_retirement_origin()
+    assert (
+        subprocess.check_output(
+            ["git", "remote", "get-url", "--push", "--all", "origin"], text=True
+        ).strip()
+        == EXPECTED
+    )
+    with pytest.raises(RuntimeError, match="exact trade_rl"):
+        require_retirement_origin()
     original_run = subprocess.run
     attempted: list[list[str]] = []
 
@@ -118,3 +125,75 @@ def test_foreign_repository_rejected_without_git_io(
     )
     with pytest.raises(ValueError, match="restricted to trade_rl"):
         api.delete_branches_with_leases((BranchInfo("fix/synthetic", "1" * 40, False),))
+
+
+def test_executor_rechecks_origin_for_each_batch(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.branch_hygiene import (
+        MergedPullRequestSource,
+        apply_merged_retirement,
+        plan_merged_retirement,
+    )
+
+    sha = "1" * 40
+    first = BranchInfo("fix/first", sha, False)
+    second = BranchInfo("fix/second", sha, False)
+    main = BranchInfo("main", sha, False)
+
+    class RosterApi(GitHubApi):
+        current = [main, first, second]
+
+        def branches(self):
+            return tuple(self.current)
+
+        def open_pull_request_refs(self):
+            return ()
+
+        def active_workflow_branch_names(self):
+            return frozenset()
+
+        def merged_pr_source_refs(self, **kwargs):
+            return (
+                MergedPullRequestSource(first.name, sha),
+                MergedPullRequestSource(second.name, sha),
+            )
+
+    api = RosterApi(
+        repository="shuntatsu/trade_rl",
+        token="synthetic",
+        api_url="https://api.github.com",
+    )
+    plan = plan_merged_retirement(
+        api.branches(),
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_main=frozenset({sha}),
+        merged_pr_sources=api.merged_pr_source_refs(),
+    )
+    original_run = subprocess.run
+    attempted = []
+
+    def observe(command, **kwargs):
+        if tuple(command[:2]) == ("git", "push"):
+            # Fake mutation only; inspect real Git configuration on both sides.
+            attempted.append(tuple(command))
+            api.current.remove(first)
+            _config("--add", "remote.origin.pushurl", OTHER)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", observe)
+    with pytest.raises(RuntimeError, match="exact trade_rl"):
+        apply_merged_retirement(
+            api,
+            plan,
+            default_branch="main",
+            expected_main_sha=sha,
+            reachable_from_main=frozenset({sha}),
+            batch_size=1,
+        )
+    assert len(attempted) == 1
+    assert f":refs/heads/{first.name}" in attempted[0]
+    assert api.current == [main, second]

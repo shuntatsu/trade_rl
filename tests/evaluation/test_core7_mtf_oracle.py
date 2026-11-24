@@ -37,7 +37,10 @@ from trade_rl.strategies.rl.shadow_anchor_mtf import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = ROOT / "report" / "issue888-core7-native-prerequisites-assurance-v16.json"
+PACKET_PATH = ROOT / "report" / "issue888-core7-native-arm-assurance-v17.json"
+PACKET_V16_PATH = (
+    ROOT / "report" / "issue888-core7-native-prerequisites-assurance-v16.json"
+)
 PACKET_V15_PATH = ROOT / "report" / "issue888-core7-terminal-reserve-assurance-v15.json"
 PACKET_V14_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v14.json"
 PACKET_V13_PATH = ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v13.json"
@@ -59,7 +62,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d565685ff3ab55bf7f103c80566238a61799039552c53fba89713ed4b1c0a364"
+    "a15af80af94657efca7a2c0720019e24bf7048c22bca12ae1a6b28aa4f2b7a65"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -888,3 +891,53 @@ def test_v14_packet_is_immutable_and_terminal_reserve_successor_only_rebinds_sou
     assert review.status == "UNREVIEWED"
     assert review.errors == ()
     assert not review.economic_execution_authorized
+
+
+def test_v15_v16_are_immutable_and_v17_preserves_economic_contract() -> None:
+    from hashlib import sha256
+
+    prior_raw = PACKET_V15_PATH.read_bytes()
+    old_raw = PACKET_V16_PATH.read_bytes()
+    assert (
+        sha256(prior_raw).hexdigest()
+        == "962f5dd16a8ba09fca6f64dde942857a139fb23836b11d5950d38a9c8e95622a"
+    )
+    assert (
+        sha256(old_raw).hexdigest()
+        == "0fe8430d482cfa63f3c72cf9b8cb5e96e9201a3bfa7e024537a150c8cc6a6d70"
+    )
+    prior = json.loads(prior_raw)
+    old = json.loads(old_raw)
+    new = json.loads(PACKET_PATH.read_bytes())
+    assert (
+        assurance_digest(prior)
+        == "e93ba3a057602c47a1985cad8125c67d4269a84c642555a5e673e1845ac9a21a"
+    )
+    assert (
+        assurance_digest(old)
+        == "d565685ff3ab55bf7f103c80566238a61799039552c53fba89713ed4b1c0a364"
+    )
+    for predecessor, successor in ((prior, old), (old, new)):
+        assert successor["schema_version"] == predecessor["schema_version"]
+        assert successor["mechanism"] == predecessor["mechanism"]
+        assert successor["evidence"] == predecessor["evidence"]
+        assert successor["thesis"]["limitations"].startswith(
+            predecessor["thesis"]["limitations"]
+        )
+        for field in predecessor["thesis"]:
+            if field != "limitations":
+                assert successor["thesis"][field] == predecessor["thesis"][field]
+        for field in predecessor["claims"]:
+            if field != "next_authorized_action":
+                assert successor["claims"][field] == predecessor["claims"][field]
+        assert "independent G0-G2" in successor["claims"]["next_authorized_action"]
+        assert "not permitted" in successor["claims"]["next_authorized_action"]
+    assert new["identity"] == {
+        "implementation_head": "d5e77be0c3fa8c8332cf1bcd048dd39fb1f4b9b7",
+        "protocol_head": "d5e77be0c3fa8c8332cf1bcd048dd39fb1f4b9b7",
+    }
+    for record in (prior, old, new):
+        review = evaluate_assurance(record)
+        assert review.status == "UNREVIEWED"
+        assert review.errors == ()
+        assert not review.economic_execution_authorized

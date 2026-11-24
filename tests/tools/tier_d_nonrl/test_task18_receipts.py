@@ -945,3 +945,53 @@ def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
         ArmAttemptProgress(last_observed_equity_usdt=value).last_observed_equity_usdt
         == value
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "error"),
+    [
+        ("RUNNING", "RUN_IN_PROGRESS", None),
+        ("INTERRUPTED", "PROCESS_INTERRUPTED", None),
+        ("FAILED", "PROCESS_FAILED", "SYNTHETIC_FAILURE"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("initial", "well_formed"),
+    [
+        (None, True),
+        (100_000.0, True),
+        (float("nan"), False),
+        (float("inf"), False),
+        (True, False),
+        (10**500, False),
+        (2**53 + 1, False),
+    ],
+)
+def test_partial_receipt_initial_equity_is_optional_but_numeric(
+    status, reason, error, initial, well_formed
+) -> None:
+    run = _complete_run()
+    partial = replace(
+        run.arms[0],
+        status=status,
+        reason_code=reason,
+        error_code=error,
+        initial_equity_usdt=initial,
+        terminal_equity_usdt=None,
+        max_drawdown=None,
+        terminal_flat=None,
+        pending_order_count=None,
+        native_ledger_sha256=None,
+        arm_result_sha256=None,
+        external_report=None,
+    )
+    result = evaluate_run_receipt(
+        replace(run, runtime_completed=False, arms=(partial,) + run.arms[1:]),
+        build_task18_protocol(),
+    )
+    assert result.declared_metrics_well_formed is well_formed
+    assert (f"initial equity is invalid: {partial.arm_id}" in result.issues) is (
+        not well_formed
+    )
+    assert not result.diagnostic_pair_arithmetic_available
+    assert result.adoption_status == "NOT_ESTABLISHED"

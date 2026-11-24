@@ -148,3 +148,58 @@ def test_full_history_count_rejects_declaration_without_cases(tmp_path: Path) ->
     # check; the shared validator requires actual executed testcase elements.
     with pytest.raises(ValueError, match="testcase count"):
         require_exact_junit_tests(_report(tmp_path, tests=4, cases=0), expected_tests=4)
+
+
+@pytest.mark.parametrize("location", ["wrapper", "suite", "case"])
+def test_nested_suite_cannot_hide_failed_test(tmp_path: Path, location: str) -> None:
+    report = _report(tmp_path)
+    doc = ET.parse(report)
+    root = doc.getroot()
+    suite = root.find("testsuite")
+    assert suite is not None
+    case = suite.find("testcase")
+    assert case is not None
+    parent = (
+        ET.SubElement(root, "unexpected")
+        if location == "wrapper"
+        else {"suite": suite, "case": case}[location]
+    )
+    hidden = ET.SubElement(parent, "testsuite", tests="1", failures="1")
+    ET.SubElement(ET.SubElement(hidden, "testcase", name="hidden"), "failure")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="testsuite"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_nested_testcase_cannot_hide_failed_test(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    doc = ET.parse(report)
+    case = doc.getroot().find("testsuite/testcase")
+    assert case is not None
+    ET.SubElement(ET.SubElement(case, "testcase", name="hidden"), "failure")
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="testcase count"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+@pytest.mark.parametrize("outcome", ["failure", "error", "skipped"])
+def test_nested_outcome_cannot_be_ignored(tmp_path: Path, outcome: str) -> None:
+    report = _report(tmp_path)
+    doc = ET.parse(report)
+    case = doc.getroot().find("testsuite/testcase")
+    assert case is not None
+    ET.SubElement(ET.SubElement(case, "unexpected"), outcome)
+    doc.write(report, encoding="utf-8", xml_declaration=True)
+    with pytest.raises(ValueError, match="skipped or failed"):
+        require_exact_junit_tests(report, expected_tests=2)
+
+
+def test_direct_suite_and_escaped_output_are_accepted(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    suite = ET.parse(report).getroot().find("testsuite")
+    assert suite is not None
+    case = suite.find("testcase")
+    assert case is not None
+    ET.SubElement(case, "system-out").text = "<failure>just captured text</failure>"
+    ET.ElementTree(suite).write(report, encoding="utf-8", xml_declaration=True)
+    require_exact_junit_tests(report, expected_tests=2)

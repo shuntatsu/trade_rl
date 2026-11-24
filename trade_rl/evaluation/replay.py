@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Literal
 
 import numpy as np
 
@@ -861,6 +862,8 @@ def _run_shared_cash_replay_core(
     capture_ledger_evidence: bool = False,
     _portfolio_policy: PortfolioPolicy | None = None,
     terminal_reserve_bars: int | None = None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+    hold_unchanged_risk_target: bool = False,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -989,6 +992,8 @@ def _run_shared_cash_replay_core(
             market_order_profile=market_order_profile,
             settle_terminal_position=settle_terminal_position,
             terminal_reserve_bars=terminal_reserve_bars,
+            insolvency_valuation=insolvency_valuation,
+            hold_unchanged_risk_target=hold_unchanged_risk_target,
             execution_observer=retain_latest_execution_observation,
         )
         if portfolio_session.agent_stop_index != agent_stop_index:
@@ -1548,11 +1553,17 @@ def run_shared_portfolio_replay(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     terminal_reserve_bars: int | None = None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+    hold_unchanged_risk_target: bool = False,
 ) -> SharedCashPortfolioReplayResult:
     """Call one simultaneous portfolio policy once for each actor interval.
 
     With settlement enabled, a fixed terminal_reserve_bars may extend the
     latency-aware default; only the native flatten path can advance that tail.
+    The optional retained-debt and final-risk equality HOLD conventions
+    preserve the independent-account native boundary. A retained-debt terminal
+    loss outside ReturnSeries' domain fails rather than returning a clipped
+    successful result. Defaults preserve existing replay behavior.
     """
 
     if execution_cost is not None and not isinstance(
@@ -1577,6 +1588,8 @@ def run_shared_portfolio_replay(
         capture_ledger_evidence=capture_ledger_evidence,
         _portfolio_policy=policy,
         terminal_reserve_bars=terminal_reserve_bars,
+        insolvency_valuation=insolvency_valuation,
+        hold_unchanged_risk_target=hold_unchanged_risk_target,
     )
     ledger = (
         None

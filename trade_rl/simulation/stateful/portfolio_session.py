@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable
 from dataclasses import replace
 from numbers import Real
+from typing import Literal
 
 import numpy as np
 
@@ -91,6 +92,8 @@ class SharedPortfolioSession:
         market_order_profile: MarketOrderProfile | None = None,
         settle_terminal_position: bool = False,
         terminal_reserve_bars: int | None = None,
+        insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+        hold_unchanged_risk_target: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -119,6 +122,8 @@ class SharedPortfolioSession:
             raise TypeError("risk must be a PreTradeRisk or None")
         if not isinstance(settle_terminal_position, bool):
             raise TypeError("settle_terminal_position must be boolean")
+        if type(hold_unchanged_risk_target) is not bool:
+            raise ValueError("hold_unchanged_risk_target must be boolean")
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
         if execution_trace_observer is not None and not callable(
@@ -153,6 +158,7 @@ class SharedPortfolioSession:
             dataset,
             resolved_cost,
             market_order_profile=market_order_profile,
+            insolvency_valuation=insolvency_valuation,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
         )
@@ -172,6 +178,7 @@ class SharedPortfolioSession:
         self._agent_stop_index = agent_stop_index
         self._settle_terminal_position = settle_terminal_position
         self._poisoned = False
+        self._hold_unchanged_risk_target = hold_unchanged_risk_target
 
     @property
     def current_index(self) -> int:
@@ -298,6 +305,7 @@ class SharedPortfolioSession:
                 start_index=index,
                 hold_current_quantity_symbols=hold_symbols,
                 emergency_flatten_mask=emergency_mask,
+                hold_unchanged_risk_target=self._hold_unchanged_risk_target,
             )
         except BaseException:
             # The executor may have advanced its RNG/order book before an

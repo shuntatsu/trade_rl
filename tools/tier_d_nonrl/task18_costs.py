@@ -16,6 +16,7 @@ import numpy as np
 from tools.tier_d_nonrl.task18_recipe import build_task18_protocol
 from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
+from trade_rl.simulation.execution import ExecutionCostConfig
 
 _PROTOCOL = build_task18_protocol()
 _PLAN = _PROTOCOL.index_plan
@@ -139,3 +140,29 @@ def build_cost_rates(dataset: MarketDataset) -> np.ndarray:
                 table[h, 0, symbol, offset] = (one_way, funding)
                 table[h, 1, symbol, offset] = (2.0 * one_way, funding)
     return table
+
+
+def native_execution_cost(scenario: str) -> ExecutionCostConfig:
+    """The frozen actual execution overlay, distinct from estimated beliefs."""
+    declaration = next((s for s in _PROTOCOL.scenarios if s.name == scenario), None)
+    if declaration is None:
+        raise ValueError("unknown Task18 native scenario")
+    if (
+        not declaration.fee_multiplier
+        == declaration.spread_multiplier
+        == declaration.impact_multiplier
+    ):
+        raise ValueError("Task18 requires one common native execution multiplier")
+    return ExecutionCostConfig(
+        fee_rate=0.0,
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        spread_rate=0.0,
+        impact_rate=_ECONOMICS.impact_coefficient,
+        multiplier=declaration.fee_multiplier,
+        max_participation_rate=_ECONOMICS.maximum_participation_rate,
+        processing_bar_volume_capacity=False,
+        borrow_rate_multiplier=1.0,
+        order_latency_bars=declaration.execution_latency_bars,
+        random_seed=0,
+    )

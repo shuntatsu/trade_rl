@@ -1,15 +1,15 @@
 # 研究基盤と個別研究のリポジトリ分離計画
 
-Status: Active — proposed migration; implementation and cutover are not authorized by this plan.
+Status: Active — initial policy pilot imported; full migration and execution cutover are not authorized by this plan.
 
 ## 目的と非目標
 
-既存の `shuntatsu/trade_rl` を再利用可能な研究基盤として維持し、新設候補
-`shuntatsu/trade_rl_research` に個別研究の実装、仮説、比較条件、実行、判定、証拠参照を集約する。
+既存の `shuntatsu/trade_rl` を再利用可能な研究基盤として維持し、別のprivate repository
+[shuntatsu/trade_rl_research](https://github.com/shuntatsu/trade_rl_research) に個別研究の実装、仮説、比較条件、実行、判定、証拠参照を段階的に集約する。
 Python配布名 `trade-rl` とimport名 `trade_rl` は変更しない。
-研究用の別配布名を `trade-rl-research`、import名を `trade_rl_research` とする案である。
-新リポジトリの作成、公開範囲、ライセンス適用、既存sourceの削除は別途実施する。
-本計画は現行のsource配置、研究結果、gate、実行権限を変更しない。
+研究用の別配布名は `trade-rl-research`、import名は `trade_rl_research` とする。
+別repoの初期policy importは完了しているが、公開範囲の変更、ライセンスの追加判断、既存sourceの削除は別途確認する。
+本計画は基盤の現行source配置、研究結果、gate、実行権限を変更しない。
 
 目標は研究候補の追加によって共通会計・データ・学習基盤の責務やリリースを変更しなくてよい状態。
 三つ以上のリポジトリ、汎用plugin framework、既存engineの再実装、全フォルダの命名変更は非目標。
@@ -176,8 +176,11 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   coreへの昇格候補。canonical source ownerとの重複を解消し、公開APIと因果性・単位・
   異常入力の契約を確定してから採用する。研究固有6時間/24時間閾値、context、quorum
   構成などは研究側で指定する。
-- C2/C3、R1/R2、N0–N3、T0–T2、S0–S2のpolicyと個別診断はcloud研究群へ。
+- C2/C3、R1/R2、N0–N3、T0–T2、S0–S2のpolicyと研究固有入力契約の初期移植は
+  [PR #1356の検証記録](https://github.com/shuntatsu/trade_rl/pull/1356) と別repoのsourceで確認する。
   既存 `PortfolioPolicy` / `run_shared_portfolio_replay` を唯一の執行経路とする。
+  研究repoの初期合成テストは全feature adapter・runner・研究CI・認可・経済的同等性の
+  完了証拠ではない。正式なcore配布とpinの受入は [Issue #1359](https://github.com/shuntatsu/trade_rl/issues/1359) で追跡する。
 - #1355のrunner/summary・198セルprotocolは研究側へ置く候補。現行sourceが参照する
   `RawMarketSeries` のprivate helpers、MTFの `_aggregate` 等、core側の `tools.*`、
   Fedora固定path、hard-coded repository/owner approvalを洗い出す。
@@ -185,7 +188,7 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   動かす。現在の承認条件を外さない。
 - 未統合研究のソフトウェアは別repoで試験移植しても、#1355の元の198試行の実行条件、
   source HEAD、author packet、データidentityを上書きしない。移植結果は新しいsource
-  identityとして扱い、既存承認を引き継がない。自動化の参照先変更はcutover後に行う。
+  identityとして扱い、既存承認を引き継がない。作業・レビューのroutingと経済runnerの委譲を区別し、実行権威の切替はcutover完了後に行う。
   既存の継続タスクと新しいrunnerが同じ試行を二重実行しないよう、承認主体と
   exclusive attempt/consumption authorityを切替前に確定する。
 
@@ -247,7 +250,7 @@ versioned wheel公開とreadbackを行う。Issueには対応するPR/固定core
 最小再現と研究固有の回帰テストを実行する。確認後にのみ研究側のBLOCKEDを解消する。
 Issueがclosedでも旧環境が自動的に修正されたとはみなさない。
 同じ基盤変更に複数の研究から依頼があっても実装ownerは一つにする。
-新repoのAGENTS.mdにはこのrouting規則を記載する。現段階では新repoをまだ作成していない。
+研究repoのAGENTS.mdはこのrouting規則を明示している。既存のcore変更は引き続き基盤PR経路を用いる。
 
 ## その他の最適化方針
 
@@ -309,7 +312,7 @@ closed study stop ruleは別repoに移しただけでは更新できない。新
 ## 段階移行と完了条件
 
 1. **設計・棚卸し**: 本計画と現行docs入口の整理。source/API/CIの削除なし。
-2. **Pilot**: 別repoの公開範囲とlicensing確定後、外部研究packageの最小構成を作る。
+2. **Pilot（部分完了）**: private repoに外部研究packageの最小構成とpolicyを初期import済み。
    core公開extension seamを確定し、旧sourceから雲研究を移植した合成fixtureで、
    同一固定入力と固定risk/costに対するsignal、decision、order/fill、
    terminal equity/cost/funding/borrow、ledgerのsemantic equalityを検証する。

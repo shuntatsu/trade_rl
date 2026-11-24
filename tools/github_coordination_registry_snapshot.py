@@ -51,9 +51,12 @@ def _requested_ref(ref_name: str) -> str:
     if (
         not isinstance(ref_name, str)
         or not _REF_RE.fullmatch(ref_name)
-        or any(part in {".", ".."} for part in ref_name.split("/"))
+        or any(
+            part.startswith(".") or part.endswith(".lock")
+            for part in ref_name.split("/")
+        )
         or ".." in ref_name
-        or ref_name.endswith(".lock")
+        or ref_name.endswith(".")
     ):
         raise ValueError("ref must be a safe coordination branch ref")
     return ref_name

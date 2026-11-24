@@ -319,6 +319,10 @@ def run_signal_diagnosis(
             raise SignalDiagnosisProtocolError(
                 "a real run uses the frozen plan; only a synthetic run may differ"
             )
+        if builder_probe is not None:
+            raise SignalDiagnosisProtocolError(
+                "a custom builder probe is synthetic-only"
+            )
         authorization = authorization_digest(url, digest)
     elif scope == SCOPE_SYNTHETIC:
         if g4_authorization_url is not None:
@@ -359,7 +363,9 @@ def run_signal_diagnosis(
         },
     }
     mismatches = panel.identity.mismatches(protocol) if scope == SCOPE_REAL else ()
-    digest_mismatch = digest != expected_protocol_digest
+    digest_mismatch = digest != expected_protocol_digest or (
+        scope == SCOPE_REAL and digest != FROZEN_PROTOCOL_DIGEST
+    )
     if digest_mismatch or mismatches:
         flags = ValidityFlags(
             leakage_detected=False,
@@ -371,13 +377,6 @@ def run_signal_diagnosis(
         record["identity_mismatches"] = list(mismatches)
         return _validity_only(protocol, flags, record)
 
-    request = SignalDiagnosisRunRequest(
-        data_scope=scope,
-        protocol_digest=digest,
-        evaluation_start=None,
-        evaluation_end=None,
-        real_scope_authorization_digest=None,
-    )
     if scope == SCOPE_REAL:
         request = SignalDiagnosisRunRequest(
             data_scope=scope,
@@ -385,6 +384,14 @@ def run_signal_diagnosis(
             evaluation_start=_instant(protocol.data.evaluation_start),
             evaluation_end=_instant(protocol.data.evaluation_end),
             real_scope_authorization_digest=authorization,
+        )
+    else:
+        request = SignalDiagnosisRunRequest(
+            data_scope=scope,
+            protocol_digest=digest,
+            evaluation_start=None,
+            evaluation_end=None,
+            real_scope_authorization_digest=None,
         )
     admit_run(request, protocol)
     admit_panel(panel, protocol)

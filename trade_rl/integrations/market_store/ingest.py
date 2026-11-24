@@ -43,6 +43,7 @@ from trade_rl.integrations.market_store.contracts import (
 from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 from trade_rl.integrations.market_store.parse import (
     SkippedPlaceholder,
+    StoreKlineAdmission,
     parse_funding_archive,
     parse_kline_archive,
 )
@@ -370,7 +371,12 @@ def _ingest_archive(
     funding_rows: list[FundingRow] = []
     skipped: tuple[SkippedPlaceholder, ...] = ()
     if spec.kind is ArchiveKind.KLINES:
-        parsed_klines = parse_kline_archive(archive.body, spec, embargo=embargo)
+        parsed_klines = parse_kline_archive(
+            archive.body,
+            spec,
+            embargo=embargo,
+            admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+        )
         kline_rows = parsed_klines.rows
         skipped = parsed_klines.placeholders
         row_count = len(kline_rows)
@@ -449,7 +455,13 @@ def run_ingestion(
     run_id = store.begin_run(
         code_commit=code_commit,
         command_line=command_line,
-        request=plan.to_dict() | {"refetch": refetch},
+        # The policy applies only to newly parsed archives.
+        # Skipped sources and identical existing rows retain original lineage.
+        request=plan.to_dict()
+        | {
+            "refetch": refetch,
+            "new_kline_admission": StoreKlineAdmission.STRICT_NATIVE_V2.value,
+        },
         embargo=plan.embargo,
     )
     counts = RunCounts(archives_planned=len(plan.specs))

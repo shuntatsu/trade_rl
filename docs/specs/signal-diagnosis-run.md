@@ -33,6 +33,13 @@ appear in D2.
 
 ## 2. Refusals
 
+Direct real-scope runner calls must construct the request with the frozen UTC
+window and the authorization digest together; a synthetic request is a separate
+branch. Custom feature-builder probes are synthetic-only, never replacements
+for the required real-scope leakage screen. The real-scope protocol digest is
+checked against the frozen constant even if a caller supplies a different
+expected digest. These are software contracts, not authentication of G4.
+
 Before opening any Dataset arrays file, the CLI reads only `manifest.json` and
 admits its metadata: the manifest must hash to its own `artifact_digest`, match the
 pinned artifact, arrays, Dataset and feature-config digests, declare the five-symbol

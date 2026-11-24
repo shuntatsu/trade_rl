@@ -17,11 +17,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Final
 
 from trade_rl.integrations.binance import (
     BinanceTransportError,
     binance_interval_milliseconds,
+)
+from trade_rl.integrations.binance.source_clock import (
+    BinanceSourceClosePolicy,
+    _check_source_close_time,
 )
 from trade_rl.integrations.binance.vision import (
     _csv_rows_from_zip,
@@ -67,9 +72,33 @@ KNOWN_PLACEHOLDER_SYMBOLS: Final[frozenset[str]] = frozenset(
 )
 KNOWN_PLACEHOLDER_OPEN_MS: Final = ms_from_utc(datetime(2020, 12, 21, 14, tzinfo=UTC))
 
+# Vision kline archives may be headerless or carry this ordered column header.
+# A nonnumeric first cell alone cannot prove that a row is metadata.
+_KLINE_HEADER: Final = (
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time",
+    "quote_volume",
+    "count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "ignore",
+)
+
 
 class ArchiveContentError(ValueError):
     """An archive's content is not a valid, in-period series of the declared kind."""
+
+
+class StoreKlineAdmission(StrEnum):
+    """Raw archive admission, not an attestation about existing stored rows."""
+
+    LEGACY_NORMALIZED_V1 = "normalized_close_after_open_v1"
+    STRICT_NATIVE_V2 = "store_native_close_v2"
 
 
 def _decimal(value: str, *, field: str, url: str) -> Decimal:
@@ -177,21 +206,34 @@ def is_known_exchange_placeholder(
 
 
 def parse_kline_archive(
-    payload: bytes, spec: ArchiveSpec, *, embargo: EmbargoPolicy
+    payload: bytes,
+    spec: ArchiveSpec,
+    *,
+    embargo: EmbargoPolicy,
+    admission: StoreKlineAdmission | str = StoreKlineAdmission.LEGACY_NORMALIZED_V1,
 ) -> ParsedKlines:
     """Parse a verified kline archive; refuse embargoed, out-of-period or invalid rows.
 
-    The one recognised exchange placeholder (:func:`is_known_exchange_placeholder`) is
-    returned in ``placeholders`` instead of ``rows``; it passes every other check
-    (embargo, period, alignment, ordering) first.
+    The default reproduces historical parser semantics for existing callers.
+    New store ingestion explicitly selects native v2, which checks the raw
+    clocks before accepting any regular row. The known 2020 spot placeholder
+    is still reported as missing, not returned as a bar; v2 also requires its
+    original millisecond timestamp representation.
     """
 
+    resolved_admission = StoreKlineAdmission(admission)
     if spec.kind is not ArchiveKind.KLINES or spec.interval is None:
         raise ValueError("spec is not a klines archive")
     interval_ms = binance_interval_milliseconds(spec.interval)
     rows = _rows(payload, url=spec.url)
-    if rows and _looks_like_header(rows[0]):
-        rows = rows[1:]
+    if rows:
+        header = (
+            tuple(rows[0]) == _KLINE_HEADER
+            if resolved_admission is StoreKlineAdmission.STRICT_NATIVE_V2
+            else _looks_like_header(rows[0])
+        )
+        if header:
+            rows = rows[1:]
     start_ms = ms_from_utc(spec.period_start)
     end_ms = ms_from_utc(spec.period_end)
     result: list[KlineRow] = []
@@ -231,6 +273,12 @@ def parse_kline_archive(
             ),
         )
         if is_known_exchange_placeholder(row, spec, interval_ms=interval_ms):
+            if resolved_admission is StoreKlineAdmission.STRICT_NATIVE_V2 and (
+                raw[0] != str(open_ms) or raw[6] != str(close_ms)
+            ):
+                raise ArchiveContentError(
+                    f"{spec.url}: source close_time placeholder requires native milliseconds"
+                )
             placeholders.append(
                 SkippedPlaceholder(
                     url=spec.url,
@@ -241,6 +289,18 @@ def parse_kline_archive(
             )
             continue
         validate_kline(row, url=spec.url)
+        if resolved_admission is StoreKlineAdmission.STRICT_NATIVE_V2:
+            # The normalized millisecond fields cannot distinguish an invalid
+            # microsecond close from the correct native interval endpoint.
+            try:
+                _check_source_close_time(
+                    raw,
+                    open_ms=open_ms,
+                    interval_ms=interval_ms,
+                    source_close_policy=BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2,
+                )
+            except ValueError as error:
+                raise ArchiveContentError(f"{spec.url}: {error}") from error
         result.append(row)
     return ParsedKlines(result, tuple(placeholders))
 
@@ -329,6 +389,7 @@ __all__ = [
     "ArchiveContentError",
     "ParsedKlines",
     "SkippedPlaceholder",
+    "StoreKlineAdmission",
     "is_known_exchange_placeholder",
     "parse_funding_archive",
     "parse_kline_archive",

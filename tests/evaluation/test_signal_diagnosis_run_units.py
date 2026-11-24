@@ -476,6 +476,72 @@ def test_a_real_run_is_refused_without_a_g4_url_or_from_a_dirty_tree_or_a_new_pl
         )
 
 
+def test_valid_real_scope_constructs_the_bound_request_before_panel_admission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.signal_diagnosis_run import runner as runner_module
+
+    def stop_at_panel(*args: object, **kwargs: object) -> None:
+        raise SignalDiagnosisProtocolError("synthetic stop after request admission")
+
+    monkeypatch.setattr(runner_module, "admit_panel", stop_at_panel)
+    with pytest.raises(
+        SignalDiagnosisProtocolError, match="synthetic stop after request admission"
+    ):
+        run_signal_diagnosis(
+            _small_real_panel(),
+            protocol(),
+            scope="real_development",
+            code_provenance=CLEAN,
+            g4_authorization_url=URL,
+        )
+
+
+def test_real_scope_cannot_override_the_frozen_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trade_rl.evaluation.signal_diagnosis_run import runner as runner_module
+
+    altered_digest = "a" * 64
+    monkeypatch.setattr(runner_module, "protocol_digest", lambda _: altered_digest)
+    run = run_signal_diagnosis(
+        _small_real_panel(),
+        protocol(),
+        scope="real_development",
+        code_provenance=CLEAN,
+        g4_authorization_url=URL,
+        expected_protocol_digest=altered_digest,
+    )
+    assert run.label == "INVALID"
+    assert (
+        "protocol_digest_mismatch"
+        in run.records["verdict.json"]["validity_flags_raised"]
+    )
+    assert set(run.records) == {"run_record.json", "verdict.json"}
+
+
+def test_real_scope_refuses_an_injected_builder_probe_before_statistics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A real caller must not replace the mandatory future-perturbation screen.
+    # Only synthetic arrays with placeholder identity are used in this test.
+    from trade_rl.evaluation.signal_diagnosis_run import runner as runner_module
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("real scope reached panel admission with a custom builder probe")
+
+    monkeypatch.setattr(runner_module, "admit_panel", forbidden)
+    with pytest.raises(SignalDiagnosisProtocolError, match="synthetic-only"):
+        run_signal_diagnosis(
+            _small_real_panel(),
+            protocol(),
+            scope="real_development",
+            code_provenance=CLEAN,
+            g4_authorization_url=URL,
+            builder_probe=lambda _: {"leaks": False},
+        )
+
+
 def test_real_identity_mismatch_and_protocol_digest_mismatch_are_invalid_not_run() -> (
     None
 ):

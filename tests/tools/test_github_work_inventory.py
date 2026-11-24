@@ -786,3 +786,48 @@ def test_issue_list_bound_to_selected_repository_and_refuses_foreign_issue() -> 
     ]
     with pytest.raises((ValueError, RuntimeError), match="open Issue repository"):
         build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("include_workflow_refs", [False, True])
+def test_work_inventory_rejects_default_branch_drift(
+    include_workflow_refs: bool,
+) -> None:
+    api = FakeWorkApi()
+    selected = "main"
+    calls = 0
+
+    def default_branch() -> str:
+        nonlocal calls
+        calls += 1
+        return selected
+
+    original_branches = api.branches
+
+    def branches() -> tuple[BranchInfo, ...]:
+        nonlocal selected
+        rows = original_branches()
+        if not include_workflow_refs:
+            selected = "feature/unregistered"
+        return rows
+
+    def workflow_refs() -> frozenset[str]:
+        nonlocal selected
+        selected = "feature/unregistered"
+        return frozenset({"main"})
+
+    api.repository_default_branch = default_branch  # type: ignore[method-assign]
+    api.branches = branches  # type: ignore[method-assign]
+    setattr(api, "unfinished_workflow_branch_names", workflow_refs)
+    with pytest.raises(RuntimeError, match="default branch changed"):
+        build_inventory(api, include_workflow_refs=include_workflow_refs)  # type: ignore[arg-type]
+    assert calls == 2
+
+
+@pytest.mark.parametrize("include_workflow_refs", [False, True])
+def test_work_inventory_stable_default_branch(include_workflow_refs: bool) -> None:
+    api = FakeWorkApi()
+    setattr(api, "unfinished_workflow_branch_names", lambda: frozenset({"main"}))
+    report = build_inventory(api, include_workflow_refs=include_workflow_refs)  # type: ignore[arg-type]
+    assert report["main_sha"] == "a" * 40
+    assert report["cleanup_authorized"] is False
+    assert report["task_registry_complete"] is False

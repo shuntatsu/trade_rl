@@ -127,3 +127,22 @@ def test_exact_duration_proportional_month_returns_have_zero_variance() -> None:
     )
     assert actual.annualized_volatility == 0.0
     assert actual.sharpe == 0.0
+
+
+@pytest.mark.parametrize("base", [0.1, -0.1])
+@pytest.mark.parametrize("count", [2, 3])
+def test_adjacent_fixed_returns_preserve_fractional_mean(
+    base: float, count: int
+) -> None:
+    adjacent = math.nextafter(base, math.inf)
+    values = (base,) * (count - 1) + (adjacent,)
+    closes = np.datetime64("2024-01-08") + np.arange(count) * np.timedelta64(7, "D")
+    clock = NativeBarClock(NativeClockKind.UTC_WEEK)
+    # Population standard deviation of n-1 identical values and one outlier.
+    expected = (adjacent - base) * math.sqrt(count - 1) / count * math.sqrt(365 / 7)
+    for ordered in (values, values[::-1]):
+        actual = evaluate_native_bar_annualization(ordered, clock=clock, closes=closes)
+        assert actual.annualized_volatility == pytest.approx(expected, rel=1e-14, abs=0)
+        assert actual.sharpe == pytest.approx(
+            actual.annualized_arithmetic_return / expected, rel=1e-14, abs=0
+        )

@@ -84,13 +84,16 @@ def evaluate_native_bar_annualization(
         total = math.fsum(normalized)
         drift = total / years
         if all(duration == durations_ns[0] for duration in durations_ns):
-            # Avoid introducing a spurious residual for constant fixed returns.
+            # Center the small differences again: a rounded mean can land
+            # on an endpoint when returns differ by only one floating-point ULP.
             mean = (
                 normalized[0]
                 if all(value == normalized[0] for value in normalized)
                 else fmean(normalized)
             )
-            residuals = (value - mean for value in normalized)
+            offsets = tuple(value - mean for value in normalized)
+            correction = fmean(offsets)
+            residuals = (offset - correction for offset in offsets)
         else:
             # Calendar samples are short; exact binary-rational centering avoids
             # fabricating risk when the input returns are proportional to time.

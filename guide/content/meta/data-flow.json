@@ -19,7 +19,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "412d7d149578f3afa6576cfac743b9a60b91cd585036b6c2c4960f6302f0d3f5"
+      "sha256": "b6d95033f2767bb2be7e1688b7b2e111b9fece64fb8057a083d5b48b08c13125"
     },
     {
       "path": "docs/architecture/controlled-experiment-loop.md",

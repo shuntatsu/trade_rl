@@ -699,3 +699,57 @@ def test_late_mark_guard_applies_inside_existing_gross_tolerance() -> None:
             start_index=1,
             bars=1,
         )
+
+
+def test_opt_in_risk_unchanged_target_holds_exact_quantity_after_projection():
+    data = market()
+    book = BookState(
+        quantities=np.array([1.0 / 3.0]),
+        cash=100.0,
+        mark_prices=data.close[0],
+        peak_value=1_000.0,
+    )
+    # The turnover limit forces the final target back to the existing weight.
+    # With exact quantity HOLD, no weight-to-quantity round trip is needed.
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=0.0,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+    cost = ExecutionCostConfig.zero()
+    target, result, holds = execute_native_target_transition(
+        MarketExecutor(data, cost),
+        book,
+        risk,
+        np.array([0.9]),
+        start_index=0,
+        hold_unchanged_risk_target=True,
+    )
+    np.testing.assert_array_equal(target.weights, book.weights)
+    assert holds == (0,)
+    assert result.book.exact_quantities == book.exact_quantities
+    assert result.fill_count == 0
+
+
+def test_opt_in_unchanged_hold_rejects_non_boolean_before_execution():
+    data = market()
+    observations = []
+    executor = MarketExecutor(
+        data, ExecutionCostConfig.zero(), execution_observer=observations.append
+    )
+    book = BookState.zero(1, 1000.0, data.close[0])
+    risk = PreTradeRisk.default_for_execution(max_leverage=1.0)
+    with pytest.raises((TypeError, ValueError), match="hold_unchanged_risk_target"):
+        execute_native_target_transition(
+            executor,
+            book,
+            risk,
+            np.array([0.0]),
+            start_index=0,
+            hold_unchanged_risk_target=1,
+        )
+    assert observations == []

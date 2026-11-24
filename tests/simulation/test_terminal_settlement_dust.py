@@ -514,3 +514,44 @@ def test_finite_positive_volume_remains_valued_dust_control(last_volume: float) 
     assert report["terminal_dust_only"] is True
     assert len(report["terminal_dust"]) == len(SYMBOLS)
     assert math.isfinite(report["terminal_dust_exit_cost_usdt"])
+
+
+def test_shared_terminal_settlement_api_is_single_owner_and_legacy_compatible() -> None:
+    from trade_rl.evaluation import terminal_settlement as shared
+    from trade_rl.evaluation.dev_realdata_study import runner as legacy
+
+    assert shared.terminal_dust is legacy.terminal_dust
+    assert shared.terminal_dust_adjusted_equity is legacy.terminal_dust_adjusted_equity
+    assert shared.terminal_dust.__module__ == "trade_rl.evaluation.terminal_settlement"
+
+
+@pytest.mark.parametrize("drop", (True, False))
+@pytest.mark.parametrize("with_cost", (True, False))
+def test_shared_terminal_settlement_uses_native_ledger_and_preserves_input(
+    drop: bool, with_cost: bool
+) -> None:
+    from trade_rl.evaluation.terminal_settlement import (
+        terminal_dust,
+        terminal_dust_adjusted_equity,
+    )
+
+    dataset = _dataset(drop=drop)
+    result = _replay(dataset)
+    assert result.ledger_evidence is not None
+    ledger = result.ledger_evidence.intervals
+    original = ledger.to_mapping()
+    cost = COST if with_cost else None
+    dust, other, valued = terminal_dust(ledger, dataset, cost, ledger.intervals[-1])
+    report = reconcile_ledger(result, dataset, PROTO, execution_cost=cost)
+    assert dust == report["terminal_dust"]
+    assert valued is with_cost
+    assert other == (list(SYMBOLS) if drop and not with_cost else [])
+    assert ledger.to_mapping() == original
+    equity = np.array([CAPITAL, ledger.final_portfolio_value], dtype=np.float64)
+    adjusted = terminal_dust_adjusted_equity(equity, report)
+    assert not np.shares_memory(adjusted, equity)
+    assert equity[-1] == ledger.final_portfolio_value
+    assert adjusted[-1] == pytest.approx(
+        ledger.final_portfolio_value
+        - sum(float(item["exit_cost_usdt"]) for item in dust)
+    )

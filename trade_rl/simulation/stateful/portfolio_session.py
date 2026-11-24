@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable
 from dataclasses import replace
 from numbers import Real
+from typing import Literal
 
 import numpy as np
 
@@ -36,6 +37,37 @@ def _finite_real(value: object, *, name: str) -> float:
     return converted
 
 
+def resolve_agent_stop_index(
+    *,
+    start_index: int,
+    stop_index: int,
+    execution_cost: ExecutionCostConfig,
+    settle_terminal_position: bool,
+    terminal_reserve_bars: int | None = None,
+) -> int:
+    """Resolve the actor boundary without changing the default latency reserve."""
+    if terminal_reserve_bars is not None and (
+        type(terminal_reserve_bars) is not int or not settle_terminal_position
+    ):
+        raise ValueError(
+            "explicit terminal reserve requires an integer and terminal settlement"
+        )
+    if not settle_terminal_position:
+        return stop_index
+    minimum = execution_cost.order_latency_bars + 1
+    reserve = minimum if terminal_reserve_bars is None else terminal_reserve_bars
+    if reserve < minimum:
+        raise ValueError(
+            "terminal reserve must cover order latency and at least one close interval"
+        )
+    agent_stop_index = stop_index - reserve
+    if agent_stop_index <= start_index:
+        raise ValueError(
+            "terminal settlement requires at least one agent interval before the close"
+        )
+    return agent_stop_index
+
+
 class SharedPortfolioSession:
     """Advance one shared account by one native bar per numeric target.
 
@@ -44,7 +76,8 @@ class SharedPortfolioSession:
     snapshots through the strategy-owned observation builder; the session stays
     independent of evaluation and policy DTOs. Terminal intervals are reserved
     from actor decisions and can only be advanced by the internal
-    emergency-flatten path.
+    emergency-flatten path. An explicit terminal reserve can extend, but
+    never shorten, the latency-aware default.
     """
 
     def __init__(
@@ -58,6 +91,9 @@ class SharedPortfolioSession:
         risk: PreTradeRisk | None = None,
         market_order_profile: MarketOrderProfile | None = None,
         settle_terminal_position: bool = False,
+        terminal_reserve_bars: int | None = None,
+        insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+        hold_unchanged_risk_target: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -86,6 +122,8 @@ class SharedPortfolioSession:
             raise TypeError("risk must be a PreTradeRisk or None")
         if not isinstance(settle_terminal_position, bool):
             raise TypeError("settle_terminal_position must be boolean")
+        if type(hold_unchanged_risk_target) is not bool:
+            raise ValueError("hold_unchanged_risk_target must be boolean")
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
         if execution_trace_observer is not None and not callable(
@@ -96,14 +134,13 @@ class SharedPortfolioSession:
         resolved_cost = (
             ExecutionCostConfig.zero() if execution_cost is None else execution_cost
         )
-        agent_stop_index = stop_index
-        if settle_terminal_position:
-            agent_stop_index = stop_index - resolved_cost.order_latency_bars - 1
-            if agent_stop_index <= start_index:
-                raise ValueError(
-                    "terminal settlement requires at least one agent interval "
-                    "before the close"
-                )
+        agent_stop_index = resolve_agent_stop_index(
+            start_index=start_index,
+            stop_index=stop_index,
+            execution_cost=resolved_cost,
+            settle_terminal_position=settle_terminal_position,
+            terminal_reserve_bars=terminal_reserve_bars,
+        )
 
         _require_available_marks_at_row(
             dataset,
@@ -121,6 +158,7 @@ class SharedPortfolioSession:
             dataset,
             resolved_cost,
             market_order_profile=market_order_profile,
+            insolvency_valuation=insolvency_valuation,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
         )
@@ -140,6 +178,7 @@ class SharedPortfolioSession:
         self._agent_stop_index = agent_stop_index
         self._settle_terminal_position = settle_terminal_position
         self._poisoned = False
+        self._hold_unchanged_risk_target = hold_unchanged_risk_target
 
     @property
     def current_index(self) -> int:
@@ -266,6 +305,7 @@ class SharedPortfolioSession:
                 start_index=index,
                 hold_current_quantity_symbols=hold_symbols,
                 emergency_flatten_mask=emergency_mask,
+                hold_unchanged_risk_target=self._hold_unchanged_risk_target,
             )
         except BaseException:
             # The executor may have advanced its RNG/order book before an

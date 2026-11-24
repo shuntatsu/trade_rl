@@ -14,10 +14,45 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from typing import Protocol
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.replay import SharedCashPortfolioReplayResult
+from trade_rl.evaluation.replay import SharedCashPortfolioReplayLedgerEvidence
 from trade_rl.simulation.execution import ExecutionCostConfig
+
+
+class SettledBookView(Protocol):
+    """Read-only terminal facts; the oracle never resumes or modifies a book."""
+
+    @property
+    def exact_quantities(self) -> tuple[Fraction, ...]: ...
+    @property
+    def cash(self) -> float: ...
+    @property
+    def portfolio_value(self) -> float: ...
+    @property
+    def total_cost(self) -> float: ...
+    @property
+    def funding_pnl(self) -> float: ...
+    @property
+    def borrow_cost(self) -> float: ...
+    @property
+    def turnover_total(self) -> float: ...
+    @property
+    def max_drawdown(self) -> float: ...
+    @property
+    def termination_reason(self) -> str | None: ...
+    @property
+    def insolvent(self) -> bool: ...
+
+
+class SettledLedgerInput(Protocol):
+    """Live or restored evidence with comparison-only terminal facts."""
+
+    @property
+    def book(self) -> SettledBookView: ...
+    @property
+    def ledger_evidence(self) -> SharedCashPortfolioReplayLedgerEvidence | None: ...
 
 
 def _near(a: float, b: float, *, tol: float = 1e-5) -> bool:
@@ -25,7 +60,7 @@ def _near(a: float, b: float, *, tol: float = 1e-5) -> bool:
 
 
 def verify_paired_economic_ledger(
-    result: SharedCashPortfolioReplayResult,
+    result: SettledLedgerInput,
     dataset: MarketDataset,
     *,
     expected_intervals: int,

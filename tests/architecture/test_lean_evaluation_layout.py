@@ -71,6 +71,7 @@ def test_evaluation_root_keeps_core_primitives() -> None:
 
 def test_evaluation_responsibility_packages_exist() -> None:
     required = (
+        "terminal_settlement.py",
         "directional.py",
         "carry.py",
         "carry_multisymbol/__init__.py",

@@ -46,6 +46,101 @@ def test_scalar_allocator_preserves_exact_tie_breaks(
     )
 
 
+def test_scalar_allocator_differential_on_exact_thresholds_and_ieee_inputs():
+    """Independent endpoint oracle, including exact ties and adjacent floats."""
+    from tools.tier_d_nonrl.task18_native import choose_target_weight
+
+    def oracle(current, forecast, cost, funding):
+        x, mu, c, f = map(Fraction, (current, forecast, cost, funding))
+        candidates = {-1.0, 0.0, 1.0}
+        if -1.0 <= current <= 1.0:
+            candidates.add(current)
+
+        def rank(w):
+            y = Fraction(w)
+            return (
+                mu * y
+                - f * y
+                - c * max(y - x, Fraction(0))
+                - c * max(x - y, Fraction(0))
+                - c * abs(y),
+                w == current,
+                -abs(y - x),
+                -abs(w),
+                -w,
+            )
+
+        return max(candidates, key=rank)
+
+    cases = []
+    for current in (
+        -2.0,
+        -1.0,
+        -0.37,
+        -0.0,
+        0.0,
+        0.37,
+        1.0,
+        2.0,
+        float.fromhex("0x0.0000000000001p-1022"),
+    ):
+        for cost in (
+            0.0,
+            float.fromhex("0x0.0000000000001p-1022"),
+            2.0**-20,
+            0.01,
+            0.25,
+            1e100,
+        ):
+            for funding in (-0.25, 0.0, 0.25, 1e100):
+                for threshold in (-2 * cost, 0.0, 2 * cost):
+                    center = funding + threshold
+                    for forecast in (
+                        float(np.nextafter(center, -np.inf)),
+                        float(center),
+                        float(np.nextafter(center, np.inf)),
+                    ):
+                        if np.isfinite(forecast) and forecast >= -1:
+                            cases.append((current, forecast, cost, funding))
+    rng = np.random.default_rng(8018)
+    for _ in range(6000):
+        current = float(rng.uniform(-2, 2))
+        forecast = float(rng.uniform(-1, 1))
+        cost = float(rng.uniform(0, 1))
+        funding = float(rng.uniform(-1, 1))
+        cases.append((current, forecast, cost, funding))
+    for current, forecast, cost, funding in cases:
+        assert choose_target_weight(
+            current_weight=current,
+            expected_simple_return=forecast,
+            one_way_cost=cost,
+            funding_return=funding,
+        ) == oracle(current, forecast, cost, funding), (
+            current,
+            forecast,
+            cost,
+            funding,
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("current_weight", "expected_simple_return", "one_way_cost", "funding_return"),
+)
+def test_scalar_allocator_rejects_nonfinite_or_boolean(field):
+    from tools.tier_d_nonrl.task18_native import choose_target_weight
+
+    good = dict(
+        current_weight=0.0,
+        expected_simple_return=0.1,
+        one_way_cost=0.01,
+        funding_return=0.0,
+    )
+    for bad in (True, np.bool_(False), float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError):
+            choose_target_weight(**(good | {field: bad}))
+
+
 @pytest.fixture(scope="module")
 def native_attempt(tmp_path_factory):
     from tools.tier_d_nonrl.task18_frozen_inputs import (

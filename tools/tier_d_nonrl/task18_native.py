@@ -72,25 +72,23 @@ def choose_target_weight(
             raise ValueError("Task18 objective inputs must be finite real numbers")
     if one_way_cost < 0 or expected_simple_return < -1:
         raise ValueError("Task18 objective input outside its domain")
-    current = float(current_weight)
-    w0 = Fraction(current)
+    current = max(-1.0, min(1.0, float(current_weight)))
     signal = Fraction(float(expected_simple_return)) - Fraction(float(funding_return))
-    cost = Fraction(float(one_way_cost))
-    candidates = {-1.0, 0.0, 1.0}
-    if -1.0 <= current <= 1.0:
-        candidates.add(current)
-
-    def key(weight: float) -> tuple[Fraction, bool, Fraction, float, float]:
-        w = Fraction(weight)
-        return (
-            signal * w - cost * abs(w - w0) - cost * abs(w),
-            weight == current,
-            -abs(w - w0),
-            -abs(weight),
-            -weight,
-        )
-
-    return max(candidates, key=key)
+    threshold = 2 * Fraction(float(one_way_cost))
+    # The two outer segments have slopes signal +/- 2*cost. Between
+    # zero and the current weight the turnover and exit terms cancel,
+    # leaving slope signal. Clipping an out-of-bound current weight
+    # changes only an additive constant on the feasible interval.
+    if signal > threshold:
+        return 1.0
+    if signal < -threshold:
+        return -1.0
+    if (signal > 0 and current < 0.0) or (signal < 0 and current > 0.0):
+        return 0.0
+    # At an exact threshold the original tie break retains current if
+    # feasible, otherwise picks the closest point in the optimal set.
+    # Canonical zero matches the old endpoint candidate's positive zero.
+    return current if current != 0.0 else 0.0
 
 
 def _risk() -> PreTradeRisk:

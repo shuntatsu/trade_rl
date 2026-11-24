@@ -125,25 +125,17 @@ class ContainedProcess:
                 self.process.returncode if self.process.returncode is not None else -1
             )
         deadline = time.monotonic() + timeout
-        self._job.terminate_members(timeout=max(0.0, deadline - time.monotonic()))
         try:
+            self._job.terminate_members(timeout=max(0.0, deadline - time.monotonic()))
             return_code = self.process.wait(
                 timeout=max(0.0, deadline - time.monotonic())
             )
             self._job.wait_empty(deadline)
             return return_code
-        except (OSError, subprocess.TimeoutExpired, ProcessContainmentError):
-            raise
-
-    def close(self, timeout: float = 10.0) -> None:
-        self._require_no_failed_cleanup()
-        if self._closed:
-            return
-        try:
-            self.terminate_and_wait(timeout)
         except BaseException:
-            # Closing a Job may kill descendants, but it cannot prove a
-            # failed strict membership/termination/empty-job verification.
+            # A failed public stop must remain unverified even if kill-on-close
+            # subsequently releases the Job and the root is reaped. Apply this
+            # disposition at the stop boundary, regardless of the caller.
             self._cleanup_failed = True
             try:
                 self._job.close()
@@ -160,13 +152,18 @@ class ContainedProcess:
                     "root process could not be reaped after Job Object close"
                 ) from wait_error
             raise
-        else:
-            try:
-                self._job.close()
-            except BaseException:
-                self._job_close_failed = True
-                raise
-            self._closed = True
+
+    def close(self, timeout: float = 10.0) -> None:
+        self._require_no_failed_cleanup()
+        if self._closed:
+            return
+        self.terminate_and_wait(timeout)
+        try:
+            self._job.close()
+        except BaseException:
+            self._job_close_failed = True
+            raise
+        self._closed = True
 
     def __enter__(self) -> ContainedProcess:
         self._require_no_failed_cleanup()

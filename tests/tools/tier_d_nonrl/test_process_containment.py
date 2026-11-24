@@ -567,3 +567,138 @@ def test_contained_process_verified_close_is_idempotent() -> None:
     assert (job.termination_calls, job.empty_calls, job.close_calls) == (1, 1, 1)
     assert process.wait_calls == 1
     assert owned._closed and not owned._cleanup_failed
+
+
+@pytest.mark.parametrize("failure_phase", ("terminate", "root_wait", "empty"))
+@pytest.mark.parametrize("exception_type", (ProcessContainmentError, KeyboardInterrupt))
+def test_direct_stop_failure_never_becomes_verified_cleanup(
+    failure_phase: str, exception_type: type[BaseException]
+) -> None:
+    calls: list[str] = []
+    failed = False
+
+    def record(phase: str) -> None:
+        nonlocal failed
+        calls.append(phase)
+        if phase == failure_phase and not failed:
+            failed = True
+            raise exception_type("first stop verification failed")
+
+    class Job:
+        def terminate_members(self, timeout: float) -> None:
+            record("terminate")
+
+        def wait_empty(self, deadline: float) -> None:
+            record("empty")
+
+        def close(self) -> None:
+            record("close")
+
+        def sample(self) -> NoReturn:
+            raise AssertionError("must not sample after failed stop")
+
+    class Process:
+        returncode = 17
+
+        def wait(self, timeout: float) -> int:
+            record("root_wait")
+            return 17
+
+    owned = containment.ContainedProcess(Process(), Job())  # type: ignore[arg-type]
+    with pytest.raises(exception_type, match="first stop verification failed"):
+        owned.terminate_and_wait()
+
+    # Release the kill-on-close Job and reap the root as best effort, but
+    # preserve the failed verification as the permanent disposition.
+    expected = {
+        "terminate": ["terminate", "close", "root_wait"],
+        "root_wait": ["terminate", "root_wait", "close", "root_wait"],
+        "empty": ["terminate", "root_wait", "empty", "close", "root_wait"],
+    }
+    for operation in (
+        owned.terminate_and_wait,
+        owned.close,
+        owned.sample,
+        owned.__enter__,
+    ):
+        with pytest.raises(ProcessContainmentError, match="cleanup previously failed"):
+            operation()
+    assert calls == expected[failure_phase]
+
+
+@pytest.mark.parametrize("fallback_failure", ("close", "reap"))
+def test_direct_stop_preserves_uncertain_fallback_disposition(
+    fallback_failure: str,
+) -> None:
+    calls: list[str] = []
+
+    class Job:
+        def terminate_members(self, timeout: float) -> NoReturn:
+            calls.append("terminate")
+            raise ProcessContainmentError("stop not confirmed")
+
+        def close(self) -> None:
+            calls.append("close")
+            if fallback_failure == "close":
+                raise OSError("native close uncertain")
+
+    class Process:
+        returncode = None
+
+        def wait(self, timeout: float) -> NoReturn:
+            calls.append("wait")
+            raise subprocess.TimeoutExpired("synthetic", timeout)
+
+    owned = containment.ContainedProcess(Process(), Job())  # type: ignore[arg-type]
+    with pytest.raises(
+        ProcessContainmentError, match="could not be closed|could not be reaped"
+    ):
+        owned.terminate_and_wait()
+    expected = ["terminate", "close"]
+    if fallback_failure == "reap":
+        expected.append("wait")
+    assert calls == expected
+    for operation in (owned.terminate_and_wait, owned.close, owned.sample):
+        with pytest.raises(ProcessContainmentError, match="previously failed"):
+            operation()
+    assert calls == expected
+
+
+def test_direct_successful_stop_can_close_normally() -> None:
+    calls: list[str] = []
+
+    class Job:
+        def terminate_members(self, timeout: float) -> None:
+            calls.append("terminate")
+
+        def wait_empty(self, deadline: float) -> None:
+            calls.append("empty")
+
+        def close(self) -> None:
+            calls.append("close")
+
+    class Process:
+        returncode = 0
+
+        def wait(self, timeout: float) -> int:
+            calls.append("wait")
+            return 0
+
+    owned = containment.ContainedProcess(Process(), Job())  # type: ignore[arg-type]
+    assert owned.terminate_and_wait() == 0
+    assert calls == ["terminate", "wait", "empty"]
+    assert not owned._closed
+    owned.close()
+    assert calls == [
+        "terminate",
+        "wait",
+        "empty",
+        "terminate",
+        "wait",
+        "empty",
+        "close",
+    ]
+    owned.close()
+    assert owned.terminate_and_wait() == 0
+    assert calls.count("close") == 1
+    assert not owned._cleanup_failed

@@ -511,3 +511,28 @@ def test_unfinished_workflow_refs_reject_unsorted_values() -> None:
     e["inventory"]["unfinished_workflow_branches"] = values  # type: ignore[index]
     with pytest.raises(ValueError, match="malformed, duplicated or unordered"):
         _inspect(e)
+
+
+@pytest.mark.parametrize(
+    "state", ["requested", "waiting", "pending", "queued", "in_progress"]
+)
+@pytest.mark.parametrize("missing", ["attempts", "artifacts", "both", "neither"])
+def test_unfinished_observations_require_explicit_conclusion(
+    state: str, missing: str
+) -> None:
+    e = _evidence()
+    for source in ("attempts", "artifacts"):
+        row = e[source][0]  # type: ignore[index]
+        row["status"] = state
+        row["conclusion"] = None
+        if missing in (source, "both"):
+            del row["conclusion"]
+    if missing == "neither":
+        result = _inspect(e)
+        assert result["decision"] == "HOLD"
+        assert result["supplied_evidence_consistent"] is True
+        assert result["lease_reassignment_authorized"] is False
+        assert result["cleanup_authorized"] is False
+    else:
+        with pytest.raises(ValueError, match="conclusion is missing"):
+            _inspect(e)

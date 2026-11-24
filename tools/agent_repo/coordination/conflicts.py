@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from enum import Enum
 
-from tools.agent_repo.coordination.model import ExecutionMode, TaskPacket
+from tools.agent_repo.coordination.model import (
+    ExecutionMode,
+    TaskPacket,
+    file_resource_prefix,
+)
 
 _ALLOWED_NAMESPACES = {
     "file",
@@ -29,26 +33,18 @@ def _split_key(key: str) -> tuple[str, str]:
     namespace, separator, value = key.partition(":")
     if not separator or namespace not in _ALLOWED_NAMESPACES or not value:
         raise ValueError(f"unknown resource namespace: {key}")
-    return namespace, value
-
-
-def _file_prefix(value: str) -> str:
-    normalized = value.replace("\\", "/").strip("/")
-    if not normalized or ".." in normalized.split("/"):
-        raise ValueError(f"invalid file resource key: {value}")
-    for suffix in ("/**", "/*"):
-        if normalized.endswith(suffix):
-            normalized = normalized[: -len(suffix)].rstrip("/")
-    return normalized
+    return namespace, file_resource_prefix(value) if namespace == "file" else value
 
 
 def _file_overlap(left: str, right: str) -> bool:
-    left_prefix = _file_prefix(left)
-    right_prefix = _file_prefix(right)
+    # An empty normalized prefix denotes the repository root, not a literal
+    # star-named directory. A root resource conflicts with every file resource.
     return (
-        left_prefix == right_prefix
-        or left_prefix.startswith(f"{right_prefix}/")
-        or right_prefix.startswith(f"{left_prefix}/")
+        not left
+        or not right
+        or left == right
+        or left.startswith(f"{right}/")
+        or right.startswith(f"{left}/")
     )
 
 

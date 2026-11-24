@@ -230,6 +230,45 @@ def test_graphql_read_checks_serialized_bytes_not_mutable_input(
     assert seen == []
 
 
+def test_graphql_operation_guard_checks_serialized_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A string subclass can compare equal to an allowed document without
+    # serializing to that document. This probe never reaches the network.
+    class MisleadingDocument(str):
+        def __eq__(self, other: object) -> bool:
+            return other == _READ_REF_QUERY
+
+    api = _graphql_api()
+    seen = _stub_post(api, monkeypatch, _read_body())
+    document = MisleadingDocument("query DifferentOperation { viewer { login } }")
+    assert document == _READ_REF_QUERY
+    assert json.loads(json.dumps(document)) != _READ_REF_QUERY
+    with pytest.raises(ValueError, match="operation is not allowed"):
+        api.execute(document, _query_vars())
+    assert seen == []
+
+
+def test_graphql_wire_rejects_duplicate_variable_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Do not assume every JSON recipient resolves repeated keys in the
+    # same way as the local decoder.
+    class DuplicateName(dict[str, object]):
+        def items(self):  # type: ignore[no-untyped-def,override]
+            return [("name", "different-target"), *super().items()]
+
+    api = _graphql_api()
+    seen = _stub_post(api, monkeypatch, _read_body())
+    variables = DuplicateName(_query_vars())
+    encoded = json.dumps(variables)
+    assert encoded.count('"name"') == 2
+    assert json.loads(encoded) == _query_vars()
+    with pytest.raises(ValueError, match="duplicate JSON fields"):
+        api.execute(_READ_REF_QUERY, variables)
+    assert seen == []
+
+
 def test_graphql_mutation_checks_serialized_bytes_not_mutable_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

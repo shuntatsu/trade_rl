@@ -314,3 +314,17 @@ def test_hidden_older_artifacts_cannot_be_detected_from_misreported_count() -> N
     assert report["artifact_count"] == 100
     assert report["artifact_history_complete"] is False
     assert report["lease_reassignment_authorized"] is False
+
+
+@pytest.mark.parametrize("count", [2, 101])
+@pytest.mark.parametrize("second_scan_only", [False, True])
+def test_duplicate_artifact_node_ids_refuse(count: int, second_scan_only: bool) -> None:
+    api = FakeGet(count)
+    rows = deepcopy(api.artifacts)
+    rows[-1]["node_id"] = rows[0]["node_id"]
+    if second_scan_only:
+        api.next_artifacts = rows
+    else:
+        api.artifacts = rows
+    with pytest.raises(ValueError, match="duplicate artifact node_id"):
+        _observe(api)

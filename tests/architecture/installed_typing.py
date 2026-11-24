@@ -1,0 +1,166 @@
+"""Type-check a downstream consumer of a non-editable, installed core wheel."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_IMPORTS = """\
+from fractions import Fraction
+from typing import Any, assert_type
+import numpy as np
+
+from trade_rl.data import MarketDataset
+from trade_rl.data.build import MarketDatasetBuilder
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.evaluation.replay import (
+    SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
+    run_shared_portfolio_replay,
+)
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation.quantities import parse_quantity
+from trade_rl.strategies.portfolio import (
+    PortfolioDecisionSnapshot, PortfolioPolicy, PortfolioTargetProposal,
+)
+
+class ExternalPolicy:
+    def decide_portfolio(self, snapshot: PortfolioDecisionSnapshot) -> PortfolioTargetProposal:
+        quantity = assert_type(parse_quantity(snapshot.account.exact_quantities[0]), Fraction)
+        return PortfolioTargetProposal((0.0,), hold_current_quantity_symbols=(0,) if quantity else ())
+
+policy: PortfolioPolicy = ExternalPolicy()
+"""
+_POSITIVE = (
+    _IMPORTS
+    + """
+def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...], raw: RawMarketSeries) -> None:
+    spec = FeatureSpec("ret", FeatureKind.LOG_RETURN)
+    config = MarketBuildConfig(base_timeframe="1h", features=(spec,))
+    market = assert_type(MarketDatasetBuilder(config).build(source, instruments), MarketDataset)
+    assert raw.funding_available is not None
+    events = calculate_feature_events(
+        spec, open_price=raw.open, high=raw.high, low=raw.low, close=raw.close,
+        volume=raw.volume, funding_rate=raw.funding_rate, funding_available=raw.funding_available,
+        row_present=np.ones(raw.close.shape, dtype=np.bool_), active=raw.tradable,
+    )
+    assert_type(events, tuple[np.ndarray[Any, Any], np.ndarray[Any, Any], np.ndarray[Any, Any]])
+    result = assert_type(run_shared_portfolio_replay(
+        market, policy, start_index=0, stop_index=2, execution_cost=ExecutionCostConfig(),
+        risk=PreTradeRisk(PreTradeRiskConfig()), capture_ledger_evidence=True,
+    ), SharedCashPortfolioReplayResult)
+    assert_type(result.ledger_evidence, SharedCashPortfolioReplayLedgerEvidence | None)
+"""
+)
+_NEGATIVE = (
+    _IMPORTS
+    + """
+class WrongPolicy:
+    def decide_portfolio(self, snapshot: PortfolioDecisionSnapshot) -> int:
+        return 1
+
+bad_policy: PortfolioPolicy = WrongPolicy()  # expect: assignment
+parse_quantity(1.5)  # expect: arg-type
+PortfolioTargetProposal(("wrong",))  # expect: arg-type
+FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
+ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
+PreTradeRiskConfig(max_gross="wrong")  # expect: arg-type
+def bad_replay(market: MarketDataset) -> None:
+    run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
+"""
+)
+
+
+def verify_installed_typing(target_python: Path) -> None:
+    target_python = target_python.absolute()
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"MYPYPATH", "PYTHONPATH", "MYPY_CACHE_DIR"}
+    }
+    with tempfile.TemporaryDirectory(prefix="trade-rl-downstream-") as temporary:
+        root = Path(temporary)
+        subprocess.run(
+            [
+                str(target_python),
+                "-I",
+                "-c",
+                "import sys, trade_rl; from pathlib import Path; "
+                "p = Path(trade_rl.__file__).resolve(); "
+                "assert p.is_relative_to(Path(sys.prefix).resolve()); "
+                "assert p.with_name('py.typed').read_bytes() == b''",
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        (root / "mypy.ini").write_text("[mypy]\n", encoding="utf-8")
+        for filename, source in (
+            ("positive.py", _POSITIVE),
+            ("negative.py", _NEGATIVE),
+        ):
+            (root / filename).write_text(source, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-m",
+                    "mypy",
+                    "--strict",
+                    "--config-file",
+                    str(root / "mypy.ini"),
+                    "--python-executable",
+                    str(target_python),
+                    "--no-incremental",
+                    "--no-pretty",
+                    "--no-error-summary",
+                    "--show-error-codes",
+                    "--no-color-output",
+                    filename,
+                ],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            expected = [
+                (line, match.group(1))
+                for line, value in enumerate(source.splitlines(), start=1)
+                if (match := re.search(r"# expect: ([a-z-]+)$", value))
+            ]
+            observed = re.findall(
+                rf"^{filename}:(\d+): error: .* \[([a-z-]+)\]$",
+                result.stdout,
+                re.MULTILINE,
+            )
+            error_lines = [
+                line for line in result.stdout.splitlines() if ": error:" in line
+            ]
+            if (
+                result.returncode != (1 if expected else 0)
+                or sorted((int(line), code) for line, code in observed)
+                != sorted(expected)
+                or len(error_lines) != len(expected)
+                or result.stderr
+            ):
+                raise RuntimeError(
+                    f"{filename}: unexpected downstream type-check result "
+                    f"(expected {expected}, exit {result.returncode}):\n"
+                    f"{result.stdout}{result.stderr}"
+                )
+            print(
+                f"{filename}: downstream typing verified ({len(expected)} expected errors)"
+            )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target_python", type=Path)
+    verify_installed_typing(parser.parse_args().target_python)

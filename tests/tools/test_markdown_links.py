@@ -248,3 +248,228 @@ def test_local_link_diagnostics_preserve_source_order() -> None:
         (1, "z.md"),
         (1, "a.md"),
     ]
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "(description)",
+        r"(escaped \) delimiter)",
+        r'"escaped \" delimiter"',
+        r"'escaped \' delimiter'",
+    ],
+)
+def test_valid_titled_links_check_missing_and_unsafe_targets(
+    tmp_path: Path, title: str
+) -> None:
+    _write(
+        tmp_path,
+        "README.md",
+        f"[Missing](missing.md {title})\n[Unsafe](javascript:alert(1) {title})\n",
+    )
+    count, problems = check_links(tmp_path, (Path("README.md"),))
+    assert count == 1
+    assert [(problem.line, problem.reason) for problem in problems] == [
+        (1, "missing local target"),
+        (2, "unsupported URI scheme"),
+    ]
+
+
+def test_parenthesized_title_resolves_angle_destination(tmp_path: Path) -> None:
+    _write(tmp_path, "with space.md", "# Target\n")
+    _write(tmp_path, "README.md", "[Link](<with space.md> (title))\n")
+    assert check_links(tmp_path, (Path("README.md"),)) == (1, [])
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[link](missing.md (nested (title)))",
+        "[link](missing.md (unclosed)",
+        "[link](<missing.md>(no separator))",
+    ],
+)
+def test_malformed_parenthesized_titles_are_not_links(text: str) -> None:
+    assert destinations(text) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            '[ok](README.md "literal [not link](missing.md)")',
+            [(1, "README.md")],
+        ),
+        (
+            "[ok](README.md 'literal [not link](javascript:alert(1))')",
+            [(1, "README.md")],
+        ),
+        (
+            r'[ok](README.md "escaped \"quote\" [not link](missing.md)") '
+            "[next](AGENTS.md)",
+            [(1, "README.md"), (1, "AGENTS.md")],
+        ),
+        (
+            '[ok](README.md "literal [not link](missing.md)")\n[next](AGENTS.md)',
+            [(1, "README.md"), (2, "AGENTS.md")],
+        ),
+        (
+            '![image](img.png "literal [not link](missing.md)") [next](AGENTS.md)',
+            [(1, "img.png"), (1, "AGENTS.md")],
+        ),
+        (
+            '[outer [inner](real.md "literal [not link](missing.md)")](outer.md)',
+            [(1, "real.md")],
+        ),
+        (
+            '[ok](README.md "title\n[reference]: missing.md\n")\n[next](AGENTS.md)',
+            [(1, "README.md"), (4, "AGENTS.md")],
+        ),
+        (
+            '[bad](README.md "unclosed [real](AGENTS.md)',
+            [(1, "AGENTS.md")],
+        ),
+        (
+            "[bad](\n\n[real](AGENTS.md))",
+            [(3, "AGENTS.md")],
+        ),
+        (
+            "[bad](foo(bar [real](AGENTS.md)))",
+            [(1, "AGENTS.md")],
+        ),
+        (
+            "[bad](<path\n[real](AGENTS.md)>)",
+            [(2, "AGENTS.md")],
+        ),
+        (
+            '[ok](README.md "title")\n\n[reference]: AGENTS.md',
+            [(1, "README.md"), (3, "AGENTS.md")],
+        ),
+        (
+            "[ok](<name [literal](path).md>) [next](AGENTS.md)",
+            [(1, "name [literal](path).md"), (1, "AGENTS.md")],
+        ),
+        (
+            r"[ok](<name\>literal.md>) [next](AGENTS.md)",
+            [(1, r"name\>literal.md"), (1, "AGENTS.md")],
+        ),
+    ],
+)
+def test_inline_link_consumes_destination_and_literal_title(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+def test_invalid_backtick_fence_cannot_hide_link() -> None:
+    assert destinations(" ```bad`info\n[real](missing.md)\n") == [(2, "missing.md")]
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~"])
+def test_non_ascii_space_does_not_end_fence(marker: str) -> None:
+    source = (
+        f"{marker}md\n{marker}\u00a0\n[literal](missing.md)\n"
+        f"{marker}\n[real](README.md)\n"
+    )
+    assert destinations(source) == [(5, "README.md")]
+
+
+def test_tilde_fence_info_with_backtick_is_valid() -> None:
+    assert destinations(
+        "~~~bad`info\n[literal](missing.md)\n~~~\t \n[real](README.md)"
+    ) == [(4, "README.md")]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "![unfinished\n\n[real](missing.md (title))",
+        "![unfinished\n# heading\n[real](missing.md)",
+        "![unfinished [real](missing.md)",
+        "![unfinished [real](missing.md)]",
+        "![unfinished ![real](missing.md)",
+    ],
+)
+def test_unclosed_or_nonlink_image_label_cannot_hide_real_target(
+    tmp_path: Path, source: str
+) -> None:
+    _write(tmp_path, "README.md", source)
+    checked, problems = check_links(tmp_path, (Path("README.md"),))
+    assert checked == 1
+    assert [(p.target, p.reason) for p in problems] == [
+        ("missing.md", "missing local target")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("![description [literal](missing.md)](image.png)", [(1, "image.png")]),
+        ("![outer ![inner](inner.png)](outer.png)", [(1, "outer.png")]),
+        ("[outer ![inner](inner.png)](outer.md)", [(1, "inner.png"), (1, "outer.md")]),
+        ("![description\n[inside](missing.md)](image.png)", [(2, "image.png")]),
+        ("![outer ![unfinished [real](missing.md)]", [(1, "missing.md")]),
+    ],
+)
+def test_only_a_recognized_image_consumes_nested_targets(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "![unfinished\n\n[real](missing.md)](ignored.png)",
+            [(3, "missing.md")],
+        ),
+        (
+            "![unfinished\n# heading\n[real](missing.md)](ignored.png)",
+            [(3, "missing.md")],
+        ),
+        (
+            "[outer ![unfinished [real](missing.md)] text](outer.md)",
+            [(1, "missing.md")],
+        ),
+        (
+            "[outer ![description [literal](missing.md)](image.png)](outer.md)",
+            [(1, "image.png"), (1, "outer.md")],
+        ),
+        (
+            "![description [literal](missing.md)][pic]\n\n[PIC]: image.png",
+            [(3, "image.png")],
+        ),
+        (
+            "![unfinished [real](missing.md)][undefined]",
+            [(1, "missing.md")],
+        ),
+        (
+            '[ok](README.md "title\n[pic]: ignored.png\n")\n\n'
+            "![unfinished [real](missing.md)][pic]",
+            [(1, "README.md"), (5, "missing.md")],
+        ),
+    ],
+)
+def test_image_boundaries_and_reference_controls(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("![unfinished\n- [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![unfinished\n1. [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![unfinished\n---\n[real](missing.md)](ignored.png)", [(3, "missing.md")]),
+        ("![unfinished\n===\n[real](missing.md)](ignored.png)", [(3, "missing.md")]),
+        ("![unfinished\n> [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![description\n2. [inside](missing.md)](image.png)", [(2, "image.png")]),
+        ("> ![description\n> [inside](missing.md)](image.png)", [(2, "image.png")]),
+    ],
+)
+def test_image_label_does_not_cross_other_block_boundaries(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected

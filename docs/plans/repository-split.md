@@ -189,6 +189,83 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   既存の継続タスクと新しいrunnerが同じ試行を二重実行しないよう、承認主体と
   exclusive attempt/consumption authorityを切替前に確定する。
 
+## 時間軸を限定しない共通基盤
+
+基盤側の実装要件は [Issue #1357](https://github.com/shuntatsu/trade_rl/issues/1357)
+で管理する。既存の #1340 の指標実装と調整し、重複した計算ownerを作らない。
+研究固有の1h/4h/1dや固定年を共通APIの前提にしない。
+
+- Native timeframe、decision cadence、execution clock、elapsed duration、
+  calendar periodを別々の契約として扱う。指標のlookback/変位はnativeバー数、
+  保有期限・cooldown・latencyはバー数か実時間かを明示する。
+  26本の日足と26日間、26本の週足と26日間を混同しない。
+- 現行の対応は15m/30m/1h/2h/4h/6h/8h/12h/1d。3d、1w等を段階的に拡張し、
+  calendar monthや休場を持つ市場には別途calendar契約を設計する。
+  28日足や固定30日足を月足と呼ばない。週足closeの曜日・UTC anchor、
+  leap year、欠損、遅延、部分windowとwarmupを検証する。
+- 一目均衡表は既存のunshifted featureとvisible shifted cloudを区別する。
+  標準9/26/52/26のvisible cloudは最初の78 native barsが必要。
+  period変更時は最長の入力依存範囲を検査し、未来の描画位置をdecision時点の
+  入力にしない。任意の設定は新しいversioned identityにbindする。
+- Source acquisition、完全なresampling、as-of alignment、feature mask、
+  annualization、共通replay・費用・funding・borrow・terminal stateまで
+  end-to-endで確認する。現行 `MarketDataset` は正規の連続週足でも年8760hを
+  整数期間数に変換できず拒否する。この制約を丸めやcalendar種別の偽装で回避しない。
+  native intervalとelapsed yearを表す新契約が必要ならschema/reader/identityを
+  versioned migrationとして変更する。
+- 長い履歴（複数年・細かい足）を固定した件数上限や特定年に依存せず扱えること。
+  必要なwarmupの実時間はnative intervalから求める。先読み防止と同じ結果を
+  保ったまま計算量・peak memoryを測定し、期間延長で再計算量が過度に増えない
+  ことをsynthetic benchmarkで確認する。
+
+現行mainの合成120 barsによる確認では、9種類の既存時間足でcanonical
+Ichimoku cloud-positionの値とavailabilityが一致し、69 barsがvalidだった。
+#1340の固定sourceのvisible-cloud primitiveは日足・週足・固定28日足で
+43 barsがreadyとなり、バー単位の値が一致した。ただし後者は指標演算のみで、
+週足/月足のデータ取得・Dataset・執行・評価を実装済みとはいえない。
+これらの具体的な拒否経路と受入条件は上記Issueに残した。
+
+## 研究から基盤への改善依頼
+
+個別研究は、自分の研究scopeの仮説、policy、runner、analysis、docs/testsを所有する。
+基盤のbug、機能不足、数値精度、性能問題を見つけたら、研究側のagentは
+[基盤Issue](https://github.com/shuntatsu/trade_rl/issues/new)に報告する。
+既存のIssue/PR/Taskを検索して重複を避け、既存案件なら最小再現と影響範囲を追記する。
+研究のために基盤を直接編集したり、独自の会計・時刻変換・risk実装で穴を埋めない。
+未対応のcapabilityが必須なら研究をBLOCKEDとし、独立して進められる分析・合成testは
+継続する。基盤のバグと研究固有の戦略成績不良は別の問題として扱う。
+
+[Core request template](../../.github/ISSUE_TEMPLATE/core-request.md) に沿い、
+研究repo/study/commit、利用中core commit/wheel digest、再現条件、期待値と実測値、
+最小の合成再現、影響を受ける契約、希望する機能と受入テストを記載する。
+秘密情報、未使用/封印データ、非公開の生取引記録をIssueに貼らない。
+結果後の条件変更や経済実行の許可をIssueの存在から推定しない。
+
+基盤側は既存Task/leaseとPR経路でtriage、修正、独立review、Full CI、merge、
+versioned wheel公開とreadbackを行う。Issueには対応するPR/固定core SHA、
+変更契約、検証結果を返す。研究側はそのIssueを参照して依存pinを明示更新し、
+最小再現と研究固有の回帰テストを実行する。確認後にのみ研究側のBLOCKEDを解消する。
+Issueがclosedでも旧環境が自動的に修正されたとはみなさない。
+同じ基盤変更に複数の研究から依頼があっても実装ownerは一つにする。
+新repoのAGENTS.mdにはこのrouting規則を記載する。現段階では新repoをまだ作成していない。
+
+## その他の最適化方針
+
+| 領域 | 変更方針と検証 |
+|---|---|
+| Data / cache | 研究別の価格取得・保存の複製を避け、既存market storeとverified artifactsを共用。data identity・availability・消費境界を固定。 |
+| Feature compute | 同じ入力・期間・指標設定の計算を試行間で再利用する。causal windowの前計算やincremental更新はprefix/naive oracle parityと性能測定を通して採用。 |
+| 実験実行 | runnerを共通engineに接続し、固定rosterの独立cellだけを並列化。資源上限・single-writer・exclusive publication・再開時のattempt identityを維持。完了済み結果を再実行で置換しない。 |
+| 設定 / provenance | protocolを唯一のmachine-readable条件とし、設定の重複・hard-coded pathを排除。core/research/source/lock/receiptを一体として固定し、未承認や不一致はfail closed。 |
+| テスト / CI | coreは完全なcontract/Full CIを維持。研究では変更studyの近傍testを高速反復し、最終固定wheelとの全関連testとpackagingを検証。economic runは通常CIから分離。 |
+| docs / Agent | READMEを入口、恒久契約と研究固有の仮説・判定を別ownerにする。研究ごとのstatusとIssue/PRへの短いリンクで案内し、長い作業履歴の複製を避ける。 |
+| 依存管理 | core releaseを自動追従しない。研究側の固定wheel更新PRでschema/API/旧artifact/研究結果の再現性を検査。private helperへの依存を新しい公開契約で解消。 |
+| 運用 | 認証済み権限・approved source・進行中attemptを一つの権威で管理し、repo分離による二重run、二重消費、誤ったreview再利用を防ぐ。 |
+
+最適化のためだけの抽象化、既存の固定研究を無条件に再実行すること、
+研究codeの都合によるcoreの安全条件緩和は対象外とする。
+性能については現状値を測定するまで改善率を主張しない。
+
 ## 配布・固定・CI
 
 基盤の現行Python 3.12と `trade-rl` wheelを維持する。研究側は

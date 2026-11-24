@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.architecture.workflow_action_refs import setup_uv_action_matches
 from tools import ppo_checkpoint_actions as checkpoint
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,17 +34,14 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
     workflows = ROOT / ".github" / "workflows"
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         source = path.read_text(encoding="utf-8")
-        for match in re.finditer(
-            r"(?m)^(?P<indent> +)(?P<dash>- )?uses: astral-sh/setup-uv@(?P<ref>[^\s#]+)(?:[ \t]+#[^\n]*)?[ \t]*$",
-            source,
-        ):
+        for match in setup_uv_action_matches(source, path):
             # - uses: and a separate uses: under - name: are both valid
             # GitHub Actions syntax; mutable tags must not evade inspection.
             assert re.fullmatch(r"[0-9a-f]{40}", match.group("ref")), path
             # A new step may start with - run:, - if: or - id:; a new job
             # may also follow directly. Neither may lend this action a pin.
             action_indent = len(match.group("indent")) + (
-                2 if match.group("dash") else 0
+                len(match.group("dash") or "")
             )
             following = source[match.end() :]
             step_boundary = re.search(rf"(?m)^ {{0,{action_indent - 2}}}\S", following)
@@ -217,3 +215,111 @@ def test_manual_checkpoint_version_guard_accepts_platform_suffix(
     source = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
     assert "grep -Eq '^uv 0\\.13\\.9([[:space:]]|$)'" in source
     assert "grep -Fx 'uv 0.10.0'" not in source
+
+
+@pytest.mark.parametrize("guard", ["version", "action"])
+@pytest.mark.parametrize(
+    "step",
+    [
+        '      - uses: "astral-sh/setup-uv@v7"',
+        "      - uses: 'astral-sh/setup-uv@v7'",
+        '      - name: uv\n        uses: "astral-sh/setup-uv@v7"',
+        "      - name: uv\n        uses: 'astral-sh/setup-uv@v7'",
+        '      - "uses": "astral-sh/setup-uv@v7"',
+        "      - {uses: 'astral-sh/setup-uv@v7'}",
+        "      - uses: astral-sh/setup-uv@v7",
+        '      - uses: "Astral-sh/Setup-uv@v7"',
+        '      - uses: "astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"\n'
+        '        with:\n          version: "0.13.9"',
+    ],
+)
+def test_additional_setup_uv_action_cannot_hide_in_yaml_scalar_syntax(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guard: str, step: str
+) -> None:
+    from tests.architecture import test_ci_python_runtime as runtime
+
+    original = ROOT / ".github" / "workflows"
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    for path in (*original.glob("*.yml"), *original.glob("*.yaml")):
+        (workflows / path.name).write_bytes(path.read_bytes())
+    (workflows / "extra.yml").write_text(
+        "name: additional action\non: workflow_dispatch\njobs:\n  check:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n" + step + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "ROOT", tmp_path)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    check = (
+        test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source
+        if guard == "version"
+        else runtime.test_setup_uv_action_commit_is_consistent_across_all_workflows
+    )
+    with pytest.raises(AssertionError):
+        check()
+
+
+@pytest.mark.parametrize("guard", ["version", "action"])
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_quoted_existing_setup_uv_action_stays_in_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guard: str, quote: str
+) -> None:
+    from tests.architecture import test_ci_python_runtime as runtime
+
+    original = ROOT / ".github" / "workflows"
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    for path in (*original.glob("*.yml"), *original.glob("*.yaml")):
+        (workflows / path.name).write_bytes(path.read_bytes())
+    ci = workflows / "ci.yml"
+    source = ci.read_text(encoding="utf-8")
+    action = runtime.SETUP_UV
+    old = f"uses: {action}\n"
+    assert old in source
+    ci.write_text(
+        source.replace(old, f"uses: {quote}{action}{quote} # reviewed pin\n", 1),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "ROOT", tmp_path)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    check = (
+        test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source
+        if guard == "version"
+        else runtime.test_setup_uv_action_commit_is_consistent_across_all_workflows
+    )
+    check()
+
+
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_quoted_setup_uv_cannot_change_version_or_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quote: str
+) -> None:
+    from tests.architecture import test_ci_python_runtime as runtime
+
+    original = ROOT / ".github" / "workflows"
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    for path in (*original.glob("*.yml"), *original.glob("*.yaml")):
+        (workflows / path.name).write_bytes(path.read_bytes())
+    ci = workflows / "ci.yml"
+    source = ci.read_text(encoding="utf-8")
+    old = f"uses: {runtime.SETUP_UV}\n"
+    assert old in source
+    good = source.replace(old, f"uses: {quote}{runtime.SETUP_UV}{quote}\n", 1)
+    monkeypatch.setattr(runtime, "ROOT", tmp_path)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    ci.write_text(
+        good.replace('version: "0.13.9"', 'version: "0.10.0"', 1), encoding="utf-8"
+    )
+    with pytest.raises(AssertionError):
+        test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
+    ci.write_text(
+        good.replace(
+            f"{quote}{runtime.SETUP_UV}{quote}",
+            f"{quote}astral-sh/setup-uv@{'a' * 40}{quote}",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError):
+        runtime.test_setup_uv_action_commit_is_consistent_across_all_workflows()

@@ -21,15 +21,32 @@ from trade_rl.simulation.quantities import parse_quantity
 class LedgerInterval(Protocol):
     """Minimal native shared replay interval evidence needed by diagnostics."""
 
-    start_index: int
-    next_index: int
-    exact_quantities_before: tuple[str, ...]
-    exact_quantities_after: tuple[str, ...]
-    portfolio_value_before: float
-    portfolio_value_after: float
-    interval_cost: float
-    interval_funding: float
-    interval_borrow_cost: float
+    @property
+    def start_index(self) -> int: ...
+
+    @property
+    def next_index(self) -> int: ...
+
+    @property
+    def exact_quantities_before(self) -> tuple[str, ...]: ...
+
+    @property
+    def exact_quantities_after(self) -> tuple[str, ...]: ...
+
+    @property
+    def portfolio_value_before(self) -> float: ...
+
+    @property
+    def portfolio_value_after(self) -> float: ...
+
+    @property
+    def interval_cost(self) -> float: ...
+
+    @property
+    def interval_funding(self) -> float: ...
+
+    @property
+    def interval_borrow_cost(self) -> float: ...
 
 
 class PortfolioDecision(Protocol):

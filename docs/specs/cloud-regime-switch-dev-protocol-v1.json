@@ -1,0 +1,109 @@
+{
+  "arms": [
+    "S0",
+    "S1",
+    "S2",
+    "C2",
+    "C3",
+    "R2",
+    "T0",
+    "T1",
+    "T2",
+    "BH25",
+    "CASH"
+  ],
+  "authorization": "Exact authenticated independent result-blind review and separate owner-created authorization comment bound to protocol SHA, packet SHA, exact source HEAD, both Dataset IDs; no sealed/unused data or orders. Retain all 198 fixed cells, one exclusive attempt record per cell; technical interruption requires explicit append-only recovery; never select/retune on results.",
+  "data_class": "reconstructed previously consumed archive scope; not unused or final",
+  "data_receipt_sha256": "cc752f613f8e41999e2233d72e44d339e2236d02e1a7e68dda60e4e0ea703c4a",
+  "datasets": {
+    "BTCUSDT": {
+      "arrays_npz_sha256": "2fa03f7d424703d1f3dbb59afb9a92a0a4bff773c5342855c5d624306b53e230",
+      "artifact_digest": "682ec619bf23dffc3b6789d184bd30a3b8705da7d079fbff736fe44e47e551fa",
+      "dataset_id": "193862570af36fb436f9fb65abe84885c97003eda5bd2e2eb1a0bc912c0d5a20",
+      "manifest_sha256": "4b361688b6ec169f005b0b2451ee7b3d2f05c96a80e4e739a8d6add26c286a85"
+    },
+    "ETHUSDT": {
+      "arrays_npz_sha256": "185f8b51876d771fd2f9a3fdf7714c4050caa3999944d02af478459a0aef2b9c",
+      "artifact_digest": "31f8e0b1378da06a75dde817a9a69cc0e538a4cf8f9eaf797e7bcf2abd0af73b",
+      "dataset_id": "9ffb3b5e9894a5cbfb5a606b7a8936d228ae79db144fa0eb44c14d42b6f735fb",
+      "manifest_sha256": "8127bd8082bf2c6768d0778ba0f6bc5871b08954b6d026d40f5d02324bfb634a"
+    }
+  },
+  "decision_rule": "DEVELOPMENT_PROMISING only if all 132 normal/double-cost cells are valid and all 66 latency cells have recorded outcomes, S2 strictly exceeds each other arm's aggregate net return under normal and double cost, S2 beats BH25 in at least 4 of 6 cohorts in each of those scenarios, worst S2 cohort MDD is no greater than BH25 worst cohort MDD in each, and S2 aggregate is positive. Latency is a separate required diagnostic: if BH25 never fills or terminal settlement is invalid, label that stress comparison INVALID and withhold any latency-robust claim. No alternate winner or parameter rescue. If primary valid criteria fail, NO_WINNER; if primary evidence is incomplete/invalid, INCONCLUSIVE. No prospective or live authorization follows.",
+  "detector": "DivergenceConfig() strict defaults",
+  "indicators": [
+    "RSI",
+    "MACD_HIST",
+    "MFI"
+  ],
+  "initial_capital_usdt": 10000,
+  "last_close": "2025-01-01T00:00:00Z",
+  "limitations": [
+    "Already consumed BTC/ETH history; no independent sample or statistical significance.",
+    "Historical publication time is a completed-candle proxy, not verified as-traded availability.",
+    "Funding uses actual archive rates, previous completed mark price and hourly settlement/position approximation.",
+    "25% initial futures buy-and-hold with funding and terminal exit is not 100% spot buy-and-hold; compare actual exposure and disclose drift.",
+    "Delayed entries can be canceled by exact HOLD before fill. Latency stress cannot credit a strategy for beating an inactive comparator.",
+    "Costs and lot/fill/market impact assumptions are simulations; no historical order-book or account-specific calibration."
+  ],
+  "metrics": [
+    "net_return_pct",
+    "max_drawdown_pct",
+    "sharpe_hourly",
+    "native_fills",
+    "turnover",
+    "total_cost_usdt",
+    "funding_pnl_usdt",
+    "borrow_cost_usdt",
+    "native_directional_equity_buckets",
+    "start_of_interval_exposure_hours",
+    "mean_pre_interval_gross",
+    "settlement_and_termination",
+    "ledger_digest"
+  ],
+  "objective": "equal-capital arithmetic mean of native terminal equity returns over all six independently reset asset/year books, not a compounded portfolio",
+  "primary": "S2, fixed before observing its economic outcomes; S1 is ablation, not a substitute winner",
+  "risk": {
+    "allow_short": true,
+    "drawdown_start": 1,
+    "drawdown_stop": 1,
+    "max_abs_weight": 1,
+    "max_gross": 1,
+    "max_leverage": 1,
+    "max_participation_rate": 0.05,
+    "max_turnover": null,
+    "settle_terminal_position": true
+  },
+  "scenarios": {
+    "double_cost": {
+      "fee_rate": 0.001,
+      "impact_rate": 0.0002,
+      "order_latency_bars": 0,
+      "spread_rate": 0.0004
+    },
+    "latency_1h": {
+      "fee_rate": 0.0005,
+      "impact_rate": 0.0001,
+      "order_latency_bars": 1,
+      "spread_rate": 0.0002
+    },
+    "normal": {
+      "fee_rate": 0.0005,
+      "impact_rate": 0.0001,
+      "order_latency_bars": 0,
+      "spread_rate": 0.0002
+    }
+  },
+  "schema": "cloud_regime_switch_dev_v1",
+  "status": "result-blind design; owner and independent review required; no economic outcomes",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "warmup_start": "2021-10-01T00:00:00Z",
+  "years": [
+    2022,
+    2023,
+    2024
+  ]
+}

@@ -68,3 +68,37 @@ C2/C3 and closed trend-stop research are unchanged. A future economic
 protocol must fix scope, data identity, controls (including cash, trend-only,
 simple hold and a no-divergence hybrid), costs, risk, metrics, and independent
 result-blind review and owner authorization. No independent profitability claim.
+
+
+## Predeclared development comparison v1 (awaiting review and G4)
+
+The frozen machine-readable design is
+[cloud-regime-switch-dev-protocol-v1.json](cloud-regime-switch-dev-protocol-v1.json).
+The 11 arms, six independent asset-year books and three cost/latency
+settings define 198 fixed comparison cells. This is a bounded development
+falsification of S2; S0 and S1 identify regime-routing and divergence effects.
+All arms run in the same native book with the same cost, capital and risk
+assumptions. The 25% futures buy-and-hold control retains exact quantities
+subject to native risk; it is not unlevered 100% spot performance.
+
+Only the previously consumed 2022-24 BTC/ETH archive scope is proposed.
+Reconstructed canonical input artifacts are now content-bound before the
+new economic results; the JSON freezes both Dataset IDs, manifest/NPZ
+hashes and the reconstruction receipt. Historical available-at times and
+settlement mark/quantity remain approximations. Do not call this a fresh
+sample or assert verified historical publication timing.
+
+The author packet must bind the exact committed protocol and implementation
+head. Separate authenticated result-blind review and owner G4 authorization
+are prerequisites to the first economic replay. No self-approval, no result
+rescue, no unused/FS1 access, and no new threshold search. The complete
+roster is required for any decision. Failed or incomplete studies do not
+create permission to change the rules.
+
+The authorized runner tools/cloud_regime_switch_dev.py publishes each cell
+exclusively, with native ledger and admission identity hashes. Its --summarize
+mode independently reads back all recorded cells, verifies the ledger digest,
+window, dataset and decisive terminal scalars, and applies the fixed S2-only
+comparison rule. Missing/invalid primary cells are INCONCLUSIVE; technical
+failures do not authorize a retry. Latency results are descriptive and cannot
+by themselves establish latency robustness.

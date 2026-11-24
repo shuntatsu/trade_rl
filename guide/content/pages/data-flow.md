@@ -56,6 +56,8 @@ fit cutoffとは別に、single-symbol/shared-cash replayとPPO環境は、次�
 
 globalのmarket return平均・標準偏差は、そのバーで利用できる銘柄の1-bar returnだけから計算し、古い集計値を繰り越しません。利用可能な行の`global_feature_staleness_hours`は0時間です。returnが1件もなく欠損する行でも数値placeholderは0.0ですが、`global_feature_available=False`と`global_feature_missing_reason=1`によって「経過時間不明の欠損」を表します。0.0だけで有効と判断してはいけません。古いDataset artifactに保存済みの欠損時1.0は、元のidentityのまま読み込み、書き換えません。
 
+追加のnative calendar APIでは、指定されたUTC週・暦月・固定間隔と完全なsource memberを確認し、derived barの利用可能時刻を全memberのpublicationの最大値とします。時刻とOHLCVは欠損マスク付き配列やその所有元が追跡できるviewを拒否します。すでに呼出し前に失われた欠損情報は復元できません。この検査は取引所データの真正性・finalityや既存Datasetの長時間足対応を証明しません。
+
 1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。

@@ -598,6 +598,13 @@ def evaluate_run_receipt(
             declared_metrics_well_formed = False
             issues.append(f"arm progress record is invalid: {arm.arm_id}")
         if arm.status != "COMPLETED":
+            # Unknown initial equity stays None; observed values must obey
+            # the same numeric representation contract as completed receipts.
+            if arm.initial_equity_usdt is not None and not _finite_number(
+                arm.initial_equity_usdt
+            ):
+                declared_metrics_well_formed = False
+                issues.append(f"initial equity is invalid: {arm.arm_id}")
             allowed_reasons = _STATUS_REASONS[arm.status]
             if (
                 not isinstance(arm.reason_code, str)

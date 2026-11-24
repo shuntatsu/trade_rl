@@ -612,3 +612,53 @@ def test_retained_debt_borrow_loss_terminates_before_funding_and_mark() -> None:
     assert crashed.book.returns_history[-1] == pytest.approx(
         crashed.interval_net_return
     )
+
+
+def test_shared_session_retains_native_debt_and_refuses_further_advance():
+    from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+
+    session = SharedPortfolioSession(
+        market(),
+        start_index=0,
+        stop_index=3,
+        initial_capital=1000.0,
+        execution_cost=cost(),
+        insolvency_valuation="retain_debt",
+        hold_unchanged_risk_target=True,
+    )
+    session.advance((-0.5,))
+    _, execution, _ = session.advance(
+        session.book.weights, hold_current_quantity_symbols=(0,)
+    )
+    assert execution.interval_net_return < -1.0
+    assert session.book.portfolio_value == -501.0
+    assert session.book.max_drawdown == pytest.approx(1.501)
+    assert session.finished and session.current_index == 2
+    with pytest.raises(RuntimeError, match="not accepting actor"):
+        session.advance((0.0,))
+
+
+def test_completed_only_portfolio_replay_does_not_clip_retained_terminal_debt():
+    from trade_rl.evaluation.replay import run_shared_portfolio_replay
+    from trade_rl.strategies.portfolio import PortfolioTargetProposal
+
+    class Short:
+        def decide_portfolio(self, snapshot):
+            if snapshot.index == 0:
+                return PortfolioTargetProposal((-0.5,))
+            return PortfolioTargetProposal(snapshot.account.weights, (0,))
+
+    with pytest.raises(
+        ValueError, match="return series values must be greater than -1"
+    ):
+        run_shared_portfolio_replay(
+            market(),
+            Short(),
+            start_index=0,
+            stop_index=3,
+            initial_capital=1000.0,
+            execution_cost=cost(),
+            insolvency_valuation="retain_debt",
+            hold_unchanged_risk_target=True,
+            capture_ledger_evidence=True,
+        )

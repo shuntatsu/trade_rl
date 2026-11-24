@@ -47,6 +47,10 @@ Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v
 
 Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
 
+停止回復のソフトウェア経路（#907/#888）では、外部pinで固定した停止runの完成済みreceiptとledger等をそのまま保持し、未実行armの順序を復元します。別の人工2-armテストでは完成済みNONRL receiptの公開直後に子プロセスを停止し、新プロセスで未実行CASHだけを再開しました。さらに実寸9,504行の人工fixtureでは、6,599区間を完了したNONRLと次のCASHの各receipt公開直後に実際の子プロセスを停止し、第三のプロセスで別CASHだけを実行しました。各世代の外部pinとlineageを照合して元runの完成receiptをそのまま保持し、累積完成/残りは1/47、2/46、3/45となりました。全48識別子の集約契約と実際の全48-arm実行は別であり、分岐間の重複実行防止やwriter認可までは保証しません。これはbyte同一性・選択的再開のソフトウェア検証であり、元の48-cell市場実行、外部verifierの真正性、研究上の勝者や経済実験認可を意味しません。
+
+別の全48-arm人工検証（2026-11-24）では、固定した9,504行から316,752 native区間を実際に処理し、48/48 armが厳密flat・未処理注文ゼロで完了、192ファイルの保存・再検証・SHA/size照合が成功しました。4ワーカー・6バッチの実行/保存/読み戻しは計約387秒（約818区間/秒）でした。これは人工データのソフトウェア実測で、歴史的NONRL 48-cellの未完了状態・経済HOLDを変更しません。詳細は研究status正本のsource/witness digestを参照してください。
+
 ### 条件付きfour-arm Ridge開発screen
 
 attempt 01では全12行の計算が完了しましたが、screen全体の判定は `FAILED_SCREEN` です。3つのシナリオすべてでcash以外の3 armの費用反映後リターンは正でした。一方、latency 2 barsでは正のcost proxy armが2.6777%で、position-aware `cost=0` の2.8971%を下回り、必要な比較条件を満たしませんでした。全行は終端flat・残注文0で、実現ledger最大DDは20%未満でしたが、勝者や将来利益の証拠ではありません。全12行とDD・費用・fundingの詳細は正本の研究statusに記録しています。rootの別readbackとN2の71/71 source-M34 metadata/public-loader checksは完了しました。詳細reportとevidence packageは[M34のGitHub release](https://github.com/shuntatsu/trade_rl/releases/tag/research%2Fissue810-fourarm-M34-20261024-attempt01)に公開済みです（release ID `422708600`、tagはM34）。

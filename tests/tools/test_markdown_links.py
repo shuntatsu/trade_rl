@@ -378,3 +378,98 @@ def test_tilde_fence_info_with_backtick_is_valid() -> None:
     assert destinations(
         "~~~bad`info\n[literal](missing.md)\n~~~\t \n[real](README.md)"
     ) == [(4, "README.md")]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "![unfinished\n\n[real](missing.md (title))",
+        "![unfinished\n# heading\n[real](missing.md)",
+        "![unfinished [real](missing.md)",
+        "![unfinished [real](missing.md)]",
+        "![unfinished ![real](missing.md)",
+    ],
+)
+def test_unclosed_or_nonlink_image_label_cannot_hide_real_target(
+    tmp_path: Path, source: str
+) -> None:
+    _write(tmp_path, "README.md", source)
+    checked, problems = check_links(tmp_path, (Path("README.md"),))
+    assert checked == 1
+    assert [(p.target, p.reason) for p in problems] == [
+        ("missing.md", "missing local target")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("![description [literal](missing.md)](image.png)", [(1, "image.png")]),
+        ("![outer ![inner](inner.png)](outer.png)", [(1, "outer.png")]),
+        ("[outer ![inner](inner.png)](outer.md)", [(1, "inner.png"), (1, "outer.md")]),
+        ("![description\n[inside](missing.md)](image.png)", [(2, "image.png")]),
+        ("![outer ![unfinished [real](missing.md)]", [(1, "missing.md")]),
+    ],
+)
+def test_only_a_recognized_image_consumes_nested_targets(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "![unfinished\n\n[real](missing.md)](ignored.png)",
+            [(3, "missing.md")],
+        ),
+        (
+            "![unfinished\n# heading\n[real](missing.md)](ignored.png)",
+            [(3, "missing.md")],
+        ),
+        (
+            "[outer ![unfinished [real](missing.md)] text](outer.md)",
+            [(1, "missing.md")],
+        ),
+        (
+            "[outer ![description [literal](missing.md)](image.png)](outer.md)",
+            [(1, "image.png"), (1, "outer.md")],
+        ),
+        (
+            "![description [literal](missing.md)][pic]\n\n[PIC]: image.png",
+            [(3, "image.png")],
+        ),
+        (
+            "![unfinished [real](missing.md)][undefined]",
+            [(1, "missing.md")],
+        ),
+        (
+            '[ok](README.md "title\n[pic]: ignored.png\n")\n\n'
+            "![unfinished [real](missing.md)][pic]",
+            [(1, "README.md"), (5, "missing.md")],
+        ),
+    ],
+)
+def test_image_boundaries_and_reference_controls(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("![unfinished\n- [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![unfinished\n1. [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![unfinished\n---\n[real](missing.md)](ignored.png)", [(3, "missing.md")]),
+        ("![unfinished\n===\n[real](missing.md)](ignored.png)", [(3, "missing.md")]),
+        ("![unfinished\n> [real](missing.md)](ignored.png)", [(2, "missing.md")]),
+        ("![description\n2. [inside](missing.md)](image.png)", [(2, "image.png")]),
+        ("> ![description\n> [inside](missing.md)](image.png)", [(2, "image.png")]),
+    ],
+)
+def test_image_label_does_not_cross_other_block_boundaries(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected

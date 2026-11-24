@@ -50,10 +50,15 @@ PACKET_TASK18_V17_PATH = (
 PACKET_TASK18_V18_PATH = (
     ROOT / "report" / "issue888-core7-native-artifact-assurance-v18.json"
 )
-PACKET_PATH = (
+PACKET_V25_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v25-combined-reader.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v26-task18-integration.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -105,7 +110,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "dd59cf4608cf13cd6eee7243e77d09e187b132aff5da427b0b62ed632b6a698d"
+    "6851e0eefb7559667c276ff099f66714e96a7624adda632303cc9c25f09cbc25"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1517,7 +1522,7 @@ def test_v25_combined_source_preserves_both_immutable_predecessors() -> None:
             "c0ad6cfbf54e0747aa570ad74b8d4f3542a729f8a1e2d8cbbc895abd0da0939f",
         ),
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V25_PATH.read_bytes())
     for path, raw_digest, canonical_digest in expected:
         raw = path.read_bytes()
         assert hashlib.sha256(raw).hexdigest() == raw_digest
@@ -1684,3 +1689,71 @@ def test_v17_packet_immutable_and_v18_preserves_economic_contract() -> None:
         assert review.status == "UNREVIEWED"
         assert review.errors == ()
         assert not review.economic_execution_authorized
+
+
+def test_v26_task18_combined_source_preserves_both_immutable_predecessors() -> None:
+    current = json.loads(PACKET_PATH.read_bytes())
+    predecessors = (
+        (
+            PACKET_V25_PATH,
+            "b904d7415e3b57f239aab24f3f7189ee02b08e550d02aee21b24e47151f07789",
+            "dd59cf4608cf13cd6eee7243e77d09e187b132aff5da427b0b62ed632b6a698d",
+        ),
+        (
+            PACKET_TASK18_V18_PATH,
+            "39b89895be8de636aa2b2efa3b9c3ef591ae321316f74976b6cf2868e72e3d3d",
+            "474fefddd9ec7550b15913bce8a1c08e5c13b60fcc31ad7892e30e2dceeaec3a",
+        ),
+    )
+    for path, raw_digest, canonical_digest in predecessors:
+        raw = path.read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == raw_digest
+        previous = json.loads(raw)
+        assert assurance_digest(previous) == canonical_digest
+        assert current.keys() == previous.keys()
+        for field in previous:
+            if field not in ("identity", "thesis", "claims"):
+                assert current[field] == previous[field]
+        for field in previous["thesis"]:
+            if field != "limitations":
+                assert current["thesis"][field] == previous["thesis"][field]
+        for field in previous["claims"]:
+            if field != "next_authorized_action":
+                assert current["claims"][field] == previous["claims"][field]
+        check = evaluate_assurance(previous)
+        assert check.status == "UNREVIEWED" and not check.errors
+        assert not check.economic_execution_authorized
+    assert current["thesis"]["limitations"].startswith(
+        json.loads(PACKET_V25_PATH.read_bytes())["thesis"]["limitations"]
+    )
+    old_task18 = json.loads(PACKET_TASK18_V18_PATH.read_bytes())["thesis"][
+        "limitations"
+    ]
+    assert (
+        old_task18[old_task18.index("Source-only successor for #888/#907:") :]
+        in current["thesis"]["limitations"]
+    )
+    assert (
+        "V26 TASK18 INTEGRATION SOURCE-ONLY BOUNDARY"
+        in current["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "d6a40330a7d136e5dc12e162c77faf4c74c6a37e",
+        "protocol_head": "d6a40330a7d136e5dc12e162c77faf4c74c6a37e",
+    }
+    for name in (
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/data/features/multitimeframe.py",
+        "trade_rl/evaluation/terminal_settlement.py",
+        "trade_rl/evaluation/decision_value_dev_study.py",
+        "trade_rl/evaluation/runs/artifact.py",
+        "trade_rl/evaluation/decision_value_ledger_oracle.py",
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/strategies/forecasts/ridge.py",
+        "trade_rl/strategies/forecasts/supervised.py",
+    ):
+        assert name in _bound_code_paths(current["identity"]["implementation_head"])
+    check = evaluate_assurance(current)
+    assert check.status == "UNREVIEWED" and not check.errors
+    assert not check.economic_execution_authorized

@@ -71,8 +71,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v25-combined-reader.json`（M1 v1〜v24、TD8/M2 v15〜v17、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
-- Pinned Implementation Head: `4d2f2240a30527156093ab730ba4efa36950036a`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v26-task18-integration.json`（M1 v1〜v25、TD8/M2 v15〜v17、Task18 v15〜v18、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
+- Pinned Implementation Head: `d6a40330a7d136e5dc12e162c77faf4c74c6a37e`
 - Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。
 - v11 source-only lineage: v10のM1・TD8保護とそのimmutable packet digest `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede` は変更しない。本v11はIssue #1134と#1131のPOSIX receipt root/leafおよびStudy JSON読取中のFD/inode/time identityを固定した公開source commit `a5224b86253e90a12bf23cbb7e8be732f82d4475` を新規ピンする。historical v2/v3 receipt、Study証拠・過去decision・Core7 v4経済protocol、費用／リスク閾値、数値resultには変更を加えない。UNREVIEWED / economic_execution_authorized=false / production_eligible=falseを維持し、G0–G2の別独立レビューとowner G4がない限りTier D実測、FS1/unused/final閲覧、利益の主張やlive注文を認可しない。
 - v12 source-only lineage: v11の既公開read-identity保護と immutable packet digest `390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b` を変更せず保存する。Geminiの２指摘（TD8の一時的なA→B→A差替えがsingle-entryチェックをすり抜ける問題と、M2のread中unlink時に生のOSErrorが出る問題）を、固定した可読directory FDでの`os.scandir(fd)`と型付き`ArtifactIntegrityError`で拒否した公開ソース `553f8828cfe00627edc721e1e5195e37dcdcddcc` を新たにピンする。v2/v3 receipt・既存Study・旧経済結果・Core7 v4プロトコルは不変。別G0–G2、owner G4承認前は **UNREVIEWED / economic_execution_authorized=false / production_eligible=false** を維持し、実データ・FS1/unused/final・live注文は引き続き認可しない。
@@ -97,7 +97,8 @@ Status: Active
 - v16 native prerequisite successor: v15（immutable packet digest `e93ba3a057602c47a1985cad8125c67d4269a84c642555a5e673e1845ac9a21a`、実装HEAD `5895fbd2dba13e57ed92cf422b1a3865c0fd0873`）を保持する。単純リターン専用の厳格な学習経路を追加し、既存の対数リターンの行選択・係数・保存形式とCore7の経済条件・evidence・認可は変更しない。UNREVIEWED / software-only。
 - v17 native-arm successor: v16（immutable packet digest `d565685ff3ab55bf7f103c80566238a61799039552c53fba89713ed4b1c0a364`、実装HEAD `9fb9b48847a436724450898ad97a0281877ccc0f`）を保持する。Task18の人工native接続用のopt-in債務保持・risk後数量HOLDを追加するが、Core7の既定実行、経済条件、mechanism/evidenceおよび認可は不変。UNREVIEWED / software-only。
 - v18 native-artifact successor: v17（immutable packet digest `a15af80af94657efca7a2c0720019e24bf7048c22bca12ae1a6b28aa4f2b7a65`、実装HEAD `d5e77be0c3fa8c8332cf1bcd048dd39fb1f4b9b7`）を保持する。共通ledger oracleの数値処理を変更せず、読取り専用の復元factsを扱える型契約にする。人工native完了receiptの保存・再検証はCore7の経済条件・evidence・認可を変更しない。UNREVIEWED / software-only。
+- v26 Task18 integration source-only lineage: v25 digest `dd59cf4608cf13cd6eee7243e77d09e187b132aff5da427b0b62ed632b6a698d` と並行Task18 v18 digest `474fefddd9ec7550b15913bce8a1c08e5c13b60fcc31ad7892e30e2dceeaec3a` の原bytesと全履歴を保持し、統合source `d6a40330a7d136e5dc12e162c77faf4c74c6a37e` を新規固定する。旧の人工witnessは測定sourceに紐付けたままとし、経済protocol、mechanism/evidence、判定、認可は変えない。UNREVIEWED / synthetic_verification_only。
 - Pinned Protocol ID: `core7_mtf_shadow_anchor_ppo_v4`
 
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
-- Pinned Packet Digest: `dd59cf4608cf13cd6eee7243e77d09e187b132aff5da427b0b62ed632b6a698d`
+- Pinned Packet Digest: `6851e0eefb7559667c276ff099f66714e96a7624adda632303cc9c25f09cbc25`

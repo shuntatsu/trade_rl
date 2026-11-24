@@ -297,3 +297,88 @@ def test_scheduler_excludes_active_file_resource_alias_conflicts() -> None:
         },
         leased_task_ids=("ACTIVE",),
     ) == ("INDEPENDENT",)
+
+
+@pytest.mark.parametrize("wildcard", ["*", "**", "./**", "./*"])
+def test_root_file_wildcard_conflicts_with_every_file(wildcard: str) -> None:
+    root = _packet("ROOT", resource_keys=(f"file:{wildcard}",))
+    ordinary = _packet("FILE", resource_keys=("file:docs/AGENTS.md",))
+    assert classify_conflict(root, ordinary) is ConflictLevel.HARD
+    assert classify_conflict(ordinary, root) is ConflictLevel.HARD
+    assert root.canonical_payload()["resource_keys"] == [f"file:{wildcard}"]
+    reader = _packet(
+        "READER",
+        mode=ExecutionMode.READ_ONLY,
+        resource_keys=("file:docs/AGENTS.md",),
+    )
+    assert classify_conflict(root, reader) is ConflictLevel.HARD
+    assert (
+        len(
+            ready_tasks(
+                (root, ordinary),
+                {"ROOT": _healthy(TaskPhase.READY), "FILE": _healthy(TaskPhase.READY)},
+                leased_task_ids=(),
+            )
+        )
+        == 1
+    )
+    assert (
+        ready_tasks(
+            (root, ordinary),
+            {
+                "ROOT": _healthy(TaskPhase.EXECUTING),
+                "FILE": _healthy(TaskPhase.READY),
+            },
+            leased_task_ids=(),
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "docs/**/AGENTS.md",
+        "docs/*.md",
+        "docs/a?",
+        "docs/[ab]",
+        "docs/**/**",
+        "docs/../AGENTS.md",
+        ".",
+        "./",
+        "/docs/AGENTS.md",
+        "C:/docs/AGENTS.md",
+        "\\server\\docs\\AGENTS.md",
+    ],
+)
+def test_unsupported_file_resource_rejects_before_any_scheduling(invalid: str) -> None:
+    with pytest.raises(ValueError, match="invalid file resource key"):
+        _packet("ONE", resource_keys=(f"file:{invalid}",))
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "expected"),
+    [
+        ("docs\\AGENTS.md", "./docs/AGENTS.md", ConflictLevel.HARD),
+        ("docs/*", "docs/sub/AGENTS.md", ConflictLevel.HARD),
+        ("docs/**", "docs-other/AGENTS.md", ConflictLevel.NONE),
+        ("./.github", ".github/workflows/ci.yml", ConflictLevel.HARD),
+        (".github", ".github-old/workflows/ci.yml", ConflictLevel.NONE),
+        ("docs", "Docs/AGENTS.md", ConflictLevel.NONE),
+    ],
+)
+def test_file_prefix_contract_preserves_literal_path_controls(
+    left: str, right: str, expected: ConflictLevel
+) -> None:
+    a = _packet("A", resource_keys=(f"file:{left}",))
+    b = _packet("B", resource_keys=(f"file:{right}",))
+    assert classify_conflict(a, b) is expected
+    assert classify_conflict(b, a) is expected
+
+
+def test_root_file_wildcard_preserves_two_read_only_snapshot_tasks() -> None:
+    a = _packet("A", mode=ExecutionMode.READ_ONLY, resource_keys=("file:**",))
+    b = _packet(
+        "B", mode=ExecutionMode.READ_ONLY, resource_keys=("file:docs/AGENTS.md",)
+    )
+    assert classify_conflict(a, b) is ConflictLevel.NONE

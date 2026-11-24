@@ -97,6 +97,28 @@ def _require_digest(value: str, *, field_name: str) -> None:
         raise ValueError(f"{field_name} must be a lowercase 64-hex SHA-256 digest")
 
 
+def file_resource_prefix(value: str) -> str:
+    """Parse the bounded file-resource grammar; empty prefix covers the repo.
+
+    Resource keys are logical, case-sensitive repository paths, not general
+    filesystem globs. A final * or ** denotes a conservative subtree prefix.
+    """
+    path = value.replace("\\", "/")
+    parts = [part for part in path.split("/") if part not in ("", ".")]
+    if (
+        not parts
+        or path.startswith("/")
+        or re.match(r"^[A-Za-z]:", parts[0])
+        or ".." in parts
+    ):
+        raise ValueError(f"invalid file resource key: {value}")
+    if parts[-1] in ("*", "**"):
+        parts.pop()
+    if any(any(char in part for char in "*?[]") for part in parts):
+        raise ValueError(f"invalid file resource key: {value}")
+    return "/".join(parts)
+
+
 @dataclass(frozen=True)
 class WriteScope:
     allow: tuple[str, ...] = ()
@@ -200,6 +222,8 @@ class TaskPacket:
         for key in self.resource_keys:
             if not _RESOURCE_KEY_RE.fullmatch(key):
                 raise ValueError(f"invalid resource key: {key}")
+            if key.startswith("file:"):
+                file_resource_prefix(key.removeprefix("file:"))
 
         if self.execution_mode is ExecutionMode.READ_ONLY:
             if self.write_scope.allow:

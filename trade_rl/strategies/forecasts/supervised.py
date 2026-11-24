@@ -144,43 +144,50 @@ class CausalForecastTrainingSet:
         return int(self.labels.size)
 
 
-def build_causal_forecast_training_set(
+@dataclass(frozen=True, slots=True)
+class _SelectedForecastRows:
+    """Internal numeric rows and exact source coordinates, without return units."""
+
+    feature_indices: tuple[int, ...]
+    symbol_indices: tuple[int, ...]
+    features: np.ndarray
+    sample_weights: np.ndarray
+    source_rows: tuple[tuple[int, int, int], ...]
+
+
+def _select_causal_forecast_rows(
     dataset: MarketDataset,
     *,
     feature_indices: tuple[int, ...],
-    fit_symbol_indices: tuple[int, ...] | None = None,
-    fit_cutoff: np.datetime64,
-    horizon_hours: int = 24,
-) -> CausalForecastTrainingSet:
-    """Pool exact-horizon rows without adding symbol identity to model features."""
-
-    horizon_hours = validate_supervised_forecast_horizon_hours(horizon_hours)
-    cutoff = _validated_fit_cutoff_ns(fit_cutoff)
+    fit_symbol_indices: tuple[int, ...] | None,
+    cutoff: np.datetime64,
+    horizon_hours: int,
+    strict_publication: bool,
+) -> _SelectedForecastRows:
+    # Callers validate the exact cutoff and horizon before entering the selector.
     indices, symbols = validated_training_scope(
         dataset,
         feature_indices=feature_indices,
         fit_symbol_indices=fit_symbol_indices,
     )
-
     cutoff_ns = int(cutoff.astype(np.int64))
-    timestamps = dataset.timestamps.astype("datetime64[ns]")
-    timestamps_ns = timestamps.astype(np.int64)
+    timestamps_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     price_available_at = dataset.resolved_array("available_at")
+    information_available = (
+        dataset.resolved_array("information_available") if strict_publication else None
+    )
     horizon_ns = horizon_hours * _NANOSECONDS_PER_HOUR
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
-
     rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]
-    labels_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
-    ends_by_symbol: list[list[np.datetime64]] = [[] for _ in range(dataset.n_symbols)]
+    pairs_by_symbol: list[list[tuple[int, int]]] = [
+        [] for _ in range(dataset.n_symbols)
+    ]
+    feature_columns = list(indices)
     for symbol_index in symbols:
         close = np.asarray(dataset.close[:, symbol_index], dtype=np.float64)
         availability = np.asarray(
-            dataset.feature_available[:, symbol_index],
-            dtype=np.bool_,
+            dataset.feature_available[:, symbol_index], dtype=np.bool_
         )
-        symbol_rows: list[np.ndarray] = []
-        symbol_labels: list[float] = []
-        symbol_ends: list[np.datetime64] = []
         for start_index, start_ns in enumerate(timestamps_ns):
             end_ns = int(start_ns) + horizon_ns
             if end_ns >= cutoff_ns:
@@ -188,15 +195,26 @@ def build_causal_forecast_training_set(
             end_index = time_to_index.get(end_ns)
             if end_index is None or end_index <= start_index:
                 continue
-            if (
-                price_available_at[start_index, symbol_index] > cutoff
-                or price_available_at[end_index, symbol_index] > cutoff
-            ):
+            start_available = price_available_at[start_index, symbol_index]
+            end_available = price_available_at[end_index, symbol_index]
+            if strict_publication:
+                # Task18's original simple-return selector admitted only
+                # information available on its source row and published strictly
+                # before the fit cutoff. Do not change legacy log-label admission.
+                assert information_available is not None
+                if (
+                    not information_available[start_index, symbol_index]
+                    or not information_available[end_index, symbol_index]
+                    or start_available >= cutoff
+                    or end_available >= cutoff
+                ):
+                    continue
+            elif start_available > cutoff or end_available > cutoff:
                 continue
-            if not bool(np.all(availability[start_index, list(indices)])):
+            if not bool(np.all(availability[start_index, feature_columns])):
                 continue
             selected = np.asarray(
-                dataset.features[start_index, symbol_index, list(indices)],
+                dataset.features[start_index, symbol_index, feature_columns],
                 dtype=np.float64,
             )
             if not np.isfinite(selected).all():
@@ -210,12 +228,8 @@ def build_causal_forecast_training_set(
                 or end_price <= 0.0
             ):
                 continue
-            symbol_rows.append(selected)
-            symbol_labels.append(math.log(end_price / start_price))
-            symbol_ends.append(timestamps[end_index])
-        rows_by_symbol[symbol_index] = symbol_rows
-        labels_by_symbol[symbol_index] = symbol_labels
-        ends_by_symbol[symbol_index] = symbol_ends
+            rows_by_symbol[symbol_index].append(selected)
+            pairs_by_symbol[symbol_index].append((start_index, end_index))
 
     if fit_symbol_indices is not None:
         missing_symbols = [index for index in symbols if not rows_by_symbol[index]]
@@ -229,26 +243,62 @@ def build_causal_forecast_training_set(
         raise ValueError(
             "forecast fitting requires at least two eligible training rows"
         )
-
     per_symbol_weight = total_rows / len(active_symbols)
     rows: list[np.ndarray] = []
-    labels: list[float] = []
-    label_end_times: list[np.datetime64] = []
     sample_weights: list[float] = []
+    source_rows: list[tuple[int, int, int]] = []
     for symbol_index in active_symbols:
         symbol_rows = rows_by_symbol[symbol_index]
         row_weight = per_symbol_weight / len(symbol_rows)
         rows.extend(symbol_rows)
-        labels.extend(labels_by_symbol[symbol_index])
-        label_end_times.extend(ends_by_symbol[symbol_index])
         sample_weights.extend([row_weight] * len(symbol_rows))
-
-    return CausalForecastTrainingSet(
+        source_rows.extend(
+            (symbol_index, start, end) for start, end in pairs_by_symbol[symbol_index]
+        )
+    return _SelectedForecastRows(
         feature_indices=indices,
+        symbol_indices=symbols,
         features=np.stack(rows, axis=0),
-        labels=np.asarray(labels, dtype=np.float64),
-        label_end_times=np.asarray(label_end_times, dtype="datetime64[ns]"),
         sample_weights=np.asarray(sample_weights, dtype=np.float64),
+        source_rows=tuple(source_rows),
+    )
+
+
+def build_causal_forecast_training_set(
+    dataset: MarketDataset,
+    *,
+    feature_indices: tuple[int, ...],
+    fit_symbol_indices: tuple[int, ...] | None = None,
+    fit_cutoff: np.datetime64,
+    horizon_hours: int = 24,
+) -> CausalForecastTrainingSet:
+    """Pool exact-horizon log-return rows without symbol identity features."""
+
+    horizon_hours = validate_supervised_forecast_horizon_hours(horizon_hours)
+    cutoff = _validated_fit_cutoff_ns(fit_cutoff)
+    rows = _select_causal_forecast_rows(
+        dataset,
+        feature_indices=feature_indices,
+        fit_symbol_indices=fit_symbol_indices,
+        cutoff=cutoff,
+        horizon_hours=horizon_hours,
+        strict_publication=False,
+    )
+    labels = [
+        math.log(
+            float(dataset.close[end, symbol]) / float(dataset.close[start, symbol])
+        )
+        for symbol, start, end in rows.source_rows
+    ]
+    timestamps = dataset.timestamps.astype("datetime64[ns]")
+    return CausalForecastTrainingSet(
+        feature_indices=rows.feature_indices,
+        features=rows.features,
+        labels=np.asarray(labels, dtype=np.float64),
+        label_end_times=np.asarray(
+            [timestamps[end] for _, _, end in rows.source_rows], dtype="datetime64[ns]"
+        ),
+        sample_weights=rows.sample_weights,
         fit_cutoff=cutoff,
         horizon_hours=horizon_hours,
     )

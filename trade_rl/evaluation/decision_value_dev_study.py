@@ -2303,6 +2303,7 @@ def _preflight_receipt_pair_objects(
     direct_pair_fields: set[bytes] = set()
     pair_value_state: str | None = None
     pair_value_kind: str | None = None
+    flat_pair_array_depth: int | None = None
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2368,6 +2369,13 @@ def _preflight_receipt_pair_objects(
             continue
         if char in b" \t\r\n":
             continue
+        if flat_pair_array_depth == len(stack) and char in (0x7B, 0x5B):
+            # Both candidate_action and reason_codes contain only scalars.
+            # Reject nested allocations before decoding; quoted delimiters
+            # and the separately validated reference_vintage remain inert.
+            raise ValueError(
+                "failure receipt pair array elements must not be JSON containers"
+            )
         if pairs_depth is not None and len(stack) == pairs_depth + 1:
             if pair_value_state == "colon" and char == 0x3A:
                 pair_value_state = "value"
@@ -2386,6 +2394,8 @@ def _preflight_receipt_pair_objects(
                     raise ValueError(
                         "failure receipt pair array field must be a JSON array"
                     )
+                if pair_value_kind == "array" and char == 0x5B:
+                    flat_pair_array_depth = len(stack) + 1
                 pair_value_state = None
         # Remember the root count token without copying potentially huge bytes.
         if len(stack) == 1 and count_start is not None and char in (0x2C, 0x7D):
@@ -2458,6 +2468,8 @@ def _preflight_receipt_pair_objects(
                 raise ValueError("failure receipt pair fields are malformed")
             if stack:
                 stack.pop()
+            if flat_pair_array_depth is not None and len(stack) < flat_pair_array_depth:
+                flat_pair_array_depth = None
             if pairs_depth is not None and len(stack) < pairs_depth:
                 pairs_depth = None
         elif char == 0x2C:

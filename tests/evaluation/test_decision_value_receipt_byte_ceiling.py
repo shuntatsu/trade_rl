@@ -1072,3 +1072,42 @@ def test_broad_consistent_pair_count_reaches_existing_json_validator(
     monkeypatch.setattr(study.json, "loads", stop_at_decoder)
     with pytest.raises(DecoderReached):
         study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize("field", ("candidate_action", "reason_codes"))
+@pytest.mark.parametrize("kind", ("array", "object"))
+@pytest.mark.parametrize("second_pair", (False, True))
+def test_flat_pair_arrays_reject_nested_containers_before_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str, kind: str, second_pair: bool
+) -> None:
+    """Scalar-only arrays cannot carry a broad nested allocation."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(
+        baseline={},
+        candidate={},
+        candidate_action=[0],
+        reason_codes=["blocked"],
+        reference_vintage={"candidate_action": [[1]], "reason_codes": [{"x": 0}]},
+    )
+    original = study.canonical_json_bytes(pair)
+    value = b"[0]" if field == "candidate_action" else b'["blocked"]'
+    target = b'"' + field.encode("ascii") + b'":' + value
+    assert original.count(target) == 1
+    nested = (
+        b"[" + b"0," * 100_000 + b"0]"
+        if kind == "array"
+        else b"{"
+        + b",".join(b'"k' + str(i).encode("ascii") + b'":0' for i in range(20_000))
+        + b"}"
+    )
+    malformed = original.replace(target, target[:-1] + b", " + nested + b"]", 1)
+    raw = (
+        b'{"pairs":[' + (original + b",\n " if second_pair else b"") + malformed + b"]}"
+    )
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("nested pair array reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair array elements"):
+        study._decode_incomplete_receipt(raw)

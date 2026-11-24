@@ -611,6 +611,15 @@ through the same native risk/execution transition. Numeric portfolio decisions
 use their own result and ledger schema; the per-symbol intent API and its schemas
 remain unchanged. It does not introduce another book, executor, or P&L loop.
 
+`evaluation/terminal_settlement.py` owns the reusable observer-only terminal
+dust classification and mark-net-of-exit-cost equity adjustment. It consumes
+native shared-cash replay ledger evidence, Dataset venue rules and execution
+costs, without changing any order, quantity, accounting transition, minimum
+notional or study authorization. External research may import its two public
+functions directly; the historical development runner retains the existing
+names as aliases to the single shared implementation. Historical results and
+source-bound review packets are not migrated or re-authorized by this API.
+
 `evaluation/portfolio_inference.py` is the opt-in filesystem consumer for a
 published policy bundle. It loads a caller-bound paired Dataset artifact once,
 uses an unreset Gym environment only to validate the bundle against that same

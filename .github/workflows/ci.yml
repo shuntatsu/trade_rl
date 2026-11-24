@@ -187,6 +187,9 @@ jobs:
         run: uv run mypy tools/ppo_conditional_diagnostic.py tools/issue810_portfolio_probability_probe.py
 
       - name: Core tests
+        # Preserve the verified command while exposing every skip reason.
+        env:
+          PYTEST_ADDOPTS: "-rs"
         run: uv run pytest -q tests
 
       - name: Build

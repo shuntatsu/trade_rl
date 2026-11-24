@@ -34,7 +34,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         source = path.read_text(encoding="utf-8")
         for match in re.finditer(
-            r"(?m)^(?P<indent> +)(?P<dash>- )?uses: astral-sh/setup-uv@(?P<ref>[^\s#]+)[ \t]*$",
+            r"(?m)^(?P<indent> +)(?P<dash>- )?uses: astral-sh/setup-uv@(?P<ref>[^\s#]+)(?:[ \t]+#[^\n]*)?[ \t]*$",
             source,
         ):
             # - uses: and a separate uses: under - name: are both valid
@@ -79,7 +79,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
                 ), path
             total += 1
     assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
-    assert total >= 15  # all CI and manual/research workflows
+    assert total == 16  # same inventory as the exact Action SHA contract
 
 
 def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
@@ -119,10 +119,39 @@ def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
         test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
 
 
-def test_setup_uv_check_covers_yaml_suffix_as_well_as_yml(
+def test_existing_commented_setup_uv_still_requires_its_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A new *.yaml workflow must not bypass the same pin contract."""
+    workflow = ROOT / ".github" / "workflows" / "ci.yml"
+    original_read = Path.read_text
+    source = original_read(workflow, encoding="utf-8")
+    action = "        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"
+    assert action in source
+    mutated = source.replace(action + "\n", action + " # reviewed Action\n", 1)
+
+    def read_text(
+        path: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
+        if path == workflow:
+            return mutated
+        return original_read(path, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    # A valid pin with a YAML comment remains in the exact step inventory.
+    test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
+    mutated = mutated.replace(
+        '          version: "0.13.9"\n', '          version: "0.10.0"\n', 1
+    )
+    with pytest.raises(AssertionError):
+        test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
+
+
+@pytest.mark.parametrize("trailing_comment", ["", " # action review pin"])
+def test_setup_uv_check_covers_yaml_suffix_as_well_as_yml(
+    monkeypatch: pytest.MonkeyPatch,
+    trailing_comment: str,
+) -> None:
+    """A new *.yaml workflow or YAML comment must not bypass the pin contract."""
     workflows = ROOT / ".github" / "workflows"
     new_path = workflows / "unpinned-ci.yaml"
     assert not new_path.exists()
@@ -140,7 +169,9 @@ def test_setup_uv_check_covers_yaml_suffix_as_well_as_yml(
         if path == new_path:
             return (
                 "jobs:\n  check:\n    steps:\n"
-                "      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2\n"
+                "      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"
+                + trailing_comment
+                + "\n"
                 '        with:\n          version: "0.10.0"\n'
             )
         return original_read(path, encoding=encoding, errors=errors)

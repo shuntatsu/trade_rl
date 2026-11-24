@@ -22,6 +22,7 @@ from tests.integrations.market_store.support import (
     stored_exchange_info,
     zip_csv,
 )
+from trade_rl.integrations.market_store.checksum import verify_archive
 from trade_rl.integrations.market_store.contracts import (
     StoreMarket,
     Universe,
@@ -40,6 +41,10 @@ from trade_rl.integrations.market_store.ingest import (
     IngestReport,
     RunCounts,
     run_ingestion,
+)
+from trade_rl.integrations.market_store.parse import (
+    ArchiveContentError,
+    parse_kline_archive,
 )
 from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
 from trade_rl.integrations.market_store.rules import parse_symbol_rules
@@ -1069,3 +1074,122 @@ def test_export_refuses_the_window_and_status_reports(pg_store: Any) -> None:
     assert "released" not in status["embargo"]  # type: ignore[operator]
     assert {item["symbol"] for item in status["klines"]} == set(SYMBOLS)  # type: ignore[attr-defined]
     assert status["sources"] == {"ingested": 2}
+
+
+@pytest.mark.parametrize("micro", (False, True))
+@pytest.mark.parametrize("malformed", ("close", "first-open-signed", "first-open-text"))
+def test_native_clock_ingestion_refuses_malformed_archive_before_data_writes(
+    pg_store: Any, micro: bool, malformed: str
+) -> None:
+    plan = plan_ingestion(
+        Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
+        start=START,
+        end=END,
+        now=NOW,
+    )
+    (spec,) = plan.specs
+    rows = kline_csv_rows(
+        spec.symbol, ms_from_utc(START), ms_from_utc(END), micro=micro
+    )
+    index, column = (6, 6) if malformed == "close" else (0, 0)
+    original = rows[index][column]
+    rows[index][column] = {
+        "close": str(int(original) - 1),
+        "first-open-signed": "+" + original,
+        "first-open-text": "bad-clock",
+    }[malformed]
+    fetcher = FakeFetcher()
+    fetcher.add(spec.url, zip_csv(rows))
+    with pytest.raises(ArchiveContentError, match="source close_time|open_time"):
+        ingest(pg_store, fetcher, plan)
+    assert scalar(pg_store, "SELECT count(*) FROM klines") == 0
+    assert scalar(pg_store, "SELECT count(*) FROM sources") == 0
+    assert scalar(pg_store, "SELECT status FROM ingestion_runs") == "failed"
+
+    # The same source URL is not claimed by a failed archive.
+    rows[index][column] = original
+    fetcher.add(spec.url, zip_csv(rows))
+    report = ingest(pg_store, fetcher, plan)
+    assert report.counts.rows_inserted == 744
+    assert (
+        scalar(
+            pg_store,
+            "SELECT request->>'new_kline_admission' FROM ingestion_runs "
+            "WHERE run_id = %s",
+            report.run_id,
+        )
+        == "store_native_close_v2"
+    )
+    assert (
+        scalar(
+            pg_store,
+            "SELECT count(*) FROM klines k JOIN sources s USING (source_id) "
+            "WHERE s.run_id = %s AND k.close_time = "
+            "k.open_time + interval '1 hour' - interval '1 millisecond'",
+            report.run_id,
+        )
+        == 744
+    )
+
+
+def test_new_ingestion_does_not_recertify_legacy_source_or_rows(pg_store: Any) -> None:
+    plan = plan_ingestion(
+        Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
+        start=START,
+        end=END,
+        now=NOW,
+    )
+    (spec,) = plan.specs
+    rows = kline_csv_rows(spec.symbol, ms_from_utc(START), ms_from_utc(END), micro=True)
+    # The historical parser loses this native error during normalization.
+    rows[6][6] = str(int(rows[6][6]) - 1)
+    fetcher = FakeFetcher()
+    payload = zip_csv(rows)
+    fetcher.add(spec.url, payload)
+    parsed = parse_kline_archive(payload, spec, embargo=plan.embargo)
+    old_run = pg_store.begin_run(
+        code_commit="legacy-fixture",
+        command_line="pytest legacy",
+        request=plan.to_dict(),
+        embargo=plan.embargo,
+    )
+    with pg_store.transaction():
+        instrument = pg_store.ensure_instrument(spec.market, spec.symbol)
+        source = pg_store.write_source(
+            run_id=old_run,
+            spec=spec,
+            instrument_id=instrument,
+            http_status=200,
+            fetched_at=NOW,
+            evidence=verify_archive(
+                payload,
+                fetcher.files[spec.checksum_url],
+                filename=spec.filename,
+            ),
+            row_count=len(parsed.rows),
+        )
+        assert pg_store.insert_klines(instrument, "1h", source, parsed.rows) == 744
+    pg_store.finish_run(
+        old_run,
+        status="succeeded",
+        counts=RunCounts(archives_planned=1, archives_ingested=1, rows_inserted=744),
+        error=None,
+    )
+
+    for refetch in (False, True):
+        report = ingest(pg_store, fetcher, plan, refetch=refetch)
+        assert report.counts.archives_skipped == 1
+        assert report.counts.archives_ingested == report.counts.rows_inserted == 0
+        assert scalar(pg_store, "SELECT run_id FROM sources") == old_run
+        assert (
+            scalar(pg_store, "SELECT count(*) FROM klines WHERE source_id = %s", source)
+            == 744
+        )
+        assert (
+            scalar(
+                pg_store,
+                "SELECT request->>'new_kline_admission' FROM ingestion_runs WHERE run_id = %s",
+                old_run,
+            )
+            is None
+        )

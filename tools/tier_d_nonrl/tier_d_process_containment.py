@@ -5,7 +5,10 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Callable, Iterable, Protocol, Sequence, cast
 
 from tools.tier_d_nonrl.tier_d_process_tree import ProcessIdentity
@@ -85,7 +88,11 @@ class ContainedProcessSample:
 
 
 class ContainedProcess:
-    """A launched process whose descendants remain inside a native Job Object."""
+    """A launched process whose descendants remain inside a native Job Object.
+
+    Public containment operations refuse concurrent entry rather than sharing
+    a native handle or waiting behind another call's cleanup deadline.
+    """
 
     def __init__(self, process: subprocess.Popen[Any], job: _WindowsJob) -> None:
         self.process = process
@@ -93,6 +100,20 @@ class ContainedProcess:
         self._closed = False
         self._job_close_failed = False
         self._cleanup_failed = False
+        self._operation_lock = Lock()
+
+    @contextmanager
+    def _exclusive_operation(self) -> Iterator[None]:
+        # Do not use a handle while another operation can change its ownership
+        # or verification disposition.
+        if not self._operation_lock.acquire(blocking=False):
+            raise ProcessContainmentError(
+                "another containment operation is in progress"
+            )
+        try:
+            yield
+        finally:
+            self._operation_lock.release()
 
     def _require_no_failed_cleanup(self) -> None:
         if self._job_close_failed:
@@ -105,20 +126,25 @@ class ContainedProcess:
             )
 
     def sample(self) -> ContainedProcessSample:
-        self._require_no_failed_cleanup()
-        if self._closed:
-            raise ProcessContainmentError("process containment is already closed")
-        sample = self._job.sample()
-        root_is_member = any(
-            member.identity == sample.root_identity for member in sample.members
-        )
-        if self.process.poll() is None and not root_is_member:
-            raise ProcessContainmentError(
-                "running root process is absent from its containment Job Object"
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                raise ProcessContainmentError("process containment is already closed")
+            sample = self._job.sample()
+            root_is_member = any(
+                member.identity == sample.root_identity for member in sample.members
             )
-        return sample
+            if self.process.poll() is None and not root_is_member:
+                raise ProcessContainmentError(
+                    "running root process is absent from its containment Job Object"
+                )
+            return sample
 
     def terminate_and_wait(self, timeout: float = 10.0) -> int:
+        with self._exclusive_operation():
+            return self._terminate_and_wait(timeout)
+
+    def _terminate_and_wait(self, timeout: float) -> int:
         self._require_no_failed_cleanup()
         if self._closed:
             return (
@@ -154,22 +180,24 @@ class ContainedProcess:
             raise
 
     def close(self, timeout: float = 10.0) -> None:
-        self._require_no_failed_cleanup()
-        if self._closed:
-            return
-        self.terminate_and_wait(timeout)
-        try:
-            self._job.close()
-        except BaseException:
-            self._job_close_failed = True
-            raise
-        self._closed = True
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                return
+            self._terminate_and_wait(timeout)
+            try:
+                self._job.close()
+            except BaseException:
+                self._job_close_failed = True
+                raise
+            self._closed = True
 
     def __enter__(self) -> ContainedProcess:
-        self._require_no_failed_cleanup()
-        if self._closed:
-            raise ProcessContainmentError("process containment is already closed")
-        return self
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                raise ProcessContainmentError("process containment is already closed")
+            return self
 
     def __exit__(self, *_: object) -> None:
         self.close()

@@ -702,3 +702,114 @@ def test_direct_successful_stop_can_close_normally() -> None:
     assert owned.terminate_and_wait() == 0
     assert calls.count("close") == 1
     assert not owned._cleanup_failed
+
+
+@pytest.mark.parametrize("first_phase", ("sample", "terminate", "close"))
+@pytest.mark.parametrize(
+    "second_operation", ("sample", "terminate_and_wait", "close", "__enter__")
+)
+@pytest.mark.parametrize("first_fails", (True, False))
+def test_concurrent_containment_operations_cannot_share_native_handle(
+    first_phase: str, second_operation: str, first_fails: bool
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    entered = Event()
+    release = Event()
+    calls: list[str] = []
+    root = ProcessIdentity(100, 1000)
+    native_failure = OSError if first_phase == "close" else ProcessContainmentError
+
+    def phase(name: str) -> None:
+        calls.append(name)
+        if name == first_phase and not entered.is_set():
+            entered.set()
+            assert release.wait(20), "test did not release active native operation"
+            if first_fails:
+                raise native_failure("native operation failed")
+
+    class Job:
+        def sample(self) -> ContainedProcessSample:
+            phase("sample")
+            return ContainedProcessSample(root, ())
+
+        def terminate_members(self, timeout: float) -> None:
+            phase("terminate")
+
+        def wait_empty(self, deadline: float) -> None:
+            phase("empty")
+
+        def close(self) -> None:
+            phase("close")
+
+    class Process:
+        returncode = 0
+
+        def wait(self, timeout: float) -> int:
+            phase("wait")
+            return 0
+
+        def poll(self) -> int:
+            return 0
+
+    owned = containment.ContainedProcess(Process(), Job())  # type: ignore[arg-type]
+    first_operation = {
+        "sample": owned.sample,
+        "terminate": owned.terminate_and_wait,
+        "close": owned.close,
+    }[first_phase]
+    prefix = {
+        "sample": ["sample"],
+        "terminate": ["terminate"],
+        "close": ["terminate", "wait", "empty", "close"],
+    }[first_phase]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(first_operation)
+        try:
+            assert entered.wait(5)
+            second = pool.submit(getattr(owned, second_operation))
+            # No blocking on another native call, and no native access while
+            # the active call can change handle ownership or verification.
+            with pytest.raises(
+                ProcessContainmentError, match="operation is in progress"
+            ):
+                second.result(timeout=5)
+            assert calls == prefix
+        finally:
+            release.set()
+        if first_fails:
+            with pytest.raises(native_failure, match="native operation failed"):
+                first.result(timeout=5)
+        else:
+            first.result(timeout=5)
+
+    if first_fails and first_phase != "sample":
+        for retry in (
+            owned.sample,
+            owned.terminate_and_wait,
+            owned.close,
+            owned.__enter__,
+        ):
+            with pytest.raises(ProcessContainmentError, match="previously failed"):
+                retry()
+        expected = (
+            ["terminate", "close", "wait"] if first_phase == "terminate" else prefix
+        )
+        assert calls == expected
+    else:
+        # A refused concurrent call or failed sample is not itself a failed
+        # native cleanup. A verified sequential close is still idempotent.
+        owned.close()
+        owned.close()
+        assert owned.terminate_and_wait() == 0
+        for retry in (owned.sample, owned.__enter__):
+            with pytest.raises(ProcessContainmentError, match="already closed"):
+                retry()
+        cleanup = ["terminate", "wait", "empty", "close"]
+        expected = {
+            "sample": ["sample", *cleanup],
+            "terminate": ["terminate", "wait", "empty", *cleanup],
+            "close": cleanup,
+        }[first_phase]
+        assert calls == expected

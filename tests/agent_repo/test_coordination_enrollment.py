@@ -407,7 +407,10 @@ def test_preflight_inputs_reject_fractional_identity_before_enrollment(
 
 def test_local_registry_preflight_rejects_matching_null_oids() -> None:
     candidate = _enrollment()
-    with pytest.raises(ValueError, match="expected_registry_oid"):
+    with pytest.raises(
+        ValueError,
+        match="^expected_registry_oid must be an exact nonzero 40-character Git SHA$",
+    ):
         require_local_registry_preflight(
             None,
             candidate,
@@ -419,7 +422,10 @@ def test_local_registry_preflight_rejects_matching_null_oids() -> None:
 
 def test_enrollment_readback_rejects_matching_null_oids() -> None:
     candidate = _enrollment()
-    with pytest.raises(ValueError, match="expected_registry_oid"):
+    with pytest.raises(
+        ValueError,
+        match="^expected_registry_oid must be an exact nonzero 40-character Git SHA$",
+    ):
         require_enrollment_readback(
             candidate,
             candidate,
@@ -446,3 +452,55 @@ def test_enrollment_accepts_nonzero_registry_oid_with_leading_zeroes() -> None:
         observed_registry_oid=oid,
         observed_branch_sha=HEAD,
     )
+
+
+@pytest.mark.parametrize("field", ["current_main_sha", "observed_branch_sha"])
+def test_prepare_projection_rejects_each_null_oid(field: str) -> None:
+    packet, lease, status = _snapshot()
+    with pytest.raises(
+        ValueError, match=rf"^{field} must be an exact nonzero 40-character Git SHA$"
+    ):
+        prepare_enrollment_projection(
+            packet,
+            lease,
+            status,
+            repository="shuntatsu/trade_rl",
+            issue_number=1067,
+            issue_node_id="I_kwDOAUTH1067",
+            current_main_sha="0" * 40 if field == "current_main_sha" else BASE,
+            observed_branch_sha="0" * 40 if field == "observed_branch_sha" else HEAD,
+            issue_is_open=True,
+            now=NOW + timedelta(minutes=2),
+        )
+
+
+@pytest.mark.parametrize("field", ["expected_registry_oid", "observed_registry_oid"])
+def test_local_registry_preflight_rejects_each_null_oid(field: str) -> None:
+    candidate = _enrollment()
+    with pytest.raises(
+        ValueError, match=rf"^{field} must be an exact nonzero 40-character Git SHA$"
+    ):
+        require_local_registry_preflight(
+            None,
+            candidate,
+            expected_registry_oid="0" * 40 if field == "expected_registry_oid" else OID,
+            observed_registry_oid="0" * 40 if field == "observed_registry_oid" else OID,
+            enumerated_task_ids=(),
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["expected_registry_oid", "observed_registry_oid", "observed_branch_sha"]
+)
+def test_enrollment_readback_rejects_each_null_oid(field: str) -> None:
+    candidate = _enrollment()
+    with pytest.raises(
+        ValueError, match=rf"^{field} must be an exact nonzero 40-character Git SHA$"
+    ):
+        require_enrollment_readback(
+            candidate,
+            candidate,
+            expected_registry_oid="0" * 40 if field == "expected_registry_oid" else OID,
+            observed_registry_oid="0" * 40 if field == "observed_registry_oid" else OID,
+            observed_branch_sha="0" * 40 if field == "observed_branch_sha" else HEAD,
+        )

@@ -331,39 +331,59 @@ class GitHubApi:
     def delete_branches_with_leases(self, branches: Sequence[BranchInfo]) -> None:
         if not branches:
             return
-        credential = base64.b64encode(
-            f"x-access-token:{self._token}".encode("utf-8")
-        ).decode("ascii")
-        # Avoid exposing a reversible Base64 credential in the process argv.
-        # Git config via the child environment leaves it out of command lines.
-        command = [
-            "git",
-            "push",
-            "--atomic",
-            "--porcelain",
-        ]
-        command.extend(
-            f"--force-with-lease=refs/heads/{branch.name}:{branch.sha}"
-            for branch in branches
-        )
-        command.append("origin")
-        command.extend(f":refs/heads/{branch.name}" for branch in branches)
-        process = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            check=False,
-            env={
-                **os.environ,
-                "GIT_TERMINAL_PROMPT": "0",
-                "GIT_CONFIG_COUNT": "1",
-                "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
-            },
-        )
-        if process.returncode != 0:
-            detail = process.stderr.strip() or process.stdout.strip()
-            raise RuntimeError(f"conditional branch deletion failed: {detail}")
+        if self._repository != "shuntatsu/trade_rl":
+            raise ValueError("branch deletion is restricted to trade_rl")
+        # Revalidate the exact effective Git configuration at each batch.
+        # The child environment replaces GIT_CONFIG_COUNT, so inspecting the
+        # inherited environment alone could hide a different push destination.
+        env = _retirement_push_env(self._token)
+        require_retirement_origin(env=env)
+        _push_branches_with_leases(branches, env=env)
+
+
+def _retirement_push_env(token: str) -> dict[str, str]:
+    credential = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode(
+        "ascii"
+    )
+    # Keep the reversible credential out of argv. Use this same environment
+    # for destination validation and for the subsequent push.
+    return {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {credential}",
+    }
+
+
+def _push_branches_with_leases(
+    branches: Sequence[BranchInfo], *, env: dict[str, str]
+) -> None:
+    """Low-level Git transport; caller must validate the retirement destination."""
+    if not branches:
+        return
+    command = [
+        "git",
+        "push",
+        "--atomic",
+        "--porcelain",
+    ]
+    command.extend(
+        f"--force-with-lease=refs/heads/{branch.name}:{branch.sha}"
+        for branch in branches
+    )
+    command.append("origin")
+    command.extend(f":refs/heads/{branch.name}" for branch in branches)
+    process = subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    if process.returncode != 0:
+        detail = process.stderr.strip() or process.stdout.strip()
+        raise RuntimeError(f"conditional branch deletion failed: {detail}")
 
 
 def open_pull_request_branch_names(
@@ -563,7 +583,7 @@ def apply_merged_retirement(
     return tuple(deleted)
 
 
-def require_retirement_origin() -> None:
+def require_retirement_origin(*, env: dict[str, str] | None = None) -> None:
     """Do not let an exact-SHA lease target an unrelated checkout or remote."""
 
     expected = {
@@ -571,16 +591,17 @@ def require_retirement_origin() -> None:
         "https://github.com/shuntatsu/trade_rl.git",
     }
     for argv in (
-        ("git", "remote", "get-url", "origin"),
-        ("git", "remote", "get-url", "--push", "origin"),
+        ("git", "remote", "get-url", "--all", "origin"),
+        ("git", "remote", "get-url", "--push", "--all", "origin"),
     ):
         actual = subprocess.run(
             argv,
             capture_output=True,
             text=True,
             check=True,
-        ).stdout.strip()
-        if actual not in expected:
+            env=env,
+        ).stdout.splitlines()
+        if len(actual) != 1 or actual[0] not in expected:
             raise RuntimeError(
                 "merged retirement requires the exact trade_rl HTTPS origin"
             )

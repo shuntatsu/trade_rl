@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from tools.branch_hygiene import BranchInfo, GitHubApi
+from tools.branch_hygiene import (
+    BranchInfo,
+    _push_branches_with_leases,
+    _retirement_push_env,
+)
 
 
 def _git(*args: str, cwd: Path | None = None) -> str:
@@ -45,13 +49,11 @@ def test_real_atomic_exact_sha_lease_deletes_only_verified_tip(
 ) -> None:
     checkout, remote, sha = isolated_git
     monkeypatch.chdir(checkout)
-    api = GitHubApi(
-        repository="shuntatsu/trade_rl",
-        token="fixture-token",
-        api_url="https://api.github.com",
-    )
     assert _remote_tip(remote) == sha
-    api.delete_branches_with_leases((BranchInfo("feat/merged", sha, False),))
+    _push_branches_with_leases(
+        (BranchInfo("feat/merged", sha, False),),
+        env=_retirement_push_env("fixture-token"),
+    )
     assert _remote_tip(remote) is None
     assert _git("rev-parse", "refs/heads/main", cwd=remote) == sha
 
@@ -67,12 +69,10 @@ def test_real_stale_sha_lease_cannot_delete_a_changed_remote_branch(
     new_sha = _git("rev-parse", "HEAD", cwd=checkout)
     _git("push", "origin", "feat/merged", cwd=checkout)
     monkeypatch.chdir(checkout)
-    api = GitHubApi(
-        repository="shuntatsu/trade_rl",
-        token="fixture-token",
-        api_url="https://api.github.com",
-    )
     assert new_sha != old_sha
     with pytest.raises(RuntimeError, match="conditional branch deletion failed"):
-        api.delete_branches_with_leases((BranchInfo("feat/merged", old_sha, False),))
+        _push_branches_with_leases(
+            (BranchInfo("feat/merged", old_sha, False),),
+            env=_retirement_push_env("fixture-token"),
+        )
     assert _remote_tip(remote) == new_sha

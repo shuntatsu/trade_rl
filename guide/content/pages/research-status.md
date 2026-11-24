@@ -47,7 +47,7 @@ Task 18のSourceVerifier 30cは、既存の公開`market_build_v3` / `identity_v
 
 Issue #810の次の比較は既存Datasetを使うNONRL 48-cellで、RL実データfit/replayより先に進めます。RLはfundingを含む金融clockとrollout/decision protocolを固定し、fee-only synthetic marketでno-trade learnabilityを通過するまで実データへ進めません。既存の6-fit PPO fee-only learnabilityは`FAILED`のままで、このtechnical attemptでも変更されません。native CASH controlやpolicy dropoutは学習済みno-trade能力や利益性を示しません。
 
-停止回復のソフトウェア経路（#907/#888）では、外部pinで固定した停止runの完成済みreceiptとledger等をそのまま保持し、未実行armの順序を復元します。別の人工2-armテストでは完成済みNONRL receiptの公開直後に子プロセスを停止し、新プロセスで未実行CASHだけを再開しました。さらに実寸9,504行の人工fixtureでは、6,599区間を完了したNONRLの公開後に実際の子プロセスを停止し、7ファイルを保持して別プロセスで再開しました。元の完了armを再実行せず、47 pendingの先頭CASHだけを6,599区間実行して別runへ保存しました。多段階の回復は祖先lineage検証ができるまで拒否します。これはbyte同一性・選択的再開のソフトウェア検証であり、元の48-cell市場実行、外部verifierの真正性、研究上の勝者や経済実験認可を意味しません。
+停止回復のソフトウェア経路（#907/#888）では、外部pinで固定した停止runの完成済みreceiptとledger等をそのまま保持し、未実行armの順序を復元します。別の人工2-armテストでは完成済みNONRL receiptの公開直後に子プロセスを停止し、新プロセスで未実行CASHだけを再開しました。さらに実寸9,504行の人工fixtureでは、6,599区間を完了したNONRLと次のCASHの各receipt公開直後に実際の子プロセスを停止し、第三のプロセスで別CASHだけを実行しました。各世代の外部pinとlineageを照合して元runの完成receiptをそのまま保持し、累積完成/残りは1/47、2/46、3/45となりました。全48識別子の集約契約と実際の全48-arm実行は別であり、分岐間の重複実行防止やwriter認可までは保証しません。これはbyte同一性・選択的再開のソフトウェア検証であり、元の48-cell市場実行、外部verifierの真正性、研究上の勝者や経済実験認可を意味しません。
 
 ### 条件付きfour-arm Ridge開発screen
 

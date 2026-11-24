@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from tools.tier_d_nonrl import task18_recovery as recovery
@@ -31,13 +31,22 @@ from tools.tier_d_nonrl.task18_native_artifact import (
     publish_completed_native_arm,
     synthetic_receipt_protocol,
 )
+from tools.tier_d_nonrl.task18_native_lineage import (
+    SUCCESSOR_PREFIX,
+    StagedSyntheticGeneration,
+    lineage_bytes,
+    ordered_union,
+    read_generation,
+    remaining,
+    require_pending_subset,
+    validate_generation_paths,
+    verify_successor_lineage,
+)
 from tools.tier_d_nonrl.task18_receipts import ArmReceipt, RunReceipt, SourceBinding
 from tools.tier_d_nonrl.task18_recipe import Task18Protocol
 from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.data.market import MarketDataset
-
-_SUCCESSOR_PREFIX = "task18-synthetic-successor:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +55,16 @@ class RecoveredSyntheticAttempt:
     stopped: RunReceipt
     handoff: recovery.RecoveryHandoff
     completed: tuple[VerifiedNativeArmArtifact, ...]
+    handoff_sha256s: tuple[str, ...]
+    run_ids: tuple[str, ...]
+
+    @property
+    def completed_arm_ids(self) -> tuple[str, ...]:
+        return tuple(a.receipt.arm_id for a in self.completed)
+
+    @property
+    def pending_arm_ids(self) -> tuple[str, ...]:
+        return remaining(self.completed_arm_ids)
 
     @property
     def execution_authorized(self) -> bool:
@@ -58,6 +77,18 @@ class SyntheticSuccessor:
     predecessor_handoff_sha256: str
     lineage_sha256: str
     completed: tuple[VerifiedNativeArmArtifact, ...]
+    inherited_completed_arm_ids: tuple[str, ...]
+
+    @property
+    def completed_arm_ids(self) -> tuple[str, ...]:
+        return ordered_union(
+            self.inherited_completed_arm_ids,
+            tuple(a.receipt.arm_id for a in self.completed),
+        )
+
+    @property
+    def pending_arm_ids(self) -> tuple[str, ...]:
+        return remaining(self.completed_arm_ids)
 
     @property
     def execution_authorized(self) -> bool:
@@ -89,15 +120,11 @@ def _verify_completed(
     source: SourceBinding,
     stopped: RunReceipt,
     handoff: recovery.RecoveryHandoff,
+    *,
+    predecessor: RecoveredSyntheticAttempt | None,
+    lineage: bytes | None,
 ) -> RecoveredSyntheticAttempt:
     _validate_run(attempt, stopped)
-    # A successor contains only its own executed arms; its retained ancestors
-    # deliberately keep their original receipts. Until complete lineage-chain
-    # verification exists, never treat a successor as a new original attempt.
-    if stopped.run_id.startswith(_SUCCESSOR_PREFIX):
-        raise ValueError(
-            "multi-hop successor recovery requires ancestor lineage verification"
-        )
     if stopped.source_binding != source:
         raise ValueError("stopped source differs from the expected binding")
     plan_pin = next(pin for pin in handoff.files if pin.path == "frozen-plan.bin")
@@ -106,8 +133,39 @@ def _verify_completed(
         attempt.plan_pin.size_bytes,
     ):
         raise ValueError("stopped plan differs from the exact pre-stop pin")
-    completed = tuple(
-        load_completed_native_arm(
+    if predecessor is None:
+        if lineage is not None or stopped.run_id.startswith(SUCCESSOR_PREFIX):
+            raise ValueError("successor requires complete ordered ancestor lineage")
+        inherited: tuple[VerifiedNativeArmArtifact, ...] = ()
+        handoffs: tuple[str, ...] = ()
+        run_ids: tuple[str, ...] = ()
+    else:
+        if lineage is None:
+            raise ValueError("successor requires complete ordered ancestor lineage")
+        if (
+            stopped.run_id in predecessor.run_ids
+            or handoff.sha256 in predecessor.handoff_sha256s
+        ):
+            raise ValueError("duplicate generation identity in ancestor lineage")
+        verify_successor_lineage(
+            lineage,
+            predecessor=predecessor.handoff,
+            predecessor_run=predecessor.stopped,
+            ancestor_handoff_sha256s=predecessor.handoff_sha256s,
+            retained=predecessor.completed_arm_ids,
+            stopped=stopped,
+            current=handoff,
+            plan_pin=attempt.plan_pin,
+        )
+        inherited = predecessor.completed
+        handoffs = predecessor.handoff_sha256s
+        run_ids = predecessor.run_ids
+    all_ids = ordered_union(
+        tuple(a.receipt.arm_id for a in inherited), handoff.completed_arm_ids
+    )
+    completed = {a.receipt.arm_id: a for a in inherited}
+    for arm_id in handoff.completed_arm_ids:
+        completed[arm_id] = load_completed_native_arm(
             root,
             attempt=attempt,
             run=stopped,
@@ -118,20 +176,67 @@ def _verify_completed(
                 if pin.path.startswith(f"arms/{arm_id}/")
             ),
         )
-        for arm_id in handoff.completed_arm_ids
+    return RecoveredSyntheticAttempt(
+        attempt,
+        stopped,
+        handoff,
+        tuple(completed[a] for a in all_ids),
+        (*handoffs, handoff.sha256),
+        (*run_ids, stopped.run_id),
     )
-    return RecoveredSyntheticAttempt(attempt, stopped, handoff, completed)
 
 
-def inspect_synthetic_stopped_recovery(
+def _open_one(
+    root: Path,
+    lineage_sha256: str | None,
+    handoff_sha256: str,
+    attempt: SyntheticNativeAttempt,
+    source: SourceBinding,
+    predecessor: RecoveredSyntheticAttempt | None,
+) -> RecoveredSyntheticAttempt:
+    bundle, lineage = read_generation(root, lineage_sha256)
+    protocol = synthetic_receipt_protocol(attempt, source)
+    plan, stopped = recovery._load_staged_recovery(
+        protocol,
+        bundle,
+        expected_source_commit=source.commit_sha,
+        expected_frozen_plan_sha256=attempt.plan_pin.sha256,
+        expected_handoff_sha256=handoff_sha256,
+        file_size_limits=_limits(protocol, attempt.plan_pin),
+    )
+    return _verify_completed(
+        bundle, attempt, source, stopped, plan, predecessor=predecessor, lineage=lineage
+    )
+
+
+def _open_ancestors(
+    ancestors: tuple[StagedSyntheticGeneration, ...],
+    attempt: SyntheticNativeAttempt,
+    source: SourceBinding,
+) -> RecoveredSyntheticAttempt | None:
+    predecessor = None
+    for pin in ancestors:
+        predecessor = _open_one(
+            pin.root,
+            pin.lineage_sha256,
+            pin.handoff_sha256,
+            attempt,
+            source,
+            predecessor,
+        )
+    return predecessor
+
+
+def _inspect_one(
     root: Path,
     pins: tuple[recovery.RecoveryFilePin, ...],
     *,
     attempt: SyntheticNativeAttempt,
-    expected_source_binding: SourceBinding,
-) -> recovery.RecoveryHandoff:
-    """Reverify each retained native arm as well as its stopped-bundle pins."""
-    protocol = synthetic_receipt_protocol(attempt, expected_source_binding)
+    source: SourceBinding,
+    predecessor: RecoveredSyntheticAttempt | None,
+    lineage: bytes | None,
+) -> RecoveredSyntheticAttempt:
+    protocol = synthetic_receipt_protocol(attempt, source)
     limits = _limits(protocol, attempt.plan_pin)
     if (
         type(pins) is not tuple
@@ -148,11 +253,50 @@ def inspect_synthetic_stopped_recovery(
         protocol,
         root,
         pins,
-        expected_source_commit=expected_source_binding.commit_sha,
+        expected_source_commit=source.commit_sha,
         expected_frozen_plan_sha256=attempt.plan_pin.sha256,
     )
-    _verify_completed(root, attempt, expected_source_binding, stopped, plan)
-    return plan
+    return _verify_completed(
+        root, attempt, source, stopped, plan, predecessor=predecessor, lineage=lineage
+    )
+
+
+def inspect_synthetic_stopped_recovery(
+    root: Path,
+    pins: tuple[recovery.RecoveryFilePin, ...],
+    *,
+    attempt: SyntheticNativeAttempt,
+    expected_source_binding: SourceBinding,
+    ancestors: tuple[StagedSyntheticGeneration, ...] = (),
+    expected_lineage_sha256: str | None = None,
+) -> RecoveredSyntheticAttempt:
+    """Return the verified cumulative frontier, never local-only pending IDs."""
+    validate_generation_paths(ancestors, root, expected_lineage_sha256)
+    bundle, lineage = read_generation(root, expected_lineage_sha256)
+    prior = _open_ancestors(ancestors, attempt, expected_source_binding)
+    return _inspect_one(
+        bundle,
+        pins,
+        attempt=attempt,
+        source=expected_source_binding,
+        predecessor=prior,
+        lineage=lineage,
+    )
+
+
+def _fresh_destination(destination: Path, roots: tuple[Path, ...]) -> Path:
+    destination = Path(destination)
+    if ".." in destination.parts or not destination.name:
+        raise ValueError("invalid successor destination")
+    destination = recovery._plain_directory(destination.parent) / destination.name
+    if destination.exists() or destination.is_symlink() or destination.is_junction():
+        raise FileExistsError("successor destination already exists")
+    if any(
+        destination.is_relative_to(root) or root.is_relative_to(destination)
+        for root in roots
+    ):
+        raise ValueError("successor must be outside the staged handoff and ancestors")
+    return destination
 
 
 def stage_synthetic_stopped_recovery(
@@ -163,22 +307,55 @@ def stage_synthetic_stopped_recovery(
     attempt: SyntheticNativeAttempt,
     expected_source_binding: SourceBinding,
     expected_handoff_sha256: str,
-) -> recovery.RecoveryHandoff:
-    """Copy exact verified evidence; no replay or completion promotion."""
-    plan = inspect_synthetic_stopped_recovery(
-        source, pins, attempt=attempt, expected_source_binding=expected_source_binding
+    ancestors: tuple[StagedSyntheticGeneration, ...] = (),
+    expected_lineage_sha256: str | None = None,
+) -> RecoveredSyntheticAttempt:
+    """Copy a verified generation, including exact lineage bytes when present."""
+    validate_generation_paths(ancestors, source, expected_lineage_sha256)
+    bundle, lineage = read_generation(source, expected_lineage_sha256)
+    destination = _fresh_destination(
+        destination, (source.absolute(), *(pin.root.absolute() for pin in ancestors))
     )
-    if plan.sha256 != expected_handoff_sha256:
-        raise ValueError("recovery handoff digest mismatch")
-    return recovery._stage_stopped_recovery(
-        synthetic_receipt_protocol(attempt, expected_source_binding),
-        source,
-        destination,
+    prior = _open_ancestors(ancestors, attempt, expected_source_binding)
+    opened = _inspect_one(
+        bundle,
         pins,
-        expected_source_commit=expected_source_binding.commit_sha,
-        expected_frozen_plan_sha256=attempt.plan_pin.sha256,
-        expected_handoff_sha256=expected_handoff_sha256,
+        attempt=attempt,
+        source=expected_source_binding,
+        predecessor=prior,
+        lineage=lineage,
     )
+    if opened.handoff.sha256 != expected_handoff_sha256:
+        raise ValueError("recovery handoff digest mismatch")
+    protocol = synthetic_receipt_protocol(attempt, expected_source_binding)
+
+    def stage(target: Path) -> recovery.RecoveryHandoff:
+        return recovery._stage_stopped_recovery(
+            protocol,
+            bundle,
+            target,
+            pins,
+            expected_source_commit=expected_source_binding.commit_sha,
+            expected_frozen_plan_sha256=attempt.plan_pin.sha256,
+            expected_handoff_sha256=expected_handoff_sha256,
+        )
+
+    if lineage is None:
+        if stage(destination) != opened.handoff:
+            raise ValueError("staged recovery differs from verified generation")
+        return opened
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
+    )
+    try:
+        if stage(staging / "attempt") != opened.handoff:
+            raise ValueError("staged recovery differs from verified generation")
+        atomic_write_bytes(staging / "lineage.json", lineage)
+        atomic_rename_directory(staging, destination)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    return opened
 
 
 def open_synthetic_staged_recovery(
@@ -189,25 +366,27 @@ def open_synthetic_staged_recovery(
     expected_pin: FrozenInputsPin,
     expected_source_binding: SourceBinding,
     expected_handoff_sha256: str,
+    ancestors: tuple[StagedSyntheticGeneration, ...] = (),
+    expected_lineage_sha256: str | None = None,
 ) -> RecoveredSyntheticAttempt:
-    """Reopen a staged handoff with fresh objects, without fit, recost or replay."""
-    root = recovery._plain_directory(Path(root))
+    """Reopen a complete ordered chain; return the cumulative pending frontier."""
+    validate_generation_paths(ancestors, root, expected_lineage_sha256)
+    bundle, _ = read_generation(root, expected_lineage_sha256)
     attempt = open_synthetic_native_attempt(
         dataset,
-        root / "frozen-plan.bin",
+        bundle / "frozen-plan.bin",
         expected_binding=expected_binding,
         expected_pin=expected_pin,
     )
-    protocol = synthetic_receipt_protocol(attempt, expected_source_binding)
-    plan, stopped = recovery._load_staged_recovery(
-        protocol,
+    prior = _open_ancestors(ancestors, attempt, expected_source_binding)
+    return _open_one(
         root,
-        expected_source_commit=expected_source_binding.commit_sha,
-        expected_frozen_plan_sha256=expected_pin.sha256,
-        expected_handoff_sha256=expected_handoff_sha256,
-        file_size_limits=_limits(protocol, expected_pin),
+        expected_lineage_sha256,
+        expected_handoff_sha256,
+        attempt,
+        expected_source_binding,
+        prior,
     )
-    return _verify_completed(root, attempt, expected_source_binding, stopped, plan)
 
 
 def _replace_arm(run: RunReceipt, arm: ArmReceipt) -> RunReceipt:
@@ -233,6 +412,8 @@ def resume_synthetic_pending(
     expected_handoff_sha256: str,
     successor_run_label: str,
     arm_ids: tuple[str, ...],
+    ancestors: tuple[StagedSyntheticGeneration, ...] = (),
+    expected_lineage_sha256: str | None = None,
 ) -> SyntheticSuccessor:
     """Execute an explicitly selected pending subset in a fresh synthetic run.
 
@@ -243,9 +424,9 @@ def resume_synthetic_pending(
     preserve a FAILED record with unknown progress (not fabricated counts).
     Publication errors leave the slot RUNNING for later stopped recovery.
     The exclusive-owner assumption still applies. This is not a stop detector,
-    power-loss proof, full-run aggregation, or historical execution admission.
-    The namespace binds the successor ID to the predecessor digest and
-    rejects multi-hop recovery until verified ancestor lineage is available.
+    power-loss proof, distributed single-writer lease, or historical execution
+    admission. Every earlier generation is externally pinned and verified.
+    Callers must retain the non-forking history and must not reuse a stale head.
     """
     opened = open_synthetic_staged_recovery(
         root,
@@ -254,34 +435,23 @@ def resume_synthetic_pending(
         expected_pin=expected_pin,
         expected_source_binding=expected_source_binding,
         expected_handoff_sha256=expected_handoff_sha256,
+        ancestors=ancestors,
+        expected_lineage_sha256=expected_lineage_sha256,
     )
     plan = opened.handoff
-    if (
-        type(arm_ids) is not tuple
-        or not arm_ids
-        or any(type(a) is not str or a not in plan.pending_arm_ids for a in arm_ids)
-        or len(set(arm_ids)) != len(arm_ids)
-        or tuple(a for a in plan.pending_arm_ids if a in arm_ids) != arm_ids
-    ):
-        raise ValueError(
-            "successor requires an ordered nonempty subset of pending arms"
-        )
+    require_pending_subset(arm_ids, opened.pending_arm_ids)
     if (
         type(successor_run_label) is not str
         or not successor_run_label.strip()
-        or successor_run_label == plan.original_run_id
+        or successor_run_label in opened.run_ids
     ):
         raise ValueError("successor requires a distinct nonempty run label")
-    successor_run_id = f"{_SUCCESSOR_PREFIX}{plan.sha256}:{successor_run_label}"
-    root = recovery._plain_directory(Path(root))
-    destination = Path(destination)
-    if ".." in destination.parts or not destination.name:
-        raise ValueError("invalid successor destination")
-    destination = recovery._plain_directory(destination.parent) / destination.name
-    if destination.exists() or destination.is_symlink() or destination.is_junction():
-        raise FileExistsError("successor destination already exists")
-    if destination.is_relative_to(root) or root.is_relative_to(destination):
-        raise ValueError("successor must be outside the staged handoff")
+    successor_run_id = f"{SUCCESSOR_PREFIX}{plan.sha256}:{successor_run_label}"
+    root = recovery._plain_directory(root)
+    destination = _fresh_destination(
+        destination, (root, *(pin.root.absolute() for pin in ancestors))
+    )
+    bundle, _ = read_generation(root, expected_lineage_sha256)
     source_report = opened.stopped.source_report
     if source_report is None:
         raise ValueError("stopped attempt has no source report")
@@ -291,23 +461,14 @@ def resume_synthetic_pending(
         source_binding=expected_source_binding,
         source_report=source_report,
     )
-    lineage = canonical_json_bytes(
-        {
-            "schema": "task18_synthetic_successor_lineage_v1",
-            "scope": "SYNTHETIC_NATIVE_CONFORMANCE_ONLY",
-            "original_run_id": plan.original_run_id,
-            "successor_run_id": successor_run_id,
-            "predecessor_handoff_sha256": plan.sha256,
-            "protocol_digest": run.protocol_digest,
-            "source_commit": plan.source_commit,
-            "plan_pin": asdict(expected_pin),
-            "retained_arm_ids": plan.completed_arm_ids,
-            "selected_arm_ids": arm_ids,
-            "execution_authorized": False,
-        }
+    lineage = lineage_bytes(
+        plan,
+        opened.handoff_sha256s,
+        opened.completed_arm_ids,
+        arm_ids,
+        successor_run_id,
+        expected_pin,
     )
-    if len(lineage) > _MAX_METADATA:
-        raise ValueError("successor lineage exceeds metadata limit")
     staging = Path(
         tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=destination.parent)
     )
@@ -316,7 +477,9 @@ def resume_synthetic_pending(
         attempt_dir.mkdir()
         for pin in plan.files:
             if pin.path in ("frozen-plan.bin", "source-verification.json"):
-                recovery._copy_pinned_file(root / pin.path, attempt_dir / pin.path, pin)
+                recovery._copy_pinned_file(
+                    bundle / pin.path, attempt_dir / pin.path, pin
+                )
         _write_run(attempt_dir, run)
         atomic_write_bytes(staging / "lineage.json", lineage)
         atomic_rename_directory(staging, destination)
@@ -361,5 +524,9 @@ def resume_synthetic_pending(
         _write_run(attempt_dir, run)
         completed.append(verified)
     return SyntheticSuccessor(
-        run, plan.sha256, hashlib.sha256(lineage).hexdigest(), tuple(completed)
+        run,
+        plan.sha256,
+        hashlib.sha256(lineage).hexdigest(),
+        tuple(completed),
+        opened.completed_arm_ids,
     )

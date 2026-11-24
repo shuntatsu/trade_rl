@@ -158,20 +158,47 @@ def _publish_then_wait(base: Path, pin_data: str) -> None:
         time.sleep(0.1)
 
 
-def _resume(base: Path, pin_data: str) -> None:
+def _resume(base: Path, pin_data: str, *, stop_after_publish: bool = False) -> None:
     from tools.tier_d_nonrl import task18_native as native
-    from tools.tier_d_nonrl.task18_native_recovery import resume_synthetic_pending
+    from tools.tier_d_nonrl import task18_native_recovery as recovery
 
     market, binding, source, _, _ = _fixture()
     pins = json.loads(pin_data)
+    arm_id = pins.get("arm_id", _CASH)
+    label = pins.get("label", _SUCCESSOR)
     calls = []
     original = native.run_shared_portfolio_replay
+    original_publish = recovery.publish_completed_native_arm
 
     def checked_dispatch(dataset, policy, **kwargs):
         calls.append(policy._arm.arm_id)
-        assert calls == [_CASH], "completed or unrequested arm dispatched"
+        assert calls == [arm_id], "completed or unrequested arm dispatched"
         return original(dataset, policy, **kwargs)
 
+    def checked_publish(root, **kwargs):
+        published = original_publish(root, **kwargs)
+        if stop_after_publish:
+            digest = file_digest_and_size(root.parent / "lineage.json")[0]
+            atomic_write_bytes(
+                base / "successor-ready",
+                canonical_json_bytes(
+                    {
+                        "arm_id": arm_id,
+                        "lineage_sha256": digest,
+                        "files": [asdict(p) for p in published.pins],
+                    }
+                ),
+            )
+            while True:
+                time.sleep(0.1)
+        return published
+
+    ancestors = tuple(
+        recovery.StagedSyntheticGeneration(
+            base / pin["root"], pin["handoff_sha256"], pin.get("lineage_sha256")
+        )
+        for pin in pins.get("ancestors", [])
+    )
     with (
         patch(
             "tools.tier_d_nonrl.task18_frozen_inputs.fit_simple_return_ridge",
@@ -188,25 +215,28 @@ def _resume(base: Path, pin_data: str) -> None:
         patch.object(
             native, "run_shared_portfolio_replay", side_effect=checked_dispatch
         ),
+        patch.object(
+            recovery, "publish_completed_native_arm", side_effect=checked_publish
+        ),
     ):
-        resumed = resume_synthetic_pending(
-            base / "handoff",
-            base / "successor",
+        resumed = recovery.resume_synthetic_pending(
+            base / pins.get("root", "handoff"),
+            base / pins.get("destination", "successor"),
             dataset=market,
             expected_binding=binding,
             expected_pin=FrozenInputsPin(**pins["plan"]),
             expected_source_binding=source,
             expected_handoff_sha256=pins["handoff"],
-            successor_run_label=_SUCCESSOR,
-            arm_ids=(_CASH,),
+            ancestors=ancestors,
+            expected_lineage_sha256=pins.get("lineage_sha256"),
+            successor_run_label=label,
+            arm_ids=(arm_id,),
         )
-    assert calls == [_CASH]
-    assert (
-        resumed.run.run_id
-        == f"task18-synthetic-successor:{pins['handoff']}:{_SUCCESSOR}"
-    )
+    assert not stop_after_publish
+    assert calls == [arm_id]
+    assert resumed.run.run_id == f"task18-synthetic-successor:{pins['handoff']}:{label}"
     assert resumed.predecessor_handoff_sha256 == pins["handoff"]
-    assert len(resumed.completed) == 1 and resumed.completed[0].receipt.arm_id == _CASH
+    assert len(resumed.completed) == 1 and resumed.completed[0].receipt.arm_id == arm_id
     assert resumed.completed[0].receipt.terminal_equity_usdt == 100000.0
     assert resumed.completed[0].verification.advances == 6599
     assert not resumed.execution_authorized
@@ -218,6 +248,41 @@ def _snapshot(root):
         for p in root.rglob("*")
         if p.is_file()
     }
+
+
+def _stop_after_publication(base, mode, context, *, ready_name, log_name):
+    args = [sys.executable, "-m", _MODULE, mode, str(base), json.dumps(context)]
+    with (base / log_name).open("wb") as log:
+        owned = (
+            launch_contained_process(
+                args, cwd=_ROOT, stdout=log, stderr=subprocess.STDOUT
+            )
+            if os.name == "nt"
+            else None
+        )
+        child = (
+            owned.process
+            if owned is not None
+            else subprocess.Popen(args, cwd=_ROOT, stdout=log, stderr=subprocess.STDOUT)
+        )
+        try:
+            deadline = time.monotonic() + 240
+            while not (base / ready_name).is_file():
+                assert child.poll() is None, (base / log_name).read_text(
+                    errors="replace"
+                )
+                assert time.monotonic() < deadline, (
+                    "native producer did not reach published-receipt stop point"
+                )
+                time.sleep(0.05)
+            assert child.poll() is None
+        finally:
+            if owned is not None:
+                owned.close(timeout=15)
+            else:
+                child.kill()
+                child.wait(timeout=15)
+        assert child.returncode not in (None, 0)
 
 
 def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
@@ -252,38 +317,9 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
         for n in ("frozen-plan.bin", "source-verification.json", "stopped-run.json")
     )
     context = {"plan": asdict(pin), "stopped": asdict(original_pins[-1])}
-    args = [sys.executable, "-m", _MODULE, "prepare", str(base), json.dumps(context)]
-    with (base / "producer.log").open("wb") as log:
-        owned = (
-            launch_contained_process(
-                args, cwd=_ROOT, stdout=log, stderr=subprocess.STDOUT
-            )
-            if os.name == "nt"
-            else None
-        )
-        child = (
-            owned.process
-            if owned is not None
-            else subprocess.Popen(args, cwd=_ROOT, stdout=log, stderr=subprocess.STDOUT)
-        )
-        try:
-            deadline = time.monotonic() + 240
-            while not (base / "ready").is_file():
-                assert child.poll() is None, (base / "producer.log").read_text(
-                    errors="replace"
-                )
-                assert time.monotonic() < deadline, (
-                    "native producer did not reach published-receipt stop point"
-                )
-                time.sleep(0.05)
-            assert child.poll() is None
-        finally:
-            if owned is not None:
-                owned.close(timeout=15)
-            else:
-                child.kill()
-                child.wait(timeout=15)
-        assert child.returncode not in (None, 0)
+    _stop_after_publication(
+        base, "prepare", context, ready_name="ready", log_name="producer.log"
+    )
     # Pin the actual files only after the owned child is reaped. Pre-stop
     # plan, source and enrollment bytes must still be the original pins.
     assert original_pins == tuple(_pin(root, p.path) for p in original_pins)
@@ -298,9 +334,12 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
             expected_source_commit=source.commit_sha,
             expected_frozen_plan_sha256=pin.sha256,
         )
-    plan = inspect_synthetic_stopped_recovery(
+    original_frontier = inspect_synthetic_stopped_recovery(
         root, pins, attempt=attempt, expected_source_binding=source
     )
+    plan = original_frontier.handoff
+    assert original_frontier.completed_arm_ids == (_NONRL,)
+    assert original_frontier.pending_arm_ids == plan.pending_arm_ids
     assert plan.completed_arm_ids == plan.recovered_arm_ids == (_NONRL,)
     assert len(plan.pending_arm_ids) == 47 and plan.pending_arm_ids[0] == _CASH
     stage_synthetic_stopped_recovery(
@@ -336,14 +375,30 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
             base / "handoff", **(kwargs | {"expected_handoff_sha256": "f" * 64})
         )
     context["handoff"] = plan.sha256
-    resumed = subprocess.run(
-        [sys.executable, "-m", _MODULE, "resume", str(base), json.dumps(context)],
-        cwd=_ROOT,
-        capture_output=True,
-        timeout=240,
-        check=False,
+    expected_lineage = canonical_json_bytes(
+        {
+            "schema": "task18_synthetic_successor_lineage_v2",
+            "scope": "SYNTHETIC_NATIVE_CONFORMANCE_ONLY",
+            "original_run_id": _RUN,
+            "successor_run_id": f"task18-synthetic-successor:{plan.sha256}:{_SUCCESSOR}",
+            "predecessor_handoff_sha256": plan.sha256,
+            "ancestor_handoff_sha256s": (plan.sha256,),
+            "protocol_digest": run.protocol_digest,
+            "source_commit": source.commit_sha,
+            "plan_pin": asdict(pin),
+            "retained_arm_ids": (_NONRL,),
+            "selected_arm_ids": (_CASH,),
+            "execution_authorized": False,
+        }
     )
-    assert resumed.returncode == 0, resumed.stderr.decode(errors="replace")
+    expected_lineage_sha = hashlib.sha256(expected_lineage).hexdigest()
+    _stop_after_publication(
+        base,
+        "resume-stop",
+        context,
+        ready_name="successor-ready",
+        log_name="successor.log",
+    )
     assert (
         _snapshot(base / "retained") == before
         and _snapshot(base / "handoff") == handoff
@@ -362,8 +417,8 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
     stopped = json.loads((successor / "attempt" / "stopped-run.json").read_bytes())
     assert stopped["run_id"] == successor_id and stopped["runtime_completed"] is False
     statuses = {a["arm_id"]: a["status"] for a in stopped["arms"]}
-    assert statuses[_NONRL] == "NOT_ATTEMPTED" and statuses[_CASH] == "COMPLETED"
-    assert list(statuses.values()).count("COMPLETED") == 1
+    assert statuses[_NONRL] == "NOT_ATTEMPTED" and statuses[_CASH] == "RUNNING"
+    assert list(statuses.values()).count("COMPLETED") == 0
     receipt = json.loads(
         (successor / "attempt" / "arms" / _CASH / "receipt.json").read_bytes()
     )
@@ -387,6 +442,137 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
             attempt=attempt,
             expected_source_binding=source,
         )
+
+    # Retain the original and successor receipts under their own run IDs.
+    # The next frontier must exclude both completed arms, not just the last.
+    from tools.tier_d_nonrl.task18_native_recovery import StagedSyntheticGeneration
+
+    first = StagedSyntheticGeneration(base / "handoff", plan.sha256)
+    lineage_sha = expected_lineage_sha
+    assert (successor / "lineage.json").read_bytes() == expected_lineage
+    ancestry = (first,)
+    second_frontier = inspect_synthetic_stopped_recovery(
+        successor,
+        successor_pins,
+        attempt=attempt,
+        expected_source_binding=source,
+        ancestors=ancestry,
+        expected_lineage_sha256=lineage_sha,
+    )
+    second = second_frontier.handoff
+    assert second_frontier.completed_arm_ids == (_NONRL, _CASH)
+    assert len(second_frontier.pending_arm_ids) == 46
+    second_root = base / "handoff-second"
+    stage_synthetic_stopped_recovery(
+        successor,
+        second_root,
+        successor_pins,
+        attempt=attempt,
+        expected_source_binding=source,
+        ancestors=ancestry,
+        expected_lineage_sha256=lineage_sha,
+        expected_handoff_sha256=second.sha256,
+    )
+    second_args = kwargs | dict(
+        ancestors=ancestry,
+        expected_lineage_sha256=lineage_sha,
+        expected_handoff_sha256=second.sha256,
+    )
+    opened = open_synthetic_staged_recovery(second_root, **second_args)
+    assert opened.completed_arm_ids == (_NONRL, _CASH)
+    assert len(opened.pending_arm_ids) == 46
+    assert opened.pending_arm_ids[0] == "PAIR-02-NONRL"
+    assert tuple(a.receipt.external_report.run_id for a in opened.completed) == (
+        _RUN,
+        successor_id,
+    )
+    assert opened.handoff_sha256s == (plan.sha256, second.sha256)
+    with pytest.raises(ValueError, match="ancestor lineage"):
+        open_synthetic_staged_recovery(second_root, **(second_args | {"ancestors": ()}))
+    with pytest.raises(ValueError, match="lineage digest"):
+        open_synthetic_staged_recovery(
+            second_root, **(second_args | {"expected_lineage_sha256": "f" * 64})
+        )
+    with pytest.raises(ValueError, match="pending"):
+        resume_synthetic_pending(
+            second_root,
+            base / "refused-ancestor",
+            successor_run_label="bad",
+            arm_ids=(_NONRL,),
+            **second_args,
+        )
+    assert not (base / "refused-ancestor").exists()
+
+    assert second.recovered_arm_ids == (_CASH,)
+    # The retained successor's original bytes survive its relocation, just
+    # as the first producer's bytes survived the first stop.
+    successor_before = _snapshot(successor)
+    successor.rename(base / "retained-second")
+    second_before = _snapshot(second_root)
+    third_id = "PAIR-02-CASH"
+    third_context = {
+        "plan": asdict(pin),
+        "handoff": second.sha256,
+        "lineage_sha256": lineage_sha,
+        "ancestors": [{"root": "handoff", "handoff_sha256": plan.sha256}],
+        "root": "handoff-second",
+        "destination": "third",
+        "arm_id": third_id,
+        "label": "third-generation",
+    }
+    expected_third_lineage = canonical_json_bytes(
+        {
+            "schema": "task18_synthetic_successor_lineage_v2",
+            "scope": "SYNTHETIC_NATIVE_CONFORMANCE_ONLY",
+            "original_run_id": successor_id,
+            "successor_run_id": f"task18-synthetic-successor:{second.sha256}:third-generation",
+            "predecessor_handoff_sha256": second.sha256,
+            "ancestor_handoff_sha256s": (plan.sha256, second.sha256),
+            "protocol_digest": run.protocol_digest,
+            "source_commit": source.commit_sha,
+            "plan_pin": asdict(pin),
+            "retained_arm_ids": (_NONRL, _CASH),
+            "selected_arm_ids": (third_id,),
+            "execution_authorized": False,
+        }
+    )
+    third = subprocess.run(
+        [sys.executable, "-m", _MODULE, "resume", str(base), json.dumps(third_context)],
+        cwd=_ROOT,
+        capture_output=True,
+        timeout=240,
+        check=False,
+    )
+    assert third.returncode == 0, third.stderr.decode(errors="replace")
+    assert _snapshot(base / "retained-second") == successor_before
+    assert (
+        _snapshot(second_root) == second_before
+        and _snapshot(base / "handoff") == handoff
+    )
+    assert (base / "third" / "lineage.json").read_bytes() == expected_third_lineage
+    third_pins = tuple(
+        _pin(base / "third" / "attempt", n)
+        for n in sorted(_snapshot(base / "third" / "attempt"))
+    )
+    third_ancestry = (
+        *ancestry,
+        StagedSyntheticGeneration(second_root, second.sha256, lineage_sha),
+    )
+    third_lineage_sha = hashlib.sha256(expected_third_lineage).hexdigest()
+    third_frontier = inspect_synthetic_stopped_recovery(
+        base / "third",
+        third_pins,
+        attempt=attempt,
+        expected_source_binding=source,
+        ancestors=third_ancestry,
+        expected_lineage_sha256=third_lineage_sha,
+    )
+    assert third_frontier.completed_arm_ids == (_NONRL, _CASH, third_id)
+    assert len(third_frontier.pending_arm_ids) == 45
+    assert third_frontier.handoff.completed_arm_ids == (third_id,)
+    assert (
+        len({a.receipt.external_report.run_id for a in third_frontier.completed}) == 3
+    )
 
     # Fault injection after the actual handoff: the RUNNING declaration must
     # be persisted before calling the native executor. Failure must stop
@@ -429,7 +615,8 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
     )
 
     # An occupied output cannot be overwritten or executed again.
-    occupied = _snapshot(successor)
+    occupied_root = base / "retained-second"
+    occupied = _snapshot(occupied_root)
     with patch(
         "tools.tier_d_nonrl.task18_native_recovery.SyntheticNativeAttempt.iter_arms",
         side_effect=AssertionError("duplicate dispatch"),
@@ -437,18 +624,22 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
         with pytest.raises(FileExistsError):
             resume_synthetic_pending(
                 base / "handoff",
-                successor,
+                occupied_root,
                 successor_run_label=_SUCCESSOR,
                 arm_ids=(_CASH,),
                 **kwargs,
             )
-    assert _snapshot(successor) == occupied
+    assert _snapshot(occupied_root) == occupied
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "prepare":
         _publish_then_wait(Path(sys.argv[2]), sys.argv[3])
-    elif len(sys.argv) == 4 and sys.argv[1] == "resume":
-        _resume(Path(sys.argv[2]), sys.argv[3])
+    elif len(sys.argv) == 4 and sys.argv[1] in ("resume", "resume-stop"):
+        _resume(
+            Path(sys.argv[2]),
+            sys.argv[3],
+            stop_after_publish=sys.argv[1] == "resume-stop",
+        )
     else:
         raise SystemExit("closed synthetic native recovery test worker only")

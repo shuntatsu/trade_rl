@@ -297,3 +297,82 @@ def test_cell_mode_refuses_symlinked_output_root(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="output root must not be a symlink"):
         study.main()
     assert list(target.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "push",
+        "wrong_pr",
+        "missing",
+        "skipped",
+        "wrong_head",
+        "duplicate",
+        "pending",
+        "changed_attempt",
+    ],
+)
+def test_exact_full_ci_admission(monkeypatch, fault):
+    from copy import deepcopy
+
+    head = "a" * 40
+    run = dict(
+        id=123,
+        run_attempt=1,
+        name="CI",
+        path=".github/workflows/ci.yml",
+        head_sha=head,
+        event="pull_request_review",
+        status="completed",
+        conclusion="success",
+        pull_requests=[{"number": 1355, "head": {"sha": head}}],
+    )
+    jobs = [
+        dict(
+            name=name,
+            head_sha=head,
+            run_id=123,
+            run_attempt=1,
+            status="completed",
+            conclusion="success",
+        )
+        for name in (
+            "Lean Core",
+            "PPO Runtime",
+            "Human Guide",
+            "Market Store PostgreSQL",
+            "Generic Independent Research Review",
+        )
+    ]
+    if fault == "push":
+        run["event"] = "push"
+    if fault == "wrong_pr":
+        run["pull_requests"][0]["number"] = 999
+    if fault == "missing":
+        del jobs[3]
+    if fault == "skipped":
+        jobs[3]["conclusion"] = "skipped"
+    if fault == "wrong_head":
+        jobs[0]["head_sha"] = "b" * 40
+    if fault == "duplicate":
+        jobs.append(deepcopy(jobs[0]))
+    runs = [run]
+    if fault == "pending":
+        runs.append(dict(run, id=124, status="in_progress", conclusion=None))
+
+    def api(path):
+        if "/actions/runs?" in path:
+            return {"total_count": len(runs), "workflow_runs": deepcopy(runs)}
+        if path.endswith("/attempts/1/jobs?per_page=100"):
+            return {"total_count": len(jobs), "jobs": deepcopy(jobs)}
+        if path.endswith("/actions/runs/123"):
+            return dict(run, run_attempt=2) if fault == "changed_attempt" else run
+        pytest.fail(f"unexpected API request: {path}")
+
+    monkeypatch.setattr(study, "_github_api_read", api)
+    if fault is None:
+        assert study._require_full_ci(head, 1355) == (123, 1)
+    else:
+        with pytest.raises(ValueError, match="CI"):
+            study._require_full_ci(head, 1355)

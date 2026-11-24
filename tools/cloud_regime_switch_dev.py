@@ -96,6 +96,103 @@ def authorization_body(packet: dict) -> str:
     )
 
 
+def _require_full_ci(head: str, pr: int) -> tuple[int, int]:
+    """Require the exact-head review-event Full CI, not Fast Push or old Green."""
+    root = f"repos/{REPOSITORY}/actions/runs"
+
+    def inventory(payload: object, key: str) -> list[dict]:
+        if not isinstance(payload, dict):
+            raise ValueError("CI inventory is malformed")
+        rows = payload.get(key)
+        if (
+            not isinstance(rows, list)
+            or type(payload.get("total_count")) is not int
+            or payload["total_count"] != len(rows)
+            or any(not isinstance(row, dict) for row in rows)
+        ):
+            raise ValueError("CI inventory is incomplete or malformed")
+        return rows
+
+    def positive(value: object) -> int:
+        if type(value) is not int or value <= 0:
+            raise ValueError("CI run identity is malformed")
+        return value
+
+    def relevant(row: dict) -> bool:
+        if (
+            row.get("name") != "CI"
+            or row.get("path") != ".github/workflows/ci.yml"
+            or row.get("head_sha") != head
+            or row.get("event") != "pull_request_review"
+        ):
+            return False
+        prs = row.get("pull_requests")
+        if not isinstance(prs, list):
+            raise ValueError("CI pull-request association is malformed")
+        return any(
+            isinstance(item, dict)
+            and item.get("number") == pr
+            and isinstance(item.get("head"), dict)
+            and item["head"].get("sha") == head
+            for item in prs
+        )
+
+    def latest() -> dict:
+        rows = inventory(
+            _github_api_read(f"{root}?head_sha={head}&per_page=100"), "workflow_runs"
+        )
+        candidates = [row for row in rows if relevant(row)]
+        if not candidates:
+            raise ValueError("exact-head review-event Full CI is missing")
+        ids = [positive(row.get("id")) for row in candidates]
+        if len(ids) != len(set(ids)):
+            raise ValueError("CI run identity is duplicated")
+        return max(candidates, key=lambda row: positive(row.get("id")))
+
+    run = latest()
+    run_id = positive(run.get("id"))
+    attempt = positive(run.get("run_attempt"))
+    if run.get("status") != "completed" or run.get("conclusion") != "success":
+        raise ValueError("latest exact-head review-event Full CI is not Green")
+    jobs = inventory(
+        _github_api_read(f"{root}/{run_id}/attempts/{attempt}/jobs?per_page=100"),
+        "jobs",
+    )
+    for name in (
+        "Lean Core",
+        "PPO Runtime",
+        "Human Guide",
+        "Market Store PostgreSQL",
+        "Generic Independent Research Review",
+    ):
+        matches = [job for job in jobs if job.get("name") == name]
+        if len(matches) != 1 or any(
+            matches[0].get(key) != expected
+            for key, expected in (
+                ("head_sha", head),
+                ("run_id", run_id),
+                ("run_attempt", attempt),
+                ("status", "completed"),
+                ("conclusion", "success"),
+            )
+        ):
+            raise ValueError(f"exact-head CI job is not uniquely Green: {name}")
+    final = _github_api_read(f"{root}/{run_id}")
+    fields = ("id", "run_attempt", "status", "conclusion")
+    if (
+        not isinstance(final, dict)
+        or not relevant(final)
+        or any(final.get(field) != run[field] for field in fields)
+        or any(
+            latest_run.get(field) != run[field]
+            for latest_run in [latest()]
+            for field in fields
+        )
+    ):
+        raise ValueError("CI run changed during admission")
+    return run_id, attempt
+
+
 def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
     head = _git("rev-parse", "HEAD")
     if _git("status", "--porcelain") or packet["identity"] != {
@@ -114,6 +211,7 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
     )
     if review.status != "PASS":
         raise ValueError("authenticated independent research review has not passed")
+    ci_run_id, ci_attempt = _require_full_ci(head, pr)
     _, number, _ = parse_g4_url(owner_url)
     if number != pr:
         raise ValueError("owner approval must belong to the exact review PR")
@@ -127,6 +225,8 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         "head": head,
         "packet_digest": assurance_digest(packet),
         "review_id": review_id,
+        "ci_run_id": ci_run_id,
+        "ci_run_attempt": ci_attempt,
         "pr": pr,
         "owner_comment": owner_url,
         "owner_body_sha256": owner.body_sha256,

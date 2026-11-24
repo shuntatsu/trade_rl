@@ -390,27 +390,32 @@ def test_only_closed_and_merged_local_pr_final_heads_count_as_evidence(
     )
 
 
-@pytest.mark.parametrize("phase", ["before", "after"])
-@pytest.mark.parametrize("conflicting", [False, True])
+@pytest.mark.parametrize("readback_index", [1, 2, 3, 4])
+@pytest.mark.parametrize("variant", ["identical", "protected", "different-sha"])
 def test_duplicate_branch_readback_aborts_retirement(
-    monkeypatch: pytest.MonkeyPatch, phase: str, conflicting: bool
+    monkeypatch: pytest.MonkeyPatch, readback_index: int, variant: str
 ) -> None:
     api = FakeApi()
     api.current.append(BranchInfo("feature/second", B, False))
     api.merged.append(MergedPullRequestSource("feature/second", B))
     decisions = _plan(api)
     original = api.branches
+    calls = 0
 
     def duplicate_readback() -> tuple[BranchInfo, ...]:
+        nonlocal calls
+        calls += 1
         roster = original()
-        if (phase == "before" and not api.deleted) or (
-            phase == "after" and api.deleted == ["feature/done"]
-        ):
-            # The last occurrence matches the expected roster; dict collapse
-            # must not hide either an identical or contradictory first row.
-            name = "feature/done" if phase == "before" else "main"
+        if calls == readback_index:
+            # Calls 1/3 are pre-delete, 2/4 are post-delete. Inject only
+            # once, with the last occurrence matching the expected roster.
+            name = {1: "feature/done", 3: "feature/second"}.get(calls, "main")
             entry = next(branch for branch in roster if branch.name == name)
-            duplicate = BranchInfo(name, entry.sha, conflicting)
+            duplicate = BranchInfo(
+                name,
+                C if variant == "different-sha" else entry.sha,
+                variant == "protected",
+            )
             return (duplicate, *roster)
         return roster
 
@@ -424,4 +429,5 @@ def test_duplicate_branch_readback_aborts_retirement(
             reachable_from_main=frozenset({A, B}),
             batch_size=1,
         )
-    assert api.deleted == ([] if phase == "before" else ["feature/done"])
+    assert calls == readback_index
+    assert api.deleted == ["feature/done", "feature/second"][: readback_index // 2]

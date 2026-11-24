@@ -71,8 +71,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue1134-core7-mtf-ppo-research-assurance-v15.json`（TD8並行v15。既存v1〜v14を不変のUNREVIEWED履歴として保持）。
-- Pinned Implementation Head: `0b302186748f6a581ff029ce432ff63b747e6ed7`
+- Open Author Packet: `report/issue1131-1134-core7-mtf-ppo-research-assurance-v16.json`（M2/TD8並行v16。既存v1〜v15を不変のUNREVIEWED履歴として保持）。
+- Pinned Implementation Head: `04f895c75b020995738f624fb67a79635eca19a0`
 - Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。
 - v11 source-only lineage: v10のM1・TD8保護とそのimmutable packet digest `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede` は変更しない。本v11はIssue #1134と#1131のPOSIX receipt root/leafおよびStudy JSON読取中のFD/inode/time identityを固定した公開source commit `a5224b86253e90a12bf23cbb7e8be732f82d4475` を新規ピンする。historical v2/v3 receipt、Study証拠・過去decision・Core7 v4経済protocol、費用／リスク閾値、数値resultには変更を加えない。UNREVIEWED / economic_execution_authorized=false / production_eligible=falseを維持し、G0–G2の別独立レビューとowner G4がない限りTier D実測、FS1/unused/final閲覧、利益の主張やlive注文を認可しない。
 - v12 source-only lineage: v11の既公開read-identity保護と immutable packet digest `390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b` を変更せず保存する。Geminiの２指摘（TD8の一時的なA→B→A差替えがsingle-entryチェックをすり抜ける問題と、M2のread中unlink時に生のOSErrorが出る問題）を、固定した可読directory FDでの`os.scandir(fd)`と型付き`ArtifactIntegrityError`で拒否した公開ソース `553f8828cfe00627edc721e1e5195e37dcdcddcc` を新たにピンする。v2/v3 receipt・既存Study・旧経済結果・Core7 v4プロトコルは不変。別G0–G2、owner G4承認前は **UNREVIEWED / economic_execution_authorized=false / production_eligible=false** を維持し、実データ・FS1/unused/final・live注文は引き続き認可しない。
@@ -82,4 +82,5 @@ Status: Active
 - Pinned Protocol Digest: `af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013`
 - v14 source-only lineage: v13（immutable packet digest `1d27476dd42d92029aafe9b2529da95dc62845a087f6fcd8d241cc4f31facf09`、実装HEAD `f9be9737fe27facdb1dfd3147e436196c3d6d278`）は変更しない。v14は[PR #1307](https://github.com/shuntatsu/trade_rl/pull/1307)のopt-in `engine_settlement`（既定off、Core7の経済意味は不変）を含むmerged sourceへ再固定するだけ。
 - TD8 v15 source-only lineage: 正式v14の不変digest `d10520a1e8acd26d871441d2d89e4a75a8235856cde8cd21d7c85b314c533158` と元ソースを保持し、#1366で直接pairのscalar-only配列内のobject/arrayをJSON decode前に拒否した既公開ソース `0b302186748f6a581ff029ce432ff63b747e6ed7` を固定する。正常v2/v3 receiptと旧経済protocol・結果は不変。独立G0–G2およびowner G4なしに実データ・FS1/unused/final・注文を認可しない。
-- Pinned Packet Digest: `a720a5fc9afa15ef2e131b008f0a43d2e8c14ad45840f20a36c1d7db71f326e6`
+- M2/TD8 v16 source-only lineage: TD8 v15の不変digest `a720a5fc9afa15ef2e131b008f0a43d2e8c14ad45840f20a36c1d7db71f326e6` と元sourceを保持。Candidate RunのNPZ物理memberの一意性・実数dtype・exact member解決を修正した既公開source `04f895c75b020995738f624fb67a79635eca19a0` を固定する。既存の正当なreturn bytes/identity、経済protocolと結果は不変。UNREVIEWEDであり、新たなG0–G5/G4・データ・注文の認可を与えない。
+- Pinned Packet Digest: `c796337242e66f70d4ebc8ddc21ad4b8da4e4a5e4bdc670b3b53225299f30009`

@@ -120,7 +120,7 @@ def _skill_available(root: Path) -> bool:
         skill = (root / ".claude/skills/research-challenge/SKILL.md").read_text(
             encoding="utf-8"
         )
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
     header = skill.split("---", 2)
     return (
@@ -161,7 +161,7 @@ def preflight(root: Path, *, required_merge: str = MERGED_BASE) -> dict[str, obj
         report["shared_instructions"] = (
             entry.startswith("@AGENTS.md\n") and (root / "AGENTS.md").is_file()
         )
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         report["shared_instructions"] = False
     report["manual_research_skill"] = _skill_available(root)
     hook = _settings_hook(root)

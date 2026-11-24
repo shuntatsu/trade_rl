@@ -72,6 +72,23 @@ KNOWN_PLACEHOLDER_SYMBOLS: Final[frozenset[str]] = frozenset(
 )
 KNOWN_PLACEHOLDER_OPEN_MS: Final = ms_from_utc(datetime(2020, 12, 21, 14, tzinfo=UTC))
 
+# Vision kline archives may be headerless or carry this ordered column header.
+# A nonnumeric first cell alone cannot prove that a row is metadata.
+_KLINE_HEADER: Final = (
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time",
+    "quote_volume",
+    "count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "ignore",
+)
+
 
 class ArchiveContentError(ValueError):
     """An archive's content is not a valid, in-period series of the declared kind."""
@@ -209,8 +226,14 @@ def parse_kline_archive(
         raise ValueError("spec is not a klines archive")
     interval_ms = binance_interval_milliseconds(spec.interval)
     rows = _rows(payload, url=spec.url)
-    if rows and _looks_like_header(rows[0]):
-        rows = rows[1:]
+    if rows:
+        header = (
+            tuple(rows[0]) == _KLINE_HEADER
+            if resolved_admission is StoreKlineAdmission.STRICT_NATIVE_V2
+            else _looks_like_header(rows[0])
+        )
+        if header:
+            rows = rows[1:]
     start_ms = ms_from_utc(spec.period_start)
     end_ms = ms_from_utc(spec.period_end)
     result: list[KlineRow] = []

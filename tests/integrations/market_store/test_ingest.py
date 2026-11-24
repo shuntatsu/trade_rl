@@ -541,3 +541,52 @@ def test_new_ingest_refuses_inexact_native_clock_before_writing(
         ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
     assert store.klines == {} and store.sources == {}
     assert store.runs[1]["status"] == "failed"
+
+
+@pytest.mark.parametrize("row_index", [0, 1])
+@pytest.mark.parametrize("header", [False, True])
+@pytest.mark.parametrize("malformed", ["signed", "text", "header-token"])
+def test_new_ingest_never_discards_malformed_open_as_header(
+    row_index: int, header: bool, malformed: str
+) -> None:
+    spec = month_spec(2024, 1)
+    rows = kline_csv_rows(
+        spec.symbol,
+        ms_from_utc(spec.period_start),
+        ms_from_utc(spec.period_end),
+        header=header,
+    )
+    index = row_index + int(header)
+    raw_open = rows[index][0]
+    rows[index][0] = {
+        "signed": "+" + raw_open,
+        "text": "bad-clock",
+        "header-token": "open_time",
+    }[malformed]
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(spec.url, zip_csv(rows))
+    with pytest.raises(ArchiveContentError, match="open_time|source close_time"):
+        ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
+    assert store.klines == {} and store.sources == {}
+    assert store.runs[1]["status"] == "failed"
+
+
+@pytest.mark.parametrize("header", [False, True])
+@pytest.mark.parametrize("micro", [False, True])
+def test_new_ingest_preserves_first_valid_bar_with_or_without_header(
+    header: bool, micro: bool
+) -> None:
+    spec = month_spec(2024, 1)
+    rows = kline_csv_rows(
+        spec.symbol,
+        ms_from_utc(spec.period_start),
+        ms_from_utc(spec.period_end),
+        header=header,
+        micro=micro,
+    )
+    fetcher, store = FakeFetcher(), MemoryStore()
+    fetcher.add(spec.url, zip_csv(rows))
+    report = ingest(store, fetcher, one_archive_plan(spec, EmbargoPolicy.enforced()))
+    assert report.counts.rows_inserted == 744
+    assert store.sources[spec.url]["row_count"] == 744
+    assert min(key[-1] for key in store.klines) == ms_from_utc(spec.period_start)

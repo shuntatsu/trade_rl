@@ -721,3 +721,22 @@ def test_native_v2_refuses_zero_volume_early_close_without_inventing_a_bar() -> 
             embargo=ENFORCED,
             admission=StoreKlineAdmission.STRICT_NATIVE_V2,
         )
+
+
+def test_strict_header_requires_complete_ordered_column_schema() -> None:
+    rows = klines(header=True)
+    rows[0][1], rows[0][2] = rows[0][2], rows[0][1]
+    payload = zip_csv(rows)
+    # Only historical reproduction retains the former heuristic.
+    legacy = parse_kline_archive(payload, spec(), embargo=ENFORCED)
+    assert (
+        legacy.rows
+        == parse_kline_archive(zip_csv(klines()), spec(), embargo=ENFORCED).rows
+    )
+    with pytest.raises(ArchiveContentError, match="open_time"):
+        parse_kline_archive(
+            payload,
+            spec(),
+            embargo=ENFORCED,
+            admission=StoreKlineAdmission.STRICT_NATIVE_V2,
+        )

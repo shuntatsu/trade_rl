@@ -1077,8 +1077,9 @@ def test_export_refuses_the_window_and_status_reports(pg_store: Any) -> None:
 
 
 @pytest.mark.parametrize("micro", (False, True))
+@pytest.mark.parametrize("malformed", ("close", "first-open-signed", "first-open-text"))
 def test_native_clock_ingestion_refuses_malformed_archive_before_data_writes(
-    pg_store: Any, micro: bool
+    pg_store: Any, micro: bool, malformed: str
 ) -> None:
     plan = plan_ingestion(
         Universe(symbols=("BTCUSDT",), markets=(StoreMarket.SPOT,)),
@@ -1090,17 +1091,23 @@ def test_native_clock_ingestion_refuses_malformed_archive_before_data_writes(
     rows = kline_csv_rows(
         spec.symbol, ms_from_utc(START), ms_from_utc(END), micro=micro
     )
-    rows[6][6] = str(int(rows[6][6]) - 1)
+    index, column = (6, 6) if malformed == "close" else (0, 0)
+    original = rows[index][column]
+    rows[index][column] = {
+        "close": str(int(original) - 1),
+        "first-open-signed": "+" + original,
+        "first-open-text": "bad-clock",
+    }[malformed]
     fetcher = FakeFetcher()
     fetcher.add(spec.url, zip_csv(rows))
-    with pytest.raises(ArchiveContentError, match="source close_time"):
+    with pytest.raises(ArchiveContentError, match="source close_time|open_time"):
         ingest(pg_store, fetcher, plan)
     assert scalar(pg_store, "SELECT count(*) FROM klines") == 0
     assert scalar(pg_store, "SELECT count(*) FROM sources") == 0
     assert scalar(pg_store, "SELECT status FROM ingestion_runs") == "failed"
 
     # The same source URL is not claimed by a failed archive.
-    rows[6][6] = str(int(rows[6][6]) + 1)
+    rows[index][column] = original
     fetcher.add(spec.url, zip_csv(rows))
     report = ingest(pg_store, fetcher, plan)
     assert report.counts.rows_inserted == 744

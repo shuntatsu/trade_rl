@@ -394,3 +394,61 @@ def test_hook_untracked_workspace_write_fails_closed(
     assert result["hook_direct_exec_passed"] is False
     assert result["preflight_ok"] is False
     assert "UNTRACKED_HOOK_OUTPUT" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "field"),
+    [
+        ("CLAUDE.md", "shared_instructions"),
+        (".claude/skills/research-challenge/SKILL.md", "manual_research_skill"),
+        (".claude/settings.json", "configured_session_hook"),
+    ],
+)
+@pytest.mark.parametrize("committed", [False, True])
+def test_invalid_utf8_is_bounded_failure_without_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative_path: str,
+    field: str,
+    committed: bool,
+) -> None:
+    root, sha = _fixture(tmp_path, monkeypatch)
+    path = root / relative_path
+    path.write_bytes(path.read_bytes() + b"\xffPRIVATE_MARKER")
+    if committed:
+        _git(root, "add", relative_path)
+        _git(
+            root,
+            "-c",
+            "user.name=Test Agent",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "invalid UTF-8 fixture",
+            "--quiet",
+        )
+        sha = _git(root, "rev-parse", "HEAD")
+    original = probe._exec
+
+    def git_only(
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout: int = 5,
+        input_data: str | None = None,
+    ) -> tuple[int, str]:
+        assert args[0] == "git", "must not execute CLI or hook"
+        return original(args, cwd=cwd, timeout=timeout, input_data=input_data)
+
+    monkeypatch.setattr(probe, "_exec", git_only)
+    before = probe._index_fingerprint(root)
+    result = probe.preflight(root, required_merge=sha)
+    assert result[field] is False
+    assert result["working_tree_clean"] is committed
+    assert result["claude_cli_present"] is False
+    assert result["hook_direct_exec_passed"] is False
+    assert result["preflight_ok"] is False
+    assert probe._index_fingerprint(root) == before
+    assert "PRIVATE_MARKER" not in json.dumps(result)
+    assert str(root) not in json.dumps(result)

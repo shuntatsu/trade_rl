@@ -87,7 +87,13 @@ _HTML_BLOCK_TAGS = {
     "ul",
 }
 _HTML_RAW_TAGS = {"pre", "script", "style", "textarea"}
-_REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>]+>|\S+)")
+_REFERENCE = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^>]+>|\S+)")
+_IMAGE_REFERENCE = re.compile(r"\[([^\[\]\r\n]+)\]")
+_INLINE_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+_INLINE_RULE = re.compile(
+    r" {0,3}(?:=+|-+|(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})[ \t]*$"
+)
+_INLINE_LIST_START = re.compile(r" {0,3}(?:[-+*]|0{0,8}1[.)])[ \t]+\S")
 _ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
 
 
@@ -142,7 +148,7 @@ def _mask_block_code(markdown: str) -> str:
             if marker is not None and (
                 marker.group(1)[0] == fence[0]
                 and len(marker.group(1)) >= len(fence)
-                and not logical[marker.end() :].strip()
+                and not logical[marker.end() :].strip(" \t")
             ):
                 fence = None
             output.append(_blank(raw))
@@ -161,7 +167,9 @@ def _mask_block_code(markdown: str) -> str:
             output.append(_blank(raw))
             paragraph = False
             continue
-        if marker is not None:
+        if marker is not None and (
+            marker.group(1)[0] != "`" or "`" not in logical[marker.end() :]
+        ):
             fence = marker.group(1)
             output.append(_blank(raw))
             indented = False
@@ -272,25 +280,37 @@ def _mask_comments(source: str) -> str:
     return "".join(chars)
 
 
-def _destination(source: str, start: int) -> str | None:
-    """Parse one valid inline destination, including nested/escaped parens."""
+def _destination(source: str, start: int) -> tuple[str, int] | None:
+    """Parse an inline destination and return its exclusive consumed end."""
     index = start
     while index < len(source) and source[index] in " \t\r\n":
         index += 1
     if index == len(source):
         return None
     if source[index] == "<":
-        close = source.find(">", index + 1)
-        if close < 0:
+        begin = index + 1
+        index = begin
+        while index < len(source):
+            char = source[index]
+            if char in "\r\n" or (char == "<" and not _escaped(source, index)):
+                return None
+            if char == ">" and not _escaped(source, index):
+                break
+            index += 1
+        if index == len(source):
             return None
-        target = source[index + 1 : close]
-        index = close + 1
+        target = source[begin:index]
+        index += 1
     else:
         begin = index
         depth = 0
         while index < len(source):
             char = source[index]
-            if char == "\\" and index + 1 < len(source):
+            if (
+                char == "\\"
+                and index + 1 < len(source)
+                and source[index + 1] in string.punctuation
+            ):
                 index += 2
                 continue
             if char == "(":
@@ -299,56 +319,152 @@ def _destination(source: str, start: int) -> str | None:
                 if depth == 0:
                     break
                 depth -= 1
-            elif char in " \t\r\n" and depth == 0:
+            elif char in " \t\r\n":
+                if depth:
+                    return None
                 break
+            elif ord(char) < 32 or ord(char) == 127:
+                return None
             index += 1
         target = source[begin:index]
         if depth != 0:
             return None
+    destination_end = index
     while index < len(source) and source[index] in " \t\r\n":
         index += 1
-    if index < len(source) and source[index] in ('"', "'"):
-        quote = source[index]
-        index += 1
-        end = source.find(quote, index)
-        if end < 0:
+    if index < len(source) and source[index] in ('"', "'", "("):
+        if index == destination_end:
             return None
-        index = end + 1
+        opener = source[index]
+        closer = ")" if opener == "(" else opener
+        index += 1
+        title_start = index
+        while index < len(source):
+            char = source[index]
+            if char == closer and not _escaped(source, index):
+                break
+            if opener == "(" and char == "(" and not _escaped(source, index):
+                return None
+            index += 1
+        if index == len(source) or re.search(
+            r"\r?\n[ \t]*\r?\n", source[title_start:index]
+        ):
+            return None
+        index += 1
         while index < len(source) and source[index] in " \t\r\n":
             index += 1
-    if index >= len(source) or source[index] != ")":
+    if (
+        index >= len(source)
+        or source[index] != ")"
+        or re.search(r"\r?\n[ \t]*\r?\n", source[start:index])
+    ):
         return None
-    return target
+    return target, index + 1
+
+
+def _inline_targets(
+    markdown: str,
+    text: str,
+    known_references: frozenset[str] | None,
+) -> tuple[list[tuple[int, str]], str]:
+    """Scan inline candidates, retaining alt contents until an image is recognized.
+
+    The reference-discovery pass provisionally recognizes explicit image
+    references. Its targets are discarded; only its masked definition text
+    is used. The final pass requires a discovered reference definition.
+    """
+    targets: list[tuple[int, str]] = []
+    # is_image, contains_rendered_link, number of targets before the opener
+    stack: list[tuple[bool, bool, int]] = []
+    reference_text = list(text)
+    consumed_end = 0
+    previous_single_line_block = False
+    previous_quote_level = 0
+    for index, char in enumerate(text):
+        if index < consumed_end:
+            continue
+        if index == 0 or markdown[index - 1] == "\n":
+            line_end = markdown.find("\n", index)
+            line = markdown[index : len(markdown) if line_end < 0 else line_end]
+            line = line.rstrip("\r")
+            quote = _QUOTE.match(line)
+            quote_level = quote.group().count(">") if quote else 0
+            logical = line[quote.end() :] if quote else line
+            single_line_block = (
+                _INLINE_HEADING.match(logical) is not None
+                or _INLINE_RULE.fullmatch(logical) is not None
+            )
+            if (
+                previous_single_line_block
+                or single_line_block
+                or not logical.strip(" \t")
+                or quote_level > previous_quote_level
+                or _INLINE_LIST_START.match(logical)
+            ):
+                stack.clear()
+            previous_single_line_block = single_line_block
+            previous_quote_level = quote_level
+        if char == "[" and not _escaped(text, index):
+            is_image = (
+                index > 0 and text[index - 1] == "!" and not _escaped(text, index - 1)
+            )
+            stack.append((is_image, False, len(targets)))
+        elif char == "]" and stack and not _escaped(text, index):
+            is_image, nested_link, first_target = stack.pop()
+            parsed = (
+                _destination(text, index + 2)
+                if index + 1 < len(text) and text[index + 1] == "("
+                else None
+            )
+            rendered_link = False
+            if parsed is not None and (is_image or not nested_link):
+                target, consumed_end = parsed
+                reference_text[index + 1 : consumed_end] = _blank(
+                    text[index + 1 : consumed_end]
+                )
+                if is_image:
+                    # An actual image renders the label as alt text, not links.
+                    del targets[first_target:]
+                targets.append((text.count("\n", 0, index) + 1, target))
+                rendered_link = not is_image
+            elif is_image:
+                reference = _IMAGE_REFERENCE.match(text, index + 1)
+                if reference is not None and (
+                    known_references is None
+                    or " ".join(reference.group(1).split()).casefold()
+                    in known_references
+                ):
+                    # The separate reference-definition scan checks its target.
+                    del targets[first_target:]
+                    consumed_end = reference.end()
+                else:
+                    # A literal/unfinished image label cannot hide real links.
+                    rendered_link = nested_link
+            if rendered_link:
+                # Nested links invalidate enclosing link labels, but a
+                # recognized image consumes its alt contents at its own close.
+                for parent in range(len(stack) - 1, -1, -1):
+                    image, _, target_start = stack[parent]
+                    stack[parent] = (image, True, target_start)
+                    if image:
+                        break
+    return targets, "".join(reference_text)
 
 
 def destinations(markdown: str) -> list[tuple[int, str]]:
     """Find local-link candidates outside literal code and HTML comments."""
     text = _mask_comments(_mask_inline_code(_mask_block_code(markdown)))
-    targets: list[tuple[int, str]] = []
-    stack: list[tuple[bool, bool]] = []  # is_image, contains_nested_link
-    for index, char in enumerate(text):
-        if char == "[" and not _escaped(text, index):
-            is_image = (
-                index > 0 and text[index - 1] == "!" and not _escaped(text, index - 1)
-            )
-            stack.append((is_image, False))
-        elif char == "]" and stack and not _escaped(text, index):
-            is_image, nested_link = stack.pop()
-            if index + 1 < len(text) and text[index + 1] == "(":
-                target = _destination(text, index + 2)
-                if (
-                    target is not None
-                    and not any(image for image, _ in stack)
-                    and (is_image or not nested_link)
-                ):
-                    targets.append((text.count("\n", 0, index) + 1, target))
-                    if not is_image:
-                        # CommonMark forbids a link nested inside another link.
-                        stack = [(image, True) for image, _ in stack]
-    for number, line in enumerate(text.splitlines(), start=1):
+    _, reference_text = _inline_targets(markdown, text, None)
+    references = frozenset(
+        " ".join(reference.group(1).split()).casefold()
+        for line in reference_text.splitlines()
+        if (reference := _REFERENCE.match(line)) is not None
+    )
+    targets, reference_text = _inline_targets(markdown, text, references)
+    for number, line in enumerate(reference_text.splitlines(), start=1):
         reference = _REFERENCE.match(line)
         if reference is not None:
-            targets.append((number, reference.group(1).strip("<>")))
+            targets.append((number, reference.group(2).strip("<>")))
     return sorted(targets, key=lambda item: item[0])
 
 

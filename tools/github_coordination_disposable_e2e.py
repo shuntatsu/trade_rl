@@ -218,15 +218,20 @@ class GitHubGraphQLHttpApi:
         ).encode("utf-8")
         if len(data) > _MAX_REQUEST_BYTES:
             raise ValueError("GraphQL request exceeds the bounded payload limit")
-        # Validate the exact bytes that will be sent, not a concurrently mutable
-        # caller mapping that may differ after JSON serialization.
-        wire_variables = json.loads(data)["variables"]
+        # Validate the entire exact request that will be sent. In particular,
+        # caller-defined string equality and duplicate serialized mapping keys
+        # must not cause a different operation or target to pass the guard.
+        wire = json.loads(data, object_pairs_hook=_reject_duplicate_keys)
+        if not isinstance(wire, dict) or set(wire) != {"query", "variables"}:
+            raise ValueError("GraphQL encoded request must contain query and variables")
+        wire_document = wire["query"]
+        wire_variables = wire["variables"]
         if not isinstance(wire_variables, dict):
             raise ValueError("GraphQL encoded variables must be an object")
-        if document == cas._READ_REF_QUERY:
+        if wire_document == cas._READ_REF_QUERY:
             if wire_variables != self._read_variables:
                 raise ValueError("coordination GraphQL read is not bound to target")
-        elif document == cas._UPDATE_REF_MUTATION:
+        elif wire_document == cas._UPDATE_REF_MUTATION:
             self._require_mutation(wire_variables)
         else:
             raise ValueError("coordination GraphQL operation is not allowed")
@@ -254,7 +259,7 @@ class GitHubGraphQLHttpApi:
             raise ValueError("GitHub GraphQL response is not strict JSON") from None
         if not isinstance(decoded, dict):
             raise ValueError("GitHub GraphQL response must be an object")
-        if document == cas._READ_REF_QUERY:
+        if wire_document == cas._READ_REF_QUERY:
             self._require_readback(decoded)
         return decoded
 

@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -254,3 +255,88 @@ def test_real_setup_skip_call_skip_and_xfail_keep_valid_completion(
     run = _run_shard(tmp_path, 0, 1, report)
     assert run.returncode == 0, run.stdout + run.stderr
     assert len(json.loads(report.read_text())["completed"]) == 5
+
+
+# These are the five module placements derived from the ordinary CI trace;
+# include parameterized and class-based node IDs, and avoid prefix matching.
+_AFFINITY_CASES = (
+    ("tests/evaluation/test_dev_realdata_phase3.py", 1),
+    ("tests/evaluation/test_dev_realdata_study.py", 3),
+    ("tests/evaluation/test_forward_study_fs1.py", 3),
+    ("tests/evaluation/test_signal_diagnosis_run_scenarios.py", 0),
+    ("tests/tools/tier_d_nonrl/test_task18_native_artifact.py", 3),
+)
+
+
+@pytest.mark.parametrize("module,expected", _AFFINITY_CASES)
+def test_measured_module_fixture_affinity(module: str, expected: int) -> None:
+    nodes = [f"{module}::TestShared::test_work[{i}]" for i in range(16)]
+    assert {shard_index(node, 4) for node in nodes} == {expected}
+    # Other shard counts keep the prior deterministic hash contract.
+    assert [shard_index(node, 3) for node in nodes] == [
+        int.from_bytes(sha256(node.encode()).digest()[:8], "big") % 3 for node in nodes
+    ]
+    similar = [f"{module}.copy.py::test_work[{i}]" for i in range(16)]
+    assert [shard_index(node, 4) for node in similar] == [
+        int.from_bytes(sha256(node.encode()).digest()[:8], "big") % 4
+        for node in similar
+    ]
+
+
+def test_affinity_receipts_cover_whole_roster_and_reject_old_assignment(
+    tmp_path: Path,
+) -> None:
+    items = [f"tests/test_example.py::test_cases[{i}]" for i in range(120)]
+    items += [
+        f"{module}::test_group[{i}]" for module, _ in _AFFINITY_CASES for i in range(8)
+    ]
+    paths = _reports(tmp_path, items)
+    assert verify_reports(tmp_path, count=4, head=HEAD, expected_items=items) == len(
+        items
+    )
+    # Even a complete receipt union cannot be reused under an old placement.
+    for index, path in enumerate(paths):
+        record = json.loads(path.read_text())
+        record["completed"] = sorted(
+            node
+            for node in items
+            if int.from_bytes(sha256(node.encode()).digest()[:8], "big") % 4 == index
+        )
+        path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="wrong shard"):
+        verify_reports(tmp_path, count=4, head=HEAD, expected_items=items)
+
+
+def test_measured_module_fixture_runs_once_in_real_shards(tmp_path: Path) -> None:
+    module, expected = _AFFINITY_CASES[0]
+    path = tmp_path / module
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "from pathlib import Path\nimport pytest\n"
+        "@pytest.fixture(scope='module')\n"
+        "def shared():\n"
+        "    with Path('fixture-count.txt').open('a') as log: log.write('setup\\n')\n"
+        "    return 7\n"
+        "@pytest.mark.parametrize('i', range(16))\n"
+        "def test_work(shared, i): assert shared == 7 and i >= 0\n"
+    )
+    (tmp_path / "test_sample.py").write_text(
+        "import pytest\n@pytest.mark.parametrize('i', range(24))\n"
+        "def test_items(i): assert i >= 0\n"
+    )
+    root = tmp_path / "reports"
+    root.mkdir()
+    for index in range(4):
+        directory = root / f"shard-{index}"
+        directory.mkdir()
+        report = directory / "core-shard.json"
+        run = _run_shard(tmp_path, index, 4, report, module)
+        assert run.returncode == 0, run.stdout + run.stderr
+        nodes = json.loads(report.read_text())["completed"]
+        assert sum(node.startswith(module + "::") for node in nodes) == (
+            16 if index == expected else 0
+        )
+    assert (tmp_path / "fixture-count.txt").read_text().splitlines() == ["setup"]
+    items = [f"{module}::test_work[{i}]" for i in range(16)]
+    items += [f"test_sample.py::test_items[{i}]" for i in range(24)]
+    assert verify_reports(root, count=4, head=HEAD, expected_items=items) == 40

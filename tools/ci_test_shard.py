@@ -18,6 +18,16 @@ import pytest
 
 _SCHEMA = "ci_test_shard_v1"
 _MAX_SHARDS = 16
+# Candidate four-way placement from measured #1416 run 45542520830:
+# keep the costly module-scoped fixtures together, without changing the
+# assignment or execution contract of other test modules or shard counts.
+_MEASURED_MODULE_AFFINITY = {
+    "tests/evaluation/test_dev_realdata_phase3.py": 1,
+    "tests/evaluation/test_dev_realdata_study.py": 3,
+    "tests/evaluation/test_forward_study_fs1.py": 3,
+    "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 0,
+    "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 3,
+}
 
 
 def _validate_count(count: int) -> None:
@@ -54,6 +64,11 @@ def shard_index(item: str, count: int) -> int:
     _validate_count(count)
     if type(item) is not str or not item:
         raise ValueError("invalid pytest node ID")
+    if count == 4:
+        module, _, _ = item.partition("::")
+        affinity = _MEASURED_MODULE_AFFINITY.get(module)
+        if affinity is not None:
+            return affinity
     return (
         int.from_bytes(
             hashlib.sha256(item.encode("utf-8", errors="surrogatepass")).digest()[:8],

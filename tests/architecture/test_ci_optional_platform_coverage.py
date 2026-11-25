@@ -251,11 +251,15 @@ def test_windows_rl_runtime_uses_locked_extras_and_exact_cases() -> None:
         "tests/integrations/test_ppo_sb3_runtime.py::test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract",
         "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_records_effective_steps_and_scope",
         "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_bundle_load_roundtrip",
-        "tests/evaluation/test_learning_lab_runner.py::test_every_agent_trains_checkpoints_and_evaluates_on_a_tiny_dataset",
+        "tests/evaluation/test_learning_lab_runner.py::test_native_agent_checkpoint_roundtrip_without_registry",
+        "tests/evaluation/test_learning_lab_runner.py::test_registry_refuses_missing_native_lock_without_mutation",
     ):
         assert case in job
     assert "m1-windows-rl.xml" in job
-    assert "python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 8" in job
+    assert "python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 9" in job
+    assert (
+        "test_every_agent_trains_checkpoints_and_evaluates_on_a_tiny_dataset" not in job
+    )
     for path in (
         "pyproject.toml",
         "uv.lock",

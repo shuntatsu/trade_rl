@@ -261,6 +261,7 @@ def _inspect_one(
         pins,
         expected_source_commit=source.commit_sha,
         expected_frozen_plan_sha256=attempt.plan_pin.sha256,
+        allow_empty_arms=True,
     )
     return _verify_completed(
         root, attempt, source, stopped, plan, predecessor=predecessor, lineage=lineage
@@ -276,7 +277,12 @@ def inspect_synthetic_stopped_recovery(
     ancestors: tuple[StagedSyntheticGeneration, ...] = (),
     expected_lineage_sha256: str | None = None,
 ) -> RecoveredSyntheticAttempt:
-    """Return the verified cumulative frontier, never local-only pending IDs."""
+    """Return the verified cumulative frontier, never local-only pending IDs.
+
+    A stopped raw native writer may leave an empty arms directory before its
+    first receipt rename. It is not completion evidence; partial staging or
+    any unaccounted file still causes refusal.
+    """
     validate_generation_paths(ancestors, root, expected_lineage_sha256)
     bundle, lineage = read_generation(root, expected_lineage_sha256)
     prior = _open_ancestors(ancestors, attempt, expected_source_binding)
@@ -316,7 +322,11 @@ def stage_synthetic_stopped_recovery(
     ancestors: tuple[StagedSyntheticGeneration, ...] = (),
     expected_lineage_sha256: str | None = None,
 ) -> RecoveredSyntheticAttempt:
-    """Copy a verified generation, including exact lineage bytes when present."""
+    """Copy a verified generation, including exact lineage bytes when present.
+
+    Preserve every pinned source byte. Do not copy the raw writer's optional
+    empty arms scaffold into the canonical published handoff.
+    """
     validate_generation_paths(ancestors, source, expected_lineage_sha256)
     bundle, lineage = read_generation(source, expected_lineage_sha256)
     destination = _fresh_destination(
@@ -344,6 +354,7 @@ def stage_synthetic_stopped_recovery(
             expected_source_commit=expected_source_binding.commit_sha,
             expected_frozen_plan_sha256=attempt.plan_pin.sha256,
             expected_handoff_sha256=expected_handoff_sha256,
+            allow_empty_arms=True,
         )
 
     if lineage is None:

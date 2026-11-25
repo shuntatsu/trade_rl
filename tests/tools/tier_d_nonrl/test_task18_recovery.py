@@ -457,6 +457,30 @@ def test_all_partial_run_has_no_invented_receipt(bundle):
     assert plan.pending_arm_ids == tuple(a.arm_id for a in arms)
     assert not (destination / "arms").exists()
 
+    # The historical raw recipe is not the maintained synthetic writer.
+    # Its exact directory roster must not acquire the scaffold exception.
+    from tools.tier_d_nonrl.task18_recovery import inspect_stopped_recovery
+
+    started = replace(
+        stopped,
+        arms=(
+            replace(arms[0], status="RUNNING", reason_code="RUN_IN_PROGRESS"),
+            *arms[1:],
+        ),
+    )
+    stopped_pin = _write(
+        source, "stopped-run.json", canonical_json_bytes(started.to_mapping())
+    )
+    pins = tuple(stopped_pin if p.path == stopped_pin.path else p for p in pins)
+    (source / "arms").mkdir()
+    with pytest.raises(ValueError, match="unexpected"):
+        inspect_stopped_recovery(
+            source,
+            pins,
+            expected_source_commit="a" * 40,
+            expected_frozen_plan_sha256=_sha(b"synthetic frozen inputs"),
+        )
+
 
 def test_destination_inside_stopped_bundle_is_refused(bundle):
     source, _, stopped, candidates, pins = bundle

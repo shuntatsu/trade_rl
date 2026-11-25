@@ -316,6 +316,10 @@ def _require_finite_post_update_equity(
     return equity
 
 
+class SpotCashAdmissionError(ValueError):
+    """A proposed native fill cannot be funded by the strict spot book."""
+
+
 @dataclass(slots=True)
 class BookState:
     """Mutable signed-quantity account isolated from policy and workflow logic."""
@@ -885,6 +889,15 @@ class BookState:
             turnover=turnover,
         )
 
+    def require_nonnegative_spot_cash(self) -> None:
+        """Fail closed on an invalid starting/observed strict spot book."""
+        if (
+            not math.isfinite(self.cash)
+            or self.cash < 0.0
+            or any(q < 0 for q in self.exact_quantities)
+        ):
+            raise ValueError("strict spot book requires nonnegative cash and inventory")
+
     def execute_fill(
         self,
         *,
@@ -896,6 +909,7 @@ class BookState:
         lot_size: float = 0.0,
         lot_count: int | None = None,
         valuation_prices: np.ndarray | None = None,
+        require_spot_cash: bool = False,
     ) -> None:
         if (
             isinstance(symbol_index, bool)
@@ -903,6 +917,10 @@ class BookState:
             or not 0 <= symbol_index < len(self.quantities)
         ):
             raise ValueError("fill symbol index is outside the book")
+        if type(require_spot_cash) is not bool:
+            raise ValueError("require_spot_cash must be boolean")
+        if require_spot_cash:
+            self.require_nonnegative_spot_cash()
         values = list(self._quantity_values())
         current = values[symbol_index]
         accepted = accepted_fill_quantity(
@@ -922,6 +940,7 @@ class BookState:
             cost_amount=cost_amount,
             turnover=turnover,
             valuation_prices=valuation_prices,
+            require_spot_cash=require_spot_cash,
         )
 
     def _record_execution(
@@ -933,6 +952,7 @@ class BookState:
         cost_amount: float,
         turnover: float,
         valuation_prices: np.ndarray | None = None,
+        require_spot_cash: bool = False,
     ) -> None:
         prices = _finite_vector(fill_prices, field_name="fill_prices")
         targets = np.array([project_quantity(value) for value in exact_targets])
@@ -979,6 +999,13 @@ class BookState:
         if not math.isfinite(signed_notional):
             raise ValueError("execution leg notional sum must be finite")
         cash_after = self.cash - (signed_notional + float(cost_amount))
+        # Use exactly the cash debit and exact quantities that will be committed.
+        # No second affordability approximation and no mutation on denial.
+        if require_spot_cash:
+            if any(value < 0 for value in exact_targets):
+                raise SpotCashAdmissionError("insufficient_spot_inventory")
+            if cash_after < 0.0:
+                raise SpotCashAdmissionError("insufficient_spot_cash")
         turnover_after = self.turnover_total + float(turnover)
         cost_after = self.total_cost + float(cost_amount)
         _require_finite_post_update_equity(

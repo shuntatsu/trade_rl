@@ -191,6 +191,10 @@ def _execute_stateful_orders_impl(
             "retain_debt execution cannot restart from an already terminated book"
         )
 
+    if executor.strict_spot_cash:
+        executor._validate_strict_spot_configuration()
+        book.require_nonnegative_spot_cash()
+
     runtime = StatefulExecutionRuntime.create(executor, book, order_book)
     cancellation_ids: set[str] = set()
     for previous, updated in reconciliation_cancellations:
@@ -231,11 +235,15 @@ def _execute_stateful_orders_impl(
     for offset in range(bars):
         previous_index = start_index + offset
         processing_index = previous_index + 1
+        if executor.strict_spot_cash:
+            executor._validate_strict_spot_row(processing_index)
         context = lifecycle.begin_bar(
             runtime,
             previous_index=previous_index,
             processing_index=processing_index,
         )
+        if executor.strict_spot_cash:
+            runtime.book.require_nonnegative_spot_cash()
         absorbing = executor.insolvency_valuation == "retain_debt"
         if not (absorbing and runtime.book.insolvent):
             accepted = transitions.prepare_orders(runtime, context)
@@ -247,6 +255,8 @@ def _execute_stateful_orders_impl(
                     attempted_order_ids=attempted,
                 )
         lifecycle.finish_bar(runtime, context)
+        if executor.strict_spot_cash:
+            runtime.book.require_nonnegative_spot_cash()
         bars_advanced += 1
         if absorbing and runtime.book.insolvent:
             break

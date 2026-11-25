@@ -94,6 +94,7 @@ class SharedPortfolioSession:
         terminal_reserve_bars: int | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         hold_unchanged_risk_target: bool = False,
+        strict_spot_cash: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -159,6 +160,7 @@ class SharedPortfolioSession:
             resolved_cost,
             market_order_profile=market_order_profile,
             insolvency_valuation=insolvency_valuation,
+            strict_spot_cash=strict_spot_cash,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
         )

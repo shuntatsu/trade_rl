@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v37-native-exposure.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v38-exposure-m2-td8-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "0141c1910923d35c4042f54df2676d4d19047f1103e3733b8abf1fb598ce7d74"
+    "a363c8d2c3925b2bc5ddfe709f16b20c5330a4b2459469430b2bab1555abb4fe"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2461,7 +2461,13 @@ def test_native_exposure_successor_preserves_admission_union_packet() -> None:
         assurance_digest(previous)
         == "54cad87f12905b1ba1d761e099023cc2ff099d2637032c106dc6b63ca84241e1"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v37-native-exposure.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "0b982c8caf6c4fca2880b4b4cf4b39bece756f44",
         "protocol_head": "0b982c8caf6c4fca2880b4b4cf4b39bece756f44",
@@ -2515,6 +2521,186 @@ def test_native_exposure_successor_preserves_admission_union_packet() -> None:
         "trade_rl/evaluation/replay_exposure.py",
     ]
     for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_m2_td8_reader_successor_preserves_native_admission_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v36-native-admission-union.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "9508d8abec287e07e61c7e07b65f86d2ac3abc1a9fb6e8e0c7b4b39d14560a1e"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "54cad87f12905b1ba1d761e099023cc2ff099d2637032c106dc6b63ca84241e1"
+    )
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v37-m2-td8-readers.json"
+        ).read_bytes()
+    )
+    assert current["identity"] == {
+        "implementation_head": "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        "protocol_head": "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(
+            "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+            "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        )
+    assert current == expected
+    a = set(_bound_code_paths("018b5a5d3a4f6d08212e1efc6f78d1ee17f24212"))
+    b = set(_bound_code_paths("05733c8f8fe94b7d08e1108d024c28f6fc86bab8"))
+    assert a == b and len(b) == 189
+    diff = _git(
+        "diff",
+        "--name-only",
+        "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+        "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py",
+        "trade_rl/evaluation/runs/artifact.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_exposure_m2_td8_union_preserves_both_v37_lineages() -> None:
+    common_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v36-native-admission-union.json"
+    ).read_bytes()
+    exposure_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v37-native-exposure.json"
+    ).read_bytes()
+    reader_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v37-m2-td8-readers.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(exposure_bytes).hexdigest()
+        == "fcacd9d013d3ee448cb6a2ba57b9baef21edb2b295be3043f9f12e1a546ebe89"
+    )
+    assert (
+        hashlib.sha256(reader_bytes).hexdigest()
+        == "2485550da463b3e8e58d8161ebb291fc8f1540ccd6271bbfe43c713bf7f53536"
+    )
+    origin = json.loads(common_bytes)
+    exposure = json.loads(exposure_bytes)
+    reader = json.loads(reader_bytes)
+    assert (
+        assurance_digest(exposure)
+        == "0141c1910923d35c4042f54df2676d4d19047f1103e3733b8abf1fb598ce7d74"
+    )
+    assert (
+        assurance_digest(reader)
+        == "c3d31c088bdb2caff614573d9b3326459e5ef95cf8452c0f622c0b5b547a7f20"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    expected = json.loads(exposure_bytes)
+    assert current["identity"] == {
+        "implementation_head": "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+        "protocol_head": "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+    }
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        prefix = origin[section][key]
+        assert exposure[section][key].startswith(prefix)
+        assert reader[section][key].startswith(prefix)
+        combined = exposure[section][key] + reader[section][key][len(prefix) :]
+        assert current[section][key].startswith(combined)
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        replacement = origin[section][key].replace(
+            "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+            "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+        )
+        assert (
+            exposure[section][key].replace(
+                "0b982c8caf6c4fca2880b4b4cf4b39bece756f44",
+                "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+            )
+            == replacement
+        )
+        assert (
+            reader[section][key].replace(
+                "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+                "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+            )
+            == replacement
+        )
+        expected[section][key] = replacement
+    assert current == expected
+    exposure_paths = set(_bound_code_paths("0b982c8caf6c4fca2880b4b4cf4b39bece756f44"))
+    reader_paths = set(_bound_code_paths("05733c8f8fe94b7d08e1108d024c28f6fc86bab8"))
+    union_paths = set(_bound_code_paths("0f8946eafd0b305c8bd72fab478e2ac516667b3b"))
+    assert len(exposure_paths) == 190
+    assert len(reader_paths) == 189
+    assert (
+        union_paths
+        == exposure_paths
+        == reader_paths | {"trade_rl/evaluation/replay_exposure.py"}
+    )
+    for previous_head, changes in (
+        (
+            "0b982c8caf6c4fca2880b4b4cf4b39bece756f44",
+            [
+                "trade_rl/evaluation/decision_value_dev_study.py",
+                "trade_rl/evaluation/runs/artifact.py",
+            ],
+        ),
+        (
+            "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+            ["trade_rl/evaluation/replay.py", "trade_rl/evaluation/replay_exposure.py"],
+        ),
+    ):
+        diff = _git(
+            "diff",
+            "--name-only",
+            previous_head,
+            "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+            "--",
+            *sorted(union_paths),
+        )
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == changes
+    for record in (origin, exposure, reader, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

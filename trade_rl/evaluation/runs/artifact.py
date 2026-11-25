@@ -1222,10 +1222,65 @@ def _validate_v10_replay_evidence(summary: Mapping[str, object]) -> None:
         _validate_v8_replay_evidence(summary)
 
 
+def _validate_return_member_extent(
+    archive: zipfile.ZipFile, member: zipfile.ZipInfo
+) -> int:
+    """Reject inconsistent NPY extents before array materialization.
+
+    ZIP's uncompressed byte count is not an independent resource budget.
+    Match it to a bounded header using Python's exact integer arithmetic.
+    """
+    try:
+        with archive.open(member) as handle:
+            version = np.lib.format.read_magic(handle)
+            if version not in {(1, 0), (2, 0), (3, 0)}:
+                raise ValueError("unsupported NPY version")
+            width = 2 if version == (1, 0) else 4
+            length_bytes = handle.read(width)
+            if len(length_bytes) != width:
+                raise ValueError("short NPY header length")
+            header_length = int.from_bytes(length_bytes, "little")
+            if (
+                header_length > 10_000
+                or header_length > member.file_size - handle.tell()
+            ):
+                raise ValueError("invalid NPY header extent")
+            header = handle.read(header_length)
+            if len(header) != header_length:
+                raise ValueError("short NPY header")
+            # The admitted primitive numeric dtype header is ASCII even in
+            # NPY v3, whose length field matches v2. Avoid private NumPy APIs.
+            if version == (3, 0) and not header.isascii():
+                raise ValueError("non-ASCII primitive NPY header")
+            read_header = (
+                np.lib.format.read_array_header_1_0
+                if version == (1, 0)
+                else np.lib.format.read_array_header_2_0
+            )
+            shape, _, dtype = read_header(io.BytesIO(length_bytes + header))
+            header_end = handle.tell()
+    except (ValueError, TypeError, OverflowError, RecursionError, SyntaxError) as error:
+        raise ValueError(
+            "malformed candidate returns archive: invalid NPY header extent"
+        ) from error
+    if dtype.kind not in {"i", "u", "f"}:
+        raise ValueError("candidate return arrays must be real numeric and pickle-free")
+    if len(shape) != 1:
+        raise ValueError("candidate return arrays must be one-dimensional")
+    if type(shape[0]) is not int or shape[0] < 0:
+        raise ValueError("candidate return array shape is invalid")
+    if shape[0] * dtype.itemsize != member.file_size - header_end:
+        raise ValueError(
+            "candidate return array byte extent does not match shape and dtype"
+        )
+    return shape[0]
+
+
 def _load_returns(
     payload: bytes,
     *,
     expected_keys: frozenset[str],
+    expected_period_counts: Mapping[str, int] | None = None,
 ) -> dict[str, np.ndarray]:
     loaded: dict[str, np.ndarray] = {}
     # A bare NPY would be materialized rather than opened as a lazy archive.
@@ -1256,6 +1311,16 @@ def _load_returns(
                     raise ValueError(
                         "malformed candidate returns archive: unsupported compression"
                     )
+            declared_periods: dict[str, int] = {}
+            for member in archive.zip.infolist():
+                key = member.filename.removesuffix(".npy")
+                count = _validate_return_member_extent(archive.zip, member)
+                if (
+                    expected_period_counts is not None
+                    and expected_period_counts.get(key) != count
+                ):
+                    raise ValueError("candidate return period count is inconsistent")
+                declared_periods[key] = count
             for key in sorted(expected_keys):
                 try:
                     # Bind the physical member, not NumPy's suffix alias.
@@ -1268,6 +1333,8 @@ def _load_returns(
                     raise ValueError("candidate return arrays must be real numeric")
                 if value.ndim != 1:
                     raise ValueError("candidate return arrays must be one-dimensional")
+                if value.size != declared_periods[key]:
+                    raise ValueError("candidate return period count is inconsistent")
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
                 loaded[key] = np.ascontiguousarray(value).copy()
@@ -1276,10 +1343,10 @@ def _load_returns(
     return loaded
 
 
-def _validate_v6_return_coverage(
+def _expected_return_period_counts(
     summary: Mapping[str, object],
-    returns: Mapping[str, np.ndarray],
-) -> None:
+) -> dict[str, int]:
+    """Derive modern per-member counts before opening the array payloads."""
     evaluation = summary.get("evaluation")
     if not isinstance(evaluation, Mapping):
         raise ValueError("candidate return coverage evidence is malformed")
@@ -1292,6 +1359,7 @@ def _validate_v6_return_coverage(
         or not isinstance(by_symbol, list)
     ):
         raise ValueError("candidate return coverage evidence is malformed")
+    counts: dict[str, int] = {}
     for symbol in by_symbol:
         if not isinstance(symbol, Mapping) or not isinstance(
             symbol.get("strategies"), list
@@ -1302,26 +1370,32 @@ def _validate_v6_return_coverage(
                 raise ValueError("candidate return coverage evidence is malformed")
             key = strategy.get("return_key")
             metrics = strategy.get("metrics")
-            values = returns.get(key) if isinstance(key, str) else None
             n_periods = (
                 metrics.get("n_periods") if isinstance(metrics, Mapping) else None
             )
             if (
-                values is None
+                not isinstance(key, str)
                 or isinstance(n_periods, bool)
                 or not isinstance(n_periods, int)
                 or n_periods < 0
                 or n_periods > expected_periods
-                or values.size != n_periods
             ):
                 raise ValueError("candidate return period count is inconsistent")
+            counts[key] = n_periods
+    if "shared_cash_ppo" in summary:
+        portfolio = summary["shared_cash_ppo"]
+        if not isinstance(portfolio, Mapping) or not isinstance(
+            portfolio.get("return_key"), str
+        ):
+            raise ValueError("candidate shared-cash return evidence is malformed")
+        counts[portfolio["return_key"]] = expected_periods
+    return counts
 
 
-def _validate_v7_return_coverage(
+def _validate_shared_cash_return_metrics(
     summary: Mapping[str, object],
     returns: Mapping[str, np.ndarray],
 ) -> None:
-    _validate_v6_return_coverage(summary, returns)
     evaluation = summary.get("evaluation")
     portfolio = summary.get("shared_cash_ppo")
     if not isinstance(evaluation, Mapping) or not isinstance(portfolio, Mapping):
@@ -1437,23 +1511,26 @@ def _load_with_evidence(
         require_sha256(dataset_id, field="candidate dataset_id")
     provenance = _read_json_object(provenance_bytes, label="provenance")
     _validate_provenance(provenance)
+    expected_keys = _expected_return_keys(summary)
+    expected_counts = (
+        _expected_return_period_counts(summary)
+        if result_schema
+        in {
+            _RESULT_SCHEMA_V6,
+            _RESULT_SCHEMA_V7,
+            _RESULT_SCHEMA_V8,
+            _RESULT_SCHEMA_V9,
+            _RESULT_SCHEMA_V10,
+        }
+        else None
+    )
     returns = _load_returns(
         returns_bytes,
-        expected_keys=_expected_return_keys(summary),
+        expected_keys=expected_keys,
+        expected_period_counts=expected_counts,
     )
-    if result_schema == _RESULT_SCHEMA_V6:
-        _validate_v6_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V7:
-        _validate_v7_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V8:
-        _validate_v6_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V9:
-        _validate_v7_return_coverage(summary, returns)
-    if result_schema == _RESULT_SCHEMA_V10:
-        if "shared_cash_ppo" in summary:
-            _validate_v7_return_coverage(summary, returns)
-        else:
-            _validate_v6_return_coverage(summary, returns)
+    if expected_counts is not None and "shared_cash_ppo" in summary:
+        _validate_shared_cash_return_metrics(summary, returns)
     loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,

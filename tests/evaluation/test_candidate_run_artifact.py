@@ -405,9 +405,8 @@ def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None
         )
 
 
-def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
-    tmp_path,
-) -> None:
+@pytest.fixture
+def shared_cash_candidate_artifact(tmp_path):
     dataset = market()
     risk_config = PreTradeRiskConfig(
         max_gross=0.5,
@@ -480,11 +479,18 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
         ppo_training_timesteps=2048,
     )
 
-    published = candidate_artifact.publish_candidate_run(
+    return candidate_artifact.publish_candidate_run(
         tmp_path / "shared-cash-result",
         result,
         build_candidate_run_provenance(),
     )
+
+
+def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
+    tmp_path,
+    shared_cash_candidate_artifact,
+) -> None:
+    published = shared_cash_candidate_artifact
     loaded = candidate_artifact.load_candidate_run_artifact(published.root)
 
     assert loaded.has_verified_full_evaluation_coverage
@@ -512,3 +518,52 @@ def test_shared_cash_ppo_artifact_binds_portfolio_returns_and_ledger_digest(
     legacy_loaded = candidate_artifact.load_candidate_run_artifact(legacy_root)
     assert legacy_loaded.summary["schema_version"] == "lean_candidate_result_v7"
     assert np.array_equal(legacy_loaded.returns["shared_cash_ppo"], np.zeros(3))
+
+
+@pytest.mark.parametrize(
+    "reader",
+    [
+        candidate_artifact.load_candidate_run_artifact,
+        candidate_artifact.inspect_candidate_run_artifact,
+    ],
+)
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "lean_candidate_result_v7",
+        "lean_candidate_result_v9",
+        "lean_candidate_result_v10",
+    ],
+)
+@pytest.mark.parametrize("length", [2, 4])
+def test_shared_cash_candidate_rejects_mismatched_period_count_before_decode(
+    shared_cash_candidate_artifact,
+    monkeypatch,
+    reader,
+    schema,
+    length,
+) -> None:
+    artifact = shared_cash_candidate_artifact
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = schema
+    if schema != "lean_candidate_result_v10":
+        summary["candidate_config"].pop("forecast_switch_cost")
+    if schema == "lean_candidate_result_v7":
+        summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    assert reader(artifact.root) is not None
+    with np.load(artifact.returns_path, allow_pickle=False) as archive:
+        arrays = {key: archive[key].copy() for key in archive.files}
+    arrays["shared_cash_ppo"] = np.zeros(length, dtype=np.float64)
+    np.savez_compressed(artifact.returns_path, **arrays)
+    original = artifact.returns_path.read_bytes()
+
+    def forbidden_decode(*args, **kwargs):
+        raise AssertionError(
+            "invalid shared cash period count reached array materialization"
+        )
+
+    monkeypatch.setattr(np.lib.npyio.NpzFile, "__getitem__", forbidden_decode)
+    with pytest.raises(ValueError, match="return period count"):
+        reader(artifact.root)
+    assert artifact.returns_path.read_bytes() == original

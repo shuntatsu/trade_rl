@@ -1148,10 +1148,23 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
+| `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+The common decision-mark cash projection takes explicit sorted spot indices,
+nonnegative spot weights, signed perpetual weights and caller-declared
+margin/cash/net limits. It returns immutable pre-cap margin and signed net
+measures and their uniform scaling factors. The snapshot drawdown helper
+uses the same native PreTradeRisk ramp and preserves the historical snapshot
+peak-floor/clamp convention. Research owns the experimental constants and
+report-only statistics, not a second balance, margin or risk calculation.
+This is an opt-in projection for valid long-only spot / signed perpetual
+targets, **not** a mixed-instrument fill-time collateral or venue-margin
+guarantee. Existing source-bound AGY/XS/low-turnover implementations remain
+unchanged until reviewed consumer migration.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.

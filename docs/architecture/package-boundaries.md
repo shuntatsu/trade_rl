@@ -1148,10 +1148,49 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
+| `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
+| `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+Every executable study must use the common native execution and accounting
+owner (MarketExecutor, BookState, SharedPortfolioSession / replay).
+Study code may define targets, signals, experimental parameters, and
+read-only ledger oracles; it must not maintain a second mutable cash,
+position, funding, margin or P&L book. Legacy independent study books are
+historical dependencies to retire after consumer and source-bound approval
+closure, not templates for new code.
+
+`spot_cash_target_factor` is a conservative long-only spot **decision-mark**
+budget: reserve the supplied deterministic cost envelope on worst-case gross
+turnover and reserve new buys against already available cash, without
+crediting unexecuted sales. Both spot and mixed cash projections share the
+native binary64-compatible scalar admission described below; reject invalid
+inputs before narrowing. `SpotCashBudgetPolicy` wraps an all-spot policy
+and leaves native risk/quantity HOLD and execution in charge. It rejects
+shorts and active orders; it does not guarantee execution-time cash under
+gaps, liquidity, fee overrides, or order-state changes. The separate opt-in
+native strict spot cash admission rejects unaffordable actual fills under its
+long-only, unlevered, deterministic execution contract (#1306).
+The old source-bound trend-OOS wrapper is unchanged until reviewed migration.
+
+The common decision-mark cash projection takes explicit sorted spot indices,
+nonnegative spot weights, signed perpetual weights and caller-declared
+margin/cash/net limits. It admits native binary64-compatible scalars only
+(no booleans, scalar subclasses, arbitrary rationals, temporal values, wider floating-point
+values or integers outside the exact +/-2**53 domain); validate before
+narrowing to avoid masking negative spot weights or out-of-domain limits.
+It returns immutable pre-cap margin and signed net
+measures and their uniform scaling factors. The snapshot drawdown helper
+uses the same native PreTradeRisk ramp and preserves the historical snapshot
+peak-floor/clamp convention. Research owns the experimental constants and
+report-only statistics, not a second balance, margin or risk calculation.
+This is an opt-in projection for valid long-only spot / signed perpetual
+targets, **not** a mixed-instrument fill-time collateral or venue-margin
+guarantee. Existing source-bound AGY/XS/low-turnover implementations remain
+unchanged until reviewed consumer migration.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.

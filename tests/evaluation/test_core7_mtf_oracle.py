@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v41-bootstrap-fill-union.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v42-fill-td8-publication-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d07fd2181f9f0115d22a966bffa28d2ebb2dc3476aaceebb3837d10b1becc9fb"
+    "2fb3c1e8229b7ea792dbdae8dcee97aa7afb1d3feef266e2e18309c5ccca4161"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3076,6 +3076,118 @@ def test_td8_atomic_publication_successor_preserves_previous_packet() -> None:
         "trade_rl/evaluation/decision_value_dev_study.py"
     ]
     for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_fill_td8_publication_union_preserves_both_predecessors() -> None:
+    common = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+        ).read_bytes()
+    )
+    a_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v41-bootstrap-fill-union.json"
+    ).read_bytes()
+    b_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v41-td8-atomic-publication.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "2ed7688fb1930ade4b1b569ec0c2d04814479e0d16da3679c2462ed885f3ac05"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "10774e181a61ea19e237b1389c248c43d8d742058614fde137269b1dc498afee"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "d07fd2181f9f0115d22a966bffa28d2ebb2dc3476aaceebb3837d10b1becc9fb"
+    )
+    assert (
+        assurance_digest(b)
+        == "7cc82381d76d47b3fe8dc46ab84f3c75e45b0df4eab296872c770788f1381791"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "f4b29a5b02f9943ee937896f61d3a753acc7db55"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+        ).read_bytes()
+    )
+    expected["identity"] = current["identity"]
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of both immutable predecessors: retain opt-in native fill cash observations and atomic TD8 failure-receipt directory publication; no change to frozen economic protocol, historical evidence or authorization. No general cash reconciliation, source authenticity, power-loss durability or aggregate resource guarantee.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Source-only union at f4b29a5b02f9943ee937896f61d3a753acc7db55. Static closure verified: 192 paths, exactly the union of the 192-path fill predecessor and 191-path TD8 predecessor; one shared TD8 publication module changes relative to the fill predecessor and seven replay/native-fill modules relative to the TD8 predecessor. No economic run, market data access or research approval.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert a[section][key].startswith(prefix) and b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = common[section][key].replace(
+            common["identity"]["implementation_head"], head
+        )
+        for predecessor in (a, b):
+            assert (
+                predecessor[section][key].replace(
+                    predecessor["identity"]["implementation_head"], head
+                )
+                == wanted
+            )
+        expected[section][key] = wanted
+    assert current == expected
+    a_head, b_head = (
+        a["identity"]["implementation_head"],
+        b["identity"]["implementation_head"],
+    )
+    a_paths, b_paths, union = (
+        set(_bound_code_paths(x)) for x in (a_head, b_head, head)
+    )
+    assert len(a_paths) == 192 and len(b_paths) == 191
+    assert len(union) == 192 and union == a_paths | b_paths
+    for previous, paths in (
+        (a_head, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (
+            b_head,
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (common, a, b, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

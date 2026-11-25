@@ -345,7 +345,10 @@ def _require_bool(value: object, field: str) -> bool:
 def _require_number(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result

@@ -52,9 +52,9 @@ def test_update_roster_and_weekly_review_limits() -> None:
 
 
 def test_uv_version_updates_hold_for_pinned_incompatible_updater() -> None:
-    """Do not claim an operational Dependabot uv updater while it rejects 0.10.0."""
+    """A new uv binary alone does not establish successful hosted Dependabot."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["tool"]["uv"]["required-version"] == "==0.10.0"
+    assert project["tool"]["uv"]["required-version"] == "==0.13.9"
     uv = _ecosystem_sections()["uv"]
     assert "open-pull-requests-limit: 0" in uv
 

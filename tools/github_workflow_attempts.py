@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple, Protocol
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -25,7 +26,6 @@ _RUN_STATES = frozenset(
         "completed",
     }
 )
-_JOB_STATES = _RUN_STATES
 _PAGE_SIZE = 100
 _MAX_JOBS = 10_000
 _CONCLUSIONS = frozenset(
@@ -88,22 +88,45 @@ def _sha(value: Any, name: str) -> str:
     return value
 
 
-def _state_and_conclusion(
-    value: dict[str, Any],
+def validate_workflow_state(
+    value: Mapping[str, Any],
     *,
     name: str,
 ) -> tuple[str, str | None]:
-    status = _text(value.get("status"), f"{name} status")
-    allowed = _RUN_STATES if name == "run" else _JOB_STATES
-    if status not in allowed:
+    """Validate explicit native state/conclusion fields in read-only observations."""
+    status = value.get("status")
+    if type(status) is not str or status not in _RUN_STATES:
         raise ValueError(f"{name} status is unknown")
-    conclusion = value.get("conclusion")
+    if "conclusion" not in value:
+        raise ValueError(f"{name} conclusion is missing")
+    conclusion = value["conclusion"]
     if status == "completed":
-        if _text(conclusion, f"{name} conclusion") not in _CONCLUSIONS:
-            raise ValueError(f"{name} conclusion is unknown")
+        if type(conclusion) is not str or conclusion not in _CONCLUSIONS:
+            raise ValueError(f"completed {name} conclusion is unknown")
     elif conclusion is not None:
-        raise ValueError(f"{name} unfinished status has a conclusion")
+        raise ValueError(f"unfinished {name} cannot have a conclusion")
     return status, conclusion
+
+
+def validate_attempt_job_states(
+    status: str,
+    conclusion: str | None,
+    jobs: Sequence[Mapping[str, Any]],
+) -> None:
+    """Use the same run/job consistency rules at both producer and consumer."""
+    for job in jobs:
+        name = job.get("name")
+        if type(name) is not str or not name.strip():
+            raise ValueError("job name must be non-empty text")
+        job_status, job_conclusion = validate_workflow_state(job, name="job")
+        if status == "completed" and job_status != "completed":
+            raise ValueError("completed run contains unfinished attempt jobs")
+        if (
+            status == "completed"
+            and conclusion == "success"
+            and job_conclusion not in {"success", "skipped", "neutral"}
+        ):
+            raise ValueError("successful run contains failed or cancelled attempt jobs")
 
 
 def _run_identity(raw: Any, *, run_id: int) -> _RunIdentity:
@@ -113,7 +136,7 @@ def _run_identity(raw: Any, *, run_id: int) -> _RunIdentity:
     attempt = _positive_int(run.get("run_attempt"), "run attempt")
     branch = _text(run.get("head_branch"), "workflow head branch")
     head = _sha(run.get("head_sha"), "workflow head SHA")
-    status, conclusion = _state_and_conclusion(run, name="run")
+    status, conclusion = validate_workflow_state(run, name="run")
     updated = _text(run.get("updated_at"), "workflow update time")
     return _RunIdentity(run_id, attempt, branch, head, status, conclusion, updated)
 
@@ -137,7 +160,7 @@ def _job_identity(
     if _text(job.get("head_branch"), "job head branch") != branch:
         raise ValueError("job head branch differs from workflow run")
     name = _text(job.get("name"), "job name")
-    status, conclusion = _state_and_conclusion(job, name="job")
+    status, conclusion = validate_workflow_state(job, name="job")
     return {"id": job_id, "name": name, "status": status, "conclusion": conclusion}
 
 
@@ -194,16 +217,7 @@ def observe_workflow_attempt(reader: WorkflowReadApi, *, run_id: int) -> dict[st
     # This is a race detector, not a remote snapshot transaction.
     if _run_identity(reader._request_json("GET", endpoint), run_id=run_id) != identity:
         raise ValueError("workflow run changed during attempt observation")
-    if status == "completed" and any(item["status"] != "completed" for item in jobs):
-        raise ValueError("completed run contains unfinished attempt jobs")
-    if (
-        status == "completed"
-        and conclusion == "success"
-        and any(
-            item["conclusion"] not in {"success", "skipped", "neutral"} for item in jobs
-        )
-    ):
-        raise ValueError("successful run contains failed or cancelled attempt jobs")
+    validate_attempt_job_states(status, conclusion, jobs)
     return {
         "schema": "github_workflow_attempt_observation_v1",
         "run_id": run_id,
@@ -245,7 +259,11 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["observe_workflow_attempt"]
+__all__ = [
+    "observe_workflow_attempt",
+    "validate_workflow_state",
+    "validate_attempt_job_states",
+]
 
 
 if __name__ == "__main__":

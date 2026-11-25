@@ -1,0 +1,138 @@
+{
+ "schema_version": "research_assurance_v1",
+ "identity": {
+  "protocol_head": "67988676f2b449ea18ca956091f281b514940568",
+  "implementation_head": "67988676f2b449ea18ca956091f281b514940568"
+ },
+ "thesis": {
+  "final_decision": "whether to request separate owner authorization for one bounded G4 development run of a long/short Donchian breakout with ATR stops on eleven USD-M perpetuals at 4h and 1d, and, only after a DEVELOPMENT_PROMISING label, a separate protocol for a reinforcement-learning overlay. This packet authorizes no economic run, no unused-data access, no order and no live use.",
+  "hypothesis": "Return autocorrelation at days-to-weeks horizons in leveraged crypto perpetuals (slow information diffusion, herding, liquidation cascades) lets a Donchian breakout entered after the move starts earn more in a few large trends than it loses in many false breakouts, because a volatility-scaled initial and trailing ATR stop caps the loss of each false breakout. The rule (protocol revision 2) has positive expectancy after the repo fee/spread/impact model, Dataset funding and hard risk on the known-used window 2021-03-01 to 2026-07-31 in at least one of four preregistered configurations (variants 20/10 and 55/20 bars, timeframes 4h and 1d), under doubled costs and a stop-price haircut.",
+  "economic_mechanism": "A breakout beyond the prior N-bar extremum signals that new information or forced flow is moving the price; herding and leverage liquidations extend the move, creating positive serial correlation. The rule enters at the next open, risks 0.5% of equity at 2 ATR, trails the stop at 3 ATR from the best extreme and exits on the opposite M-bar channel. Many trades lose a small, stop-capped amount (low win rate); the right tail of persistent trends is left uncapped (positive skew). Costs, funding and gap slippage are the main drag. Decision chain: Dataset bars -> point-in-time availability mask -> channel and Wilder ATR -> rule state machine -> target weight / exact-quantity HOLD -> hard risk -> next-open market order -> canonical executor and ledger -> haircut and gate -> label.",
+  "counter_hypothesis": "Crypto trends at these horizons are already arbitraged, or whipsaw losses plus fees, spread, impact and funding exceed the trend gain, so the rule has no edge. Any positive result may instead be explained by: survivorship (the roster is eleven 2026 survivors chosen by name and listing date), one regime-heavy bull-market window with six sub-years, optimistic stop fills (a bar that wicks through the stop and recovers, filled at the next open instead of the stop level), no entry slippage in the stop distance, a leaky causal input, or exposure that merely resembles buy-and-hold. A reduced or reselected roster is a further explanation, excluded by construction in revision 2: the roster is the eleven symbols with no exclusion path, so a symbol cannot be dropped after a look at any data. Prior exposure is a further explanation: other repository work already read this universe and window, including a legacy GBM signal metadata record (tests/fixtures/legacy/realdata_20260713_signal_metadata.json) on 10 of the 11 symbols (all but DOT, fit cutoff 2025-12-06), the Phase 2 trial T1 time-series momentum rule (30d/90d blend, no stops) that reported a positive return on BTC, ETH, BNB, XRP and ADA over 2023-01-01 to 2026-08-01, and the M34 Development Dataset; the rule family here is related to that positive result, so a pass is not independent of it. Attestation: N (20/55, 10/20), ATR(14), 2x and 3x stop multiples, 0.5% risk, the caps, the 20% drawdown level and the thresholds (profit factor 1.2, 4 of 6 sub-years, 100 cycles, Calmar versus BTC) come from trading convention as given in the planner's brief; the implementer did not read the Phase 2 T1 results, the legacy fixture or the M34 outcomes when fixing any value and tuned nothing on data; the implementer cannot exclude that the planner or owner were influenced by earlier repository results, so influence of the Phase 2 TSMOM result on the rule family, the 20/55 bars or the thresholds is not excluded and is disclosed.",
+  "information_gain": "The frozen gate separates a rule with positive stop-haircut expectancy, adequate trade count, drawdown within 20%, a better Calmar than BTC buy-and-hold and a Bonferroni-adjusted bootstrap lower bound above zero from a rule explained by exposure, a bull regime or stop optimism. A NO_WINNER outcome is a valid failed-hypothesis result and stops the line.",
+  "cheapest_falsifier": "In order of cost: (i) the synthetic hand-computed replay with a stop hit and a gap through the stop, the mirror-symmetry, future-perturbation, re-entry-block and gross-cap tests, with a mutation check that each of six defects fails a test (all exist and run without data); (ii) the refusal tests (no G4 URL, window or Dataset past 2026-07-31, a symbol outside the roster, a dirty Git working tree), the INVALID outcome for a Dataset that lacks any of the eleven symbols or a cache archive with recorded HTTP 404 evidence in either timeframe or funding (one evidence pass over every archive decides first, so the order of the timeframes never matters), and the resumable halt for an archive missing without that evidence, a missing exchange-information snapshot or any other data or metadata failure, with no traceback (a test injects sixteen exception types at four stages); (iii) the runner's real-data future-perturbation probe, run for every (timeframe, variant) pair, each configuration's criterion 8 reading its own probe (a test shows a variant that peeks 20 bars ahead fails only its own probe); (iv) the frozen run itself, which cannot be pre-tested on real data.",
+  "stop_rule": "If the study label is NO_WINNER, stop this research line: no re-tuning of N, M, the stop multiples, the stop model, the universe, the timeframes, the costs or the window on the same known-used data, and do not start reinforcement learning. If it is DEVELOPMENT_PROMISING, the only authorized next action is a separate request (new protocol, G0-G2 review, owner authorization). The roster is the eleven symbols with no exclusion: a missing archive (the venue answered HTTP 404, recorded by the download step as URL, status and time) makes the run INVALID, which is not a rejection of the rule and not a reason to rerun with a reduced or reselected roster or another Dataset source; an archive missing without that evidence (not downloaded, transient failure, failed content check, missing exchange-information snapshot) halts, writes no result and does not consume the run; valid 404 evidence anywhere wins whatever the order of the timeframes or other gaps (owner decision, https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567); no run registry exists, so a rerun is not prevented by code and would have to be disclosed as a protocol violation. Never run before the owner authorizes G4 with a comment URL and this packet's exact digest and heads have a review by the owner-decided same-account route (a fresh Claude Haiku 5.5 agent posting from the owner's account: model independence only, not principal independence), and run only from a clean checkout whose code matches the packet's implementation_head closure.",
+  "stage": "development",
+  "metric_proxy_rationale": "Haircut-adjusted net return after repo costs, Dataset funding and hard risk, positive in most sub-years and under doubled costs, with profit factor, trade count, drawdown, Calmar versus BTC buy-and-hold and a Bonferroni bootstrap bound, is the development proxy for after-cost expectancy of a low-win-rate positive-skew system. It is not a measure of unused-data or live performance.",
+  "limitations": "Known-used exploratory window; roster survivorship; current exchange filters applied to history; bar-resolution stop model with no intrabar path and no entry slippage in the stop distance; engine has no resting stop order; latency stress unavailable (order_latency_bars 0 and 1 are the same next-open fill, 2 or more cancels pending entries); funding not attributed to individual cycles; the authorization URL is a shape check. No price path, return or PnL of this rule was computed when writing this packet, but the study is not result-blind about its universe and window (prior exposure disclosed in thesis.counter_hypothesis and in claims.decision_rule). This packet is revision 2 (2026-11-13) and supersedes revision 1 (digest 894fedb0b88dd872039fdfbc546f872d485d1d6130ae5e096c79ceebf141bb64, review 5870390989 of PR #1201, BLOCKED for the causality probe run for one variant only, the unchecked roster exclusions and later changes to imported code); the revision-1 packet is kept unchanged as historical evidence. The review route is the owner's same-account decision (https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567): operator-enforced, a model-independence receipt for this digest and these heads, not principal independence, and tools.research_assurance_github still rejects a same-principal review, so the packet is UNREVIEWED for the tooling. The packet is committed in a descendant of implementation_head (a packet inside the tree cannot name the commit that contains it), so the pull request head is not implementation_head and the tooling cannot report PASS for it; a pin test keeps the packet-bound code identical between implementation_head and the head. The 404 record is a file written by the download step into the cache, not an authenticated venue receipt; it can only turn a run INVALID and can never produce a reduced roster; a local writer of such a file can turn a halt into a consumed INVALID run (fail closed, accepted and disclosed). Reviews of the pull request (the same-account route) blocked two earlier revision-2 packets: 5879836463 and 5879837718 blocked digest 68965ce47e023d8a398e2ea1bb03df90e7e9d26f40f3ffefdaad7a283fd3a8ca (an incomplete Vision cache halted with a traceback instead of the stated INVALID), and 5880408681 and 5880409010 blocked digest 46b24d5aba693a697416979bee68b15304ba69b89b55fe975705069c51d86072 (a missing exchange-information snapshot ended in a traceback and the outcome depended on the timeframe order); this packet follows those fixes. Forward acquisition deliberately reports a .missing.json cache sidecar as an unexpected cache member (fail closed); it does not ignore it. The result records the code (Git HEAD, trade_rl tree id, dirty flag, digest of the loaded trade_rl modules) and the run refuses a dirty tree, but no run registry exists. A fired stop keeps exiting until the position is flat (revision 2 also fixes a partly filled stop exit that was followed by a recovery above the stop level). The bootstrap interval is two-sided at coverage 1 - 0.05/4 and criterion 7 reads only its lower endpoint (a one-sided test at 0.625%), the frozen statistic. The stop haircut is a first-order multiplicative adjustment of the equity and closed-cycle PnL streams, not a re-simulation with smaller positions."
+ },
+ "mechanism": {
+  "chain": [
+   "source",
+   "availability",
+   "feature_state",
+   "model_strategy",
+   "intent",
+   "order",
+   "fill",
+   "accounting",
+   "evidence",
+   "decision"
+  ],
+  "authorities": {
+   "unit": "canonical quantity/lot contract; weight = 0.005 / (2 ATR / close) capped at 0.25 per symbol and 0.95 gross",
+   "time": "completed-bar causality: a decision at row t uses bars <= t and the availability mask; orders fill at the next open; data past 2026-08-01T00:00 is refused",
+   "state": "realized fills and canonical account state; the policy re-derives side from exact filled quantity each bar",
+   "sign": "canonical cash-flow convention; short side is the mirror image of the long side",
+   "risk": "PreTradeRisk hard limits (gross 1.0, per-symbol 0.5, drawdown brake 20%-30%) after the policy's own 0.95 gross cap",
+   "execution": "the canonical MarketExecutor with the repo fee/spread/impact/participation model; stops are decision-layer exits filled at the next open",
+   "accounting": "the canonical BookState ledger including Dataset funding; terminal flat settlement by the engine",
+   "evidence": "write-once cell JSON files, equity arrays and a result carrying the protocol digest, the G4 authorization URL and the code provenance (Git HEAD, trade_rl tree id, dirty flag, loaded-module digest)"
+  },
+  "independent_oracles": {
+   "time": {
+    "statement": "A decision at row t depends only on completed bars up to t; the Donchian channel excludes the current bar.",
+    "counterexample": "Perturb every bar after a cut by an unrelated factor, or change the current bar's own high.",
+    "oracle": "Pre-cut proposals are identical (tests/strategies/test_trend_stop.py future-bar and channel tests) and the runner's probe requires byte-identical pre-cut native evidence with positions held, for every (timeframe, variant) pair, and each configuration's criterion 8 reads its own probe; a variant that peeks 20 bars ahead fails its own probe and criterion 8 while the other variant's validity still passes.",
+    "known_limitations": "Synthetic causality does not prove historical vendor availability or point-in-time exchange rules."
+   },
+   "state": {
+    "statement": "The stop state machine anchors at the observed entry-bar open, never loosens, blocks same-direction re-entry until the signal is absent, holds open positions without rebalancing, and a fired stop takes precedence over a reversal and keeps exiting until the position is flat even when the exit fills in parts, with no entry in either direction meanwhile.",
+    "counterexample": "A wick through the stop that recovers, a new breakout on the bar after a stop-out, and a position that drifts in weight.",
+    "oracle": "Hand-computed re-entry sequence of fills (entry row 4, exit row 7, next entry row 10) and a two-fill count between entry and exit; a partial exit under a participation cap (4, 4 and 1/3 of 50/6 units) is one stop event with fills checked by hand after a gap (realized -62) and after a recovery above the stop, and the summed haircut 4*7 + 4*8 + (50/6 - 8)*8 is checked; a stop and an opposite signal on one bar, and a short breakout while a partly filled exit is pending, open nothing until flat; mutation check shows removing the block or HOLD fails a test.",
+    "known_limitations": "Bar-resolution state cannot see intrabar order or partial-fill dynamics beyond one stop event per position."
+   },
+   "sign": {
+    "statement": "Short exposure is the exact mirror of long exposure for entry, stop, trailing and exit.",
+    "counterexample": "Mirror every price p to 200 - p with high and low swapped.",
+    "oracle": "Fills are exactly negated, terminal equity is identical and the stop level is 200 minus the long level.",
+    "known_limitations": "Funding and borrow carry are asymmetric in real data and are not covered by the mirror."
+   },
+   "risk": {
+    "statement": "Risk per trade equals 0.5% of equity at the stop distance and simultaneous entries never exceed the 0.95 gross cap.",
+    "counterexample": "Four symbols break out together with a risk weight above the per-symbol cap.",
+    "oracle": "Quantity 50/6 for ATR 3 and 10000 capital by hand; four entries are scaled pro rata to 0.2375 each (sum 0.95); mutation check shows removing the scaling fails.",
+    "known_limitations": "Drift of held weights can exceed the cap before the hard-risk layer trims it."
+   },
+   "execution": {
+    "statement": "A stop touch submits a normal exit that fills at the next open, so a gap through the stop is taken in full and no fill is invented at the stop price; any fill better than the stop level is removed by the haircut, charged as a cost on that exit fill so that every gated series (net return, sub-years, drawdown, Calmar, bootstrap input, profit factor) is haircut-adjusted.",
+    "counterexample": "A gap down to 94 through a stop at 101, and a wick to 100 that recovers to an open of 108.",
+    "oracle": "Hand ledger: loss 75 for the gap, haircut 58.33 for the wick (50/6 units x 7) turning an engine +41.67 into -16.67, adverse gap 7/101 reported, nothing credited back; a test shows a criterion that passes on the engine PnL fails on the adjusted run.",
+    "known_limitations": "The intrabar path after a touch and entry slippage are not modelled; the stop is not a resting venue order."
+   },
+   "accounting": {
+    "statement": "Every fill, cost and funding flow goes through the canonical ledger; closed cycles and the haircut are reconstructed from raw order events.",
+    "counterexample": "Zero-cost tiny replay with an exit below the entry.",
+    "oracle": "Independent Fraction arithmetic reproduces each equity step (10033.33, 10050, 9983.33, 9925) and the single closed cycle of -75; the runner re-derives terminal equity from raw fills in its reconciliation.",
+    "known_limitations": "Cycle costs are split by notional within an interval; funding is not attributed to cycles; the haircut compounds as a fraction of equity, not through re-sized positions; the code provenance proves which committed code ran, not that it is correct."
+   }
+  },
+  "changed_boundaries": [
+   "time",
+   "state",
+   "sign",
+   "risk",
+   "execution",
+   "accounting"
+  ]
+ },
+ "evidence": {
+  "point_in_time": false,
+  "common_accounting": true,
+  "realistic_costs": false,
+  "hard_risk": true,
+  "terminal_state": true,
+  "fit_development_unused_separated": false,
+  "multi_symbol": true,
+  "multi_period": true,
+  "controls": [
+   "cash",
+   "btc_buy_and_hold",
+   "equal_weight_buy_and_hold"
+  ],
+  "robustness": [
+   "double_cost",
+   "stop_price_haircut_on_all_gated_series",
+   "future_perturbation_probe_per_variant_and_timeframe"
+  ],
+  "independent_reconstruction": "Software-level only: hand-computed Fraction replay (including the haircut-adjusted equity and closed-cycle PnL) of a tiny stop-hit and gap path through the real executor, and the runner's reconciliation of terminal equity from raw fills. The booleans describe what is established now: common_accounting, hard_risk, terminal_state, multi_symbol and multi_period are enforced by the frozen runner and ledger; point_in_time (historical availability), realistic_costs (the repo model is an assumption, not calibrated) and fit_development_unused_separated (the window is known-used) are not established. No economic result exists.",
+  "no_development_rescue": true,
+  "evidence_level": "software_validity"
+ },
+ "claims": {
+  "claim_level": "software_validity",
+  "permitted": [
+   "The frozen protocol, stop model, gate and stop rule are specified before any data and implemented on the shared replay with synthetic RED to GREEN tests",
+   "The runner refuses a missing G4 authorization URL, any window or Dataset past 2026-07-31, a symbol outside the roster, a non-empty output directory and a dirty Git working tree, writes an INVALID result with no replay when any of the eleven roster symbols is missing or a cache archive has recorded HTTP 404 evidence (no exclusion path, no minimum roster, no reduced roster), and halts without a result for any other incomplete or failing data or metadata (no traceback), deciding INVALID before any halt in one evidence pass over both timeframes",
+   "A later owner-authorized run may report DEVELOPMENT_PROMISING or NO_WINNER for the four preregistered configurations on the known-used window"
+  ],
+  "forbidden": [
+   "running the study on real data under this packet",
+   "any claim of profitability, edge, winner selection or unused-data validity",
+   "re-tuning N, M, the stop multiples, the stop model, the universe, timeframes, costs or window after a result",
+   "reading FS1, warm-up, unused or final data",
+   "treating an engine-PnL positive that fails the haircut-adjusted gate as a pass",
+   "describing the study as result-blind about its universe and window, or as independent of the Phase 2 TSMOM result, the legacy signal metadata or the M34 Dataset",
+   "running on a reduced roster, excluding a symbol for any reason (a missing archive is INVALID, never an exclusion; an archive missing without 404 evidence halts), or rerunning with a reselected roster or Dataset source after an INVALID or NO_WINNER outcome",
+   "running the study from a dirty working tree or from code other than the packet's implementation_head closure, or describing the same-account review as principal independence",
+   "starting the reinforcement-learning overlay without a DEVELOPMENT_PROMISING label, a separate reviewed protocol and owner authorization",
+   "production eligibility",
+   "live trading"
+  ],
+  "next_authorized_action": "Obtain a result-blind G0-G2 review of this packet's exact digest and heads by the owner-decided same-account route (https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-6818495567), then ask the owner for a separate G4 authorization comment; this packet authorizes neither.",
+  "production_eligible": false,
+  "live_trading_authorized": false,
+  "decision_rule": "Do not run the study until a review of this packet's exact digest and heads by the owner-decided same-account route finds no blocking issue, the owner has authorized G4 with a comment URL, and the run is from a clean checkout of the packet's code. After a run, DEVELOPMENT_PROMISING requires every criterion of the protocol (haircut-adjusted net return positive in base and doubled costs, at least 4 of 6 positive sub-years, profit factor at least 1.2, drawdown at most 20%, at least 100 closed cycles, Calmar above BTC buy-and-hold, Bonferroni bootstrap lower bound above zero, validity); otherwise NO_WINNER and the line stops. G3 claim boundary: development evidence on known-used data with survivorship in the roster and the disclosed prior exposure of the universe and window (legacy signal metadata, Phase 2 TSMOM trial T1, M34 Dataset), never unused-data, paper or live evidence and not independent of that exposure.",
+  "next_action_class": "request_separate_economic_authorization"
+ }
+}

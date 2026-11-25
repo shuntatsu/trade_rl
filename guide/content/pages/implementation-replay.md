@@ -60,6 +60,8 @@ globalのreturn平均・標準偏差に値がない行は、`global_feature_avai
 
 Ridge / LightGBM strategy adapterは、保存済みobservation timestampが`NaT`、またはmodelの`fit_cutoff`がobservation timestampより後なら、feature-unavailable fallbackやpredictionの前に拒否します。同時刻は許します。このas-of floorはmodelの生成・配布時刻や過去のvintage availabilityを証明せず、`StrategyObservation`構築前に既にwrapされたtimestampも復元しません。
 
+native calendarの集約は上流の完全性検査です。暦月・UTC週・固定間隔のsourceを明示し、欠損マスク付き入力を拒否して全memberの最終publicationを保持しても、粗いバーから細かい約定経路を推定したり、既存replayに新しい時間足を自動認可したりはしません。 Spotの収集済み確定streamを受け入れる場合も、実受信時刻を使う上流の検査であり、取引所接続の真正性や先物会計・replayの認可を与えません。
+
 Replayは開始行と、約定またはterminal settlementが処理する各target行について、raw rowの `available_at` がその行のtimestampより後なら、その行を帳簿・risk・strategy・executionへ渡す前に停止します。single-symbolでは選択銘柄と実保有銘柄、shared-cashでは全strategy rosterが対象です。直接`MarketExecutor.execute_interval`も、有効targetのnonzero weightと帳簿のnonzero exact holdingを対象にdecision rowを同じ時計で確認し、遅着ならvaluation・reconciliation前に停止します。flat accountのzero targetでpending orderだけをcancelする場合は許します。未選択flat銘柄と処理しないtailは対象外で、`information_available=False`だけでは拒否しません。判定は前のdecision時刻ではなくtarget行自身のtimestampと比べます。明示`mark_price`・外部帳簿markの独立availability、明示`OrderIntent`実行、直接close liquidation、venue arrivalまで保証するものではありません。
 
 ## 2. 戦略がintentを返す
@@ -90,11 +92,11 @@ proposal_weight
 
 ## 4. hard riskを適用する
 
-`PreTradeRisk`はproposalへ、turnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-onlyなどの制約を適用します。
+`PreTradeRisk`はproposalへ、turnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-onlyなどの制約を適用します。turnoverや最終投影距離が有限値に収まらない入力は結果を発行せず拒否し、緊急マスクは真偽値配列だけを受理します。
 
 minimum-holdによる抑制の後にもhard riskを適用するため、drawdown stopやemergency flattenは保有期間中でも縮小・全決済できます。保有期間は決められた日数まで必ず持つ保証ではありません。
 
-明示されたshared-cash terminal settlementでは、strategy roster内の実保有だけをterminal `emergency_flatten_mask`へ渡し、通常の`max_turnover`で最後のclose requestを縮小しません。通常のstrategy decisionsは引き続き同じturnover上限に従います。closeは設定済みのrisk・execution経路を通り、venue rule、liquidity、fill capacity、cost、pending orderの扱いもそのままです。容量や制約が足りなければ残数量・注文残を保持し、exact-flat validationは失敗します。
+明示されたshared-cash terminal settlementでは、strategy roster内の実保有だけをterminal `emergency_flatten_mask`へ渡し、通常の`max_turnover`で最後のclose requestを縮小しません。通常のstrategy decisionsは引き続き同じturnover上限に従います。closeは設定済みのrisk・execution経路を通り、venue rule、liquidity、fill capacity、cost、pending orderの扱いもそのままです。容量や制約が足りなければ残数量・注文残を保持し、exact-flat validationは失敗します。venueの最小notionalもこのcloseを免除しないため、最小額を下回るまで縮んだ保有は残ります。開発用study（Phase 2とtrend-stop）のledger照合は、そのような残りのうち、engine自身が最終区間でそのcloseを `below_minimum_notional` で拒否したものだけをterminal dust（銘柄・正確な数量・notional・理由 `below_minimum_notional`）として記録し（流動性不足や参加率上限など他の理由で残った保有は、markでの価値にかかわらずdustではありません）、markから想定exit cost（fee・spread・impact）を引いて評価し、equity pathの最終点もその分だけ下げます。`terminal_flat` はfalseのまま、残りがすべてdustなら `terminal_dust_only` がtrueで、cashとdust調整後equityが一致すれば合格します。dust以外の残り、またはcost modelなしで評価できないdustは従来どおり不合格です。
 
 ```text
 proposal_weight
@@ -139,6 +141,8 @@ target_weight
 比較に使うのはこの共通経路を通った結果です。
 
 ## 同時portfolio policyのopt-in経路
+
+Task18の人工native経路は、凍結した単純リターン予測・費用・実snapshotを照合して各独立口座の数値targetを作ります。明示的な72区間の終端予約（latency+1以上）を指定し、risk適用後の全重みが現在と完全一致する場合の数量HOLDと債務保持をopt-inにできます。既存の既定値は変更しません。完了は全6,599 native区間、厳密flat、未約定なし、および台帳・実費用・Funding・判断の照合を要求します。保存済みの人工完了armは外部pinから読み直し、再実行せず同じsource oracleで確認できます。停止後に別runでpending armを実行する場合は、先行handoff digestを保存し、RUNNINGからartifact再検証後にのみCOMPLETEDへ進めます。共通replayの任意通知は実native advanceの観測を診断処理前に返します。後継runは初回・64区間ごと・最終・非正equity時に保存し、例外時は最新実観測をFAILEDへ、初回観測前のみunknownにします。強制停止は最後の保存地点だけを証明します。完成receiptの照合時には途中観測のequity/drawdownが同じindexのledgerと一致することも確認します。複数回の再回復では、全祖先handoffとlineage v2を外部pinで検証し、各世代の完成済みarmを累積してから次のpendingを決めます。別世代のreceiptを現在のrunへ書き換えません。Task18のscalar allocatorはexact Fractionの傾き閾値で旧endpointの最適解と同値規則を維持し、独立oracleは元の候補比較を残します。全48-armの人工検証では単一親が明示batchを登録し、最大4 workerが重複しないarmを実native実行・保存・読み戻しします。48-armの市場実行や認可を示すものではありません。
 
 `run_shared_portfolio_replay`はsimulation-ownedな
 `SharedPortfolioSession`を呼び出すopt-in batch consumerです。eligibleなnative

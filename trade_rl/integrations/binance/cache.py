@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -21,6 +21,92 @@ from trade_rl.integrations.binance.vision import (
 )
 
 _VISION_PREFIX = "https://data.binance.vision/data/"
+MISSING_ARCHIVE_SCHEMA = "binance_vision_missing_archive_v1"
+_MISSING_ARCHIVE_FIELDS = frozenset(
+    {"downloader", "http_status", "observed_at", "schema_version", "url"}
+)
+
+
+def missing_archive_evidence_path(cache_path: Path) -> Path:
+    """Sidecar that records an HTTP 404 for the archive that would live at ``cache_path``.
+
+    Consumers do not ignore it: the cache inspectors above look only at ``.bin`` files,
+    but forward acquisition deliberately reports any unplanned cache member, this
+    sidecar included, as ``archives_unexpected`` (fail closed). The trend-stop study is
+    the consumer that reads it.
+    """
+
+    return cache_path.with_suffix(".missing.json")
+
+
+def write_missing_archive_evidence(
+    cache_path: Path, *, url: str, downloader: str, observed_at: datetime | None = None
+) -> None:
+    """Record that the venue answered HTTP 404 for ``url`` (URL, status, time)."""
+
+    moment = (
+        datetime.now(UTC)
+        if observed_at is None
+        else _aware_utc(observed_at, field="observed_at")
+    )
+    evidence = {
+        "downloader": downloader,
+        "http_status": 404,
+        "observed_at": moment.isoformat(),
+        "schema_version": MISSING_ARCHIVE_SCHEMA,
+        "url": url,
+    }
+    path = missing_archive_evidence_path(cache_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(evidence, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def read_missing_archive_evidence(
+    cache_path: Path, url: str
+) -> dict[str, object] | None:
+    """Return the recorded HTTP 404 evidence for ``url``, or ``None`` if there is none.
+
+    Malformed or mismatching evidence raises ``BinanceTransportError``: it is never
+    read as a 404.
+    """
+
+    path = missing_archive_evidence_path(cache_path)
+    if not path.is_file():
+        return None
+    try:
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BinanceTransportError(
+            f"missing-archive evidence is unreadable: {path}"
+        ) from error
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != _MISSING_ARCHIVE_FIELDS
+        or evidence["schema_version"] != MISSING_ARCHIVE_SCHEMA
+        or evidence["url"] != url
+        or isinstance(evidence["http_status"], bool)
+        or evidence["http_status"] != 404
+        or not isinstance(evidence["observed_at"], str)
+        or not isinstance(evidence["downloader"], str)
+    ):
+        raise BinanceTransportError(f"missing-archive evidence is invalid: {path}")
+    try:
+        observed = datetime.fromisoformat(evidence["observed_at"])
+    except ValueError as error:
+        raise BinanceTransportError(
+            f"missing-archive evidence time is invalid: {path}"
+        ) from error
+    if observed.tzinfo is None:
+        raise BinanceTransportError(
+            f"missing-archive evidence time lacks a timezone: {path}"
+        )
+    return dict(evidence)
 
 
 def validate_cached_vision_payload(url: str, cache_path: Path) -> bytes:
@@ -310,13 +396,17 @@ def sync_binance_vision_cache(
 
 
 __all__ = [
+    "MISSING_ARCHIVE_SCHEMA",
     "BinanceVisionCachePlan",
     "BinanceVisionCacheReport",
     "inspect_binance_vision_cache",
     "inspect_binance_vision_urls",
+    "missing_archive_evidence_path",
     "plan_binance_vision_cache",
+    "read_missing_archive_evidence",
     "require_complete_binance_vision_cache",
     "sync_binance_vision_cache",
     "sync_binance_vision_urls",
     "vision_cache_path",
+    "write_missing_archive_evidence",
 ]

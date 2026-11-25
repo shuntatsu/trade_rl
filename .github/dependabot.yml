@@ -16,8 +16,9 @@ updates:
       time: "03:30"
       timezone: "Asia/Tokyo"
     versioning-strategy: "lockfile-only"
-    # HOLD (#1175): initial hosted uv updater refused required-version ==0.10.0.
-    # Suspend version-update PRs until a separately verified toolchain migration.
+    # HOLD (#1175): past Dependabot updater supported 0.13.7 only; no
+    # actual updater E2E for the newly pinned 0.13.9 yet. Do not enable
+    # version-update PRs until a real hosted Dependabot run succeeds.
     open-pull-requests-limit: 0
     groups:
       compatible-lockfile:

@@ -314,3 +314,48 @@ def test_hidden_older_artifacts_cannot_be_detected_from_misreported_count() -> N
     assert report["artifact_count"] == 100
     assert report["artifact_history_complete"] is False
     assert report["lease_reassignment_authorized"] is False
+
+
+@pytest.mark.parametrize("count", [2, 101])
+@pytest.mark.parametrize("second_scan_only", [False, True])
+def test_duplicate_artifact_node_ids_refuse(count: int, second_scan_only: bool) -> None:
+    api = FakeGet(count)
+    rows = deepcopy(api.artifacts)
+    rows[-1]["node_id"] = rows[0]["node_id"]
+    if second_scan_only:
+        api.next_artifacts = rows
+    else:
+        api.artifacts = rows
+    with pytest.raises(ValueError, match="duplicate artifact node_id"):
+        _observe(api)
+
+
+@pytest.mark.parametrize("readback", [False, True])
+def test_unfinished_artifact_run_requires_explicit_null_conclusion(
+    readback: bool,
+) -> None:
+    api = FakeGet()
+    api.run.update(status="in_progress", conclusion=None)
+    if readback:
+        api.next_run = dict(api.run)
+        del api.next_run["conclusion"]
+    else:
+        del api.run["conclusion"]
+    with pytest.raises(ValueError, match="conclusion is missing"):
+        _observe(api)
+
+
+def test_unhashable_artifact_run_conclusion_refuses_with_value_error() -> None:
+    api = FakeGet()
+    api.run["conclusion"] = []
+    with pytest.raises(ValueError, match="conclusion"):
+        _observe(api)
+
+
+def test_unfinished_artifact_run_accepts_explicit_null_but_not_authority() -> None:
+    api = FakeGet()
+    api.run.update(status="in_progress", conclusion=None)
+    report = _observe(api)
+    assert report["conclusion"] is None
+    assert report["cleanup_authorized"] is False
+    assert report["lease_reassignment_authorized"] is False

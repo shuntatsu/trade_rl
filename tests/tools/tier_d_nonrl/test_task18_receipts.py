@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import replace
+from fractions import Fraction
 from hashlib import sha256
 
 import pytest
@@ -682,3 +683,359 @@ def test_noncompleted_arm_cannot_claim_terminal_verification_report() -> None:
     )
     assert not evaluated.declared_metrics_well_formed
     assert not evaluated.diagnostic_pair_arithmetic_available
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_huge_numeric_external_arm_report_is_rejected_with_typed_error(
+    field: str, amount: int
+) -> None:
+    """Untrusted numeric evidence may be a huge Python int, not a binary64."""
+    evidence = _complete_run().arms[0].external_report
+    assert evidence is not None
+    with pytest.raises(ValueError, match="finite"):
+        if field == "initial_equity_usdt":
+            replace(evidence, initial_equity_usdt=amount)
+        elif field == "terminal_equity_usdt":
+            replace(evidence, terminal_equity_usdt=amount)
+        else:
+            replace(evidence, max_drawdown=amount)
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["last_observed_equity_usdt", "max_drawdown_observed"]
+)
+def test_huge_numeric_interruption_progress_is_rejected_with_typed_error(
+    field: str, amount: int
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        ArmAttemptProgress(**{field: amount})
+
+
+@pytest.mark.parametrize("amount", [10**500, -(10**500)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_unrepresentable_receipt_metric_rejects_diagnostic_without_crashing(
+    field: str, amount: int
+) -> None:
+    original = _complete_run()
+    first = original.arms[0]
+    if field == "initial_equity_usdt":
+        broken = replace(first, initial_equity_usdt=amount)
+    elif field == "terminal_equity_usdt":
+        broken = replace(first, terminal_equity_usdt=amount)
+    else:
+        broken = replace(first, max_drawdown=amount)
+    run = replace(original, arms=(broken,) + original.arms[1:])
+
+    verdict = evaluate_run_receipt(run, build_task18_protocol())
+    assert not verdict.declared_metrics_well_formed
+    assert not verdict.arm_reports_match
+    assert not verdict.diagnostic_pair_arithmetic_available
+    assert verdict.adoption_status == "NOT_ESTABLISHED"
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(run, build_task18_protocol(), "PAIR-01")
+
+
+def test_finite_receipt_endpoints_cannot_publish_infinite_diagnostic_delta() -> None:
+    """Two finite binary64 endpoints may overflow on their signed difference."""
+    run = _complete_run()
+    changed = []
+    for arm in run.arms:
+        if arm.pair_id == "PAIR-01":
+            huge = 1e308 if arm.role == "NONRL" else -1e308
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=huge,
+                external_report=replace(arm.external_report, terminal_equity_usdt=huge),
+            )
+        changed.append(arm)
+    altered = replace(run, arms=tuple(changed))
+    verdict = evaluate_run_receipt(altered, build_task18_protocol())
+    assert verdict.roster_complete
+    assert verdict.arm_reports_match
+    assert not verdict.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(altered, build_task18_protocol(), "PAIR-01")
+    assert diagnostic_pair_delta(
+        run, build_task18_protocol(), "PAIR-01"
+    ) == pytest.approx(0.001)
+
+
+def test_combined_diagnostic_arithmetic_rejects_nonfinite_aggregate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future recipe with large finite pair metrics must not expose inf."""
+    from tools.tier_d_nonrl import task18_receipts as receipts
+
+    monkeypatch.setattr(receipts, "diagnostic_pair_delta", lambda *_: 1e308)
+    with pytest.raises(ValueError, match="combined diagnostic arithmetic"):
+        diagnostic_combined_delta(
+            _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"
+        )
+
+
+@pytest.mark.parametrize(
+    ("nonrl_value", "cash_value"),
+    [
+        (math.ulp(0.0), 0.0),
+        (0.0, math.ulp(0.0)),
+        (-math.ulp(0.0), 0.0),
+        (math.ulp(0.0), -math.ulp(0.0)),
+    ],
+)
+def test_nonzero_pair_delta_underflow_is_never_reported_as_zero(
+    nonrl_value: float, cash_value: float
+) -> None:
+    """Independent exact fractions prove that the declined difference is nonzero."""
+    protocol = build_task18_protocol()
+    exact = (
+        Fraction.from_float(nonrl_value) - Fraction.from_float(cash_value)
+    ) / Fraction.from_float(protocol.economics.initial_capital_per_symbol_usdt)
+    assert exact != 0
+    assert (
+        nonrl_value - cash_value
+    ) / protocol.economics.initial_capital_per_symbol_usdt == 0.0
+
+    source = _complete_run()
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            value = nonrl_value if arm.role == "NONRL" else cash_value
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=value,
+                external_report=replace(
+                    arm.external_report, terminal_equity_usdt=value
+                ),
+            )
+        updated.append(arm)
+    run = replace(source, arms=tuple(updated))
+    result = evaluate_run_receipt(run, protocol)
+
+    assert result.roster_complete
+    assert result.arm_reports_match
+    assert not result.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(run, protocol, "PAIR-01")
+
+
+def test_equal_tiny_finite_endpoints_legitimately_have_zero_pair_delta() -> None:
+    protocol = build_task18_protocol()
+    source = _complete_run()
+    tiny = math.ulp(0.0)
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=tiny,
+                external_report=replace(arm.external_report, terminal_equity_usdt=tiny),
+            )
+        updated.append(arm)
+    run = replace(source, arms=tuple(updated))
+
+    result = evaluate_run_receipt(run, protocol)
+    assert result.diagnostic_pair_arithmetic_available
+    assert diagnostic_pair_delta(run, protocol, "PAIR-01") == 0.0
+
+
+def test_nonzero_combined_delta_underflow_is_never_reported_as_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two valid pair outputs can still underflow when averaged."""
+    from tools.tier_d_nonrl import task18_receipts as receipts
+
+    tiny = math.ulp(0.0)
+    assert tiny / 2.0 == 0.0
+    monkeypatch.setattr(
+        receipts,
+        "diagnostic_pair_delta",
+        lambda _, __, pair_id: tiny if pair_id == "PAIR-01" else 0.0,
+    )
+    with pytest.raises(ValueError, match="combined diagnostic arithmetic"):
+        diagnostic_combined_delta(
+            _complete_run(), build_task18_protocol(), "H24_RIDGE_A1", "BASEL0"
+        )
+
+
+@pytest.mark.parametrize("amount", [2**53 + 1, -(2**53 + 1), 10**20 + 1, -(10**20 + 1)])
+@pytest.mark.parametrize(
+    "field", ["initial_equity_usdt", "terminal_equity_usdt", "max_drawdown"]
+)
+def test_inexact_finite_integer_verifier_metric_is_rejected(
+    field: str, amount: int
+) -> None:
+    """Integer evidence must not be silently rounded by binary64 admission."""
+    report = _complete_run().arms[0].external_report
+    assert report is not None
+    assert float(amount) != amount
+    with pytest.raises(ValueError, match="finite"):
+        if field == "initial_equity_usdt":
+            replace(report, initial_equity_usdt=amount)
+        elif field == "terminal_equity_usdt":
+            replace(report, terminal_equity_usdt=amount)
+        else:
+            replace(report, max_drawdown=amount)
+
+
+@pytest.mark.parametrize("amount", [2**53 + 1, -(2**53 + 1), 10**20 + 1, -(10**20 + 1)])
+@pytest.mark.parametrize(
+    "field", ["last_observed_equity_usdt", "max_drawdown_observed"]
+)
+def test_inexact_finite_integer_progress_metric_is_rejected(
+    field: str, amount: int
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        ArmAttemptProgress(**{field: amount})
+
+
+@pytest.mark.parametrize("sign", [1, -1])
+def test_rounded_nonzero_integer_pair_delta_cannot_be_admitted_as_zero(
+    sign: int,
+) -> None:
+    """A whole currency unit can disappear when two distinct ints round alike."""
+    nonrl_value = sign * (2**53 + 1)
+    cash_value = sign * (2**53)
+    protocol = build_task18_protocol()
+    assert float(nonrl_value) == float(cash_value)
+    exact = Fraction(nonrl_value - cash_value) / Fraction.from_float(
+        protocol.economics.initial_capital_per_symbol_usdt
+    )
+    assert exact != 0
+
+    source = _complete_run()
+    updated = []
+    for arm in source.arms:
+        if arm.pair_id == "PAIR-01":
+            value = nonrl_value if arm.role == "NONRL" else cash_value
+            assert arm.external_report is not None
+            arm = replace(
+                arm,
+                terminal_equity_usdt=value,
+                external_report=replace(
+                    arm.external_report, terminal_equity_usdt=float(value)
+                ),
+            )
+        updated.append(arm)
+    receipt = replace(source, arms=tuple(updated))
+    result = evaluate_run_receipt(receipt, protocol)
+    assert result.roster_complete
+    assert not result.arm_reports_match
+    assert not result.diagnostic_pair_arithmetic_available
+    with pytest.raises(ValueError, match="matching reports"):
+        diagnostic_pair_delta(receipt, protocol, "PAIR-01")
+
+
+def test_exactly_representable_large_integer_metric_is_still_valid() -> None:
+    """Conservative numeric admission must not ban exact binary64 integers."""
+    report = _complete_run().arms[0].external_report
+    assert report is not None
+    value = 2**53
+    assert float(value) == value
+    assert replace(report, terminal_equity_usdt=value).terminal_equity_usdt == value
+    assert (
+        ArmAttemptProgress(last_observed_equity_usdt=value).last_observed_equity_usdt
+        == value
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "error"),
+    [
+        ("NOT_ATTEMPTED", "NOT_STARTED", None),
+        ("RUNNING", "RUN_IN_PROGRESS", None),
+        ("INTERRUPTED", "PROCESS_INTERRUPTED", None),
+        ("FAILED", "PROCESS_FAILED", "SYNTHETIC_FAILURE"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("initial", "well_formed"),
+    [
+        (None, True),
+        (100_000.0, True),
+        (0.0, True),
+        (-100_000.0, True),
+        (2**53, True),
+        (-(2**53), True),
+        (float("nan"), False),
+        (float("inf"), False),
+        (float("-inf"), False),
+        (True, False),
+        (False, False),
+        ("100000", False),
+        (10**500, False),
+        (2**53 + 1, False),
+        (-(2**53 + 1), False),
+    ],
+)
+@pytest.mark.parametrize("runtime_completed", (False, True))
+@pytest.mark.parametrize("all_partial", (False, True))
+def test_partial_receipt_initial_equity_is_optional_but_numeric(
+    status, reason, error, initial, well_formed, runtime_completed, all_partial
+) -> None:
+    run = _complete_run()
+    # A partial observation is a numeric declaration, not proof of the
+    # frozen initial-capital match required of a completed arm.
+    affected = run.arms if all_partial else run.arms[:1]
+    partials = tuple(
+        replace(
+            arm,
+            status=status,
+            reason_code=reason,
+            error_code=error,
+            initial_equity_usdt=initial,
+            terminal_equity_usdt=None,
+            max_drawdown=None,
+            terminal_flat=None,
+            pending_order_count=None,
+            native_ledger_sha256=None,
+            arm_result_sha256=None,
+            external_report=None,
+        )
+        for arm in affected
+    )
+    result = evaluate_run_receipt(
+        replace(
+            run,
+            runtime_completed=runtime_completed,
+            arms=partials + run.arms[len(partials) :],
+        ),
+        build_task18_protocol(),
+    )
+    unattempted_with_equity = status == "NOT_ATTEMPTED" and initial is not None
+    assert result.declared_metrics_well_formed is (
+        well_formed and not unattempted_with_equity
+    )
+    expected_issues = []
+    for partial in partials:
+        if not well_formed:
+            expected_issues.append(f"initial equity is invalid: {partial.arm_id}")
+        if unattempted_with_equity:
+            expected_issues.append(
+                f"unattempted arm has completion facts: {partial.arm_id}"
+            )
+    if all_partial:
+        expected_issues.append(
+            "one or more completed arm reports are absent or do not match their declarations"
+        )
+    if not runtime_completed:
+        expected_issues.append("run runtime did not complete")
+    assert result.issues == tuple(expected_issues)
+    assert result.roster_complete
+    assert result.declaration_consistent
+    assert result.source_report_matches
+    assert result.arm_reports_match is (not all_partial)
+    assert result.declared_runtime_completed is runtime_completed
+    assert not result.declared_arm_statuses_complete
+    assert not result.terminal_claims_pass_diagnostic
+    assert not result.drawdown_claims_pass_diagnostic
+    assert not result.diagnostic_pair_arithmetic_available
+    assert result.adoption_status == "NOT_ESTABLISHED"

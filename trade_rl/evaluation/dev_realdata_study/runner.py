@@ -46,6 +46,14 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+
+# Keep existing imports working while the shared evaluation module owns the calculation.
+from trade_rl.evaluation.terminal_settlement import (
+    terminal_dust as terminal_dust,
+)
+from trade_rl.evaluation.terminal_settlement import (
+    terminal_dust_adjusted_equity as terminal_dust_adjusted_equity,
+)
 from trade_rl.simulation import ExecutionCostConfig
 from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolicy
 from trade_rl.strategies.allocation.cost_aware import CostAwareAllocationPolicy
@@ -365,6 +373,7 @@ def reconcile_ledger(
     result: SharedCashPortfolioReplayResult,
     dataset: MarketDataset,
     protocol: DevStudyProtocol,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> dict[str, object]:
     """Independently rebuild terminal cash/equity from raw fills and ledger flows.
 
@@ -372,6 +381,15 @@ def reconcile_ledger(
     + funding - borrow + dividends + cash interest`` where fills come from the
     raw order events, never from the book's own cash. A flat terminal book makes
     cash and equity coincide.
+
+    The engine keeps the venue minimum notional for every order, so a holding that
+    decayed below it can stay open at the end. Such residuals are reported as
+    ``terminal_dust`` (symbol, exact quantity, notional, reason
+    ``below_minimum_notional``) and valued at mark minus the modelled exit cost
+    from ``execution_cost``. ``terminal_flat`` stays false, ``terminal_dust_only``
+    is true when every residual is such dust, and the check passes when cash and
+    the dust-adjusted equity reconcile. Any other residual still fails; without
+    ``execution_cost`` no residual can be valued as dust.
     """
 
     wrapper = result.ledger_evidence
@@ -434,25 +452,45 @@ def reconcile_ledger(
         * float(multipliers[index])
         for index, value in enumerate(ledger.terminal_exact_quantities)
     )
+    dust, non_dust, _ = terminal_dust(ledger, dataset, execution_cost, intervals[-1])
+    terminal_dust_only = bool(not terminal_flat and dust and not non_dust)
+    dust_mark_value = Fraction(0)
+    dust_exit_cost = 0.0
+    for item in dust:
+        dust_mark_value += Fraction(cast(float, item["mark_value_usdt"]))
+        dust_exit_cost += cast(float, item["exit_cost_usdt"])
     cash_residual = float(Fraction(ledger.final_cash) - expected)
     equity_residual = float(Fraction(final_equity) - expected)
+    # Equity must equal independent cash plus the dust at mark (its exit cost is
+    # applied to the reported valuation, not credited by the ledger).
+    dust_adjusted_equity_residual = float(
+        Fraction(final_equity) - expected - dust_mark_value
+    )
     totals_residual = max(
         abs(float(cost) - ledger.final_total_cost),
         abs(float(funding) - ledger.final_funding_pnl),
         abs(float(borrow) - ledger.final_borrow_cost),
     )
     passed = bool(
-        terminal_flat
+        (terminal_flat or terminal_dust_only)
         and chained
         and ledger.termination_reason is None
         and abs(cash_residual) <= tolerance
-        and abs(equity_residual) <= tolerance
+        and abs(equity_residual if terminal_flat else dust_adjusted_equity_residual)
+        <= tolerance
         and continuity_gap <= tolerance
         and totals_residual <= tolerance
     )
     return {
         "passed": passed,
         "terminal_flat": terminal_flat,
+        "terminal_dust_only": terminal_dust_only,
+        "terminal_dust": dust,
+        "terminal_dust_exit_cost_usdt": dust_exit_cost,
+        "terminal_equity_dust_adjusted": float(expected)
+        + float(dust_mark_value)
+        - dust_exit_cost,
+        "dust_adjusted_equity_residual": dust_adjusted_equity_residual,
         "terminal_residual_quantities": residual_quantities,
         "terminal_residual_notional_usdt": float(residual_notional),
         "intervals_chained": chained,
@@ -544,19 +582,22 @@ def run_replay(
     arm_builder: ArmBuilder | None = None,
 ) -> ReplayOutcome:
     built = (arm_builder or build_arm)(arm, dataset, protocol, sources)
+    cost = scenario_cost(protocol, scenario)
     result = run_shared_portfolio_replay(
         dataset,
         built.policy,
         start_index=start_index,
         stop_index=stop_index,
         initial_capital=protocol.initial_capital,
-        execution_cost=scenario_cost(protocol, scenario),
+        execution_cost=cost,
         settle_terminal_position=True,
         capture_ledger_evidence=True,
     )
     equity, times = equity_path(result, dataset)
+    reconciliation = reconcile_ledger(result, dataset, protocol, cost)
+    # Terminal dust (below the venue minimum) is valued net of its exit cost.
+    equity = terminal_dust_adjusted_equity(equity, reconciliation)
     performance = performance_summary(times, equity, protocol)
-    reconciliation = reconcile_ledger(result, dataset, protocol)
     diagnostics = result.diagnostics
     net_pnl = float(equity[-1] - equity[0])
     costs = float(diagnostics.total_cost)
@@ -1138,6 +1179,7 @@ __all__ = [
     "feature_indices",
     "perturb_future",
     "reconcile_ledger",
+    "terminal_dust_adjusted_equity",
     "run_replay",
     "run_study",
     "scenario_cost",

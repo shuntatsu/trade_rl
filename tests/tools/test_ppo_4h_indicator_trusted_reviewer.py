@@ -186,13 +186,16 @@ def _jobs(**updates: object) -> list[dict[str, object]]:
 
 def test_trusted_reviewer_authority_is_frozen_to_merged_main_identity() -> None:
     assert actions.TRUSTED_REVIEWER_AUTHORITY_COMMIT == (
-        "f47d2bf99fdfd027a4f20ab43acdfacb598eff23"
+        "2bc0ba473c41475c831f3ec56ac89a2cb96adf75"
     )
     assert actions.TRUSTED_REVIEWER_WORKFLOW_SHA256 == (
-        "3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8"
+        "f4a683e03448ca437e1eda7f45e085da0b6ee3565f7b1fecda9871eab47548cc"
     )
     assert actions.TRUSTED_REVIEWER_RUNNER_SHA256 == (
         "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
+    )
+    assert actions.TRUSTED_REVIEWER_AUTHORITY_SEAL == (
+        "seal/ppo-4h-gemini-review-authority-20261125-v8"
     )
     assert actions.SOURCE_REVIEW_SCHEMA == "ppo_4h_indicator_source_review_v4"
     assert actions.REVIEW_SCHEMA == "ppo_4h_indicator_smoke_review_v3"
@@ -1232,3 +1235,181 @@ def test_require_trusted_attestation_rejects_duplicate_terminal_result_artifact(
             token="token",
             deadline=999999999.0,
         )
+
+
+@pytest.mark.parametrize("surface", ["status", "trigger"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "none",
+        "missing_seal",
+        "missing_seal_object",
+        "seal_readback_unavailable",
+        "wrong_seal",
+        "wrong_review_tag",
+        "read_only",
+        "foreign_lineage",
+        "bad_attestation",
+        "skipped_job",
+    ],
+)
+def test_complete_public_review_gate_checks_real_authority_chain(
+    monkeypatch: pytest.MonkeyPatch, surface: str, fault: str
+) -> None:
+    # Only external transport and Git observations are fixture data.
+    # No authority/lineage/attestation/authorization validator is replaced.
+    source = _fake_trusted_evidence_transport(
+        monkeypatch,
+        attestation=_attestation(),
+        lineage_artifacts=(
+            [_packet_artifact(run_id=RUN_ID + 1)]
+            if fault == "foreign_lineage"
+            else None
+        ),
+        jobs=(
+            _jobs(**{"Trusted Gemini semantic review": {"conclusion": "skipped"}})
+            if fault == "skipped_job"
+            else None
+        ),
+    )
+    if fault == "bad_attestation":
+        source["trusted_reviewer_attestation_sha256"] = "0" * 64
+    body = actions.SOURCE_REVIEW_MARKER + canonical_json_bytes(source).decode() + "\n"
+    record = {
+        "id": 12345,
+        "html_url": REVIEW_URL,
+        "body": body,
+        "commit_id": REVIEWED_SHA,
+        "user": {"id": 2, "login": "fixture-reviewer"},
+        "state": "COMMENTED",
+    }
+    trigger_sha = "8" * 40
+    main_sha = "6" * 40
+    pull = {
+        "number": 767,
+        "state": "open",
+        "draft": True,
+        "user": {"id": 1, "login": "fixture-author"},
+        "head": {
+            "ref": actions.EXECUTION_BRANCH,
+            "sha": REVIEWED_SHA if surface == "status" else trigger_sha,
+            "repo": {"full_name": "shuntatsu/trade_rl"},
+        },
+        "base": {"ref": "main"},
+    }
+    evidence_api = actions.transport._api_json
+    seen = []
+
+    def api(url: str, **kwargs: object) -> dict[str, object]:
+        seen.append(url)
+        if url.endswith("/pulls/767"):
+            return pull
+        if url.endswith("/pulls/767/reviews/12345"):
+            return record
+        if url.endswith("/branches/main"):
+            return {"commit": {"sha": main_sha}}
+        if url.endswith(f"/compare/{main_sha}...{REVIEWED_SHA}"):
+            return {"status": "ahead", "behind_by": 0}
+        if url.endswith(f"/git/ref/tags/{REVIEW_TAG}"):
+            return {
+                "ref": f"refs/tags/{REVIEW_TAG}",
+                "object": {"type": "tag", "sha": TAG_OBJECT_SHA},
+            }
+        if url.endswith(f"/git/tags/{TAG_OBJECT_SHA}"):
+            return {
+                "tag": REVIEW_TAG,
+                "object": {
+                    "type": "commit",
+                    "sha": "0" * 40 if fault == "wrong_review_tag" else REVIEWED_SHA,
+                },
+            }
+        if url.endswith("/collaborators/fixture-reviewer/permission"):
+            return {"permission": "read" if fault == "read_only" else "write"}
+        if url.endswith(f"/git/ref/tags/{actions.TRUSTED_REVIEWER_AUTHORITY_SEAL}"):
+            if fault == "missing_seal" or (
+                fault == "seal_readback_unavailable" and seen.count(url) == 2
+            ):
+                raise actions.transport.TransportError(
+                    "GitHub API request failed with HTTP 404"
+                )
+            if fault == "wrong_seal":
+                return _seal_ref(kind="commit")
+        if (
+            url.endswith(f"/git/tags/{SEAL_OBJECT_SHA}")
+            and fault == "missing_seal_object"
+        ):
+            raise actions.transport.TransportError(
+                "GitHub API request failed with HTTP 404"
+            )
+        return evidence_api(url, **kwargs)
+
+    def inventory(url: str, **_kwargs: object) -> list[object]:
+        assert surface == "status", "trigger must refetch exact review, not inventory"
+        assert url.endswith("/pulls/767/reviews?per_page=100&page=1")
+        return [record]
+
+    def git(*args: str) -> str:
+        values = {
+            ("rev-parse", "HEAD"): trigger_sha,
+            ("rev-parse", "HEAD^"): REVIEWED_SHA,
+            ("log", "-1", "--pretty=%s"): actions.TRIGGER_MESSAGE,
+            (
+                "diff",
+                "--name-only",
+                REVIEWED_SHA,
+                trigger_sha,
+            ): actions.REVIEW_PATH.as_posix(),
+        }
+        return values[args]
+
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    monkeypatch.setattr(actions.transport, "_api_json_array", inventory)
+    monkeypatch.setattr(actions, "_git", git)
+    kwargs = dict(repository="shuntatsu/trade_rl", token="token", deadline=999999999.0)
+    fields = (
+        "reviewed_code_sha",
+        "static_contract_digest",
+        "review_tag",
+        "review_tag_object_sha",
+        "review_identity_digest",
+        "trusted_reviewer_run_id",
+        "trusted_reviewer_run_attempt",
+        "trusted_reviewer_artifact_id",
+        "trusted_reviewer_artifact_sha256",
+        "trusted_reviewer_attestation_sha256",
+        "result_blind",
+        "g0",
+        "g1",
+        "g2",
+        "authorized_development_smoke",
+        "unused_data_accessed",
+        "final_data_accessed",
+    )
+    trigger = {name: source[name] for name in fields}
+    trigger.update(
+        schema=actions.REVIEW_SCHEMA,
+        source_review_url=REVIEW_URL,
+        source_review_body_sha256=hashlib.sha256(body.encode()).hexdigest(),
+        reviewer_surface=actions.REVIEWER_SURFACE,
+    )
+
+    def invoke() -> object:
+        if surface == "status":
+            return actions.find_authorizing_source_review(
+                pull_number=767, reviewed_code_sha=REVIEWED_SHA, **kwargs
+            )
+        return actions.validate_review_gate(trigger, **kwargs)
+
+    if fault == "none":
+        assert invoke() == (record if surface == "status" else None)
+        assert any(
+            f"/actions/runs/{RUN_ID}/attempts/{RUN_ATTEMPT}/jobs" in u for u in seen
+        )
+        assert any(u.endswith(f"/git/tags/{SEAL_OBJECT_SHA}") for u in seen)
+    else:
+        # The missing/unavailable seal must produce a bounded HOLD refusal,
+        # not escape as a transport exception or allow the synthetic trigger.
+        with pytest.raises(
+            ValueError, match="pending" if surface == "status" else None
+        ):
+            invoke()

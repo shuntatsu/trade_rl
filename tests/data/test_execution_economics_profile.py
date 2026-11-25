@@ -116,3 +116,23 @@ def test_execution_economics_profile_rejects_borrow_rate_when_unavailable() -> N
 
     with pytest.raises(ValueError, match="borrow_rate must be zero"):
         profile_type(name="invalid", borrow_available=False, borrow_rate=0.05)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "fee_rate",
+        "maker_fee_rate",
+        "taker_fee_rate",
+        "spread_rate",
+        "borrow_rate",
+        "max_participation_rate",
+    ),
+)
+@pytest.mark.parametrize("value", (10**500, -(10**500)))
+def test_profile_rejects_oversized_integer_without_native_overflow(
+    field: str, value: int
+) -> None:
+    """Preserve the field-specific error for numeric JSON and constructor inputs."""
+    with pytest.raises(ValueError, match=field):
+        _profile_type()(name="invalid", **{field: value})

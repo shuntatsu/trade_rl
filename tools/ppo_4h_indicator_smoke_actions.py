@@ -31,12 +31,12 @@ SOURCE_REVIEW_SCHEMA = "ppo_4h_indicator_source_review_v4"
 SOURCE_REVIEW_MARKER = "<!-- ppo-4h-indicator-source-review-v4 -->\n"
 REVIEWER_SURFACE = "github_pr_review_v3"
 TRUSTED_REPOSITORY_ID = 1_103_009_698
-TRUSTED_REVIEWER_AUTHORITY_COMMIT = "f47d2bf99fdfd027a4f20ab43acdfacb598eff23"
-TRUSTED_REVIEWER_AUTHORITY_SEAL = "seal/ppo-4h-gemini-review-authority-20261109-v7"
+TRUSTED_REVIEWER_AUTHORITY_COMMIT = "2bc0ba473c41475c831f3ec56ac89a2cb96adf75"
+TRUSTED_REVIEWER_AUTHORITY_SEAL = "seal/ppo-4h-gemini-review-authority-20261125-v8"
 TRUSTED_REVIEWER_WORKFLOW_PATH = ".github/workflows/ppo-4h-gemini-review.yml"
 TRUSTED_REVIEWER_WORKFLOW_NAME = "PPO 4h Gemini Review"
 TRUSTED_REVIEWER_WORKFLOW_SHA256 = (
-    "3a752a14ff9aebd754754529e3cb0fa781d837e5375cb19f610ce1e2057019b8"
+    "f4a683e03448ca437e1eda7f45e085da0b6ee3565f7b1fecda9871eab47548cc"
 )
 TRUSTED_REVIEWER_RUNNER_SHA256 = (
     "e98589b35062e3c4840f3b589f28c7d6982351d4063557a22e32a915b5eaa9c7"
@@ -338,13 +338,19 @@ def _require_frozen_reviewer_authority_seal(
             record["object"].get("sha"), field="trusted reviewer authority seal SHA"
         )
 
-    tag_object_sha = require_tag_object_sha(
-        transport._api_json(ref_url, token=token, deadline=deadline)
-    )
-    tag = transport._api_json(
-        f"https://api.github.com/repos/{repo_path}/git/tags/{tag_object_sha}",
-        token=token,
-        deadline=deadline,
+    def read_seal_record(url: str) -> dict[str, Any]:
+        try:
+            return transport._api_json(url, token=token, deadline=deadline)
+        except transport.TransportError:
+            # An unavailable seal is not authorization. Project this as the
+            # same bounded refusal as an invalid seal, never as approval.
+            raise ValueError(
+                "trusted reviewer authority seal could not be verified"
+            ) from None
+
+    tag_object_sha = require_tag_object_sha(read_seal_record(ref_url))
+    tag = read_seal_record(
+        f"https://api.github.com/repos/{repo_path}/git/tags/{tag_object_sha}"
     )
     target = tag.get("object") if isinstance(tag, dict) else None
     if (
@@ -376,12 +382,7 @@ def _require_frozen_reviewer_authority_seal(
     )
     # The last ref observation must occur after the PR, CI and review-note
     # reads: otherwise a tag retargeted during bootstrap verification passes.
-    if (
-        require_tag_object_sha(
-            transport._api_json(ref_url, token=token, deadline=deadline)
-        )
-        != tag_object_sha
-    ):
+    if require_tag_object_sha(read_seal_record(ref_url)) != tag_object_sha:
         raise ValueError("trusted reviewer authority seal changed during verification")
 
 

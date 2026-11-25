@@ -5,7 +5,10 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Callable, Iterable, Protocol, Sequence, cast
 
 from tools.tier_d_nonrl.tier_d_process_tree import ProcessIdentity
@@ -85,51 +88,85 @@ class ContainedProcessSample:
 
 
 class ContainedProcess:
-    """A launched process whose descendants remain inside a native Job Object."""
+    """A launched process whose descendants remain inside a native Job Object.
+
+    Public containment operations refuse concurrent entry rather than sharing
+    a native handle or waiting behind another call's cleanup deadline.
+    """
 
     def __init__(self, process: subprocess.Popen[Any], job: _WindowsJob) -> None:
         self.process = process
         self._job = job
         self._closed = False
+        self._job_close_failed = False
+        self._cleanup_failed = False
+        self._operation_lock = Lock()
+
+    @contextmanager
+    def _exclusive_operation(self) -> Iterator[None]:
+        # Do not use a handle while another operation can change its ownership
+        # or verification disposition.
+        if not self._operation_lock.acquire(blocking=False):
+            raise ProcessContainmentError(
+                "another containment operation is in progress"
+            )
+        try:
+            yield
+        finally:
+            self._operation_lock.release()
+
+    def _require_no_failed_cleanup(self) -> None:
+        if self._job_close_failed:
+            raise ProcessContainmentError(
+                "Job Object close previously failed; native handle status unknown"
+            )
+        if self._cleanup_failed:
+            raise ProcessContainmentError(
+                "process-tree cleanup previously failed; no verified success exists"
+            )
 
     def sample(self) -> ContainedProcessSample:
-        if self._closed:
-            raise ProcessContainmentError("process containment is already closed")
-        sample = self._job.sample()
-        root_is_member = any(
-            member.identity == sample.root_identity for member in sample.members
-        )
-        if self.process.poll() is None and not root_is_member:
-            raise ProcessContainmentError(
-                "running root process is absent from its containment Job Object"
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                raise ProcessContainmentError("process containment is already closed")
+            sample = self._job.sample()
+            root_is_member = any(
+                member.identity == sample.root_identity for member in sample.members
             )
-        return sample
+            if self.process.poll() is None and not root_is_member:
+                raise ProcessContainmentError(
+                    "running root process is absent from its containment Job Object"
+                )
+            return sample
 
     def terminate_and_wait(self, timeout: float = 10.0) -> int:
+        with self._exclusive_operation():
+            return self._terminate_and_wait(timeout)
+
+    def _terminate_and_wait(self, timeout: float) -> int:
+        self._require_no_failed_cleanup()
         if self._closed:
             return (
                 self.process.returncode if self.process.returncode is not None else -1
             )
         deadline = time.monotonic() + timeout
-        self._job.terminate_members(timeout=max(0.0, deadline - time.monotonic()))
         try:
+            self._job.terminate_members(timeout=max(0.0, deadline - time.monotonic()))
             return_code = self.process.wait(
                 timeout=max(0.0, deadline - time.monotonic())
             )
             self._job.wait_empty(deadline)
             return return_code
-        except (OSError, subprocess.TimeoutExpired, ProcessContainmentError):
-            raise
-
-    def close(self, timeout: float = 10.0) -> None:
-        if self._closed:
-            return
-        try:
-            self.terminate_and_wait(timeout)
         except BaseException:
+            # A failed public stop must remain unverified even if kill-on-close
+            # subsequently releases the Job and the root is reaped. Apply this
+            # disposition at the stop boundary, regardless of the caller.
+            self._cleanup_failed = True
             try:
                 self._job.close()
             except BaseException as close_error:
+                self._job_close_failed = True
                 raise ProcessContainmentError(
                     "Job Object could not be closed after cleanup failed"
                 ) from close_error
@@ -141,14 +178,26 @@ class ContainedProcess:
                     "root process could not be reaped after Job Object close"
                 ) from wait_error
             raise
-        else:
-            self._job.close()
+
+    def close(self, timeout: float = 10.0) -> None:
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                return
+            self._terminate_and_wait(timeout)
+            try:
+                self._job.close()
+            except BaseException:
+                self._job_close_failed = True
+                raise
             self._closed = True
 
     def __enter__(self) -> ContainedProcess:
-        if self._closed:
-            raise ProcessContainmentError("process containment is already closed")
-        return self
+        with self._exclusive_operation():
+            self._require_no_failed_cleanup()
+            if self._closed:
+                raise ProcessContainmentError("process containment is already closed")
+            return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
@@ -356,27 +405,38 @@ class _WindowsJob:
         self._root_identity: ProcessIdentity | None = None
         self._assigned = False
         self._closed = False
+        self._close_failed = False
+
+    def _require_close_not_failed(self) -> None:
+        if self._close_failed:
+            raise ProcessContainmentError(
+                "Job Object close previously failed; native handle status unknown"
+            )
 
     @property
     def assigned(self) -> bool:
         return self._assigned
 
     def assign(self, process_handle: int) -> None:
+        self._require_close_not_failed()
         self._api.assign_process(self._handle, process_handle)
         self._assigned = True
 
     def identity_from_handle(
         self, process_handle: int, expected_pid: int
     ) -> ProcessIdentity:
+        self._require_close_not_failed()
         return self._api.identity_from_handle(process_handle, expected_pid)
 
     def set_root_identity(self, identity: ProcessIdentity) -> None:
         self._root_identity = identity
 
     def resume(self, process_handle: int) -> None:
+        self._require_close_not_failed()
         self._api.resume_process(process_handle)
 
     def sample(self) -> ContainedProcessSample:
+        self._require_close_not_failed()
         if self._root_identity is None or self._closed:
             raise ProcessContainmentError("Job Object is not ready for sampling")
         return _collect_stable_membership_snapshot(
@@ -389,6 +449,7 @@ class _WindowsJob:
         )
 
     def terminate_members(self, timeout: float = 10.0) -> None:
+        self._require_close_not_failed()
         if self._closed:
             return
         deadline = time.monotonic() + timeout
@@ -426,9 +487,11 @@ class _WindowsJob:
         )
 
     def terminate_process_handle(self, process_handle: int) -> None:
+        self._require_close_not_failed()
         self._api.terminate_process(process_handle)
 
     def wait_empty(self, deadline: float) -> None:
+        self._require_close_not_failed()
         while True:
             member_pids = self._api.query_member_pids(self._handle)
             active_processes = self._api.query_active_process_count(self._handle)
@@ -442,10 +505,17 @@ class _WindowsJob:
             time.sleep(min(0.01, remaining))
 
     def close(self) -> None:
+        self._require_close_not_failed()
         if self._closed:
             return
+        try:
+            self._api.close_handle(self._handle)
+        except BaseException:
+            # CloseHandle failure leaves ownership uncertain. Never return a
+            # second, apparently successful close or reuse an uncertain handle.
+            self._close_failed = True
+            raise
         self._closed = True
-        self._api.close_handle(self._handle)
 
 
 class _WindowsApi:

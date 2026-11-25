@@ -58,6 +58,9 @@ jobs:
   checkpoint:
     runs-on: ubuntu-24.04
     timeout-minutes: 340
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      UV_PYTHON_DOWNLOADS: never
     steps:
       - name: Checkout immutable code SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -66,15 +69,56 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Install pinned uv and Python
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - name: Refuse previous checkpoint workflow lineage
+        env:
+          CHECKPOINT_CODE_SHA: ${{ inputs.code_sha }}
+        run: |
+          if [[ ! "$CHECKPOINT_CODE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ "$(git rev-parse HEAD)" != "$CHECKPOINT_CODE_SHA" ]]; then
+            echo "Checkpoint checkout does not match the immutable input."
+            exit 1
+          fi
+          if ! grep -Fxq '          python-version: "3.12.16"' .github/workflows/ppo-feature-checkpoint.yml; then
+            echo "checkout workflow does not contain 3.12.16; previous lineage is not resumable"
+            exit 1
+          fi
+          if ! grep -Fxq '          version: "0.13.9"' .github/workflows/ppo-feature-checkpoint.yml; then
+            echo "checkout workflow does not contain pinned uv 0.13.9; previous lineage is not resumable"
+            exit 1
+          fi
+
+      - name: Require Python 3.12.16 in runner toolcache
+        run: |
+          cached_python="${RUNNER_TOOL_CACHE:?}/Python/3.12.16/x64/bin/python"
+          if [[ ! -x "$cached_python" ]]; then
+            echo "Pinned Python 3.12.16 is unavailable in the trusted runner toolcache."
+            exit 1
+          fi
+          "$cached_python" -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+
+      - name: Set up trusted runner Python 3.12.16
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
-          version: "0.10.0"
-          python-version: "3.12"
+          python-version: "3.12.16"
+          check-latest: false
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.9"
           enable-cache: false
+
+      - name: Verify exact checkpoint Python/uv environment
+        run: |
+          python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+          uv --version | grep -Eq '^uv 0\.13\.9([[:space:]]|$)'
 
       - name: Install frozen PPO runtime
         run: uv sync --locked --extra train-sb3
+
+      - name: Verify frozen environment Python identity
+        run: |
+          uv run --no-sync python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
 
       - name: Run bounded checkpoint transport
         id: transport

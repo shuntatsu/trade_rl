@@ -58,11 +58,19 @@ def _valid_sha256(value: object) -> bool:
 
 
 def _finite_number(value: object) -> TypeGuard[int | float]:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        if isinstance(value, int):
+            # Distinct finite integers can round to the same binary64 value,
+            # silently erasing a real equity difference in later diagnostics.
+            as_float = float(value)
+            return math.isfinite(as_float) and int(as_float) == value
+        return math.isfinite(value)
+    except (OverflowError, ValueError, TypeError):
+        # A huge integer may be valid Python but not representable as binary64.
+        # External numeric claims must fail closed, not escape as OverflowError.
+        return False
 
 
 @dataclass(frozen=True)
@@ -491,6 +499,30 @@ def _arm_report_matches(
     )
 
 
+def _representable_pair_delta(
+    arms_by_id: dict[str, ArmReceipt], pair_id: str, capital: float
+) -> float | None:
+    """Compute receipt-only arithmetic, refusing unrepresentable intermediates."""
+    nonrl = arms_by_id.get(f"{pair_id}-NONRL")
+    cash = arms_by_id.get(f"{pair_id}-CASH")
+    if (
+        nonrl is None
+        or cash is None
+        or not _finite_number(nonrl.terminal_equity_usdt)
+        or not _finite_number(cash.terminal_equity_usdt)
+        or not _finite_number(capital)
+        or capital <= 0
+    ):
+        return None
+    # Keep the existing subtraction-then-division contract for ordinary values.
+    # Extreme finite endpoints can still produce an infinite intermediate.
+    difference = float(nonrl.terminal_equity_usdt) - float(cash.terminal_equity_usdt)
+    delta = difference / capital
+    if not math.isfinite(delta) or (delta == 0.0 and difference != 0.0):
+        return None
+    return delta
+
+
 def evaluate_run_receipt(
     receipt: RunReceipt, protocol: Task18Protocol
 ) -> RunEvaluation:
@@ -566,6 +598,13 @@ def evaluate_run_receipt(
             declared_metrics_well_formed = False
             issues.append(f"arm progress record is invalid: {arm.arm_id}")
         if arm.status != "COMPLETED":
+            # Unknown initial equity stays None; observed values must obey
+            # the same numeric representation contract as completed receipts.
+            if arm.initial_equity_usdt is not None and not _finite_number(
+                arm.initial_equity_usdt
+            ):
+                declared_metrics_well_formed = False
+                issues.append(f"initial equity is invalid: {arm.arm_id}")
             allowed_reasons = _STATUS_REASONS[arm.status]
             if (
                 not isinstance(arm.reason_code, str)
@@ -742,6 +781,15 @@ def evaluate_run_receipt(
     diagnostic_pair_arithmetic_available = (
         report_bound_diagnostics and terminal_claims_pass_diagnostic
     )
+    if diagnostic_pair_arithmetic_available:
+        by_id = {arm.arm_id: arm for arm in completed_arms}
+        capital = protocol.economics.initial_capital_per_symbol_usdt
+        if any(
+            _representable_pair_delta(by_id, pair.pair_id, capital) is None
+            for pair in protocol.pairs
+        ):
+            diagnostic_pair_arithmetic_available = False
+            issues.append("one or more diagnostic pair deltas cannot be represented")
     return RunEvaluation(
         declaration_consistent=declaration_consistent,
         source_report_matches=source_report_matches,
@@ -785,15 +833,12 @@ def diagnostic_pair_delta(
     if pair is None:
         raise ValueError(f"unknown pair id: {pair_id}")
     arms = {arm.arm_id: arm for arm in receipt.arms}
-    nonrl = arms[f"{pair_id}-NONRL"]
-    cash = arms[f"{pair_id}-CASH"]
-    nonrl_equity = nonrl.terminal_equity_usdt
-    cash_equity = cash.terminal_equity_usdt
-    if not _finite_number(nonrl_equity) or not _finite_number(cash_equity):
-        raise ValueError("pair terminal equity is not finite")
-    return (
-        float(nonrl_equity) - float(cash_equity)
-    ) / protocol.economics.initial_capital_per_symbol_usdt
+    delta = _representable_pair_delta(
+        arms, pair_id, protocol.economics.initial_capital_per_symbol_usdt
+    )
+    if delta is None:
+        raise ValueError("pair diagnostic arithmetic cannot be represented")
+    return delta
 
 
 def diagnostic_combined_delta(
@@ -812,6 +857,10 @@ def diagnostic_combined_delta(
         raise ValueError(
             "combined metric requires exactly one pair per declared symbol"
         )
-    return sum(
+    total = sum(
         diagnostic_pair_delta(receipt, protocol, pair_id) for pair_id in pair_ids
-    ) / len(protocol.dataset.symbols)
+    )
+    combined = total / len(protocol.dataset.symbols)
+    if not math.isfinite(combined) or (combined == 0.0 and total != 0.0):
+        raise ValueError("combined diagnostic arithmetic cannot be represented")
+    return combined

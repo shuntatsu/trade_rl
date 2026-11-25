@@ -67,7 +67,10 @@ def _number(value: object, *, field: str, default: float) -> float:
         return default
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
-    return float(value)
+    try:
+        return float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
 
 
 def _optional_string(value: object, *, field: str) -> str | None:

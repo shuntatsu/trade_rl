@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Literal
 
 import numpy as np
 
@@ -34,7 +35,10 @@ from trade_rl.simulation.native_transition import (
 )
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
-from trade_rl.simulation.stateful.portfolio_session import SharedPortfolioSession
+from trade_rl.simulation.stateful.portfolio_session import (
+    SharedPortfolioSession,
+    resolve_agent_stop_index,
+)
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.portfolio import (
     PortfolioPolicy,
@@ -289,6 +293,20 @@ class SharedCashPortfolioReplayLedgerEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeReplayAdvance:
+    """Observed post-execution frontier, before fallible replay diagnostics.
+
+    This is not a completed replay, a persisted checkpoint, or evidence that
+    an unobserved internal transition committed. Negative equity is retained.
+    """
+
+    native_advances: int
+    next_index: int
+    portfolio_value: float
+    max_drawdown: float
+
+
+@dataclass(frozen=True, slots=True)
 class SharedCashPortfolioReplayResult:
     """One-bar portfolio-policy replay on the shared native execution loop."""
 
@@ -335,6 +353,7 @@ class _ExecutedEntryPrices:
         quantities: np.ndarray,
         *,
         terminated: bool = False,
+        settled: np.ndarray | None = None,
     ) -> None:
         for event in events:
             filled = float(event.filled_quantity)
@@ -363,6 +382,15 @@ class _ExecutedEntryPrices:
         actual = np.asarray(quantities, dtype=np.float64)
         if actual.shape != self._quantities.shape:
             raise RuntimeError("execution fill events diverged from book quantities")
+        if settled is not None:
+            # a position on an asset that is inactive at the processing bar is settled by
+            # the book itself (no fill event); the tracker follows only that exact case
+            mask = np.asarray(settled, dtype=np.bool_)
+            if mask.shape != self._quantities.shape:
+                raise RuntimeError("settlement mask does not match the fill tracker")
+            closed = mask & (actual == 0.0)
+            self._quantities[closed] = 0.0
+            self._average_prices[closed] = 0.0
         if not np.allclose(actual, self._quantities, rtol=1e-9, atol=1e-12):
             if terminated:
                 self._quantities = actual.copy()
@@ -506,23 +534,6 @@ def _observation(
     )
 
 
-def _agent_stop_index(
-    *,
-    start_index: int,
-    stop_index: int,
-    execution_cost: ExecutionCostConfig,
-    settle_terminal_position: bool,
-) -> int:
-    if not settle_terminal_position:
-        return stop_index
-    agent_stop_index = stop_index - execution_cost.order_latency_bars - 1
-    if agent_stop_index <= start_index:
-        raise ValueError(
-            "terminal settlement requires at least one agent interval before the close"
-        )
-    return agent_stop_index
-
-
 def run_single_symbol_replay(
     dataset: MarketDataset,
     strategy: SingleSymbolStrategy,
@@ -603,7 +614,7 @@ def run_single_symbol_replay(
         latest_execution_observation = observation
 
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,
@@ -864,6 +875,10 @@ def _run_shared_cash_replay_core(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     _portfolio_policy: PortfolioPolicy | None = None,
+    terminal_reserve_bars: int | None = None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+    hold_unchanged_risk_target: bool = False,
+    on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -955,11 +970,12 @@ def _run_shared_cash_replay_core(
         resolved_gross_budget = 0.0
 
     resolved_execution_cost = execution_cost or ExecutionCostConfig.zero()
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,
         settle_terminal_position=settle_terminal_position,
+        terminal_reserve_bars=terminal_reserve_bars,
     )
     roster_symbol_indices = tuple(range(dataset.n_symbols))
     _require_available_marks_at_row(
@@ -990,6 +1006,9 @@ def _run_shared_cash_replay_core(
             risk=risk,
             market_order_profile=market_order_profile,
             settle_terminal_position=settle_terminal_position,
+            terminal_reserve_bars=terminal_reserve_bars,
+            insolvency_valuation=insolvency_valuation,
+            hold_unchanged_risk_target=hold_unchanged_risk_target,
             execution_observer=retain_latest_execution_observation,
         )
         if portfolio_session.agent_stop_index != agent_stop_index:
@@ -1085,6 +1104,18 @@ def _run_shared_cash_replay_core(
         stateful_evidence = execution_observation
         if stateful_evidence.next_index != execution.next_index:
             raise RuntimeError("execution observer index differs from replay result")
+        # The native advance returned and its observer identity is consistent.
+        # Report that fact before diagnostics, ledger construction, or the
+        # final ReturnSeries can fail. No mutable account is exposed.
+        if on_native_advance is not None:
+            on_native_advance(
+                NativeReplayAdvance(
+                    native_advances=execution.next_index - start_index,
+                    next_index=execution.next_index,
+                    portfolio_value=float(execution.book.portfolio_value),
+                    max_drawdown=float(execution.book.max_drawdown),
+                )
+            )
         split_factors = dataset.resolved_array("split_factor")[execution.next_index]
         desired_quantities[:] *= split_factors
         executed_entry_prices.apply_split(split_factors)
@@ -1092,6 +1123,7 @@ def _run_shared_cash_replay_core(
             stateful_evidence.order_events,
             execution.book.quantities,
             terminated=execution.termination_reason is not None,
+            settled=~dataset.resolved_array("asset_active")[execution.next_index],
         )
         if capture_ledger_evidence:
             if execution_observation_count != len(ledger_intervals) + 1:
@@ -1547,8 +1579,23 @@ def run_shared_portfolio_replay(
     market_order_profile: MarketOrderProfile | None = None,
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
+    terminal_reserve_bars: int | None = None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+    hold_unchanged_risk_target: bool = False,
+    on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
-    """Call one simultaneous portfolio policy once for each native bar."""
+    """Call one simultaneous portfolio policy once for each actor interval.
+
+    With settlement enabled, a fixed terminal_reserve_bars may extend the
+    latency-aware default; only the native flatten path can advance that tail.
+    The optional retained-debt and final-risk equality HOLD conventions
+    preserve the independent-account native boundary. A retained-debt terminal
+    loss outside ReturnSeries' domain fails rather than returning a clipped
+    successful result. An optional synchronous observer receives immutable
+    facts after each returned native advance, before fallible diagnostics.
+    Observer exceptions abort replay; unobserved internal state is not claimed.
+    Defaults preserve existing replay behavior.
+    """
 
     if execution_cost is not None and not isinstance(
         execution_cost, ExecutionCostConfig
@@ -1556,6 +1603,9 @@ def run_shared_portfolio_replay(
         raise TypeError("execution_cost must be an ExecutionCostConfig or None")
     if risk is not None and not isinstance(risk, PreTradeRisk):
         raise TypeError("risk must be a PreTradeRisk or None")
+
+    if on_native_advance is not None and not callable(on_native_advance):
+        raise TypeError("on_native_advance must be callable")
 
     result, decisions = _run_shared_cash_replay_core(
         dataset,
@@ -1571,6 +1621,10 @@ def run_shared_portfolio_replay(
         settle_terminal_position=settle_terminal_position,
         capture_ledger_evidence=capture_ledger_evidence,
         _portfolio_policy=policy,
+        terminal_reserve_bars=terminal_reserve_bars,
+        insolvency_valuation=insolvency_valuation,
+        hold_unchanged_risk_target=hold_unchanged_risk_target,
+        on_native_advance=on_native_advance,
     )
     ledger = (
         None
@@ -1637,7 +1691,7 @@ def run_scripted_shared_cash_replay(
     resolved_execution_cost = (
         ExecutionCostConfig.zero() if execution_cost is None else execution_cost
     )
-    agent_stop_index = _agent_stop_index(
+    agent_stop_index = resolve_agent_stop_index(
         start_index=start_index,
         stop_index=stop_index,
         execution_cost=resolved_execution_cost,

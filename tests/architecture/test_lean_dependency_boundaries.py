@@ -422,3 +422,27 @@ def test_canonical_bootstrap_cannot_execute_research_or_final_lifecycle() -> Non
         }
     )
     assert _symbol_offenders(bootstrap, forbidden) == []
+
+
+def test_terminal_settlement_is_shared_and_does_not_import_study_runners() -> None:
+    path = PACKAGE / "evaluation" / "terminal_settlement.py"
+    assert path.is_file()
+    imports = collect_trade_rl_imports(path)
+    assert not any(
+        within_module(name, prefix)
+        for name in imports
+        for prefix in (
+            "trade_rl.evaluation.dev_realdata_study",
+            "trade_rl.evaluation.core7_mtf_study",
+            "trade_rl.evaluation.trend_stop_study",
+        )
+    )
+
+
+def test_public_equity_statistics_are_read_only_study_independent() -> None:
+    for path in (
+        PACKAGE / "evaluation" / "equity_path.py",
+        PACKAGE / "evaluation" / "comparison" / "overlapping_blocks.py",
+    ):
+        assert path.is_file()
+        assert not collect_trade_rl_imports(path)

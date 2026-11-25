@@ -1183,3 +1183,161 @@ authorization comment naming the UTC start, the run root and the launch commit; 
 checkout; and the seal digest, which is computed only by `attempt3 seal` after all of
 these. Operator-run steps (probe, plan, seal, launch, the scheduled tasks) are untested
 against the real venue and the real attempt-2 root.
+
+#### Attempt 3 Linux operating platform (systemd user service)
+
+Why: the collection machine chosen for attempt 3 is an always-on Fedora Linux server,
+not the Windows PC, which a restart, an update or a two-minute outage would invalidate.
+Nothing is sealed, launched, probed or collected, and the seal, start, authorization
+comment and launch commit stay `PENDING_OWNER_AUTHORIZATION`. This section changes the
+**operating platform only**: screen v3, the budgets, the timing tolerances, the
+universe, the costs, the criteria and the lineage are exactly those of the seal-candidate
+packet and are not touched.
+
+**Packet revision (decision).** A new packet and digest are required, not only a
+documentation change. The sealed protocol binds the implementation digest of every
+`trade_rl/**/*.py` file, and the launch checkout's packet-bound closure (all of
+`trade_rl/evaluation/paper/` and what it imports) must equal the packet's
+`implementation_head`. This change edits `paper/watchdog.py` (SIGHUP) and adds
+`paper/linux_service.py`, both in that closure, so the seal-candidate packet (head
+`d0a76538f77a`) cannot cover a launch that contains them. Independently of this change,
+the closure on `main` already differs from that head in 23 files merged since (M1
+accounting and order admission, the Binance cache and transport, the verified-file reader
+and run configuration), so a launch from current `main` needed a successor packet anyway;
+the new packet lists the exact delta and leaves it to the reviewer, who also decides
+whether the paper path executes any of it. The new packet is
+[`report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json`](../../report/issue810-carry-attempt3-linux-platform-research-assurance-20261119.json)
+(digest `702698adbcf18831933a1222a5eadebb2579df9d7d242f2497a01441c539abc3`, status **UNREVIEWED**, `economic_execution_authorized=false`;
+`protocol_head` and `implementation_head` both `451d4e09d8bde292769902b1774de8871ff70860`, the last commit that changes
+`trade_rl/` in the pull request that adds it). The pre-registration, implementation and
+seal-candidate packets stay frozen and are not re-pinned. The new packet is not reviewed
+and authorizes no seal, launch, probe or economic run; the extended same-account receipt
+review of its exact digest and heads is a further prerequisite of the seal, and the launch
+commit is a commit whose packet-bound code equals the new `implementation_head`.
+`tests/evaluation/test_paper_attempt3_linux_platform_packet.py` binds the packet, this
+section and the source.
+
+**Windows assumptions and their handling.**
+
+| Windows assumption | Handling |
+|---|---|
+| `SetConsoleCtrlHandler`, marker `CollectorConsoleClosed` (`watchdog.install_termination_handlers`, `ExitGuard.console_event`) | Guarded by `platform == "win32"`; unchanged. On Linux SIGTERM and the newly installed SIGHUP raise `CollectorTerminated`, which the collector context records as the permanent `CollectorTerminated` marker (class I, plus the non-trading gap command) |
+| SIGBREAK, `CTRL_BREAK_EVENT`, `CREATE_NEW_PROCESS_GROUP` (`PopenChild.terminate`, `popen_launcher`) | Windows-only branches, unchanged; Linux uses `Popen.terminate()` (SIGTERM) |
+| `PermissionError` retry in `write_heartbeat` (sharing violation) | Harmless on Linux (never raised); unchanged |
+| Task Scheduler `carry-a3-supervisor`, `carry-a3-check` (PowerShell recipe) | Unchanged for Windows; Linux uses the user units `carry-a3-supervisor.service`, `carry-a3-check.service` and `carry-a3-check.timer` rendered by `paper/linux_service.py` |
+| `C:\trade_rl_runs\attempt3\...`, `C:\trade_rl_frozen\attempt3-<8 hex>` | Unchanged for Windows; Linux `~/trade_rl_runs/attempt3/...` and `~/trade_rl_frozen/attempt3-<8 hex>` (`linux_service.build_layout`) |
+| Sleep and hibernation off, updates postponed 90 days, clock synchronisation on (human prerequisites) | Linux equivalents below; the clock is read (never set) from chrony or systemd-timesyncd by `linux_service clock` |
+| The attempt-2 root at `C:\trade_rl_runs\attempt2\root-20261107`, re-read on every collector entry | **New requirement:** a byte-identical copy must exist on the Linux host (below). The Windows original is never written |
+| Runtime identity (`platform.system()`, release, Python build) is part of the sealed provenance | `plan`, `seal` and `launch` must all run on the Fedora host in the one frozen environment; a Windows-sealed value is never reused |
+| CRLF in checkouts | Source digests normalise CRLF to LF; the frozen checkout on Linux is LF |
+| SQLite collector lock and journal | Portable; the run root must be on a local filesystem (not NFS or SMB) |
+
+Not Windows-specific and unchanged: `atomic_write` (already has a Linux path), the
+journal, the heartbeat, the supervisor policy (poll 5 s, stale limit 150 s, startup grace
+300 s, at most 5 relaunches), the exit codes 0, 1, 2, 3, 4 and 5, and every check cadence.
+
+**Service behaviour.** `carry-a3-supervisor.service` runs `attempt3 launch` with
+`Restart=on-failure`, `RestartSec=60` and a start limit of four starts in 600 s (one start
+plus the Windows `RestartCount 3`, one minute apart); `RestartPreventExitStatus=1 3 4`
+never restarts into a rejected terminal state (1), a failure marker (3) or a live
+collector that owns the root (4). `KillMode=control-group` stays the default on purpose:
+stopping or restarting the unit, a logout without lingering, a supervisor crash and a
+shutdown send SIGTERM to the collector, which writes the permanent marker, so any of them
+ends the attempt INVALID instead of silently losing observations (a stricter rule than
+the Windows survivor of a supervisor restart). `carry-a3-check.timer` runs `cli check` at
+every minute (`OnCalendar=minutely`); exit 3 or 5 leaves `carry-a3-check.service` failed,
+which `systemctl --user --failed` shows. The watchdog cadence is code and no unit passes a
+policy flag.
+
+**Owner commands on Fedora** (nothing below has been run; `systemctl --user` must be run
+by the owner in a login session, an agent sandbox cannot reach the user D-Bus). Replace
+`<...>` values; `LC` is the launch commit and `D` the UTC seal date `YYYYMMDD`.
+
+1. Read-only host checks. `uv --version` must match the exact launch checkout's `[tool.uv].required-version` (new main checkouts pin `0.13.9`);
+   check that sleep and automatic reboots are off: `systemctl is-enabled sleep.target
+   suspend.target hibernate.target` (expect `masked`; masking is an OS setting that needs
+   `sudo systemctl mask ...` and is the owner's decision), `systemctl list-unit-files
+   'dnf*-automatic*' 'packagekit-offline-update*'` (no enabled automatic update or offline
+   update trigger), no pending reboot (`needs-restarting -r`), stable power and a local
+   (not network) filesystem for `~/trade_rl_runs`.
+2. Frozen checkout and private locked environment (it must stay unmodified for the screen):
+
+   ```
+   LC=<40-hex launch commit>; D=<YYYYMMDD>
+   git clone https://github.com/shuntatsu/trade_rl.git ~/trade_rl_src
+   mkdir -p ~/trade_rl_frozen ~/trade_rl_runs/attempt3/logs
+   git -C ~/trade_rl_src worktree add --detach ~/trade_rl_frozen/attempt3-${LC:0:8} $LC
+   cd ~/trade_rl_frozen/attempt3-${LC:0:8} && uv sync --frozen
+   git status --porcelain; git rev-parse HEAD
+   ```
+
+   `status` must print nothing and `HEAD` must equal `LC`.
+3. Copy of the attempt-2 root (read-only on the Windows side). Copy
+   `C:\trade_rl_runs\attempt2\root-20261107` to `~/trade_rl_runs/attempt2/root-20261107`
+   with a tool that does not write the source (`scp -r`, `rsync -a --checksum`, or external
+   media), then compare per-file digests of both sides (Windows
+   `Get-ChildItem -Recurse -File | Get-FileHash`, Linux
+   `find . -type f -print0 | sort -z | xargs -0 sha256sum`; all equal, including
+   `collection-failure.json`, `journal.sqlite` and `protocol.json`), keep both manifests
+   and run `chmod -R a-w ~/trade_rl_runs/attempt2/root-20261107`. The copy is the root that
+   lineage v4 records and re-reads on every entry; whether it stands for the original is a
+   point for the result-blind G0 review.
+4. Clock and storage probe (the only networked step before launch, with its own
+   authorization comment):
+
+   ```
+   cd ~/trade_rl_frozen/attempt3-${LC:0:8}
+   .venv/bin/python -m trade_rl.evaluation.paper.linux_service clock
+   .venv/bin/python -m trade_rl.evaluation.paper.storage_probe \
+     --root ~/trade_rl_runs/attempt3/storage-probe-$D --authorization <PROBE_COMMENT_URL> \
+     --allow-network --output ~/trade_rl_runs/attempt3/storage-probe-$D.report.json
+   ```
+
+   `clock` exits 0 only when the kernel clock is synchronised, chrony or timesyncd
+   answers, chrony reports a normal leap status and the offset is within 0.25 s (an
+   operating pre-flight bound, not a protocol parameter).
+5. Plan and offline seal: the commands of the Windows procedure above with
+   `--root ~/trade_rl_runs/attempt3/root-$D`,
+   `--predecessor-root ~/trade_rl_runs/attempt2/root-20261107` and the interpreter
+   `.venv/bin/python`; the start must be at least five minutes ahead. `seal` prints
+   `protocol_sha256`; record and post it.
+6. Render and register the user units, well before the start, then start them:
+
+   ```
+   mkdir -p ~/.config/systemd/user
+   .venv/bin/python -m trade_rl.evaluation.paper.linux_service render --seal-date $D \
+     --launch-commit $LC --start-at <SAME_START> --authorization <COMMENT_URL> \
+     --protocol-sha256 <DIGEST> --output-dir ~/.config/systemd/user
+   sudo loginctl enable-linger $USER
+   loginctl show-user $USER --property=Linger
+   systemctl --user daemon-reload
+   systemctl --user enable --now carry-a3-supervisor.service carry-a3-check.timer
+   ```
+
+   `Linger=yes` must be shown, so the units start at boot and survive logout.
+7. Status and monitoring:
+
+   ```
+   systemctl --user status carry-a3-supervisor.service carry-a3-check.timer
+   systemctl --user --failed
+   journalctl --user -u carry-a3-supervisor.service -n 50 --no-pager
+   journalctl --user -u carry-a3-check.service -n 5 --no-pager
+   .venv/bin/python -m trade_rl.evaluation.paper.cli check --root ~/trade_rl_runs/attempt3/root-$D --protocol-sha256 <DIGEST>
+   .venv/bin/python -m trade_rl.evaluation.paper.cli status --root ~/trade_rl_runs/attempt3/root-$D --protocol-sha256 <DIGEST>
+   ```
+
+   Exit codes are those of the Windows procedure (3 marker, 4 live owner, 5 degraded). Do
+   not stop, restart or disable the units during the screen. The terminal step is the
+   Windows step 7 with Linux paths.
+
+**What still makes the attempt INVALID on Linux.** Any `collection-failure.json`; a reboot,
+shutdown or power loss longer than the 180-second observation-gap limit, and in practice
+every reboot, because a clean shutdown sends SIGTERM and writes the marker; a stop, restart
+or disable of the units; a logout without lingering; suspend or hibernation; a kill of the
+supervisor or collector by the kernel or `systemd-oomd` (a hard kill leaves no marker and
+`cli check` records the stale heartbeat after 150 seconds); a clock step backwards; a lost
+network link or outage that exhausts a skip budget; a change of the frozen checkout, the
+environment or the Python build (the sealed implementation and runtime digests are
+rechecked); a lost or changed attempt-2 root copy; plus every cause the Windows procedure
+lists (observation gap, budget breach, class D or I failure, hedge break, drawdown stop).
+No resume, repair or backfill.

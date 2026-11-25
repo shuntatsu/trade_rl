@@ -46,6 +46,41 @@ evaluation/experiments/bootstrap
 
 `evaluation/experiments` 内部では、`codec.py` がpersisted payloadのdecode/semantic identity、`inspection.py` がread-only filesystem reconstructionとtamper validation、`workflow.py` がmutation commandを所有する。read sideからmutation workflowへの逆依存は作らない。既存の `workflow.StudySnapshot` / `workflow.inspect_study` は明示export契約としてinspection ownerの同一objectをre-exportする。
 
+## Prospective-only write-once JSON evidence publication
+
+`tools.prospective_evidence_publication.publish_json_evidence_once(root=...,
+name=..., payload=...)` は**将来の別途認可された研究のみ**が使う、
+最大1 MiBのcanonical JSON公開APIである。既存の
+`trade_rl.evaluation.experiments.store.StudyStore.publish_json_once`を再利用し、
+同一directory capability上でstagingと排他的hard-link公開を実施する。
+`path.exists()`から`write_text()`するチェック→書込み競争を新たに作らず、
+既存ファイル・dangling symlink・不正なparent・同時publisherをfail-closedで
+拒否する。descriptor-relative nofollowを使えないportable fallbackでは、
+parentの同時置換に対するatomicな保護は保証しない。
+自由形式pathのauthorityは追加せず、出力名は小文字の単一
+`*.json` leafのみ受け付ける。
+
+入力は予約・directory生成前にdeep-immutable JSON値へ一度だけ固定し、
+**検証時と公開時の両canonical JSON serializerが同一snapshotを使う**。
+呼出元がその後で元のmappingやネストしたlistを変更しても、公開bytes・sizeの
+根拠は変わらない。非有限値やunsupported type、1 MiB超を拒否する。
+成功した公開後には別のdescriptor-safe
+readbackでsize・SHA-256の完全一致を検証し、
+`PublishedJsonEvidence(path, sha256, size_bytes)`を返す。公開後の読戻しが
+失敗した場合、既にcommit済みかもしれないため
+`PublishedArtifactCleanupError`で**retryせず現物を調査**させる。
+研究runとposterior scoringの可否・外部の認証・署名・全試行保全・
+他者による事後のファイル改変までは証明しない。
+ファイルmodeはcaller umask/StudyStoreに従い、秘密情報の私有化を保証しない。
+
+特に[agy CLEAN_ALL forward v1](https://github.com/shuntatsu/trade_rl/pull/1327)の
+INTERIM_Aは既に実施記録があり、既存の`tools/agy_clean_all_forward.py`の
+`_write_once`、同プロトコルdigest、過去の結果・ラベルをこの追加APIで
+**遡及修正・再生成・再評価しない**。新しい結果経路に採用するには、
+別途の事前登録・独立研究審査・オーナーG4認可が必要である。
+このコードの合成成功はFS1/unused/final data利用やライブ注文を許可しない。
+
+
 ## Canonical M2 bootstrap preparation
 
 Canonical M2 bootstrapは、real-data development Studyを開始できる状態までを一度だけ構築するpreparation-only boundaryである。公開入口は `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つに限定する。
@@ -63,6 +98,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 9. complete rootをstaging directory内で検証した後、最後のrename一回だけでfinal outputをpublishする。
 
 `max_experiments` は後段の `StudyPlan` と同じ **1〜9,999** の上限を、JSON loaderと直接constructorの両方でsource acquisitionより前に検証する。10,000以上は源データを取得せず拒否する。
+
+Canonical bootstrapの設定JSON、Vision plan/resolution JSON、bootstrap manifest JSONのreaderは、`Path.is_file()`後にpath名から`read_text()`し直さず、共通`open_regular_binary`による確認済みregular-file descriptorから得たbyte列だけをUTF-8 decode / JSON parseする。POSIXで`O_NOFOLLOW`とdescriptor-relative directory traversalが利用できる場合、leafまたはancestorのsymlink差し替えを拒否する。portable fallbackでは静的symlink/junctionを拒否するが、同時差し替えへのatomic保護は保証しない。open済み通常ファイルのin-place変更、readerの入力byte総量、StudyStore側のJSON読込・mutation lockの独立した保証はこのbootstrap reader境界には含めない。
 
 公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
 
@@ -221,11 +258,25 @@ freeze artifactはStudy digestと全decision digestをbindする。再構築時�
 
 `.mutation.lock` は同期primitiveでありresearch evidenceではない。canonical evidenceはappend-onlyで既存targetを上書きしない。
 
+Study JSONのappend-only公開は同じtarget名を上書きしない。POSIX LinuxでのステージングJSON公開は、`fsync`済みで開いたままのregular-file descriptorを`/proc/self/fd/N`から`linkat(AT_SYMLINK_FOLLOW)`でhard-linkし、source basenameだけを別ファイルに替えてもその偽bytesを正式公開しない。公開失敗・成功後cleanupでは、作成済みの`(st_dev, st_ino)`と一致する通常ファイルだけを削除対象にし、未作成・置換されたstage名は残す。公開後のcleanup失敗は`PublishedArtifactCleanupError`として非再試行を明示する。**これはstage名の確認直後に非協調的writerが差し替える`unlink`競合、親directoryの同時差替えやopen済みinodeそのものの改変までを原子的に防ぐ保証ではない。** Linux以外のhard-link fallbackはsource inodeの差替え耐性を主張しない。強い攻撃者モデルの残課題はIssue #1131で管理する。
+
 ## Failure / tamper contract
+
+`StudyStore`のrootと公開先のpathは、生の`..`成分を含む入力を正規化やdirectory作成より**前に**拒否する。特に`symlink/../safe`を単純に`abspath`へ変換すると、実際のfilesystemが解決するinodeと異なるdirectoryへlockやevidenceを書いてしまうため、root初期化・状態更新・公開の各境界でfail closedにする。
 
 loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
 
-Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+協調するprocessが同じStudy mutation lock inodeを取得する場合、lock取得後に必ずdisk stateを再構築するため、freezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+
+POSIXで`O_NOFOLLOW`/`O_DIRECTORY`とdirectory-descriptor相対のopenが利用可能なら、`.mutation.lock`取得時はStudy rootまでのancestorをsymlinkを辿らずdescriptorで開き、lock fileも`O_NOFOLLOW | O_CREAT | O_APPEND | O_RDWR`で開いて`fstat`のregular-file確認後に既存のprocess lockを取得する。Studyの公開時もtarget parent/rootを記述子に固定し、非置換のfile link/dir renameに使う。公開先の中間親directoryも、POSIXではStudy-rootから開いたdescriptorを基点に`mkdir(dir_fd=...)`して各子を`O_NOFOLLOW`で開き、作成後に実体とpath identityを照合する。parentの検査後にrootや中間parentをsymlinkへ差し替えられても、外部directoryへ新規`mkdir`しない。directory builderのstagingは、swap可能な`self.root`の文字列pathではなく、open済みのStudy-root descriptorから得た`/proc/self/fd/N`（または`/dev/fd/N`）を基点とする。これらkernel-heldなprocess-fd prefixは、同一スレッドで進行中のStudy公開処理が一時登録したdirectory descriptorの番号・device・inodeが開いた実体と一致する場合にだけ`dup`する。任意の呼出し側が指定した未登録`/proc/self/fd/N`や`/dev/fd/N`は拒否し、その子孫は従来通り`O_NOFOLLOW`で辿る。公開処理終了時には登録を解除する。正当な入れ子StudyStoreのlockとverified readerも同じ記述子基点を認識する。staging leaf自身もbuilder呼出前にno-followで開いたdirectory descriptorへ固定し、builderには登録済みのleaf process-fd pathを渡す。leaf名のsymlink差替えでbuilder書込先が外部へ転送されることは、保持したleaf directory descriptorによって防止し、builder終了時のinode再照合までに検出した差替えは拒否する。ただし照合後から`renameat2(RENAME_NOREPLACE)`までの間に別の通常directoryへ差し替えられると、検証済みinodeではなくその別directoryが一時的に公開され得る。現行実装はrename後に公開先のinodeを保持したstaging descriptorと照合し、不一致なら公開先を別の拒否名へ非置換renameして内容を保存し、integrity errorとする。復旧rename自体が失敗した場合は公開先が不正な状態にある可能性を`PublishedArtifactCleanupError`として報告し、retryを許可しない。失敗時のstaging cleanupは元のdescriptorを照合し、そのdescriptor相対で子を削除するため、差し替えられたstaging名のディレクトリを再帰削除しない。**しかし公開から事後照合・退避までの短い間に非協調的readerが不正な内容を観測する可能性は残る。** これは使い捨て負例で再現した#1131の未解決blockerであり、完全なatomic publicationを主張しない。解消には最終公開のsource inodeを原子的に束縛するか、非協調的writerがsource名を書き換えられないと検証された境界が必要で、事後照合・rollbackだけでは代替できない。root名を同時に差し替えられてもbuilderの書込先が別のディレクトリへ転送されず、変更後のpath identityは公開前・公開後に検査する。事前のpath check直後にleaf/rootがsymlinkへ差し替わっても、外部fileへlockを誤って向けずfail-closedにする。portable fallbackは静的なsymlink/junction/nonregular-fileを拒否するが、同時差し替えのatomic防御は保証しない。いずれの場合も、悪意ある通常file inodeのunlink/recreate、open済みinodeへの書込み、非協調的なwriterによる複数lock inode生成を完全には防げず、敵対的filesystem全体にわたるserialization証明ではない。
+
+`StudyStore.publish_directory_once`はbuilderから公開後のinode検証と必要な退避まで同一Studyのmutation lockを保持し、`StudyStore.read_json`はPOSIXで非blockingなshared lockを取得できなければ拒否する。同じStoreからの再入時も、未commitの公開先以下にあるJSONは拒否する。別Store・別processによる公式readerの競合を含む合成回帰で、公開完了前の読取を拒否できる範囲を固定する。ただし`Path.open`等の非協調的な直接read、lock inodeの外部差替えや既公開bytesの改変までの保護ではない。前段の#1131の制約は残り、完全なfilesystem-level atomic publicationを宣言しない。
+**M2 Study JSON readの非協調的path/内容差替え拒否（#1131、software-only）**: `StudyStore.read_json`は既存のpublication shared lock／no-follow file openに加え、JSONをparseする前にtargetの検査時inode・size・mtime/ctimeと、実際にopenしたFD及びread後のFD／表示pathを照合し、別の正規file inodeへのrename、読取中のin-place変更、あるいはread後のleaf unlinkを拒否する。拒否時は`ArtifactIntegrityError`を保ち、旧Studyのserialized bytes・research decision・publication APIは変更しない。この照合は非協調的writerがすべての時点でpathnameを変更できないこと、同一inodeのABA、readerのJSON総byte制限やStudyのatomic publication保証を意味せず、#1131の包括監査は継続する。
+
+
+ステージングdirectory作成の`mkdir`は作成inodeを開いたFDとして返さないため、作成直後にstage leafが別directoryへ差し替えられる余地もある。POSIXではbuilderを呼ぶ前に固定したFDからstage contentsを列挙し、**事前に一つでもentryが存在すれば拒否**して、未確認の代替directoryにあるentryをcleanupしない。これはforeign pre-populated stageを正式公開する既知の#1131反例への必要条件であり、**空の代替stageの差替えや確認後の追記まで防ぐ完全な作成inodeの証明ではない**。非協調的な同一権限writerを含む強い攻撃者モデルでは追加のOS境界/認証済みevidence契約が未実装で、#1131の最終解消判定は保留する。
+
+POSIXのdirectory公開では、builder終了時に保持中staging FDから正規file/子directoryの一覧とfile SHA-256を取り、rename後かつmutation lock解除前に同じFDから再検査する。予期しないfile追加・内容差替え・非通常file・不安定な読み込み・外部から書換可能な共有hardlinkはintegrity failureとし、公開先をrejected名へ退避する。共有hardlinkはbuilder完了時点でも拒否し、外部aliasによる公開後の変更を狭く抑止する。これは従来見逃していたbuilder終了後からrename直後までの**特定の混入**を検出する補強であり、追加のフルtree読込負荷を持つ。入力個数とnestingを制限して異常なstageの無制限走査を避ける。**rename後の検査完了前の非協調的直接readerと、ロック解除後に同一UIDで書き換えられるfilesystemの完全性までは保証しない。** 上記#1131 blocker、最終source inodeのatomic束縛/隔離の必要性、研究実行・final/liveの不認可は変わらない。
 
 `research-assurance.md` のRESEARCH-001が定めるTier Dでは、入力Datasetとscopeの全体が既に消費済みとprovenanceで確認できるとき、同じ科学的parametersを保ったdeterministic reconstruction/evaluationとtechnical retriesを許す。各attemptはDataset manifest / `arrays.npz` SHA-256、scope、exact code HEAD、run recipe/parametersをbindし、成功outputにはfinal output SHA-256を加える。失敗attemptはparameters・error・logsをappend-onlyで残す。harness errorはdataを永久retireしないが、既存のscientific `FAILED` / `INVALID`、採用基準、candidate結果を消去・置換・post hoc変更する理由にもならない。
 

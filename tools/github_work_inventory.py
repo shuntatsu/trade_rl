@@ -349,6 +349,9 @@ def build_inventory(
         ):
             raise RuntimeError("branch tips or protection changed during workflow scan")
 
+    if api.repository_default_branch() != default:
+        raise RuntimeError("repository default branch changed during inventory")
+
     observed_names = set(open_names) | task_branches | set(workflow_refs)
     branch_rows = []
     for branch in sorted(branches, key=lambda b: b.name):

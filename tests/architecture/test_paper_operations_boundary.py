@@ -77,6 +77,23 @@ def test_attempt3_direct_imports_have_no_network_collector_or_order_surface() ->
         assert not any(within_module(item, forbidden) for item in imported), forbidden
 
 
+def test_linux_service_imports_have_no_network_collector_or_order_surface() -> None:
+    imported = _imports("linux_service.py")
+    assert not {item.split(".", 1)[0] for item in imported} & NETWORK
+    for forbidden in (
+        "trade_rl.integrations",
+        "trade_rl.evaluation.paper.supervisor",
+        "trade_rl.evaluation.paper.storage_probe",
+        "trade_rl.evaluation.paper.engine",
+        "trade_rl.evaluation.paper.store",
+        "trade_rl.evaluation.paper.assessment",
+        "trade_rl.evaluation.final_test",
+        "trade_rl.strategies",
+        "trade_rl.simulation",
+    ):
+        assert not any(within_module(item, forbidden) for item in imported), forbidden
+
+
 def test_collection_audit_is_pure_and_imports_only_the_policy() -> None:
     imported = _imports("collection_audit.py")
     assert not {item.split(".", 1)[0] for item in imported} & NETWORK

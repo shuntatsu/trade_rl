@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import inspect
 import math
+from array import array
+from collections import deque
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
+from typing import Protocol, TypeGuard
 
 import numpy as np
 
@@ -16,6 +21,7 @@ from trade_rl.simulation.quantities import (
     project_quantity,
 )
 
+_ARRAY_PROTOCOL_ABSENT = object()
 _TOLERANCE = 1e-12
 _MIN_EQUITY: float = float(np.finfo(np.float64).tiny)
 
@@ -31,8 +37,157 @@ class EconomicTerminationReason(str, Enum):
     INSOLVENCY = "insolvency"
 
 
-def _finite_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
-    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+class _IndexableContainer(Protocol):
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> object: ...
+
+
+def _is_indexable_container(value: object) -> TypeGuard[_IndexableContainer]:
+    # NumPy accepts duck-typed __getitem__ sequences without ABC registration.
+    return (
+        not isinstance(value, (str, bytes, bytearray))
+        and callable(getattr(type(value), "__len__", None))
+        and callable(getattr(type(value), "__getitem__", None))
+    )
+
+
+def _has_opaque_numpy_protocol(value: object) -> bool:
+    # Exact builtin values/containers cannot attach arbitrary NumPy descriptors.
+    # Preserve their low-overhead admission in frequent replay/accounting calls.
+    if type(value) in (
+        bool,
+        int,
+        float,
+        complex,
+        str,
+        bytes,
+        bytearray,
+        list,
+        tuple,
+        deque,
+        Decimal,
+        range,
+        memoryview,
+        array,
+    ):
+        return False
+    # Both ordinary and dynamically supplied descriptors can hide a masked
+    # buffer on the first probe, then publish it during NumPy conversion.
+    try:
+        value_type = type(value)
+        if (
+            inspect.getattr_static(value_type, "__getattr__", _ARRAY_PROTOCOL_ABSENT)
+            is not _ARRAY_PROTOCOL_ABSENT
+            or value_type.__getattribute__ is not object.__getattribute__
+        ):
+            return True
+        for name in ("__array__", "__array_interface__", "__array_struct__"):
+            if inspect.getattr_static(
+                value, name, _ARRAY_PROTOCOL_ABSENT
+            ) is not _ARRAY_PROTOCOL_ABSENT or hasattr(value, name):
+                return True
+        return False
+    except Exception as exc:
+        # An inaccessible user-defined buffer descriptor is not trustworthy.
+        raise ValueError("opaque array-like protocol cannot be inspected") from exc
+
+
+def _has_masked_origin(value: object) -> bool:
+    # A view can expose plain numbers while retaining a masked original:
+    # follow only native ndarray and memoryview owner links before casting.
+    while True:
+        if np.ma.isMaskedArray(value):
+            return True
+        if isinstance(value, memoryview):
+            value = value.obj
+        elif isinstance(value, np.ndarray):
+            # Read the native descriptor rather than subclass attributes.
+            value = np.ndarray.base.__get__(value)
+        else:
+            return False
+
+
+def _checked_vector_snapshot(value: object, *, field_name: str) -> object:
+    # Snapshot each index once; casting the original dynamic container could
+    # fetch a masked value after the validator observed an unmasked value.
+    root: list[object] = [None]
+    pending: list[tuple[object, list[object] | None, int]] = [(value, root, 0)]
+    active: dict[int, object] = {}
+    while pending:
+        item, parent, index = pending.pop()
+        if parent is None:
+            active.pop(id(item), None)
+            continue
+        if _has_masked_origin(item):
+            raise ValueError(f"{field_name} must not contain a masked array")
+        if isinstance(item, np.ndarray):
+            # Strip the ndarray subclass without converting its native dtype.
+            # Overridden dtype/tolist must not bypass object admission.
+            native = np.asarray(item)
+            if not native.dtype.hasobject:
+                parent[index] = native.copy()
+                continue
+            if native.dtype.kind != "O":
+                raise ValueError(
+                    f"{field_name} must not contain opaque array-like values"
+                )
+            if id(item) in active:
+                raise ValueError(f"{field_name} must not contain cyclic arrays")
+            active[id(item)] = item
+            pending.append((item, None, 0))
+            pending.append((native.tolist(), parent, index))
+            continue
+        if isinstance(item, np.generic):
+            dtype = np.generic.dtype.__get__(item)
+            if type(item) is not dtype.type or dtype.hasobject:
+                raise ValueError(
+                    f"{field_name} must not contain opaque scalar converters"
+                )
+            parent[index] = item
+            continue
+        if _has_opaque_numpy_protocol(item):
+            raise ValueError(f"{field_name} must not contain opaque array-like values")
+        if _is_indexable_container(item):
+            if id(item) in active:
+                raise ValueError(f"{field_name} must not contain cyclic sequences")
+            active[id(item)] = item
+            children = [item[pos] for pos in range(len(item))]
+            snapshot: list[object] = [None] * len(children)
+            parent[index] = snapshot
+            pending.append((item, None, 0))
+            for pos in range(len(children) - 1, -1, -1):
+                pending.append((children[pos], snapshot, pos))
+            continue
+        # NumPy must not invoke an untrusted scalar __float__ or __index__
+        # after validation. Native number/text atoms retain casting.
+        if type(item) not in (
+            bool,
+            int,
+            float,
+            complex,
+            str,
+            bytes,
+            bytearray,
+            Decimal,
+            Fraction,
+        ):
+            raise ValueError(f"{field_name} must not contain opaque scalar converters")
+        parent[index] = item
+    return root[0]
+
+
+def _finite_vector(value: object, *, field_name: str) -> np.ndarray:
+    # Native numeric ndarrays retain the original no-element-walk fast path.
+    if _has_masked_origin(value):
+        raise ValueError(f"{field_name} must not be a masked array")
+    checked = (
+        value
+        if isinstance(value, np.ndarray)
+        and not np.ndarray.dtype.__get__(value).hasobject
+        else _checked_vector_snapshot(value, field_name=field_name)
+    )
+    vector = np.asarray(checked, dtype=np.float64).reshape(-1).copy()
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")
     return vector
@@ -82,22 +237,82 @@ def _cash_interest_amount(
         raise ValueError("annual_rate must be finite")
     if not np.isfinite(year_fraction) or year_fraction < 0.0:
         raise ValueError("year_fraction must be finite and non-negative")
-    return float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(cash_basis):
+        raise ValueError("cash basis must be finite")
+    # An identity leg must not evaluate a potentially overflowing other leg.
+    if cash_basis == 0.0 or annual_rate == 0.0 or year_fraction == 0.0:
+        return 0.0
+    amount = float(cash_basis * annual_rate * year_fraction)
+    if not math.isfinite(amount):
+        raise ValueError("cash interest amount became non-finite")
+    if amount == 0.0:
+        raise ValueError("nonzero cash interest amount cannot be represented")
+    return amount
+
+
+def _require_representable_position_values(
+    *, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
+) -> np.ndarray:
+    """Preserve valid subnormals while rejecting erased or non-finite holdings."""
+    if (
+        quantities.ndim != 1
+        or quantities.shape != marks.shape
+        or quantities.shape != multipliers.shape
+    ):
+        raise ValueError("account valuation arrays must have matching vector shapes")
+    if quantities.size == 0:
+        raise ValueError(
+            "account valuation arrays must have matching nonempty vector shapes"
+        )
+    if (
+        quantities.dtype != np.float64
+        or marks.dtype != np.float64
+        or multipliers.dtype != np.float64
+    ):
+        # BookState admission always normalizes these arrays to binary64.
+        # A later direct dtype replacement has no trusted valuation meaning:
+        # integer multiplication can wrap without a NumPy overflow warning.
+        raise ValueError(
+            "non-float64 account arrays cannot guarantee nonzero position value"
+        )
+    if quantities.size <= 8:
+        # Avoid several NumPy reductions and an errstate context per read in
+        # the common independent/small-roster replay. Python float has the
+        # same ordered binary64 products and does not inherit NumPy warnings.
+        values: list[float] = []
+        for quantity, mark, multiplier in zip(
+            quantities, marks, multipliers, strict=True
+        ):
+            position = float(quantity) * float(mark) * float(multiplier)
+            if not math.isfinite(position):
+                raise ValueError("proposed account state became non-finite")
+            if quantity != 0.0 and position == 0.0:
+                raise ValueError("nonzero position value cannot be represented")
+            values.append(position)
+        return np.asarray(values, dtype=np.float64)
+
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        position_values = quantities * marks * multipliers
+    if not np.isfinite(position_values).all():
+        raise ValueError("proposed account state became non-finite")
+    # A finite position can be nonzero only for a nonzero quantity. Preserve
+    # the count to reject every lost holding without another temporary mask.
+    if np.count_nonzero(position_values) != np.count_nonzero(quantities):
+        raise ValueError("nonzero position value cannot be represented")
+    return position_values
 
 
 def _require_finite_post_update_equity(
     *, cash: float, quantities: np.ndarray, marks: np.ndarray, multipliers: np.ndarray
 ) -> float:
     """Reject an unrepresentable proposed account transition before mutation."""
+    position_values = _require_representable_position_values(
+        quantities=quantities, marks=marks, multipliers=multipliers
+    )
     with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
-        position_values = quantities * marks * multipliers
         equity = float(cash + position_values.sum())
-    if not np.isfinite(position_values).all() or not all(
-        math.isfinite(value) for value in (cash, equity)
-    ):
+    if not all(math.isfinite(value) for value in (cash, equity)):
         raise ValueError("proposed account state became non-finite")
-    if np.any((quantities != 0.0) & (position_values == 0.0)):
-        raise ValueError("nonzero position value cannot be represented")
     return equity
 
 
@@ -310,12 +525,24 @@ class BookState:
     @property
     def position_values(self) -> np.ndarray:
         multipliers = self.contract_multipliers
-        assert multipliers is not None
-        return self.quantities * self.mark_prices * multipliers
+        if multipliers is None:
+            raise ValueError("account valuation requires contract_multipliers")
+        # Validate even on the ordinary path: public quantity arrays are mutable,
+        # and non-finite values do not necessarily raise a NumPy warning.
+        return _require_representable_position_values(
+            quantities=self.quantities,
+            marks=self.mark_prices,
+            multipliers=multipliers,
+        )
 
     @property
     def portfolio_value(self) -> float:
-        return float(self.cash + self.position_values.sum())
+        # The publicly mutable account values may have changed since admission.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            value = float(self.cash + self.position_values.sum())
+        if not math.isfinite(value):
+            raise ValueError("portfolio value became non-finite")
+        return value
 
     @property
     def effective_portfolio_value(self) -> float:
@@ -432,8 +659,18 @@ class BookState:
             raise ValueError("dividend_per_unit must match the book")
         multipliers = self.contract_multipliers
         assert multipliers is not None
-        with np.errstate(over="ignore", invalid="ignore"):
-            amount = float(np.dot(self.quantities * multipliers, dividend))
+        active = (self.quantities != 0.0) & (dividend != 0.0)
+        # A true-zero dividend leg is an identity, even when its unrelated
+        # quantity * multiplier intermediate would overflow.
+        dividend_basis = np.zeros(self.quantities.shape, dtype=np.float64)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            dividend_basis[active] = self.quantities[active] * multipliers[active]
+            contributions = dividend_basis * dividend
+            amount = float(np.dot(dividend_basis, dividend))
+        if not np.isfinite(contributions).all() or not math.isfinite(amount):
+            raise ValueError("dividend amount became non-finite")
+        if np.any(active & (contributions == 0.0)):
+            raise ValueError("nonzero dividend amount cannot be represented")
         cash_after = self.cash + amount
         _require_finite_post_update_equity(
             cash=cash_after,
@@ -483,7 +720,13 @@ class BookState:
         prices: np.ndarray,
         recovery: np.ndarray,
     ) -> float:
-        settle_mask = np.asarray(mask, dtype=np.bool_).reshape(-1)
+        # A settlement is irreversible: reject non-boolean selectors rather than
+        # silently converting nonzero numbers, NaN or nonempty strings to True.
+        if np.ma.isMaskedArray(mask):
+            raise ValueError("settlement mask must be a boolean vector")
+        settle_mask = np.asarray(mask)
+        if settle_mask.ndim != 1 or settle_mask.dtype != np.dtype(np.bool_):
+            raise ValueError("settlement mask must be a boolean vector")
         price_vector = _finite_vector(prices, field_name="settlement_prices")
         recovery_vector = _finite_vector(recovery, field_name="recovery")
         if any(
@@ -578,18 +821,15 @@ class BookState:
         )
         if not np.isfinite(requirement) or requirement < 0.0:
             raise ValueError("maintenance_requirement must be finite and non-negative")
+        # Public BookState arrays and cash can change after admission. Validate
+        # the current account before any margin field is modified, including
+        # when an explicit requirement bypasses the position-based default.
+        value = self.portfolio_value
         self.margin_used = float(margin_used)
         self.maintenance_margin = float(maintenance_margin)
         self.maintenance_requirement = requirement
-        self.margin_deficit = max(
-            0.0,
-            requirement - max(self.portfolio_value, 0.0),
-        )
-        if (
-            self.portfolio_value > 0.0
-            and requirement > 0.0
-            and self.portfolio_value < requirement - _TOLERANCE
-        ):
+        self.margin_deficit = max(0.0, requirement - max(value, 0.0))
+        if value > 0.0 and requirement > 0.0 and value < requirement - _TOLERANCE:
             self.terminate(EconomicTerminationReason.MARGIN_CALL)
 
     def terminate(self, reason: EconomicTerminationReason | str) -> None:

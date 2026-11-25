@@ -21,7 +21,10 @@ _MAX_FLOAT_LOG = math.log(float(np.finfo(np.float64).max))
 def _finite_float(name: str, value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a finite real number")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{name} must be a finite real number") from error
     if not math.isfinite(result):
         raise ValueError(f"{name} must be a finite real number")
     return result

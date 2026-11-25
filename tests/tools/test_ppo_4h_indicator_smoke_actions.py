@@ -662,39 +662,6 @@ def test_review_gate_ignores_later_transport_review_after_trusted_authorization(
     )
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    (
-        ("body", REVIEW_BODY + " edited"),
-        ("commit_id", "c" * 40),
-        ("state", "DISMISSED"),
-        (
-            "html_url",
-            "https://github.com/owner/repo/pull/900#pullrequestreview-54321",
-        ),
-        ("reviewer_login", "renamed-reviewer"),
-    ),
-)
-def test_review_gate_ignores_non_authoritative_inventory_refresh(
-    monkeypatch: pytest.MonkeyPatch,
-    field: str,
-    value: object,
-) -> None:
-    monkeypatch.setattr(actions, "_git", _fake_git)
-    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
-
-    def review_inventory(url: str, **_kwargs: object) -> list[object]:
-        raise AssertionError(f"transport review inventory must not be authority: {url}")
-
-    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
-    actions.validate_review_gate(
-        _review(),
-        repository="owner/repo",
-        token="token",
-        deadline=999999999.0,
-    )
-
-
 def test_review_gate_keeps_authorization_when_other_reviewer_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

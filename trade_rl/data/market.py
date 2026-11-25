@@ -25,6 +25,101 @@ _NS_PER_HOUR = 3_600_000_000_000
 _ZERO_DIGEST = "0" * 64
 
 
+_CROSS_ASSET_GLOBAL_PREFIX = "xa_"  # Reserved for external market-context features.
+_CROSS_ASSET_VINTAGE_BASIS = "latest_vintage_at_capture_not_first_release"
+_CROSS_ASSET_OVERLAY_SCHEMA = "cross_asset_global_overlay_v3"
+_CROSS_ASSET_RECEIPT_FIELDS = frozenset(
+    {
+        "schema",
+        "feature_set",
+        "definitions_digest",
+        "input_digest",
+        "names",
+        "normalizer_digest",
+        "series_present",
+        "opt_in_series",
+        "vintage_basis",
+        "strict_point_in_time_verified",
+        "latest_vintage_series",
+        "accept_revision_hindsight",
+        "revision_hindsight_series",
+    }
+)
+
+
+def _elapsed_search_duration_ns(hours: float) -> int:
+    """Round as before, capping only beyond every representable timestamp span."""
+    scaled = float(hours) * _NS_PER_HOUR
+    # A distance of 2**64 ns exceeds the entire signed-ns timestamp domain.
+    # It suffices for a search bound and also avoids rounding positive infinity.
+    if scaled >= 1 << 64:
+        return 1 << 64
+    return round(scaled)
+
+
+def _validate_cross_asset_global_provenance(
+    names: Sequence[str], payload: Mapping[str, object]
+) -> None:
+    # Dataset identity is a content digest, not source authentication. A
+    # truncated or forged receipt must not turn retrospective inputs into PIT.
+    selected_names = [
+        name[len(_CROSS_ASSET_GLOBAL_PREFIX) :]
+        for name in names
+        if name.startswith(_CROSS_ASSET_GLOBAL_PREFIX)
+    ]
+    if not selected_names:
+        return
+
+    overlay = payload.get("cross_asset_overlay")
+    if not isinstance(overlay, dict) or set(overlay) != _CROSS_ASSET_RECEIPT_FIELDS:
+        raise ValueError("cross-asset source provenance must be complete")
+    if (
+        overlay["schema"] != _CROSS_ASSET_OVERLAY_SCHEMA
+        or overlay["vintage_basis"] != _CROSS_ASSET_VINTAGE_BASIS
+        or overlay["strict_point_in_time_verified"] is not False
+        or overlay["accept_revision_hindsight"] is not True
+        or type(overlay["names"]) is not list
+        or overlay["names"] != selected_names
+        or not all(isinstance(name, str) and name for name in selected_names)
+    ):
+        raise ValueError("cross-asset source provenance cannot claim verified PIT")
+    if (
+        not isinstance(overlay["feature_set"], str)
+        or not overlay["feature_set"]
+        or not all(
+            isinstance(overlay[field], str)
+            and len(overlay[field]) == 64
+            and all(character in "0123456789abcdef" for character in overlay[field])
+            for field in ("definitions_digest", "input_digest")
+        )
+    ):
+        raise ValueError("cross-asset source provenance requires source digests")
+    normalizer_digest = overlay["normalizer_digest"]
+    if normalizer_digest is not None and (
+        not isinstance(normalizer_digest, str)
+        or len(normalizer_digest) != 64
+        or any(character not in "0123456789abcdef" for character in normalizer_digest)
+    ):
+        raise ValueError("cross-asset source provenance has invalid normalizer digest")
+    for series_field in (
+        "series_present",
+        "opt_in_series",
+        "latest_vintage_series",
+        "revision_hindsight_series",
+    ):
+        series = overlay[series_field]
+        if (
+            not isinstance(series, list)
+            or any(not isinstance(name, str) or not name for name in series)
+            or len(set(series)) != len(series)
+        ):
+            raise ValueError("cross-asset source provenance has invalid series")
+    if not overlay["latest_vintage_series"] or not set(
+        overlay["revision_hindsight_series"]
+    ).issubset(set(overlay["latest_vintage_series"])):
+        raise ValueError("cross-asset source provenance has mismatched series")
+
+
 def _readonly_array(
     value: np.ndarray,
     *,
@@ -727,6 +822,7 @@ class MarketDataset:
         object.__setattr__(self, "_eligibility_feature_source", feature_available)
         if identity_payload_json is not None:
             payload = parse_identity_json(identity_payload_json)
+            _validate_cross_asset_global_provenance(global_names, payload)
             canonical_payload_json = canonical_identity_json(payload)
             identity_schema = payload.get("schema")
             if (
@@ -843,6 +939,20 @@ class MarketDataset:
         provenance: Mapping[str, object] | None = None,
     ) -> MarketDataset:
         payload = dict(provenance or {})
+        # An already constructed cross-asset Dataset must never be reidentified
+        # by this generic public API. The explicit overlay builder uses zero-ID
+        # staging with a complete retrospective receipt; content IDs do not
+        # authenticate a caller deliberately fabricating source evidence.
+        if any(
+            name.startswith(_CROSS_ASSET_GLOBAL_PREFIX)
+            for name in self.global_feature_names
+        ) and (
+            self.identity_payload_json is not None or self.dataset_id != _ZERO_DIGEST
+        ):
+            raise ValueError(
+                "cross-asset source provenance cannot be rebound through generic identity"
+            )
+        _validate_cross_asset_global_provenance(self.global_feature_names, payload)
         payload["schema"] = (
             MARKET_DATASET_IDENTITY_SCHEMA_V7
             if self.funding_price_rate is not None
@@ -907,8 +1017,12 @@ class MarketDataset:
             raise ValueError("lookback index is outside the dataset")
         if not math.isfinite(hours) or hours <= 0.0:
             raise ValueError("hours must be finite and positive")
-        target_ns = self._timestamp_ns[index] - int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="right") - 1)
+        target_ns = int(self._timestamp_ns[index]) - _elapsed_search_duration_ns(hours)
+        if target_ns < int(self._timestamp_ns[0]):
+            raise ValueError("insufficient history for requested hours")
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="right") - 1
+        )
         if result < 0 or result >= index:
             raise ValueError("insufficient history for requested hours")
         return result
@@ -916,8 +1030,12 @@ class MarketDataset:
     def minimum_index_for_history(self, hours: float) -> int:
         if not math.isfinite(hours) or hours <= 0.0:
             raise ValueError("hours must be finite and positive")
-        target_ns = self._timestamp_ns[0] + int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="left"))
+        target_ns = int(self._timestamp_ns[0]) + _elapsed_search_duration_ns(hours)
+        if target_ns > int(self._timestamp_ns[-1]):
+            raise ValueError("dataset is too short for requested history")
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="left")
+        )
         if result >= self.n_bars:
             raise ValueError("dataset is too short for requested history")
         return result
@@ -936,8 +1054,14 @@ class MarketDataset:
         maximum = self.n_bars - 1 if maximum_index is None else maximum_index
         if not start_index < maximum < self.n_bars:
             raise ValueError("maximum_index is outside the forward range")
-        target_ns = self._timestamp_ns[start_index] + int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="left"))
+        target_ns = int(self._timestamp_ns[start_index]) + _elapsed_search_duration_ns(
+            hours
+        )
+        if target_ns >= int(self._timestamp_ns[maximum]):
+            return maximum
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="left")
+        )
         return min(maximum, max(start_index + 1, result))
 
     def bars_until(

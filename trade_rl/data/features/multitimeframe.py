@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timezone
+from typing import cast
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureSpec, InstrumentContract, timeframe_hours
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    timeframe_hours,
+)
 from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 from trade_rl.data.source import RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
@@ -38,8 +47,11 @@ def _native_events(
     spec: FeatureSpec,
     raw: RawMarketSeries,
     contract: InstrumentContract,
+    *,
+    active: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    active = _active_mask(raw, contract)
+    if active is None:
+        active = _active_mask(raw, contract)
     assert raw.funding_available is not None
     values, valid, source_start = calculate_feature_events(
         spec,
@@ -53,16 +65,53 @@ def _native_events(
         row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
         active=active,
     )
-    available_at = np.full(
-        len(raw.timestamps), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
-    )
     assert raw.available_at is not None
-    for index in np.flatnonzero(valid):
+    return (
+        values,
+        valid,
+        _dependency_available_at(raw.available_at, valid, source_start),
+    )
+
+
+def _dependency_available_at(
+    raw_available_at: np.ndarray,
+    valid: np.ndarray,
+    source_start: np.ndarray,
+) -> np.ndarray:
+    """Exact range maxima; linear for the maintained nondecreasing starts.
+
+    RawMarketSeries has already excluded NaT and normalized timestamps to ns.
+    Compare integer timestamps to avoid repeated datetime conversion. A decreasing
+    dependency start requires rebuilding the queue, not forgetting older bars.
+    """
+
+    available_at = np.full(
+        len(raw_available_at), np.datetime64("NaT", "ns"), dtype="datetime64[ns]"
+    )
+    raw_ns = raw_available_at.view(np.int64)
+    result_ns = available_at.view(np.int64)
+    candidates: deque[int] = deque()
+    cursor = 0
+    previous_start = 0
+    for event in np.flatnonzero(valid):
+        index = int(event)
         start = int(source_start[index])
         if start < 0 or start > index:
             raise ValueError("feature source range is invalid")
-        available_at[index] = np.max(raw.available_at[start : index + 1])
-    return values, valid, available_at
+        if start < previous_start:
+            candidates.clear()
+            cursor = start
+        while candidates and candidates[0] < start:
+            candidates.popleft()
+        cursor = max(cursor, start)
+        while cursor <= index:
+            while candidates and raw_ns[candidates[-1]] <= raw_ns[cursor]:
+                candidates.pop()
+            candidates.append(cursor)
+            cursor += 1
+        result_ns[index] = raw_ns[candidates[0]]
+        previous_start = start
+    return available_at
 
 
 def align_native_feature(
@@ -77,7 +126,89 @@ def align_native_feature(
     """Calculate on the native clock and causally align to the base clock."""
 
     _validate_regular_native_series(raw, timeframe)
-    event_values, event_valid, event_available_at = _native_events(spec, raw, contract)
+    return _align_events(
+        spec, raw, _native_events(spec, raw, contract), base_timestamps, base_active
+    )
+
+
+def align_clocked_native_feature(
+    spec: FeatureSpec,
+    raw: RawMarketSeries,
+    contract: InstrumentContract,
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+    *,
+    clock: NativeBarClock,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Align price/volume features from an explicit complete native close grid.
+
+    The clock is supplied separately: no legacy FeatureSpec timeframe or
+    Dataset identity is changed. Bar-index windows keep their existing meaning;
+    age and staleness are elapsed hours. A bar crossing the listing boundary
+    cannot contribute to warm-up, and a decision at or after delisting cannot
+    use stale features. Source identity, complete publication evidence and
+    the clock must be bound externally before persisting or using a feature.
+    This is not provider finality, cross-asset or funding-event admission.
+    """
+    if not isinstance(clock, NativeBarClock):
+        raise ValueError("clock must be a NativeBarClock")
+    if spec.timeframe is not None:
+        raise ValueError("explicit clock requires no legacy feature timeframe")
+    if spec.kind in {
+        FeatureKind.FUNDING_BPS,
+        FeatureKind.FUNDING_CHANGE,
+        FeatureKind.FUNDING_ZSCORE,
+        FeatureKind.RELATIVE_RETURN_TO_BTC,
+        FeatureKind.ROLLING_CORRELATION_TO_BTC,
+        FeatureKind.ROLLING_BETA_TO_BTC,
+        FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+        FeatureKind.CROSS_ASSET_DISPERSION,
+    }:
+        raise ValueError(
+            "explicit native clock supports only single-instrument price/volume features"
+        )
+    starts, closes = clock.interval_bounds(raw.timestamps)
+    base = _datetime64_values_to_ns_exact(
+        _native_unmasked_array(base_timestamps, field_name="base timestamps")
+    )
+    active = _native_unmasked_array(base_active, field_name="base active")
+    if base.ndim != 1 or not base.size or np.any(base[1:] <= base[:-1]):
+        raise ValueError("base timestamps must be nonempty and strictly increasing")
+    if active.dtype != np.dtype(np.bool_) or active.shape != base.shape:
+        raise ValueError("base active must be a matching boolean array")
+
+    # Convert through microseconds to detect out-of-nanosecond-range lifetimes.
+    def lifecycle_time(value: datetime) -> np.datetime64:
+        utc = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return cast(
+            np.datetime64,
+            _datetime64_values_to_ns_exact(np.asarray(np.datetime64(utc, "us")))[()],
+        )
+
+    listed = lifecycle_time(contract.listed_at)
+    native_active = starts >= listed
+    decision_active = active & (base >= listed)
+    if contract.delisted_at is not None:
+        delisted = lifecycle_time(contract.delisted_at)
+        native_active &= closes < delisted
+        decision_active &= base < delisted
+    return _align_events(
+        spec,
+        raw,
+        _native_events(spec, raw, contract, active=native_active),
+        base,
+        decision_active,
+    )
+
+
+def _align_events(
+    spec: FeatureSpec,
+    raw: RawMarketSeries,
+    events: tuple[np.ndarray, np.ndarray, np.ndarray],
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    event_values, event_valid, event_available_at = events
     values = np.zeros(len(base_timestamps), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)
     age_hours = np.full(
@@ -107,7 +238,7 @@ def align_native_feature(
             cursor += 1
         if latest_index is None or not base_active[base_index]:
             continue
-        age = float(timestamp_ns - event_time_ns[latest_index]) / _NS_PER_HOUR
+        age = float(int(timestamp_ns) - int(event_time_ns[latest_index])) / _NS_PER_HOUR
         if age < -1e-12:
             raise ValueError("native feature event appears before its event timestamp")
         normalized_staleness = min(age / spec.max_staleness_hours, 1.0)
@@ -120,4 +251,4 @@ def align_native_feature(
     return values, available, age_hours, staleness
 
 
-__all__ = ["align_native_feature"]
+__all__ = ["align_clocked_native_feature", "align_native_feature"]

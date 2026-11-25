@@ -13,12 +13,17 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from tools.github_coordination_registry_snapshot import validate_coordination_ref
+from tools.github_workflow_attempts import (
+    validate_attempt_job_states,
+    validate_workflow_state,
+)
+
 if TYPE_CHECKING:
     from tools.agent_repo.coordination.leases import LeaseRecord
     from tools.github_coordination_registry_snapshot import RegistryRefSnapshot
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_REF = re.compile(r"^refs/heads/coordination/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 
 
 def _object(value: object, label: str) -> Mapping[str, Any]:
@@ -62,34 +67,6 @@ def _unique_strings(value: object, label: str) -> list[str]:
     return names
 
 
-def _run_state(value: Mapping[str, Any]) -> None:
-    state = value.get("status")
-    if type(state) is not str or state not in {
-        "requested",
-        "waiting",
-        "pending",
-        "queued",
-        "in_progress",
-        "completed",
-    }:
-        raise ValueError("attempt status is unknown")
-    conclusion = value.get("conclusion")
-    if state == "completed":
-        if type(conclusion) is not str or conclusion not in {
-            "success",
-            "failure",
-            "cancelled",
-            "skipped",
-            "neutral",
-            "timed_out",
-            "action_required",
-            "stale",
-        }:
-            raise ValueError("completed attempt conclusion is unknown")
-    elif conclusion is not None:
-        raise ValueError("unfinished attempt cannot have a conclusion")
-
-
 def inspect_expired_lease_evidence(
     snapshot: RegistryRefSnapshot,
     lease: LeaseRecord,
@@ -128,14 +105,7 @@ def inspect_expired_lease_evidence(
     ):
         raise ValueError("registry snapshot is malformed or claims authority")
     _sha(snapshot.ref_oid, "registry ref_oid")
-    if (
-        type(snapshot.ref_name) is not str
-        or not _REF.fullmatch(snapshot.ref_name)
-        or ".." in snapshot.ref_name
-        or snapshot.ref_name.endswith(".lock")
-        or any(part in {".", ".."} for part in snapshot.ref_name.split("/"))
-    ):
-        raise ValueError("registry ref is not a safe coordination ref")
+    validate_coordination_ref(snapshot.ref_name)
     matches = [
         entry
         for entry in snapshot.registry.entries
@@ -236,7 +206,7 @@ def inspect_expired_lease_evidence(
         ):
             raise ValueError("attempt observation differs from lease")
         _id(item.get("run_attempt"), "run attempt")
-        _run_state(item)
+        run_status, run_conclusion = validate_workflow_state(item, name="attempt")
         _false(
             item,
             "workflow_activity_checked",
@@ -250,9 +220,11 @@ def inspect_expired_lease_evidence(
             or len(jobs) != item["job_count"]
         ):
             raise ValueError("run attempt jobs are absent or incomplete")
-        job_ids = [_id(_object(job, "job").get("id"), "job id") for job in jobs]
+        job_records = [_object(job, "job") for job in jobs]
+        job_ids = [_id(job.get("id"), "job id") for job in job_records]
         if len(job_ids) != len(set(job_ids)):
             raise ValueError("run attempt job ids are duplicated")
+        validate_attempt_job_states(run_status, run_conclusion, job_records)
         pairs[run] = item
     if (
         any(item["status"] != "completed" for item in pairs.values())
@@ -271,6 +243,7 @@ def inspect_expired_lease_evidence(
         attempt = pairs.get(run)
         if attempt is None:
             raise ValueError("artifact run has no matched attempt observation")
+        validate_workflow_state(item, name="artifact")
         observed_attempt = _id(item.get("run_attempt_observed"), "artifact run attempt")
         if (
             item.get("schema") != "github_workflow_artifact_observation_v1"

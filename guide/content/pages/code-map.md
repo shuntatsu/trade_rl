@@ -6,7 +6,7 @@
 
 | 領域 | 所有する責務 | 所有しないもの |
 | --- | --- | --- |
-| integrations | provider固有レスポンスを内部source evidenceへ変換 | 売買判断 |
+| integrations | provider固有レスポンスを内部source evidenceへ変換。Binance source close-timeの新規検証は明示的な `strict_source_close_v2` のみを対象とし、元のミリ秒／マイクロ秒単位の終了時刻を切り捨てずに検査します。データソースと集計側のポリシーはキャッシュ利用中に切り替えず、1時間足以外の足を要求するときには未検証ラッパーを拒否し、Datasetの基準足が4時間でも集計済みデータを無条件には信用しません。従来の `reconstructed_v1` と公開済みDataset IDは変更せず、外部アダプタが元の足を改変していないことやデータ公開時刻まで証明するものではありません | 売買判断 |
 | data | causalな`MarketDataset`、availability、staleness、dataset identity、検証済みartifactのidentity/data読込 | strategy固有の意思決定 |
 | strategies | 共通観測から論理的な売買意図を返す。forecast familyは`supervised.py`でcausal training rowsと、正の元unit multiplierを使う正確な整数ns validationを共有し、保有経過時間とminimum-hold制約も実約定数量を基準に共有する。cost-aware forecastはReplayのbudget・actual weight・filled sideを使って離散targetを選び、AdaptiveはReplay由来のgross returnと実約定quantityでprotective exitを判断する | fill、fee、accounting |
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
@@ -41,7 +41,7 @@ artifacts / evidence
 | 市場データの共通契約 | `trade_rl.data.market.MarketDataset` |
 | 検証済みDataset identityとデータの同時読み込み | `trade_rl.data.load_published_market_dataset_artifact` |
 | 単銘柄戦略の共通interface | `trade_rl.strategies.interface.SingleSymbolStrategy` |
-| hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk` |
+| hard riskの所有者 | `trade_rl.risk.pretrade.PreTradeRisk`（turnoverと緊急マスクの型も検査） |
 | 新しいStudyのfinancial objective / capital / clock contract | `trade_rl.simulation.objectives.ObjectiveContract` / `CapitalContract` / `BoundObjectiveClock` |
 | 約定・会計の所有者 | `trade_rl.simulation.execution.MarketExecutor` |
 | 数値portfolio状態を一native barずつ継続する所有者 | `trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession` |
@@ -99,6 +99,8 @@ strict v1入口とTier-2 facadeは変わりません。inference loaderとscenar
 `publish_four_family_portfolio_scenario_result_artifact_v2` / `load_four_family_portfolio_scenario_result_artifact_v2`も明示的なv2 result APIです。
 この保存機能はscenarioやnumeric stress recipeを選ばず、gate・経済結果の証拠も作りません。
 
+約定コストは、実際にfillした非ゼロ費用を浮動小数点のunderflowで0に潰して無償約定と扱わないよう、BookStateへ反映する前に検査します。zero fillや真のゼロ費用は認めます。詳細は「約定コストと会計」を参照してください。
+
 約定の標準破産評価は口座価値をゼロで下限処理します。人工研究で明示的に
 `MarketExecutor(insolvency_valuation="retain_debt")` を選んだ場合だけ、
 負債を持つraw `BookState` を維持し、破産後の注文・追加barを停止します。
@@ -135,6 +137,10 @@ PPO環境と各replayは、分割後の数量単位に希望数量を換算し�
 保有数量がまだない口座は、同じsimulationの処理が現在の市場マーク価格を解決してからエントリー数量を求めます。初期価格を省略したBookStateも、この経路で処理できます。
 
 `position_duration` は学習とreplayで共通の保有age規則を定義し、`contracts.study` は結果前にprotocolとriskを固定します。v1 selectorは独立口座、v2は`run_shared_cash_replay`のportfolio-level return/DD/excess/terminal stateから適格性を再計算します。bootstrapはDatasetとStudyPlanのみを準備します。
+
+Task18のnumeric replayも同じsessionを使います。明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inで、既定経路は従来どおりです。人工専用の凍結入力、保存済み完了armの読取り専用検証、外部pin付き祖先handoffの再確認と累積pendingの後継runへのdispatchはtools側の責務であり、人工全行列の検証driverはtests側で固定fixtureと証拠を扱い、strategyやsimulationが別ledgerを作るものではありません。
+
+共通replayの任意native advance observerは実行の観測事実のみを返し、人工Task18の進捗保存・checkpoint間隔・失敗receiptへの反映はtools側で所有します。
 
 ## 境界を見るときのチェック
 

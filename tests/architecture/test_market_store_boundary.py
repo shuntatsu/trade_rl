@@ -19,6 +19,7 @@ MODULES = {
     "checksum.py",
     "cli.py",
     "archive_url.py",
+    "carry_source.py",
     "contracts.py",
     "embargo.py",
     "export.py",
@@ -116,7 +117,7 @@ def test_pyproject_pins_psycopg_for_the_store_extra_and_ships_migrations() -> No
 
 def test_compose_binds_loopback_pins_the_image_and_keeps_secrets_out() -> None:
     compose = (DEPLOY / "compose.yml").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^    image: postgres:16\.15-bookworm$", compose)
+    assert re.search(r"(?m)^    image: postgres:16\.16-bookworm$", compose)
     assert "latest" not in compose
     assert '"127.0.0.1:${MARKET_STORE_PORT' in compose
     assert "healthcheck:" in compose and "pg_isready" in compose
@@ -152,7 +153,7 @@ def test_ci_runs_the_postgres_integration_tests_in_a_service_container() -> None
     image_pattern = r"postgres:16\.\d+(?:-bookworm)?"
     compose_images = re.findall(rf"(?m)^    image: ({image_pattern})$", compose)
     ci_images = re.findall(rf"(?m)^        image: ({image_pattern})$", job)
-    assert compose_images == ["postgres:16.15-bookworm"]
+    assert compose_images == ["postgres:16.16-bookworm"]
     assert ci_images == compose_images
     docs = (ROOT / "docs" / "architecture" / "package-boundaries.md").read_text(
         encoding="utf-8"

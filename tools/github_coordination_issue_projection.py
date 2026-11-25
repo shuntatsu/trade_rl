@@ -95,7 +95,8 @@ def _comment_rows(
 ) -> tuple[tuple[int, int, str, str], ...]:
     rows: list[tuple[int, int, str, str]] = []
     seen: set[int] = set()
-    for page in range(1, (total + 99) // 100 + 1):
+    # A full final page cannot establish exhaustion; require an empty successor.
+    for page in range(1, total // 100 + 2):
         raw = api._request_json(
             "GET",
             f"issues/{issue_number}/comments",

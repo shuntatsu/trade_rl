@@ -31,10 +31,21 @@ def _positive_integer(value: object, *, field: str) -> int:
 def _number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(result):
         raise ValueError(f"{field} must be finite")
     return result
+
+
+def _finite_without_overflow(value: float) -> bool:
+    """Preserve ordinary finite checks, refusing ints too large for float."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -104,28 +115,34 @@ class FundingBoundaryEvidence:
             )
         ):
             raise ValueError("funding boundary evidence vectors must have equal length")
-        if any(not math.isfinite(value) for value in self.signed_quantities):
+        if any(not _finite_without_overflow(value) for value in self.signed_quantities):
             raise ValueError("signed_quantities must be finite")
-        if any(not math.isfinite(value) or value <= 0.0 for value in self.mark_prices):
+        if any(
+            not _finite_without_overflow(value) or value <= 0.0
+            for value in self.mark_prices
+        ):
             raise ValueError("mark_prices must be finite and positive")
         if any(
-            not math.isfinite(value) or value <= 0.0
+            not _finite_without_overflow(value) or value <= 0.0
             for value in self.contract_multipliers
         ):
             raise ValueError("contract_multipliers must be finite and positive")
-        if any(not math.isfinite(value) for value in self.funding_rates):
+        if any(not _finite_without_overflow(value) for value in self.funding_rates):
             raise ValueError("funding_rates must be finite")
         if self.funding_price_rates is not None:
             if len(self.funding_price_rates) != size:
                 raise ValueError("funding_price_rates must match symbol count")
-            if any(not math.isfinite(value) for value in self.funding_price_rates):
+            if any(
+                not _finite_without_overflow(value)
+                for value in self.funding_price_rates
+            ):
                 raise ValueError("funding_price_rates must be finite")
         for name, value in (
             ("funding_amount", self.funding_amount),
             ("equity_before_funding", self.equity_before_funding),
             ("equity_after_funding", self.equity_after_funding),
         ):
-            if not math.isfinite(value):
+            if not _finite_without_overflow(value):
                 raise ValueError(f"{name} must be finite")
 
         if self.funding_price_rates is None:

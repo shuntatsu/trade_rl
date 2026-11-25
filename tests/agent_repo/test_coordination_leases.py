@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import builtins
+import subprocess
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -406,3 +408,35 @@ def test_reconciliation_validates_frozen_snapshot_before_list_mutation(
     assert mutated
     assert source == [123]
     assert getattr(record, field) == ("original-id",)
+
+
+@pytest.mark.parametrize("task_id", ["T..1", "T.lock", "T..", "T.1.lock"])
+def test_lease_branch_rejects_invalid_git_ref_component(task_id: str) -> None:
+    with pytest.raises(ValueError, match="task_id"):
+        lease_branch_name(task_id, 1, "agent-a")
+
+
+@pytest.mark.parametrize("task_id", ["T.1", "T_lock", "T-lock", "T.", "T.LOCK"])
+def test_lease_branch_preserves_valid_git_ref_component(task_id: str) -> None:
+    branch = lease_branch_name(task_id, 1, "agent-a")
+    assert branch == f"agent/{task_id}/e0001-agent-a"
+    assert (
+        subprocess.run(
+            ["git", "check-ref-format", f"refs/heads/{branch}"], check=False
+        ).returncode
+        == 0
+    )
+
+
+@pytest.mark.parametrize("task_id", ["T..1", "T.lock"])
+def test_grant_rejects_task_without_valid_git_ref(task_id: str) -> None:
+    packet = replace(_packet(), task_id=task_id)
+    branch = f"agent/{task_id}/e0001-agent-a"
+    assert (
+        subprocess.run(
+            ["git", "check-ref-format", f"refs/heads/{branch}"], check=False
+        ).returncode
+        != 0
+    )
+    with pytest.raises(ValueError, match="task_id"):
+        grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)

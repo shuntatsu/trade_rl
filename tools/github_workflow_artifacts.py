@@ -13,24 +13,11 @@ import os
 import re
 from typing import Any, NamedTuple, Protocol
 
+from tools.github_workflow_attempts import validate_workflow_state
+
 _REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_RUN_STATES = frozenset(
-    {"requested", "waiting", "pending", "queued", "in_progress", "completed"}
-)
-_CONCLUSIONS = frozenset(
-    {
-        "success",
-        "failure",
-        "cancelled",
-        "skipped",
-        "neutral",
-        "timed_out",
-        "action_required",
-        "stale",
-    }
-)
 _PAGE_SIZE = 100
 _MAX_ARTIFACTS = 10_000
 
@@ -92,15 +79,7 @@ def _run(api: ArtifactReadApi, run_id: int, repository_id: int) -> _Run:
     sha = raw.get("head_sha")
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
         raise ValueError("run head SHA must be an exact Git SHA")
-    status = _text(raw.get("status"), "run status")
-    if status not in _RUN_STATES:
-        raise ValueError("run status is unknown")
-    conclusion = raw.get("conclusion")
-    if status == "completed":
-        if conclusion not in _CONCLUSIONS:
-            raise ValueError("completed run conclusion is unknown")
-    elif conclusion is not None:
-        raise ValueError("unfinished run cannot have a conclusion")
+    status, conclusion = validate_workflow_state(raw, name="run")
     run_repo = _mapping(raw.get("repository"), "run repository")
     if _positive(run_repo.get("id"), "run repository id") != repository_id:
         raise ValueError("run repository differs from requested repository")
@@ -160,6 +139,7 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
     endpoint = f"actions/runs/{run.run_id}/artifacts"
     artifacts: list[dict[str, Any]] = []
     seen: set[int] = set()
+    seen_nodes: set[str] = set()
     expected_total: int | None = None
     page = 1
     while True:
@@ -190,7 +170,10 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
             item = _artifact(value, run)
             if item["id"] in seen:
                 raise ValueError("duplicate artifact id")
+            if item["node_id"] in seen_nodes:
+                raise ValueError("duplicate artifact node_id")
             seen.add(item["id"])
+            seen_nodes.add(item["node_id"])
             artifacts.append(item)
         if len(artifacts) == count:
             return sorted(artifacts, key=lambda item: item["id"])

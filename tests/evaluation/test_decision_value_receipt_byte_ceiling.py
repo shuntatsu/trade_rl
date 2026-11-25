@@ -6,6 +6,7 @@ than asking the OS for all bytes of an attacker-sized regular file.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -58,6 +59,47 @@ def test_strict_receipt_reader_never_uses_unbounded_file_read(
 
     assert requested_sizes
     assert all(0 < size <= 64 * 1024 * 1024 + 1 for size in requested_sizes)
+
+
+@pytest.mark.parametrize("budget_mib", (64, 512))
+def test_strict_reader_sizes_buffer_to_real_file_not_the_large_allowed_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, budget_mib: int
+) -> None:
+    """A tiny signed receipt must not allocate 64/512 MiB up front at read()."""
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row())
+    size = (root / "incomplete-pairs.json").stat().st_size
+    assert 1 < size < 1024 * 1024
+    actual_open = study.open_regular_binary
+    reads: list[int] = []
+
+    class ReadProbe:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, request: int = -1) -> bytes:
+            reads.append(request)
+            assert 0 < request <= size + 1, (
+                "read request must be bounded by stat size, not budget"
+            )
+            return self.handle.read(request)
+
+    @contextmanager
+    def checked_open(path: Path, *, field: str) -> Iterator[ReadProbe]:
+        with actual_open(path, field=field) as handle:
+            yield ReadProbe(handle)
+
+    monkeypatch.setattr(study, "open_regular_binary", checked_open)
+    result = study.load_incomplete_pair_attempt(
+        root,
+        expected_receipt_digest=digest,
+        max_receipt_bytes=budget_mib * 1024 * 1024,
+    )
+    assert result["ineligible_pairs"] == 1
+    assert len(reads) >= 2 and all(request > 0 for request in reads)
 
 
 def test_oversized_sparse_receipt_is_rejected_before_json_decode(
@@ -194,6 +236,173 @@ def test_reader_rejects_file_truncation_while_loading(
         study.load_incomplete_pair_attempt(root)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="directory-fd source identity is POSIX")
+def test_root_swap_after_inventory_never_admits_foreign_valid_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A valid, self-signed foreign root cannot replace the inspected directory."""
+    original_root = tmp_path / "attempt"
+    foreign_root = tmp_path / "foreign"
+    detached = tmp_path / "detached"
+    original_digest = _persist(original_root, _row())
+    foreign_digest = _persist(foreign_root, _row(action=(-1, 0)))
+    assert original_digest != foreign_digest
+    original_bytes = (original_root / "incomplete-pairs.json").read_bytes()
+    foreign_bytes = (foreign_root / "incomplete-pairs.json").read_bytes()
+
+    real_scandir = study.os.scandir
+    real_loads = study.json.loads
+    replaced = False
+    decoded = 0
+
+    @contextmanager
+    def switch_after_inventory(path: object) -> Iterator[object]:
+        nonlocal replaced
+        with real_scandir(path) as entries:  # type: ignore[arg-type]
+            yield entries
+        if not replaced and (path == original_root or isinstance(path, int)):
+            original_root.rename(detached)
+            foreign_root.rename(original_root)
+            replaced = True
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoded
+        decoded += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.os, "scandir", switch_after_inventory)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+    with pytest.raises(ValueError, match="failure receipt root changed"):
+        study.load_incomplete_pair_attempt(original_root)
+
+    assert replaced
+    assert decoded == 0
+    assert (detached / "incomplete-pairs.json").read_bytes() == original_bytes
+    assert (original_root / "incomplete-pairs.json").read_bytes() == foreign_bytes
+
+
+@pytest.mark.skipif(os.name != "posix", reason="inode swap is POSIX specific")
+def test_receipt_leaf_swap_after_read_is_rejected_before_json_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a pinned digest cannot authorize a pathname redirected after open."""
+    root = tmp_path / "attempt"
+    other = tmp_path / "other"
+    original_digest = _persist(root, _row())
+    _persist(other, _row(action=(-1, 0)))
+    receipt = root / "incomplete-pairs.json"
+    replacement = other / "incomplete-pairs.json"
+    detached = tmp_path / "detached-receipt.json"
+    old_bytes = receipt.read_bytes()
+    new_bytes = replacement.read_bytes()
+    real_open = study.open_regular_binary
+    real_loads = study.json.loads
+    swapped = False
+    decoded = 0
+
+    class SwappingRead:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, size: int = -1) -> bytes:
+            nonlocal swapped
+            data = self.handle.read(size)
+            if not swapped:
+                receipt.rename(detached)
+                replacement.rename(receipt)
+                swapped = True
+            return data
+
+    @contextmanager
+    def changing_open(path: Path, *, field: str) -> Iterator[SwappingRead]:
+        with real_open(path, field=field) as handle:
+            yield SwappingRead(handle)
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoded
+        decoded += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study, "open_regular_binary", changing_open)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+
+    # The existing ctime fence may reject the unlink before the new held-root
+    # identity check; both must reject before JSON can be decoded.
+    with pytest.raises(ValueError, match="failure receipt (root )?changed"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=original_digest
+        )
+
+    assert swapped
+    assert decoded == 0
+    assert detached.read_bytes() == old_bytes
+    assert receipt.read_bytes() == new_bytes
+
+
+@pytest.mark.skipif(os.name != "posix", reason="directory-fd inventory is POSIX")
+def test_ab_a_directory_swap_during_root_inventory_must_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inspect the pinned inode, never a temporary clean pathname alias."""
+    root = tmp_path / "attempt"
+    clean_foreign = tmp_path / "foreign"
+    detached = tmp_path / "detached"
+    original_digest = _persist(root, _row())
+    foreign_digest = _persist(clean_foreign, _row(action=(-1, 0)))
+    assert original_digest != foreign_digest
+    (root / "extra.json").write_bytes(b"should-refuse")
+    original_bytes = (root / "incomplete-pairs.json").read_bytes()
+    foreign_bytes = (clean_foreign / "incomplete-pairs.json").read_bytes()
+    real_scandir = study.os.scandir
+    real_loads = study.json.loads
+    swapped = False
+    decoder_calls = 0
+
+    @contextmanager
+    def swap_only_while_inventory_open(path: object) -> Iterator[object]:
+        nonlocal swapped
+        pinned_inode = (
+            isinstance(path, int) and os.fstat(path).st_ino == root.stat().st_ino
+        )
+        if path == root or pinned_inode:
+            assert not swapped
+            root.rename(detached)
+            clean_foreign.rename(root)
+            swapped = True
+            try:
+                # Old code sees B's single entry; corrected descriptor scan
+                # still sees both entries of pinned A.
+                with real_scandir(path) as entries:  # type: ignore[arg-type]
+                    yield entries
+            finally:
+                root.rename(clean_foreign)
+                detached.rename(root)
+        else:
+            with real_scandir(path) as entries:  # type: ignore[arg-type]
+                yield entries
+
+    def counted_decode(*args: object, **kwargs: object) -> object:
+        nonlocal decoder_calls
+        decoder_calls += 1
+        return real_loads(*args, **kwargs)
+
+    monkeypatch.setattr(study.os, "scandir", swap_only_while_inventory_open)
+    monkeypatch.setattr(study.json, "loads", counted_decode)
+    with pytest.raises(ValueError, match="failure receipt root contents are malformed"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=original_digest
+        )
+
+    assert swapped
+    assert decoder_calls == 0
+    assert (root / "extra.json").read_bytes() == b"should-refuse"
+    assert (root / "incomplete-pairs.json").read_bytes() == original_bytes
+    assert (clean_foreign / "incomplete-pairs.json").read_bytes() == foreign_bytes
+
+
 def test_root_enumeration_is_bounded_before_receipt_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -230,7 +439,11 @@ def test_root_enumeration_is_bounded_before_receipt_read(
             raise AssertionError("unbounded root directory enumeration")
 
     def checked_scandir(path: object):  # type: ignore[no-untyped-def]
-        if Path(path) == root:  # type: ignore[arg-type]
+        same_root_fd = isinstance(path, int) and (
+            os.fstat(path).st_dev,
+            os.fstat(path).st_ino,
+        ) == (root.stat().st_dev, root.stat().st_ino)
+        if path == root or same_root_fd:
             return FloodedScandir()
         return real_scandir(path)  # type: ignore[arg-type]
 
@@ -273,6 +486,204 @@ def test_json_canonicalization_recursion_fails_as_value_error(
         study.load_incomplete_pair_attempt(root)
 
     assert receipt.read_bytes() == raw
+
+
+@pytest.mark.parametrize(
+    "field", ("block_id", "fit_admitted", "ineligible_pairs", "observed_view_digest")
+)
+def test_scalar_root_field_rejects_broad_array_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """Schema-scalar root members cannot expand a wide JSON container."""
+    raw = b'{"' + field.encode("ascii") + b'":[' + b"0," * 100_000 + b"0]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("scalar root array reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt root scalar field"):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    "field", ("schema", "intervention_index", "admissible_for_fit")
+)
+def test_scalar_pair_field_rejects_broad_array_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """Direct pair scalars must be checked before allocating parsed arrays."""
+    pair = study.canonical_json_bytes(dict.fromkeys(study._PAIR_KEYS))
+    key = b'"' + field.encode("ascii") + b'":null'
+    assert pair.count(key) == 1
+    pair = pair.replace(key, key[:-4] + b"[" + b"0," * 100_000 + b"0]")
+    raw = b'{"pairs":[' + pair + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("scalar pair array reached the JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair scalar field"):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    (
+        (b'{"block_id":{}}', "root scalar field"),
+        (b'{"pairs":{}}', "pairs must be a JSON array"),
+        (
+            b'{"pairs":['
+            + study.canonical_json_bytes(dict.fromkeys(study._PAIR_KEYS)).replace(
+                b'"schema":null', b'"schema":{}'
+            )
+            + b"]}",
+            "pair scalar field",
+        ),
+    ),
+)
+def test_invalid_root_and_pair_object_types_refuse_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, raw: bytes, message: str
+) -> None:
+    """Only schema-allowed containers may cross the untrusted JSON boundary."""
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("malformed container reached JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match=message):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_container", "message"),
+    (
+        ("baseline", "array", "pair object field"),
+        ("candidate", "array", "pair object field"),
+        ("reference_vintage", "array", "pair object field"),
+        ("unvalidated_source_record", "array", "pair object field"),
+        ("candidate_action", "object", "pair array field"),
+        ("reason_codes", "object", "pair array field"),
+    ),
+)
+def test_wrong_pair_container_kind_is_refused_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str, wrong_container: str, message: str
+) -> None:
+    """An impossible direct-pair container must not be expanded by json.loads."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(baseline={}, candidate={}, candidate_action=[0], reason_codes=["x"])
+    pair[field] = {} if wrong_container == "array" else []
+    original = study.canonical_json_bytes(pair)
+    key = b'"' + field.encode("ascii") + b'":'
+    original_container = b"{}" if wrong_container == "array" else b"[]"
+    assert original.count(key + original_container) == 1
+    if wrong_container == "array":
+        hostile = b"[" + b"0," * 100_000 + b"0]"
+    else:
+        hostile = (
+            b"{"
+            + b",".join(b'"k' + str(i).encode("ascii") + b'":0' for i in range(20_000))
+            + b"}"
+        )
+    pair_raw = original.replace(key + original_container, key + hostile, 1)
+    raw = b'{"pairs":[' + pair_raw + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("impossible pair container reached JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt " + message):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "container", "message"),
+    (
+        ("baseline", b"{}", "pair object field"),
+        ("candidate", b"{}", "pair object field"),
+        ("reference_vintage", b"{}", "pair object field"),
+        ("unvalidated_source_record", b"{}", "pair object field"),
+        ("candidate_action", b"[]", "pair array field"),
+        ("reason_codes", b"[]", "pair array field"),
+    ),
+)
+@pytest.mark.parametrize("wrong_value", (b"1" * 100_000, b'"' + b"x" * 100_000 + b'"'))
+def test_pair_container_field_rejects_wrong_primitive_before_json_decode(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    container: bytes,
+    message: str,
+    wrong_value: bytes,
+) -> None:
+    """A schema-impossible primitive may not allocate a huge decoded string."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(baseline={}, candidate={}, candidate_action=[], reason_codes=[])
+    if field in {"reference_vintage", "unvalidated_source_record"}:
+        pair[field] = {}
+    raw_pair = study.canonical_json_bytes(pair)
+    target = b'"' + field.encode("ascii") + b'":' + container
+    assert raw_pair.count(target) == 1
+    raw = (
+        b'{"pairs":['
+        + raw_pair.replace(target, target[: -len(container)] + wrong_value, 1)
+        + b"]}"
+    )
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("incorrect primitive reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt " + message):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "message"),
+    (
+        ("baseline", b"[0]", "pair object field"),
+        ("reason_codes", b"{}", "pair array field"),
+    ),
+)
+def test_wrong_pair_container_in_second_pair_with_whitespace_fails_predecode(
+    monkeypatch: pytest.MonkeyPatch, field: str, bad_value: bytes, message: str
+) -> None:
+    """Whitespace and a preceding nested object do not reset pair-level checking."""
+    first = dict.fromkeys(study._PAIR_KEYS)
+    first.update(
+        baseline={"candidate_action": {"reason_codes": [1]}},
+        candidate={},
+        candidate_action=[0],
+        reason_codes=["x"],
+    )
+    second = dict.fromkeys(study._PAIR_KEYS)
+    second.update(baseline={}, candidate={}, candidate_action=[], reason_codes=[])
+    first_raw = study.canonical_json_bytes(first)
+    second_raw = study.canonical_json_bytes(second)
+    target = (
+        b'"' + field.encode("ascii") + b'":' + (b"{}" if field == "baseline" else b"[]")
+    )
+    assert second_raw.count(target) == 1
+    second_raw = second_raw.replace(target, target[:-2] + b" \n " + bad_value, 1)
+    raw = b'{"pairs":[' + first_raw + b"," + second_raw + b"]}"
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("wrong container in second pair reached JSON decoder")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt " + message):
+        study._decode_incomplete_receipt(raw)
+
+
+def test_nested_pair_key_decoys_do_not_change_direct_pair_type_detection() -> None:
+    """Only direct field names are subject to the preflight container rule."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(
+        baseline={"reason_codes": {"candidate_action": ["nested"]}},
+        candidate={},
+        candidate_action=[0],
+        reason_codes=["reason"],
+        reference_vintage={"baseline": [0]},
+    )
+    study._preflight_receipt_pair_objects(study.canonical_json_bytes({"pairs": [pair]}))
 
 
 def test_shallow_non_object_receipt_is_refused_before_json_decode(
@@ -331,7 +742,7 @@ def test_shallow_object_receipt_rejects_nonobject_pair_members_before_json_decod
             b'{"observed_view_digest":{"pairs":[]},"pairs":['
             + b"0," * 100_000
             + b"0]}",
-            "failure receipt pairs must contain JSON objects",
+            "failure receipt root scalar field",
             id="nested-decoy",
         ),
         pytest.param(
@@ -380,9 +791,10 @@ def test_duplicate_known_root_fields_fail_before_json_decode(
 
 def test_root_duplicate_guard_ignores_nested_key_lookalikes() -> None:
     """Nested and quoted names cannot forge duplicate direct root fields."""
-    raw = (
-        b'{"observed_view_digest":{"fit_admitted":false},'
-        b'"fit_admitted":false,"reason":"quoted fit_admitted pairs"}'
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair["reference_vintage"] = {"fit_admitted": False}
+    raw = study.canonical_json_bytes(
+        {"pairs": [pair], "fit_admitted": False, "reason": "quoted fit_admitted pairs"}
     )
     study._preflight_receipt_pair_objects(raw)
 
@@ -659,4 +1071,43 @@ def test_broad_consistent_pair_count_reaches_existing_json_validator(
 
     monkeypatch.setattr(study.json, "loads", stop_at_decoder)
     with pytest.raises(DecoderReached):
+        study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize("field", ("candidate_action", "reason_codes"))
+@pytest.mark.parametrize("kind", ("array", "object"))
+@pytest.mark.parametrize("second_pair", (False, True))
+def test_flat_pair_arrays_reject_nested_containers_before_decode(
+    monkeypatch: pytest.MonkeyPatch, field: str, kind: str, second_pair: bool
+) -> None:
+    """Scalar-only arrays cannot carry a broad nested allocation."""
+    pair = dict.fromkeys(study._PAIR_KEYS)
+    pair.update(
+        baseline={},
+        candidate={},
+        candidate_action=[0],
+        reason_codes=["blocked"],
+        reference_vintage={"candidate_action": [[1]], "reason_codes": [{"x": 0}]},
+    )
+    original = study.canonical_json_bytes(pair)
+    value = b"[0]" if field == "candidate_action" else b'["blocked"]'
+    target = b'"' + field.encode("ascii") + b'":' + value
+    assert original.count(target) == 1
+    nested = (
+        b"[" + b"0," * 100_000 + b"0]"
+        if kind == "array"
+        else b"{"
+        + b",".join(b'"k' + str(i).encode("ascii") + b'":0' for i in range(20_000))
+        + b"}"
+    )
+    malformed = original.replace(target, target[:-1] + b", " + nested + b"]", 1)
+    raw = (
+        b'{"pairs":[' + (original + b",\n " if second_pair else b"") + malformed + b"]}"
+    )
+
+    def forbidden_loads(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("nested pair array reached JSON decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt pair array elements"):
         study._decode_incomplete_receipt(raw)

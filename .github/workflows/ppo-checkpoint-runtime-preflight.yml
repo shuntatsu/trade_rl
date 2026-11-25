@@ -1,0 +1,58 @@
+name: PPO Checkpoint Runner Preflight (non-economic)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ppo-feature-checkpoint.yml
+      - .github/workflows/ppo-checkpoint-runtime-preflight.yml
+      - tests/architecture/test_ppo_checkpoint_workflow.py
+      - docs/architecture/research-assurance.md
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
+
+jobs:
+  runner-toolcache:
+    name: Python / uv setup and lock-only plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact reviewed PR source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require cached CPython 3.12.16 (no download fallback)
+        run: |
+          cached_python="${RUNNER_TOOL_CACHE:?}/Python/3.12.16/x64/bin/python"
+          if [[ ! -x "$cached_python" ]]; then
+            echo "No cached CPython 3.12.16 on this runner: refuse download."
+            exit 1
+          fi
+          "$cached_python" -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+
+      - name: Set up pinned CPython from verified runner cache
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12.16"
+          check-latest: false
+
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.9"
+          enable-cache: false
+
+      - name: Verify version and frozen dependency plan without execution
+        run: |
+          python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
+          uv --version | grep -Eq '^uv 0\.13\.9([[:space:]]|$)'
+          uv sync --locked --dry-run --extra train-sb3

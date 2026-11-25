@@ -177,15 +177,28 @@ def test_only_permanent_workflows_remain() -> None:
     workflows = ROOT / ".github" / "workflows"
     files = {path.name for path in workflows.iterdir() if path.is_file()}
     assert files == {
-        "branch-hygiene.yml",
         "retire-merged-pr-branches.yml",
         "ci.yml",
         "deploy-guide.yml",
+        "m1-optional-platform-coverage.yml",
         "ppo-4h-gemini-review.yml",
         "ppo-feature-checkpoint.yml",
+        "ppo-checkpoint-runtime-preflight.yml",
         "ppo-normalization-execution.yml",
-        "prune-merged-branch.yml",
     }
+
+
+def test_obsolete_manual_prune_path_is_not_shipped() -> None:
+    """Only the current exact-SHA merged-ref retirement path is executable."""
+    assert (ROOT / ".github/workflows/retire-merged-pr-branches.yml").is_file()
+    assert (ROOT / "tools/branch_hygiene.py").is_file()
+    for legacy in (
+        ".github/workflows/prune-merged-branch.yml",
+        ".github/workflows/branch-hygiene.yml",
+        "tools/verified_merged_branch_prune.py",
+        "tests/tools/test_verified_merged_branch_prune.py",
+    ):
+        assert not (ROOT / legacy).exists(), legacy
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:
@@ -293,13 +306,14 @@ def test_short_agent_entry_preserves_main_ancestor_retirement_safety() -> None:
         "requested/waiting/pending/queued/in_progress",
         "provenance/branch-retention",
         "closed/merged PR",
-        "tools.verified_merged_branch_prune",
         "tested PR head contains current `main`",
     ):
         assert required in entry
     assert "cleanup_authorized=true" in policy
     assert "未統合" in policy
     assert "retire-merged" in policy
+    assert "tools.verified_merged_branch_prune" not in entry
+    assert "prune-merged-branch.yml" not in policy
 
 
 def test_research_status_preserves_newer_main_market_store_and_carry_evidence() -> None:
@@ -641,6 +655,20 @@ def test_current_relative_markdown_links_resolve() -> None:
                 continue
             resolved = (path.parent / target_without_fragment).resolve()
             assert resolved.exists(), (path.relative_to(ROOT), target)
+
+
+def test_current_sd2_g4_digest_documentation_preserves_newline_delimiters() -> None:
+    text = (ROOT / "docs/architecture/research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    g4_bullets = [
+        line for line in text.splitlines() if line.startswith("- **G4 text.**")
+    ]
+    assert len(g4_bullets) == 1
+    assert (
+        r'`sha256("signal_diagnosis_g4_authorization_v1\n" + url + "\n" + protocol digest)`'
+        in g4_bullets[0]
+    )
 
 
 def test_current_authority_docs_do_not_embed_transient_pr_or_full_sha_refs() -> None:

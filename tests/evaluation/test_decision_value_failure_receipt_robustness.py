@@ -17,6 +17,9 @@ end-to-end tests drive the real label collector and runner.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -37,6 +40,7 @@ from tests.evaluation.test_decision_value_failure_receipt import (
     _rewrite,
     _setup,
 )
+from trade_rl.artifacts import atomic_write
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation import decision_value_dev_study as study
@@ -737,3 +741,147 @@ def test_quarantine_truncated_source_prefix_stays_readable(tmp_path: Path) -> No
     assert source["truncated"] is True
     assert len(source["text"]) == 65_536
     assert len(source["sha256"]) == 64
+
+
+def test_incomplete_receipt_publication_never_exposes_empty_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Observers must see either no result or the complete blocked receipt."""
+    destination = tmp_path / "attempt"
+    real_mkdir = Path.mkdir
+    real_rename = atomic_write._rename_directory_no_replace
+    observations: list[tuple[str, ...]] = []
+    publications: list[tuple[str, ...]] = []
+
+    def observe_mkdir(path: Path, *args: Any, **kwargs: Any) -> None:
+        real_mkdir(path, *args, **kwargs)
+        if path == destination:
+            observations.append(tuple(sorted(child.name for child in path.iterdir())))
+
+    def observe_rename(stage: Path, target: Path) -> None:
+        assert target == destination
+        assert not target.exists()
+        assert tuple(child.name for child in stage.iterdir()) == (_RECEIPT,)
+        real_rename(stage, target)
+        publications.append(tuple(child.name for child in target.iterdir()))
+
+    monkeypatch.setattr(Path, "mkdir", observe_mkdir)
+    monkeypatch.setattr(atomic_write, "_rename_directory_no_replace", observe_rename)
+    digest = _persist(destination, _row())
+    _assert_locked_and_reloadable(destination, digest)
+    assert all(names == (_RECEIPT,) for names in observations), observations
+    assert publications == [(_RECEIPT,)]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory replacement")
+def test_incomplete_receipt_does_not_publish_through_swapped_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competing pathname cannot redirect the receipt into a foreign root."""
+    destination = tmp_path / "attempt"
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    detached = tmp_path / "detached"
+    real_mkdir = Path.mkdir
+    swapped = False
+
+    def swap_empty_claim(path: Path, *args: Any, **kwargs: Any) -> None:
+        nonlocal swapped
+        real_mkdir(path, *args, **kwargs)
+        if path == destination and not swapped:
+            path.rename(detached)
+            path.symlink_to(foreign, target_is_directory=True)
+            swapped = True
+
+    monkeypatch.setattr(Path, "mkdir", swap_empty_claim)
+    # Publication can either complete without exposing a claim, or fail closed.
+    try:
+        digest = _persist(destination, _row())
+    except (OSError, ValueError):
+        assert swapped
+    else:
+        assert not swapped
+        _assert_locked_and_reloadable(destination, digest)
+    assert tuple(foreign.iterdir()) == ()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink replacement")
+def test_incomplete_receipt_refuses_symlink_at_exclusive_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "attempt"
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    real_rename = atomic_write._rename_directory_no_replace
+    raced = False
+
+    def race(staging: Path, target: Path) -> None:
+        nonlocal raced
+        assert target == destination and not target.exists()
+        target.symlink_to(foreign, target_is_directory=True)
+        raced = True
+        real_rename(staging, target)
+
+    monkeypatch.setattr(atomic_write, "_rename_directory_no_replace", race)
+    with pytest.raises(OSError):
+        _persist(destination, _row())
+    assert raced and destination.is_symlink()
+    assert tuple(foreign.iterdir()) == ()
+    assert not list(tmp_path.glob(".td8-incomplete-*"))
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+def test_incomplete_receipt_visibility_after_process_interruption(
+    tmp_path: Path, phase: str
+) -> None:
+    """Exercise abrupt process exit on each side of the actual commit syscall."""
+    root = tmp_path / "attempt"
+    script = """
+import os
+import sys
+from pathlib import Path
+from trade_rl.artifacts import atomic_write
+from tests.evaluation.test_decision_value_failure_receipt_robustness import _persist, _row
+
+root = Path(sys.argv[1])
+phase = sys.argv[2]
+real_rename = atomic_write._rename_directory_no_replace
+
+def interrupt(staging, target):
+    assert target == root and not target.exists()
+    assert (staging / "incomplete-pairs.json").is_file()
+    if phase == "before":
+        os._exit(73)
+    real_rename(staging, target)
+    os._exit(73)
+
+atomic_write._rename_directory_no_replace = interrupt
+_persist(root, _row())
+raise AssertionError("publication interruption was not reached")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(root), phase],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 73, result.stderr
+    staging = list(tmp_path.glob(".td8-incomplete-*"))
+    if phase == "before":
+        # No commit was reached. The private stage is evidence of interruption,
+        # not a published attempt and not permission to resume an economic run.
+        assert not root.exists()
+        assert len(staging) == 1
+        receipt_root = staging[0]
+    else:
+        assert not staging
+        receipt_root = root
+    receipt = study.load_incomplete_pair_attempt(receipt_root)
+    assert receipt["verdict"] == "INVALID / BLOCKED"
+    assert receipt["fit_admitted"] is False
+    assert receipt["retry_policy"] == "write_once_no_restart"
+    assert sorted(path.name for path in receipt_root.iterdir()) == [_RECEIPT]
+    if phase == "after":
+        _assert_locked_and_reloadable(root, str(receipt["receipt_digest"]))

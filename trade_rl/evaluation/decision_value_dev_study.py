@@ -1848,10 +1848,12 @@ def _encode_incomplete_receipt(
                 "observed_view_digest": observed_view_digest,
                 "ineligible_pairs": len(pairs),
                 "pairs": pairs,
-                "pairs_digest": content_digest(pairs),
+                "pairs_digest": _receipt_content_digest(pairs),
             }
-            receipt_digest = content_digest(body)
-            encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
+            receipt_digest = _receipt_content_digest(body)
+            encoded = b"".join(
+                _receipt_canonical_parts({**body, "receipt_digest": receipt_digest})
+            )
             _decode_incomplete_receipt(encoded, expected_receipt_digest=receipt_digest)
         except Exception as error:  # fall back to the all-quarantine encoding
             last_error = error
@@ -2492,6 +2494,58 @@ def _preflight_receipt_pair_objects(
             raise ValueError("failure receipt pair count mismatch")
 
 
+def _receipt_canonical_parts(
+    value: dict[str, object] | Sequence[object],
+) -> Iterator[bytes]:
+    """Canonical receipt JSON in pair-sized pieces, using the existing encoder.
+
+    Only the outer object and its pairs array are partitioned. Each complete
+    pair and other value retains the canonical encoder's exact representation.
+    This avoids another full receipt byte buffer, not the decoded tree or an
+    independent resource bound on a single pair.
+    """
+    if not isinstance(value, dict):
+        yield b"["
+        for index, pair in enumerate(value):
+            if index:
+                yield b","
+            yield canonical_json_bytes(pair)
+        yield b"]"
+        return
+    yield b"{"
+    for index, key in enumerate(sorted(value)):
+        if index:
+            yield b","
+        yield canonical_json_bytes(key)
+        yield b":"
+        item = value[key]
+        if key == "pairs" and isinstance(item, list):
+            yield from _receipt_canonical_parts(item)
+        else:
+            yield canonical_json_bytes(item)
+    yield b"}"
+
+
+def _receipt_content_digest(value: dict[str, object] | Sequence[object]) -> str:
+    digest = hashlib.sha256()
+    for part in _receipt_canonical_parts(value):
+        digest.update(part)
+    return digest.hexdigest()
+
+
+def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
+    offset = 0
+    try:
+        for part in _receipt_canonical_parts(loaded):
+            if not raw.startswith(part, offset):
+                raise ValueError("failure receipt must use canonical JSON bytes")
+            offset += len(part)
+    except RecursionError as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if offset != len(raw):
+        raise ValueError("failure receipt must use canonical JSON bytes")
+
+
 def _decode_incomplete_receipt(
     raw: bytes,
     *,
@@ -2513,12 +2567,7 @@ def _decode_incomplete_receipt(
         raise ValueError("failure receipt JSON is malformed") from error
     if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
         raise ValueError("failure receipt must contain a JSON object")
-    try:
-        canonical = canonical_json_bytes(loaded)
-    except RecursionError as error:
-        raise ValueError("failure receipt JSON is malformed") from error
-    if raw != canonical:
-        raise ValueError("failure receipt must use canonical JSON bytes")
+    _require_canonical_receipt(raw, loaded)
     if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
         raise ValueError("failure receipt fields are malformed")
     if (
@@ -2562,11 +2611,13 @@ def _decode_incomplete_receipt(
         raise ValueError("failure receipt exceeds externally verified pair limit")
     for pair in pairs:
         _validate_incomplete_pair_record(pair, allow_sentinel=allow_sentinel)
-    if loaded["pairs_digest"] != content_digest(pairs):
+    if loaded["pairs_digest"] != _receipt_content_digest(pairs):
         raise ValueError("failure receipt pairs digest mismatch")
     body = {k: v for k, v in loaded.items() if k != "receipt_digest"}
     receipt_digest = loaded["receipt_digest"]
-    if not isinstance(receipt_digest, str) or receipt_digest != content_digest(body):
+    if not isinstance(receipt_digest, str) or receipt_digest != _receipt_content_digest(
+        body
+    ):
         raise ValueError("failure receipt digest mismatch")
     if (
         expected_receipt_digest is not None

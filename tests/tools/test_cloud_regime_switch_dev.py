@@ -961,7 +961,17 @@ def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation)
 
 
 @pytest.mark.parametrize(
-    "mutation", ["dataset", "symbol", "policy", "processing", "malformed"]
+    "mutation",
+    [
+        "dataset",
+        "symbol",
+        "policy",
+        "processing",
+        "malformed",
+        "sequence_duplicate",
+        "sequence_gap",
+        "sequence_reordered",
+    ],
 )
 def test_readback_rejects_order_event_identity(tmp_path, mutation):
     import json
@@ -1014,6 +1024,15 @@ def test_readback_rejects_order_event_identity(tmp_path, mutation):
         event["execution_policy_digest"] = "f" * 64
     elif mutation == "processing":
         event["processing_index"] = row["next_index"] + 1
+    elif mutation == "sequence_duplicate":
+        event["sequence"] = row["order_events"][0]["sequence"]
+    elif mutation == "sequence_gap":
+        event["sequence"] += 1
+    elif mutation == "sequence_reordered":
+        row["order_events"][0], row["order_events"][1] = (
+            row["order_events"][1],
+            row["order_events"][0],
+        )
     else:
         del event["execution_price"]
     with pytest.raises(ValueError, match="native order event"):

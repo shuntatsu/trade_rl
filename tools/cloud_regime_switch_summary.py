@@ -146,7 +146,8 @@ def _verify_order_events(ledger: dict, intervals: list[dict]) -> None:
         events = row["order_events"]
         if not isinstance(events, list):
             raise ValueError("native order event roster mismatch")
-        for raw in events:
+        # Each native execution interval owns a fresh zero-based event stream.
+        for sequence, raw in enumerate(events):
             if not isinstance(raw, dict):
                 raise ValueError("native order event must be an object")
             try:
@@ -154,7 +155,8 @@ def _verify_order_events(ledger: dict, intervals: list[dict]) -> None:
             except (ValueError, OverflowError) as error:
                 raise ValueError("native order event schema mismatch") from error
             if (
-                event.dataset_id != ledger["dataset_id"]
+                event.sequence != sequence
+                or event.dataset_id != ledger["dataset_id"]
                 or event.execution_policy_digest != ledger["execution_policy_digest"]
                 or event.symbol_index != 0
                 or not row["start_index"] <= event.processing_index <= row["next_index"]

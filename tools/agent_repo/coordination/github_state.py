@@ -139,7 +139,8 @@ def render_status_comment(record: TaskStatusRecord) -> str:
 def parse_status_comment(text: str) -> TaskStatusRecord:
     """Parse a status projection, rejecting ambiguous or partial records."""
 
-    markers = _MARKER_RE.findall(text)
+    # Marker-looking strings within JSON are data, not envelope markers.
+    markers = _MARKER_RE.findall(_JSON_BLOCK_RE.sub("\n", text))
     if len(markers) != 1:
         raise ValueError("status comment must contain exactly one coordination marker")
     blocks = _JSON_BLOCK_RE.findall(text)

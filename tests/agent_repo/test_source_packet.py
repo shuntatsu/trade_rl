@@ -105,7 +105,7 @@ def _raw_git_tree_repository(root: Path) -> Path:
 
 def _repository(root: Path) -> tuple[str, str]:
     root.mkdir()
-    _git(root, "init", "-b", "main")
+    _git(root, "init", "--quiet", "-b", "main")
     _git(root, "config", "user.name", "Test User")
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "config", "core.autocrlf", "true")
@@ -495,6 +495,69 @@ def test_source_packet_from_linked_worktree_with_unicode_object_directory(
         == b"\x00raw\xff\x01"
     )
     assert str(_git(linked, "status", "--porcelain=v1")) == ""
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="raw non-UTF-8 filesystem paths require Linux"
+)
+def test_source_packet_from_linked_worktree_with_raw_object_directory(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / os.fsdecode(b"repo_\xff")
+    base, head = _repository(repository)
+    linked = tmp_path / "linked_日本語"
+    _git(repository, "worktree", "add", "--detach", str(linked), base, text=False)
+    expected = tmp_path / "primary-packet"
+    actual = tmp_path / "linked-packet"
+
+    for checkout, output in ((repository, expected), (linked, actual)):
+        result = _run(checkout, "--base", base, "--head", head, "--output", str(output))
+        assert result.returncode == 0, result.stderr
+        assert str(_git(checkout, "status", "--porcelain=v1")) == ""
+
+    assert _packet_contents(actual) == _packet_contents(expected)
+    assert (
+        _tar_member((actual / "source.tar").read_bytes(), "files/binary.dat")
+        == b"\x00raw\xff\x01"
+    )
+    assert str(_git(linked, "rev-parse", "HEAD")) == base
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permits LF in paths")
+@pytest.mark.parametrize("repository_name", ["repo\nline", "repo\n"])
+def test_source_packet_refuses_line_separators_in_object_directory(
+    tmp_path: Path, repository_name: str
+) -> None:
+    repository = tmp_path / repository_name
+    base, head = _repository(repository)
+    linked = tmp_path / "linked"
+    _git(repository, "worktree", "add", "--detach", str(linked), base)
+    for index, checkout in enumerate((repository, linked)):
+        output = tmp_path / f"packet-{index}"
+        result = _run(checkout, "--base", base, "--head", head, "--output", str(output))
+        assert result.returncode == 2
+        assert "object directory contains a line separator" in result.stderr
+        assert not output.exists()
+        assert str(_git(checkout, "status", "--porcelain=v1")) == ""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permits CR in paths")
+@pytest.mark.parametrize("repository_name", ["repo\rline", "repo\r"])
+def test_source_packet_preserves_literal_carriage_return_in_directory(
+    tmp_path: Path, repository_name: str
+) -> None:
+    repository = tmp_path / repository_name
+    base, head = _repository(repository)
+    linked = tmp_path / "linked"
+    _git(repository, "worktree", "add", "--detach", str(linked), base)
+    outputs = []
+    for index, checkout in enumerate((repository, linked)):
+        output = tmp_path / f"packet-{index}"
+        result = _run(checkout, "--base", base, "--head", head, "--output", str(output))
+        assert result.returncode == 0, result.stderr
+        outputs.append(_packet_contents(output))
+        assert str(_git(checkout, "status", "--porcelain=v1")) == ""
+    assert outputs[0] == outputs[1]
 
 
 def test_source_packet_rejects_moving_refs_and_existing_or_in_repo_output(

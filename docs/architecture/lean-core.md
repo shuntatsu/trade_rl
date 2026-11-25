@@ -580,6 +580,27 @@ mixed spot/perp margin accounting, stochastic gap protection at order
 submission, or a claim of actual exchange admission. Historical study
 receipts and source-bound execution remain unchanged until reviewed cutover.
 
+The optional fill_cash_observer on MarketExecutor, SharedPortfolioSession
+and run_shared_portfolio_replay emits a separate native_fill_cash_observation_v1
+for each successfully completed stateful execution invocation, including
+empty batches. Each ordered row binds the actual OrderEvent identity and
+invocation-local sequence, exact quantity before/after, price/multiplier,
+actual execution cost, and BookState cash and cumulative cost immediately
+before/after execute_fill, before margin handling. The accepted quantity
+projection, signed principal and cash/cost transitions must reconcile
+exactly; the batch covers every filled/partial_fill event and reconciles
+the actual ordered interval cost. Rejected fills emit no committed row.
+This is an observation, not a new book or cost allocation. Non-order
+delisting/settlement, margin flattening, split, funding, dividend, interest
+and other carry are outside the per-fill cash transition. It cannot prove
+the minimum cash over all such movements or venue authenticity. An observer
+failure aborts the native invocation/replay; previous emitted observations
+or external callback side effects are not transactional. Default-disabled
+observation leaves execution identities, legacy OrderEvent and ledger
+serialization unchanged. It does not change a frozen trend-OOS protocol,
+authorize its economic successor, or eliminate the need for an independent
+cash/venue oracle.
+
 `PreTradeRisk.constrain` は、有限なtarget/currentからの差分でもL1合計が
 float overflowし得るため、requested / ordinary / constrained / emergency
 turnoverとproposalからのprojection L1を有限値として検査する。非有限は

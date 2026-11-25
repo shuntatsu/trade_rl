@@ -1156,6 +1156,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
+| `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |

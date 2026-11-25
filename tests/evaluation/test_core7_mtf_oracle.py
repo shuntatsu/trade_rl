@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v39-td8-partitioned-decode.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v40-native-fill-cash.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "85f733a473f0176166a70e715a06ea9f0920493235c2dd664f6449bf44fcb517"
+    "572c79dba6228ccb888525bf80cb047dbd1893112e8fac8605f3b29980fef081"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2727,7 +2727,13 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
         assurance_digest(previous)
         == "a363c8d2c3925b2bc5ddfe709f16b20c5330a4b2459469430b2bab1555abb4fe"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v39-td8-partitioned-decode.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
         "protocol_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
@@ -2763,6 +2769,70 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == [
         "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_native_fill_cash_successor_preserves_td8_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v39-td8-partitioned-decode.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "ab80f5c044af842afae22cb5404fd8653e9c9a1608300e4b4817f202e18c07a8"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "85f733a473f0176166a70e715a06ea9f0920493235c2dd664f6449bf44fcb517"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        "protocol_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    expected["thesis"]["limitations"] += (
+        " Source-only native fill-cash observer successor (#1306): separate opt-in order-fill observations capture actual cash, cost and exact quantity immediately before/after BookState.execute_fill, before margin handling; default execution and legacy ledger bytes unchanged. Other cash flows, venue authentication, and full independent cash reconciliation remain outside this boundary. No new economic or live authorization."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Source-only successor 787140c94c75a96cda3a42e9b8309bc485783d0e: 1114 related synthetic simulation, shared ledger and dependency tests passed on the identical source tree, including 13 new observer tests. Literal two-sale case: cash 0 to 98 to 9898, actual costs 2 and 200, conservative first-fill interval-cost reservation incorrectly gives -102. Strict rejected fill has no cash record, partial and terminal orders are observed, funding and non-order margin flattening remain separate, default and observed legacy ledger bytes agree. Static closure grows from 190 to 191 paths; six existing replay/stateful execution paths change and simulation/diagnostics/fill_cash.py is added. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(
+            "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+            "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        )
+    assert current == expected
+    a = set(_bound_code_paths("81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"))
+    b = set(_bound_code_paths("787140c94c75a96cda3a42e9b8309bc485783d0e"))
+    assert len(a) == 190
+    assert b == a | {"trade_rl/simulation/diagnostics/fill_cash.py"}
+    diff = _git(
+        "diff",
+        "--name-only",
+        "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+        "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/simulation/stateful/runtime.py",
+        "trade_rl/simulation/stateful/symbol_fills.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

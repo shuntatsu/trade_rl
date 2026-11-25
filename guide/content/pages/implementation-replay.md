@@ -163,6 +163,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
 
+任意のfill_cash_observerは成功したnative invocationごとに、各実約定直前・直後のcash・exact quantity・実費用を順序付きの別レコードで通知します。終端の通常約定も対象ですが、marginによる非注文清算やcarryは含みません。旧ledger形式・既定の会計はそのままです。callbackの失敗は実行を中断し、すでに外部へ書いた観測は自動的に取り消しません。
+
 この数値portfolio経路は既存の`run_shared_cash_replay` intent APIとは別のopt-in結果型・ledger schemaを使います。既存intent result、schema、default behaviorは変更しません。これは将来のactor接続点であり、PPO学習、fit、研究結果、収益性の証拠を追加するものではありません。
 
 `strategies/portfolio_policy_codec.py`はGym adapterとfrozen-policy inferenceが共有する純粋なstrategy-layer codecです。raw-v1 observationのkey・shape・dtype・値を同じDTOから作り、strictなjoint action codeをnumeric target proposalへ変換します。exact HOLDは現在の実数量を維持するproposalとして表し、codecはGym/SB3、risk、execution、evaluationをimportしません。`PortfolioInferencePolicy.decide_portfolio`はloaded bundleのsymbol/feature roster、decision window、native timestampを確認してから同じcodecを使います。

@@ -133,6 +133,7 @@ class _ShardRun:
         self.full: list[str] = []
         self.selected: list[str] = []
         self.completed: list[str] = []
+        self.phases: dict[str, list[tuple[str, str]]] = {}
 
     @pytest.hookimpl(trylast=True)
     def pytest_collection_modifyitems(
@@ -149,15 +150,44 @@ class _ShardRun:
         items[:] = keep
         config.hook.pytest_deselected(items=drop)
 
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        self.phases.setdefault(report.nodeid, []).append((report.when, report.outcome))
+
     def pytest_runtest_logfinish(self, nodeid: str) -> None:
         self.completed.append(nodeid)
+
+    @staticmethod
+    def _complete_phases(phases: list[tuple[str, str]]) -> bool:
+        # A finish notification alone is not execution: setup-only/plan or
+        # another protocol hook can finish a node without a call report.
+        # Preserve legitimate pytest setup skips (including xfail run=False)
+        # and call skips/xfails, while requiring actual teardown reports.
+        if len(phases) not in (2, 3):
+            return False
+        if phases[-1] not in (("teardown", "passed"), ("teardown", "skipped")):
+            return False
+        if phases[0] == ("setup", "skipped"):
+            return len(phases) == 2
+        return (
+            len(phases) == 3
+            and phases[0] == ("setup", "passed")
+            and phases[1] in (("call", "passed"), ("call", "skipped"))
+        )
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
         if exitstatus != pytest.ExitCode.OK or session.exitstatus != pytest.ExitCode.OK:
             return
-        if not self.selected or sorted(self.completed) != self.selected:
-            print("CI shard failed: not every selected test completed", file=sys.stderr)
+        if (
+            not self.selected
+            or sorted(self.completed) != self.selected
+            or sorted(self.phases) != self.selected
+            or any(not self._complete_phases(phases) for phases in self.phases.values())
+        ):
+            print(
+                "CI shard failed: not every selected test completed its execution phases",
+                file=sys.stderr,
+            )
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
             return
         record = {
@@ -198,10 +228,14 @@ def pytest_configure(config: pytest.Config) -> None:
             raise ValueError("invalid shard index or report")
         if (
             config.getoption("collectonly")
+            or config.getoption("setuponly")
+            or config.getoption("setupplan")
             or config.getoption("keyword")
             or config.getoption("markexpr")
         ):
-            raise ValueError("shard execution cannot filter or collect only")
+            raise ValueError(
+                "shard execution cannot filter or use nonexecuting collection/setup modes"
+            )
         path = Path(report)
         if path.exists():
             raise ValueError("shard report already exists")

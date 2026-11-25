@@ -207,3 +207,50 @@ def test_all_shards_agreeing_on_incomplete_collection_is_rejected(
     _reports(tmp_path, items[:-1])
     with pytest.raises(ValueError, match="independent full collection"):
         verify_reports(tmp_path, count=4, head=HEAD, expected_items=items)
+
+
+@pytest.mark.parametrize("mode", ["--setup-only", "--setup-plan"])
+def test_nonexecuting_setup_modes_cannot_issue_receipt(
+    tmp_path: Path, mode: str
+) -> None:
+    (tmp_path / "test_sample.py").write_text("def test_must_execute(): assert False\n")
+    report = tmp_path / "core-shard.json"
+    run = _run_shard(tmp_path, 0, 1, report, mode)
+    assert run.returncode != 0
+    assert not report.exists()
+
+
+def test_logfinish_without_execution_phases_is_not_completion(tmp_path: Path) -> None:
+    (tmp_path / "test_sample.py").write_text("def test_must_execute(): assert False\n")
+    (tmp_path / "conftest.py").write_text(
+        "import pytest\n"
+        "@pytest.hookimpl(tryfirst=True)\n"
+        "def pytest_runtest_protocol(item, nextitem):\n"
+        "    item.ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)\n"
+        "    item.ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)\n"
+        "    return True\n"
+    )
+    report = tmp_path / "core-shard.json"
+    run = _run_shard(tmp_path, 0, 1, report)
+    assert run.returncode != 0
+    assert not report.exists()
+
+
+def test_real_setup_skip_call_skip_and_xfail_keep_valid_completion(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "test_sample.py").write_text(
+        "import pytest\n"
+        "def test_pass(): pass\n"
+        "@pytest.mark.skip(reason='setup skip')\n"
+        "def test_setup_skip(): assert False\n"
+        "def test_call_skip(): pytest.skip('call skip')\n"
+        "@pytest.mark.xfail(run=False, reason='expected no call')\n"
+        "def test_no_run_xfail(): assert False\n"
+        "@pytest.mark.xfail(reason='expected call failure')\n"
+        "def test_call_xfail(): assert False\n"
+    )
+    report = tmp_path / "core-shard.json"
+    run = _run_shard(tmp_path, 0, 1, report)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert len(json.loads(report.read_text())["completed"]) == 5

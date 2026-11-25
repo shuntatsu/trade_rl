@@ -194,6 +194,7 @@ def test_original_standalone_probe_is_exact_and_separate_from_execution() -> Non
     current = RUNTIME_SMOKE.read_text(encoding="utf-8")
     text = ORIGINAL_RUNTIME_PROBE.read_text(encoding="utf-8")
     header, original = text.split("\n  original-standalone:", 1)
+    original = original.split("\n  immutable-normalization-runtime:", 1)[0]
     assert "original-standalone" not in current
     assert "on:\n  pull_request:" in header
     assert "paths:\n      - .github/workflows/ci-original-runtime-probe.yml\n" in header
@@ -238,6 +239,7 @@ def test_original_standalone_probe_fails_before_extracting_unverified_bytes(
 ) -> None:
     text = ORIGINAL_RUNTIME_PROBE.read_text(encoding="utf-8")
     job = text.split("\n  original-standalone:", 1)[1]
+    job = job.split("\n  immutable-normalization-runtime:", 1)[0]
     script = textwrap.dedent(job.split("        run: |\n", 1)[1])
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -273,3 +275,71 @@ def test_original_standalone_probe_fails_before_extracting_unverified_bytes(
     assert set(tmp_path.iterdir()) == {bin_dir}
     if failure == "digest":
         assert b"FAILED" in result.stdout
+
+
+def test_original_runtime_probe_checks_managed_frozen_source_without_execution() -> (
+    None
+):
+    text = ORIGINAL_RUNTIME_PROBE.read_text(encoding="utf-8")
+    job = text.split("\n  immutable-normalization-runtime:", 1)[1]
+    assert "needs: original-standalone" in job
+    assert "permissions:\n      contents: read" in job
+    assert "runs-on: ubuntu-24.04" in job
+    assert "timeout-minutes: 15" in job
+    assert "ref: 72ec5a082a1e298ccfe904f06c16d423e12a76b2" in job
+    assert "path: target" in job
+    assert "persist-credentials: false" in job
+    assert "73ee39ebd561913ed8fe7ac0b8017f039bf3af3e" in job
+    assert "0044c6bd0e95868e092fc52eaad5b9e0e821cb2db87a5b6f4fbaefbe1b981cf8" in job
+    assert "6440b63c463035d0c523869a2bbc62fac6c96f9ac0585a32b77f16bf5ea176f6" in job
+    assert "uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d" in job
+    assert 'python-version: "3.12.12"' in job
+    assert "enable-cache: false" in job
+    assert "working-directory: target" in job
+    assert 'version: "0.10.0"' not in job  # must resolve from frozen source
+    assert "uv sync --locked --extra dev --extra train-sb3" in job
+    assert "20341168c41f91f4328c68d1f1a8d563f5734d515e617ff80a8dcfce323218b7" in job
+    assert "2ccb92133add99f4981f0f9e6b38fb58b205bd97da6f8c0f7646c47ccf0b1461" in job
+    assert "sys._base_executable" in job and "sys.base_prefix" in job
+    assert "uv python find --system --managed-python 3.12.12" in job
+    assert "uv run --no-sync python -I -m pytest" in job
+    assert '--junitxml="$report"' in job
+    assert 'suite.attrib["tests"] == "10"' in job
+    assert '("failures", "errors", "skipped")' in job
+    assert "test_prior_receipt_binds_checkout_and_workflow_identity" in job
+    assert "test_activation_rejects_runtime_drift" in job
+    assert "test_execution_is_fail_closed_without_sealed_activation" in job
+    assert job.index("Verify frozen source and locks") < job.index(
+        "Set up uv from frozen source"
+    )
+    assert job.index("sha256sum --check --strict") < job.index("uv sync --locked")
+    assert job.index(
+        "20341168c41f91f4328c68d1f1a8d563f5734d515e617ff80a8dcfce323218b7"
+    ) < job.index("uv run --no-sync python -I -m pytest")
+    for forbidden in (
+        "secrets.",
+        "contents: write",
+        "actions: write",
+        "workflow_dispatch:",
+        "upload-artifact",
+        "continue-on-error:",
+        "|| true",
+        "tools.ppo_normalization_actions",
+        "tools.ppo_checkpoint_actions",
+    ):
+        assert forbidden not in job
+    assert job.count("uses:") == 2
+    special = (
+        ROOT / ".github" / "workflows" / "ppo-normalization-execution.yml"
+    ).read_text(encoding="utf-8")
+    assert (
+        special.count(
+            "uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"
+        )
+        == 3
+    )
+    assert special.count('python-version: "3.12.12"') == 3
+    assert (
+        'IMPLEMENTATION_CODE_SHA: Final = "72ec5a082a1e298ccfe904f06c16d423e12a76b2"'
+        in (ROOT / "tools" / "ppo_normalization_actions.py").read_text(encoding="utf-8")
+    )

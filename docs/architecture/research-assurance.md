@@ -774,11 +774,18 @@ The separate `ci-original-runtime-probe.yml` (#1225/#1178) runs only on PRs
 changing that workflow. It downloads the exact 20260203 CPython 3.12.12 Linux
 x86_64 install-only stripped asset (release asset ID 350364012), verifies the
 pinned size and official SHA-256 before extraction, and checks the interpreter
-identity. No repository checkout, token permissions, dependency resolution,
-old receipts or economic execution are involved. Failure never falls back to
-another build or changes the cached-runtime preflight. Success is evidence of
-that hosted attempt only, not permanent availability, managed-uv selection of
-the same build, old receipt continuity or a PPO run.
+identity. The asset-only job has no repository checkout or token permissions.
+A separate read-only job checks out the immutable normalization source, checks its exact
+tree and lock digests, resolves uv from that target, installs the locked
+dependencies and verifies the original CPython executable and shared-library
+SHA-256 digests. It runs only enumerated synthetic receipt/runtime/authority
+guards with an exact no-skip test count and a CPU tensor smoke, then rechecks
+the clean source and lock bytes.
+Neither job starts the normalization execution workflow, reads historical
+receipts or market data, or grants economic authorization. Failure never falls
+back to another build or changes the cached-runtime preflight. Success is
+evidence of that hosted attempt and its tested synthetic guards only, not
+permanent availability, actual historical receipt continuity or a PPO run.
 
 **New checkpoint lineage only.** After separate economic G0-G2/source review
 and owner authorization, its *first* checkpoint stage must be a fresh

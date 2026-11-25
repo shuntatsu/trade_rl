@@ -269,6 +269,99 @@ def test_asof_equity_oracle_rejects_only_future_dependent_marks() -> None:
         _verify_asof_equity([1.0, 1.0], [1.0, 1.0, 1.0], 2)
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "positive_inf",
+        "negative_inf",
+        "nan",
+        "future_inf",
+        "masked_full",
+        "masked_prior",
+        "masked_all_visible",
+        "masked_scalar",
+        "masked_base",
+        "masked_memoryview",
+        "complex_array",
+        "object_array",
+        "numeric_text",
+        "boolean",
+    ],
+)
+def test_asof_equity_oracle_refuses_invalid_marks(case: str) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    full: object = np.array([1.0, 1.0, 1.0, 1.0])
+    prior: object = np.array([1.0, 1.0, 1.0])
+    if case in ("positive_inf", "negative_inf", "nan"):
+        bad = {"positive_inf": np.inf, "negative_inf": -np.inf, "nan": np.nan}[case]
+        full = [1.0, bad, 1.0, 1.0]
+        prior = [1.0, bad, 1.0]
+    elif case == "future_inf":
+        full = [1.0, 1.0, 1.0, np.inf]
+    elif case == "masked_full":
+        full = np.ma.array(full, mask=[False, True, False, False])
+    elif case == "masked_prior":
+        prior = np.ma.array(prior, mask=[False, True, False])
+    elif case == "masked_all_visible":
+        full = np.ma.array(full, mask=False)
+    elif case == "masked_scalar":
+        prior = [1.0, np.ma.array(1.0, mask=False), 1.0]
+    elif case == "masked_base":
+        masked = np.ma.array([1.0, 1.0, 1.0], mask=[False, True, False])
+        prior = masked.astype(np.float64).view(np.ndarray)
+        assert np.ma.isMaskedArray(prior.base)
+    elif case == "masked_memoryview":
+        prior = memoryview(np.ma.array([1.0, 1.0, 1.0], mask=[False, True, False]))
+    elif case == "complex_array":
+        prior = np.array([1.0, 1.0 + 3j, 1.0])
+    elif case == "object_array":
+        prior = np.array([1.0, 1.0, 1.0], dtype=object)
+    elif case == "numeric_text":
+        prior = ["1.0", "1.0", "1.0"]
+    elif case == "boolean":
+        prior = [True, True, True]
+    else:
+        pytest.fail(f"unknown case: {case}")
+    with pytest.raises(ContractViolation):
+        _verify_asof_equity(full, prior, observed_rows=2)
+
+
+@pytest.mark.parametrize("observed_rows", [-1, 0, True])
+def test_asof_equity_oracle_rejects_vacuous_observation(observed_rows: int) -> None:
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    with pytest.raises(ContractViolation):
+        _verify_asof_equity([1.0, 1.0], [1.0] * (observed_rows + 1), observed_rows)
+
+
+@pytest.mark.parametrize("representation", ["integer_array", "mixed_sequence"])
+def test_asof_equity_oracle_refuses_lossy_integer_marks(representation: str) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    if representation == "integer_array":
+        full: object = np.array([2**53, 2**53 + 1], dtype=np.int64)
+        prior: object = np.array([2**53, 2**53], dtype=np.int64)
+    else:
+        full = [2**53 + 1, 1.0]
+        prior = [2**53, 1.0]
+    with pytest.raises(ContractViolation):
+        _verify_asof_equity(full, prior, 1)
+
+
+def test_asof_equity_oracle_accepts_finite_native_vectors() -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    _verify_asof_equity(np.array([1.0, 0.9, 1.1, 0.8]), (1.0, 0.9, 1.1), 2)
+    _verify_asof_equity([1, np.float64(0.9), 1.1], np.array([1.0, 0.9, 1.1]), 2)
+
+
 def test_no_notice_exemption_requires_actual_invalid_decision() -> None:
     from types import SimpleNamespace
 

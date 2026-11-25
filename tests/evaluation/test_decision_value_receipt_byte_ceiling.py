@@ -1169,3 +1169,118 @@ def test_receipt_canonical_identity_without_aggregate_encoding(
         replay = tmp_path / "repeat"
         assert _persist(replay, *rows) == digest
         assert (replay / "incomplete-pairs.json").read_bytes() == original
+
+
+@pytest.mark.parametrize("legacy_v2", [False, True])
+def test_externally_bounded_receipt_does_not_decode_whole_unicode_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_v2: bool
+) -> None:
+    from dataclasses import replace
+
+    from tests.evaluation.test_decision_value_failure_receipt_robustness import _as_v2
+
+    root = tmp_path / "attempt"
+    reason = 'synthetic "\\" delimiters [{,}] ' + "\U0001f600" * 20_000
+    rows = (
+        replace(_row(), reason_codes=(reason,)),
+        replace(_row(action=(0, 1)), reason_codes=(reason + " second",)),
+    )
+    digest = _persist(root, *rows)
+    if legacy_v2:
+        _as_v2(root)
+        digest = str(study.load_incomplete_pair_attempt(root)["receipt_digest"])
+    raw = (root / "incomplete-pairs.json").read_bytes()
+    expected = study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+    real_loads = study.json.loads
+    calls: list[int] = []
+
+    def bounded_loads(value, *args, **kwargs):
+        size = len(value.encode("utf-8") if isinstance(value, str) else value)
+        calls.append(size)
+        assert size < len(raw), "aggregate Unicode document reached JSON decoder"
+        return real_loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(study.json, "loads", bounded_loads)
+    result = study.load_incomplete_pair_attempt(
+        root, expected_receipt_digest=digest, expected_max_ineligible_pairs=2
+    )
+    assert result == expected and len(calls) >= 3
+    assert (root / "incomplete-pairs.json").read_bytes() == raw
+    if not legacy_v2:
+        repeat = tmp_path / "repeat"
+        assert _persist(repeat, *rows) == digest
+        assert (repeat / "incomplete-pairs.json").read_bytes() == raw
+
+
+@pytest.mark.parametrize("separator", [b"", b",,", b",null,", b", "])
+def test_partitioned_receipt_refuses_malformed_or_noncanonical_pair_separators(
+    tmp_path: Path, separator: bytes
+) -> None:
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row(), _row(action=(0, 1)))
+    path = root / "incomplete-pairs.json"
+    original = path.read_bytes()
+    value = study.json.loads(original)
+    first, second = [study.canonical_json_bytes(pair) for pair in value["pairs"]]
+    needle = first + b"," + second
+    assert original.count(needle) == 1
+    malformed = original.replace(needle, first + separator + second, 1)
+    path.write_bytes(malformed)
+    with pytest.raises(ValueError):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=digest, expected_max_ineligible_pairs=2
+        )
+    assert path.read_bytes() == malformed
+
+
+def test_large_bounded_receipt_with_no_complete_pair_layout_never_decodes_whole_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A deliberately lowered default exercises the real large-document path
+    # without allocating a large fixture or changing the production limit.
+    raw = b'{"block_id":"' + b"x" * 1000 + b'"}'
+    monkeypatch.setattr(study, "_DEFAULT_INCOMPLETE_RECEIPT_BYTES", 100)
+
+    def forbidden_loads(*args, **kwargs):
+        raise AssertionError("missing large pair layout reached aggregate decoding")
+
+    monkeypatch.setattr(study.json, "loads", forbidden_loads)
+    with pytest.raises(ValueError, match="failure receipt JSON is malformed"):
+        study._decode_incomplete_receipt(raw, expected_max_ineligible_pairs=2)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["leading", "trailing", "utf8", "duplicate", "root_order"]
+)
+def test_partitioned_receipt_keeps_full_document_canonical_and_utf8_checks(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row(), _row(action=(0, 1)))
+    raw = (root / "incomplete-pairs.json").read_bytes()
+    value = study.json.loads(raw)
+    if mutation == "leading":
+        malformed = raw.replace(b'"pairs":[', b'"pairs":[,', 1)
+    elif mutation == "trailing":
+        pair = study.canonical_json_bytes(value["pairs"][-1])
+        malformed = raw.replace(pair + b"]", pair + b",]", 1)
+    elif mutation == "utf8":
+        malformed = raw.replace(
+            b'"candidate_terminated"', b'"candidate_terminated\xff"', 1
+        )
+    elif mutation == "duplicate":
+        malformed = raw.replace(
+            b'"terminal_cash":"99000.5"',
+            b'"terminal_cash":"99000.5","terminal_cash":"99000.5"',
+            1,
+        )
+    else:
+        malformed = raw.replace(
+            b'"actual_artifact_digest":', b' "actual_artifact_digest":', 1
+        )
+    assert malformed != raw
+    with pytest.raises(ValueError):
+        study._decode_incomplete_receipt(
+            malformed, expected_receipt_digest=digest, expected_max_ineligible_pairs=2
+        )

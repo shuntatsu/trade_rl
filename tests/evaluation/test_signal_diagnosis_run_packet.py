@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-strict-spot-cash.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -27,14 +27,12 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
-    ROOT
-    / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-strict-spot-cash.json"
+    ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "f7939f9b3fdc195f9d560eef029c4e3ef249545ba7dcca830ea573432f4c3a77"
+PINNED_DIGEST = "bd13a6a48701c7473a32aeaed1a6b5eaafb7620c90ae707196e5896a0fbfa11a"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1038,7 +1036,7 @@ def test_rsi_scratch_preserves_native_grid_packet() -> None:
         )
 
 
-def test_strict_spot_cash_preserves_rsi_scratch_packet() -> None:
+def test_raw_mask_preserves_rsi_scratch_packet() -> None:
     previous_path = (
         ROOT
         / "report"
@@ -1054,10 +1052,6 @@ def test_strict_spot_cash_preserves_rsi_scratch_packet() -> None:
     assert (
         assurance_digest(previous)
         == "8629596c1c1c95104023fea98b04004f2a7e320795df2702ff208f62136e4526"
-    )
-    assert (
-        assurance_digest(current)
-        == "f7939f9b3fdc195f9d560eef029c4e3ef249545ba7dcca830ea573432f4c3a77"
     )
     assert current.keys() == previous.keys()
     for field in previous:
@@ -1079,8 +1073,8 @@ def test_strict_spot_cash_preserves_rsi_scratch_packet() -> None:
         previous["evidence"]["independent_reconstruction"]
     )
     assert current["identity"] == {
-        "implementation_head": "811eeb6284bad90219773691d3e283bacb5640cf",
-        "protocol_head": "811eeb6284bad90219773691d3e283bacb5640cf",
+        "implementation_head": "28dae2a341f04e30abfc954890e32e47ba2501bc",
+        "protocol_head": "28dae2a341f04e30abfc954890e32e47ba2501bc",
     }
     old_head = previous["identity"]["implementation_head"]
     new_head = current["identity"]["implementation_head"]
@@ -1089,16 +1083,12 @@ def test_strict_spot_cash_preserves_rsi_scratch_packet() -> None:
     ].replace(old_head, new_head)
     old = set(bound_code_paths(old_head))
     new = set(bound_code_paths(new_head))
-    assert old == new
+    assert new == old
     changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.splitlines() == [
-        "trade_rl/evaluation/replay.py",
-        "trade_rl/simulation/accounting.py",
-        "trade_rl/simulation/execution.py",
-        "trade_rl/simulation/stateful/execution.py",
-        "trade_rl/simulation/stateful/portfolio_session.py",
-        "trade_rl/simulation/stateful/symbol_fills.py",
+        "trade_rl/data/native_clock.py",
+        "trade_rl/data/source.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

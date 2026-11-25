@@ -11,7 +11,9 @@ import tempfile
 from pathlib import Path
 
 _IMPORTS = """\
+from datetime import datetime, UTC
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, assert_type
 import numpy as np
 
@@ -20,14 +22,26 @@ from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.timestamps import utc_timestamp_ns
+from trade_rl.data.features.clocked_overlay import ClockedNativeFeatureGroup, ClockedNativeSource, append_clocked_native_feature_groups
+from trade_rl.data.native_clock import NativeBarClock
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
 from trade_rl.evaluation.replay_exposure import ReplayExposureEvidence, mean_pre_interval_gross_from_ledger
+from trade_rl.evaluation.runs.external_provenance import (
+    ExternalPackageInput, ExternalSourceProvenance, PackageFilePin, PackageSourcePin,
+    verify_external_source_provenance,
+)
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
+from trade_rl.simulation.training_identity import (
+    training_execution_config_payload, training_execution_config_digest,
+    training_risk_config_payload, training_risk_config_digest,
+)
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot, PortfolioPolicy, PortfolioTargetProposal,
 )
@@ -62,6 +76,29 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         assert_type(result.ledger_evidence.exposure_evidence, ReplayExposureEvidence | None)
     assert_type(mean_pre_interval_gross_from_ledger(b"", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2), float)
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
+def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: Path, package: Path) -> None:
+    source = assert_type(ExternalPackageInput(core, wheel, package), ExternalPackageInput)
+    other = ExternalPackageInput(research, wheel, package)
+    result = assert_type(verify_external_source_provenance(
+        source, other, runtime_config={"fee": 0.0},
+        expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64,
+        expected_runtime_config_digest="c"*64,
+    ), ExternalSourceProvenance)
+    assert_type(result.digest, str)
+    assert_type(core.files, tuple[PackageFilePin, ...])
+def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
+    spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
+    group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
+    assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
+    assert_type(training_execution_config_payload(ExecutionCostConfig()), dict[str, object])
+    assert_type(training_execution_config_digest(ExecutionCostConfig()), str)
+    assert_type(training_risk_config_payload(PreTradeRiskConfig()), dict[str, object])
+    assert_type(training_risk_config_digest(PreTradeRiskConfig()), str)
+    assert_type(utc_timestamp_ns(datetime(2024, 1, 1, tzinfo=UTC)), int)
+    assert_type(utc_timestamp_ns(np.datetime64("2024-01-01")), int)
+    rows: list[NativeFillCashObservation] = []
+    assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, fill_cash_observer=rows.append), SharedCashPortfolioReplayResult)
+    assert_type(rows[0].fills[0].quantity_after, str)
 """
 )
 _NEGATIVE = (
@@ -80,6 +117,16 @@ runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_presen
 runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg
 mean_pre_interval_gross_from_ledger("bad", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2)  # expect: arg-type
 PreTradeRiskConfig(max_gross="wrong")  # expect: arg-type
+PackageFilePin("file.py", "bad", "a"*64)  # expect: arg-type
+training_execution_config_digest(PreTradeRiskConfig())  # expect: arg-type
+training_risk_config_payload(ExecutionCostConfig())  # expect: arg-type
+utc_timestamp_ns("2024-01-01")  # expect: arg-type
+def bad_clock_group(clock: NativeBarClock, spec: FeatureSpec, market: MarketDataset) -> None:
+    ClockedNativeFeatureGroup(clock, ("bad",), (spec,))  # expect: arg-type
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, fill_cash_observer=7)  # expect: arg-type
+def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
+    ExternalPackageInput(pin, "bad", path)  # expect: arg-type
+    verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """

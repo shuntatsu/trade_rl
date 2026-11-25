@@ -32,6 +32,7 @@ from trade_rl.simulation import (
     MarketExecutor,
 )
 from trade_rl.simulation.accounting import target_quantity_from_weight
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.native_transition import (
@@ -890,6 +891,7 @@ def _run_shared_cash_replay_core(
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
+    fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
 
@@ -901,6 +903,10 @@ def _run_shared_cash_replay_core(
     """
 
     portfolio_mode = _portfolio_policy is not None
+    if fill_cash_observer is not None and (
+        not portfolio_mode or not callable(fill_cash_observer)
+    ):
+        raise ValueError("fill_cash_observer requires portfolio replay and a callable")
     if type(strict_spot_cash) is not bool or (strict_spot_cash and not portfolio_mode):
         raise ValueError(
             "strict_spot_cash requires portfolio replay and a boolean mode"
@@ -1026,6 +1032,7 @@ def _run_shared_cash_replay_core(
             hold_unchanged_risk_target=hold_unchanged_risk_target,
             strict_spot_cash=strict_spot_cash,
             execution_observer=retain_latest_execution_observation,
+            fill_cash_observer=fill_cash_observer,
         )
         if portfolio_session.agent_stop_index != agent_stop_index:
             raise RuntimeError("portfolio session agent stop differs from replay")
@@ -1621,6 +1628,7 @@ def run_shared_portfolio_replay(
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
+    fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
     """Call one simultaneous portfolio policy once for each actor interval.
 
@@ -1637,6 +1645,9 @@ def run_shared_portfolio_replay(
     nonzero funding and negative non-trade cash flows on processed rows.
     With capture_exposure_evidence=True and ledger capture enabled, emit
     native pre-interval marks and multipliers in an opt-in v2 ledger.
+    An optional fill_cash_observer receives separate actual order-fill cash
+    and cost transitions after each successful native execution invocation.
+    It excludes carry and non-order settlements; failure aborts replay.
     Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
@@ -1649,6 +1660,8 @@ def run_shared_portfolio_replay(
 
     if on_native_advance is not None and not callable(on_native_advance):
         raise TypeError("on_native_advance must be callable")
+    if fill_cash_observer is not None and not callable(fill_cash_observer):
+        raise TypeError("fill_cash_observer must be callable")
 
     if type(capture_exposure_evidence) is not bool or (
         capture_exposure_evidence and capture_ledger_evidence is not True
@@ -1677,6 +1690,7 @@ def run_shared_portfolio_replay(
         hold_unchanged_risk_target=hold_unchanged_risk_target,
         strict_spot_cash=strict_spot_cash,
         on_native_advance=on_native_advance,
+        fill_cash_observer=fill_cash_observer,
     )
     ledger = (
         None

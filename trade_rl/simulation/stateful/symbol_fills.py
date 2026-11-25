@@ -18,6 +18,7 @@ from trade_rl.simulation.bar_path import (
     evaluate_trigger,
     select_bar_path,
 )
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashRecord
 from trade_rl.simulation.liquidity import (
     LiquidityAllocation,
     LiquidityPriority,
@@ -411,6 +412,11 @@ class StatefulSymbolFillProcessor:
                 fill_prices[symbol] = execution_price
                 valuation_prices = runtime.book.mark_prices.copy()
                 valuation_prices[symbol] = execution_price
+                cash_capture = runtime.fill_cash_records
+                if cash_capture is not None:
+                    quantity_before = str(runtime.book.exact_quantities[symbol])
+                    cash_before = float(runtime.book.cash)
+                    total_cost_before = float(runtime.book.total_cost)
                 try:
                     runtime.book.execute_fill(
                         symbol_index=symbol,
@@ -443,6 +449,12 @@ class StatefulSymbolFillProcessor:
                         path=order_path,
                     )
                     continue
+                if cash_capture is not None:
+                    # Margin can immediately flatten an insolvent book. Capture
+                    # the successful fill transition before that other movement.
+                    quantity_after = str(runtime.book.exact_quantities[symbol])
+                    cash_after = float(runtime.book.cash)
+                    total_cost_after = float(runtime.book.total_cost)
                 remaining_capacity = allocation.capacity_after
                 executor._update_margin(runtime.book)
                 runtime.order_book = runtime.order_book.replace(updated)
@@ -468,6 +480,20 @@ class StatefulSymbolFillProcessor:
                     reason=updated.terminal_reason,
                     path=order_path,
                 )
+                if cash_capture is not None:
+                    cash_capture.append(
+                        NativeFillCashRecord(
+                            event=runtime.events[-1],
+                            quantity_before=quantity_before,
+                            quantity_after=quantity_after,
+                            contract_multiplier=float(multipliers[symbol]),
+                            cash_before=cash_before,
+                            cash_after=cash_after,
+                            cost_amount=cost_amount,
+                            total_cost_before=total_cost_before,
+                            total_cost_after=total_cost_after,
+                        )
+                    )
                 runtime.total_cost += cost_amount
                 runtime.filled_notional += allocation.filled_notional
                 runtime.filled_reference_notional += filled_reference_notional

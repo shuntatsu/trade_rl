@@ -88,3 +88,40 @@ def test_market_store_updates_reject_major_without_automatic_deploy() -> None:
     source = MANIFEST.read_text(encoding="utf-8")
     assert "auto-merge" not in source
     assert "insecure-external-code-execution" not in source
+
+
+def test_locked_advisory_monitor_is_read_only_and_separate_from_updater() -> None:
+    workflow = (ROOT / ".github/workflows/ci-uv-advisory-audit.yml").read_text(
+        encoding="utf-8"
+    )
+    assert 'cron: "30 19 * * 1"' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "pull_request:" in workflow and "branches:\n      - main" in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "enable-cache: false" in workflow
+    assert 'version: "0.13.10"' in workflow
+    assert (
+        "ref: " + chr(36) + "{{ github.event.pull_request.head.sha || github.sha }}"
+    ) in workflow
+    assert "ref: }" not in workflow
+    assert "set -euo pipefail" in workflow
+    assert "UV_PYTHON_DOWNLOADS: never" in workflow
+    assert '[[ "$GITHUB_EVENT_NAME" == "pull_request" ]]' in workflow
+    assert "python -m tools.uv_advisory_audit --report-only" in workflow
+    assert "python -m tools.uv_advisory_audit | tee" in workflow
+    assert "git diff --exit-code HEAD -- pyproject.toml uv.lock" in workflow
+    for forbidden in (
+        "contents: write",
+        "pull-requests: write",
+        "id-token: write",
+        "pull_request_target:",
+        "secrets.",
+        "uv sync",
+        "uv lock --upgrade",
+        "continue-on-error",
+        "git push",
+        "gh pr merge",
+    ):
+        assert forbidden not in workflow
+    assert "open-pull-requests-limit: 0" in _ecosystem_sections()["uv"]

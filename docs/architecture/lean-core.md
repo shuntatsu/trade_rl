@@ -80,6 +80,7 @@ ledger、winner rule、実市場学習・収益性の証拠を成立させない
 - Opt-in `NativeBarClock` / `validate_native_kline_times` / `resample_complete_native_bars` は、明示された UTC elapsed/week/month grid と requested range を検証し、source close 以降・as-of 以下の publication および完全な source member だけを受け入れる。時刻・OHLCV の配列は NumPy ndarray とし、直接の masked array と native ndarray/memoryview owner chain に残る masked origin を変換前に拒否する。呼出し前に既に消失した mask provenance は復元できない。aggregate availability は member publication の最大値、OHLCV は完全な区間から導出する。この検査自体は provider の真正性・finality を証明しない。
 - Opt-in `resample_captured_spot_klines` は既に収集済みの Binance Spot UTC combined kline JSON bytes について stream/symbol/interval、明示 boolean finality `x=true`、native inclusive close、event/receipt 順序、完全な requested grid を照合し、trusted caller が供給する受信時刻を availability として同一 resampler へ渡す。3d の位相・ms/us は呼出し側が明示し、1w/1M は専用 calendar clock を必須とする。UTC-offset stream、REST/Vision、未確定・欠落・重複 message を代用しない。ネットワーク収集、Spot 接続の真正性、receipt clock、原本保存や funding/execution の証明ではない。両 API とも legacy Dataset の新 timeframe admission、細粒度の約定経路や経済実行の許可を証明しない。
 - Opt-in `trade_rl.data.features.multitimeframe.align_clocked_native_feature` は完全な明示 `NativeBarClock` の close grid から単一銘柄の価格・出来高特徴量を既存の因果的 event/publication および as-of alignment へ渡す。window はnative bar数、staleness は経過時間、上場を跨ぐbarと上場廃止時点以降の決定を拒否する。funding・cross-asset・旧 `FeatureSpec.timeframe` の併用を拒否する。caller が source identity・clock・publication evidence を固定する責任は残る。旧Dataset/timeframe/保存契約の拡張や取引・学習の認可ではない。
+- Opt-in `trade_rl.data.features.clocked_overlay.append_clocked_native_feature_groups` は content-verified `market_build_v3` の continuous base Dataset に、明示した複数の上位 native clock（例: 3d / UTC week / UTC month）の価格・出来高特徴量を一括追加する。各groupは元と同じinstrument roster・lifecycle・volume unit・multiplier、完全なtradable native grid、base gridと整合する境界、正規化済みraw配列の期待digestを要求し、既存のevent/publication alignmentを再利用する。baseのactive/tradable/information availabilityも満たす行だけを利用する。feature config digestは設定のみ、normalization digestとDataset IDは実配列・source pinを束縛する。v6/v7 artifact identity/codec、元feature・global feature・資金調達・費用・約定クロック・periods_per_yearを保持し、strict fit scopeに元featureの依存kindを引き継ぐ。外部global overlay、overlay chaining、欠損native bar、funding/cross-asset native features、coarse execution clockは未対応で拒否する。callerが供給したsource pinの真正性・取得許可・venue publicationは別の境界であり、経済実行や学習の認可ではない。
 - sub-base native timeframe（例: 1h baseに対する15m）のcross-asset featureだけは、同一native timeframeのpublic one-bar log-return featureが未宣言でも、内部で1-bar returnを構築できる。sourceは必ず既存`MultiTimeframeMarketDataSource.load_timeframe`を通し、regular native clock、raw-series availability、instrument lifecycle、source start/endを既存`align_native_feature`で検証する。これをbase OHLCから補間したり、available-atより前のreturnで代用したりしない。内部returnはpublic `feature_names`・保存feature列へ追加しない。明示1-bar sourceがちょうど1本ある既存semanticsは変更せず、重複return sourceはrejectする。baseとsuper-base timeframeのcross-asset sourceは引き続き明示的な1-bar log-return featureを必要とする。内部生成が成功しても公開されたnative raw sourceと時刻の真正性を独立に証明するものではない。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - CandidateSuiteのPPO training preflightはevent-time window `timestamp < fit_cutoff` を保ち、`run_lean_candidate_suite` が使う選択fit symbolのraw bar価格について、inclusiveな `[0, ppo_training_stop_index]` のDataset `available_at` がすべてcutoff以下であることを、Ridge / LightGBM / PPOのいずれかをfitする前に確認する。window末尾はPPO rewardとterminal-settlement reserveの価格を含み、cutoffと同時刻のavailabilityは許す。遅着barを黙って除外してfitを続けず、suite全体をfail closedにする。このguardはCandidateSuite固有であり、cutoff parameterを持たないgeneric `fit_ppo_strategy` の契約は変えない。
@@ -579,6 +580,27 @@ This is an opt-in software boundary, not retrospective economic equivalence,
 mixed spot/perp margin accounting, stochastic gap protection at order
 submission, or a claim of actual exchange admission. Historical study
 receipts and source-bound execution remain unchanged until reviewed cutover.
+
+The optional fill_cash_observer on MarketExecutor, SharedPortfolioSession
+and run_shared_portfolio_replay emits a separate native_fill_cash_observation_v1
+for each successfully completed stateful execution invocation, including
+empty batches. Each ordered row binds the actual OrderEvent identity and
+invocation-local sequence, exact quantity before/after, price/multiplier,
+actual execution cost, and BookState cash and cumulative cost immediately
+before/after execute_fill, before margin handling. The accepted quantity
+projection, signed principal and cash/cost transitions must reconcile
+exactly; the batch covers every filled/partial_fill event and reconciles
+the actual ordered interval cost. Rejected fills emit no committed row.
+This is an observation, not a new book or cost allocation. Non-order
+delisting/settlement, margin flattening, split, funding, dividend, interest
+and other carry are outside the per-fill cash transition. It cannot prove
+the minimum cash over all such movements or venue authenticity. An observer
+failure aborts the native invocation/replay; previous emitted observations
+or external callback side effects are not transactional. Default-disabled
+observation leaves execution identities, legacy OrderEvent and ledger
+serialization unchanged. It does not change a frozen trend-OOS protocol,
+authorize its economic successor, or eliminate the need for an independent
+cash/venue oracle.
 
 `PreTradeRisk.constrain` は、有限なtarget/currentからの差分でもL1合計が
 float overflowし得るため、requested / ordinary / constrained / emergency

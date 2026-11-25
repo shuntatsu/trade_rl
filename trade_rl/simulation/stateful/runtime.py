@@ -10,6 +10,7 @@ import numpy as np
 
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.bar_path import BarPath
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashRecord
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import (
@@ -40,6 +41,7 @@ class StatefulExecutionRuntime:
     events: list[OrderEvent]
     capacities: list[SymbolCapacityEvidence]
     funding_evidence: list[FundingBoundaryEvidence]
+    fill_cash_records: list[NativeFillCashRecord] | None
     starting_value: float
     starting_rebalance_events: int
     requested_notional: float
@@ -76,6 +78,7 @@ class StatefulExecutionRuntime:
             events=[],
             capacities=[],
             funding_evidence=[],
+            fill_cash_records=[] if executor._fill_cash_observer is not None else None,
             starting_value=0.0,
             starting_rebalance_events=result_book.rebalance_events,
             requested_notional=0.0,

@@ -85,7 +85,12 @@ class ImportCollector:
             checked_repo_file(self.repository, path)
             for path in sorted(self.package.rglob("*.py"))
         ]
-        self.modules = {self._module(path): path for path in source_paths}
+        self.modules: dict[str, Path] = {}
+        for path in source_paths:
+            module = self._module(path)
+            if module in self.modules:
+                raise ValueError(f"ambiguous module path: {module}")
+            self.modules[module] = path
         self._trees: dict[Path, ast.Module] = {}
 
     def _module(self, path: Path) -> str:

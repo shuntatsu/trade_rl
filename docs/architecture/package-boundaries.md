@@ -1147,19 +1147,55 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
 | `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
+| `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
+| `trade_rl.simulation.training_identity` | `training_execution_config_payload`, `training_execution_config_digest`, `training_risk_config_payload`, `training_risk_config_digest` (full legacy training config identity) |
+| `trade_rl.data.timestamps` | `utc_timestamp_ns` (exact native scalar UTC timestamp) |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
+| `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
+| `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+The opt-in external source record (external_source_provenance_v1) verifies
+two explicitly pinned package closures: reviewed repository/commit/tree,
+whole-wheel digest/size, and a complete sorted raw-byte file manifest for
+one top-level package in each wheel and installed directory. The expected
+pin and runtime-config digests come from independently established review
+records. Missing/extra resources, alias or prefix collisions, symlinks,
+junctions, unsupported paths and compiled caches are rejected. The supported
+boundary is a regular single-package wheel with one dist-info roster, safe
+ASCII paths, at most 10,000 members and 128 MiB wheel and package payload per
+distribution. Use a fresh noneditable installation with Python -B. Recheck
+with the first record digest after the operation to detect persistent
+source/config/runtime-manifest drift. Paths are not serialized. This checks
+declared roots and bytes, not actual import resolution, installed dist-info,
+dependency bytes, transient mutation, Git/approval authenticity or scientific
+authorization. Historical candidate-run v1 serialization and readers remain
+unchanged; new source naturally has a new source identity. Never reuse a
+historical v1/v2 receipt for this record. Study admission, source pin creation
+and cutover remain separate.
+
+The training identity helpers serialize the complete concrete ExecutionCostConfig
+and PreTradeRiskConfig dataclasses, matching the existing portfolio transform
+configuration payloads and canonical SHA-256. They are not the versioned
+execution-policy identity or runtime/venue admission. The zero-cost training
+config digest is distinct from its execution_policy_digest. The UTC scalar
+boundary accepts timezone-aware native Python datetime and native NumPy
+datetime64, verifies the original unit/multiplier and finite signed ns range,
+and rejects naive times, NaT, sub-nanosecond remainders and scalar subclasses.
+No local timezone inference or floating epoch conversion. Both modules are
+importable without Gymnasium/Torch/SB3/LightGBM imports; legacy transform
+serialization and private helpers stay unchanged for frozen source pins.
 
 Every executable study must use the common native execution and accounting
 owner (MarketExecutor, BookState, SharedPortfolioSession / replay).
@@ -1265,7 +1301,12 @@ remain NaN; no existing Dataset feature profile is changed. Visible Ichimoku
 uses the span from the displaced past source row, not the existing unshifted
 cloud-position feature. All periods are counts of native bars; its readiness
 requires the entire longest dependency window through the visible row to be
-tradable. Midpoints retain normal arithmetic and avoid sum overflow. These
+tradable. Midpoints retain normal arithmetic and avoid sum overflow. The
+visible cloud computes each distinct trailing window once with monotonic
+extrema queues and checks the full tradable window using prefix counts.
+The runtime is O(N) for the three configured periods, independent of their
+length and displacement; auxiliary storage is O(N). This is a batch
+calculation, not a persistent incremental cache. These
 primitives consume caller-supplied completed native observations: readiness
 is not publication-time availability. The caller must use the canonical
 native-clock and as-of alignment contracts, including missing-bar detection
@@ -1292,4 +1333,4 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（型不一致7件の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（各行で宣言された型不一致等の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。

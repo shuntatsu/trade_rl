@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools.agent_repo.source_index import PathContext, SourceIndex
 
 
@@ -249,3 +251,21 @@ def test_context_reuses_source_derived_sha256_validation_authority(
     assert "used:trade_rl._validation.require_sha256" in used.validation_hints
     assert "candidate:trade_rl._validation.require_sha256" in possible.validation_hints
     assert other.validation_hints == ()
+
+
+def test_index_rejects_ambiguous_module_paths(tmp_path: Path) -> None:
+    _write(tmp_path, "trade_rl/__init__.py", "")
+    _write(tmp_path, "trade_rl/owner.py", "import hidden_dependency\n")
+    _write(tmp_path, "trade_rl/owner/__init__.py", "")
+    with pytest.raises(ValueError, match=r"ambiguous module path: trade_rl\.owner"):
+        SourceIndex.build(tmp_path)
+
+
+def test_index_rejects_dotted_path_module_collision(tmp_path: Path) -> None:
+    _write(tmp_path, "trade_rl/__init__.py", "")
+    _write(tmp_path, "trade_rl/owner.feature.py", "import hidden_dependency\n")
+    _write(tmp_path, "trade_rl/owner/feature.py", "")
+    with pytest.raises(
+        ValueError, match=r"ambiguous module path: trade_rl\.owner\.feature"
+    ):
+        SourceIndex.build(tmp_path)

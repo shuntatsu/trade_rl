@@ -3407,3 +3407,59 @@ def test_fill_td8_node_union_preserves_both_predecessors() -> None:
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized
+
+
+def test_td8_spooled_writer_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "c74d40d856e37c79c9c948aa6c6966a0f883a214325b691dac393cc055252ff5"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "9454738b0e0dcea711bda939e3b020d79ab34289b87e222eaa239dcc739ef92a"
+    )
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v44-td8-spooled-writer.json"
+        ).read_bytes()
+    )
+    old_head = "96db36f48f12ed7e4d91c24f7dc3633406d99801"
+    new_head = "4939478a1b9746ed654c7ddc2ed11e417a9c4b42"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(_bound_code_paths(old_head))
+    b = set(_bound_code_paths(new_head))
+    assert a == b and len(b) == 191
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized

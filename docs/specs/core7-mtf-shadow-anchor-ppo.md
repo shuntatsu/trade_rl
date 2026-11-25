@@ -126,4 +126,5 @@ Status: Active
 - Immutable parallel v43 TD8 node-envelope packet: `report/issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json`, digest `9454738b0e0dcea711bda939e3b020d79ab34289b87e222eaa239dcc739ef92a`.
 - Immutable v42 fill/TD8 publication union: `report/issue810-core7-mtf-ppo-research-assurance-v42-fill-td8-publication-union.json` digest `2fb3c1e8229b7ea792dbdae8dcee97aa7afb1d3feef266e2e18309c5ccca4161`.
 - v44 source-only union: `25e7f8998d296a07526cb7ed07fd0d488c0bea49` binds the 192-path union with TD8 v43. No economic authority or historical evidence changes.
+- Immutable parallel v44 TD8 spooled-writer packet: `report/issue810-core7-mtf-ppo-research-assurance-v44-td8-spooled-writer.json`, digest `727f00c55e53bab71afb4a32a56b7a162b7d6c3b08c21f3286e5fe9cc3e848a6`; source `4939478a1b9746ed654c7ddc2ed11e417a9c4b42`, 191-path closure; remains UNREVIEWED, no economic authority.
 - Pinned Packet Digest: `52485e632694ea43a030ff1ca3a4f37073d68e0d8784c0f7a19ad5b2f85ebbb7`

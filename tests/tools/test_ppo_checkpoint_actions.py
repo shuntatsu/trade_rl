@@ -1246,6 +1246,8 @@ def test_api_json_array_accepts_only_array_payloads(
     ("field", "change", "pattern"),
     [
         ("python_version", "3.12.12 (historical runner build)", "Python runtime"),
+        ("uv_version", "0.10.0", "uv version"),
+        ("uv_version", "0.13.9", "uv version"),
         ("workflow_sha256", "f" * 64, "workflow_sha256"),
         ("workflow_sha", "e" * 40, "workflow identity"),
     ],

@@ -382,3 +382,42 @@ def test_root_file_wildcard_preserves_two_read_only_snapshot_tasks() -> None:
         "B", mode=ExecutionMode.READ_ONLY, resource_keys=("file:docs/AGENTS.md",)
     )
     assert classify_conflict(a, b) is ConflictLevel.NONE
+
+
+@pytest.mark.parametrize(
+    ("phase", "condition", "leased"),
+    [
+        (TaskPhase.READY, TaskCondition.HEALTHY, True),
+        (TaskPhase.EXECUTING, TaskCondition.STALE, True),
+        (TaskPhase.VERIFICATION, TaskCondition.BLOCKED, True),
+        (TaskPhase.EXECUTING, TaskCondition.BLOCKED, False),
+    ],
+)
+def test_scheduler_reserves_hard_conflicts_until_lease_or_execution_ends(
+    phase: TaskPhase, condition: TaskCondition, leased: bool
+) -> None:
+    holder = _packet("HOLDER", resource_keys=("identity:shared",))
+    conflict = _packet("CONFLICT", resource_keys=("identity:shared",))
+    independent = _packet("INDEPENDENT", resource_keys=("identity:other",))
+    assert ready_tasks(
+        (holder, conflict, independent),
+        {
+            "HOLDER": TaskStatus(phase, condition),
+            "CONFLICT": _healthy(TaskPhase.READY),
+            "INDEPENDENT": _healthy(TaskPhase.READY),
+        },
+        leased_task_ids=("HOLDER",) if leased else (),
+    ) == ("INDEPENDENT",)
+
+
+def test_scheduler_allows_conflict_after_lease_and_execution_end() -> None:
+    holder = _packet("HOLDER", resource_keys=("identity:shared",))
+    conflict = _packet("CONFLICT", resource_keys=("identity:shared",))
+    assert ready_tasks(
+        (holder, conflict),
+        {
+            "HOLDER": _healthy(TaskPhase.COMPLETE),
+            "CONFLICT": _healthy(TaskPhase.READY),
+        },
+        leased_task_ids=(),
+    ) == ("CONFLICT",)

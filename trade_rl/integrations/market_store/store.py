@@ -17,6 +17,7 @@ from importlib import resources
 from typing import Any, Final, Self
 
 import psycopg
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from trade_rl.integrations.market_store.checksum import ChecksumEvidence
@@ -578,6 +579,59 @@ class PostgresMarketStore:
                 ),
             )
             return [_kline_from_row(row) for row in cursor.fetchall()]
+
+    def read_strict_spot_klines(
+        self, symbol: str, start_ms: int, end_ms: int
+    ) -> tuple[list[KlineRow], dict[str, Any]]:
+        """Read values and original source metadata in the same SQL snapshot."""
+        from trade_rl.integrations.market_store.lineage import bind_strict_spot_rows
+
+        if (
+            type(start_ms) is not int
+            or type(end_ms) is not int
+            or start_ms >= end_ms
+            or end_ms > EmbargoPolicy.enforced().start_ms
+            or start_ms % 3_600_000
+            or end_ms % 3_600_000
+        ):
+            raise ValueError(
+                "strict spot lineage requires an aligned pre-warm-up range"
+            )
+        columns = [c.strip() for c in _KLINE_COLUMNS.split(",")]
+        with self._connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"SELECT {', '.join('k.' + c for c in columns)}, "
+                "s.source_id, s.url, s.checksum_url, s.sha256 AS archive_sha256, "
+                "s.checksum_file_sha256, s.checksum_line_sha256, s.size_bytes, "
+                "s.row_count AS archive_rows, s.period_kind, s.period_start, "
+                "s.period_end, s.fetched_at, s.status AS source_status, s.http_status, "
+                "r.status AS run_status, r.code_commit, "
+                "r.request->>'new_kline_admission' AS admission, "
+                "(s.instrument_id=k.instrument_id AND s.kind='klines' "
+                "AND s.bar_interval=k.bar_interval) AS scope_matches, "
+                "(r.request->'archives' @> jsonb_build_array(jsonb_build_object("
+                "'url', s.url, 'checksum_url', s.checksum_url, 'kind', 'klines', "
+                "'market', i.market, 'symbol', i.symbol, 'interval', k.bar_interval, "
+                "'period_kind', s.period_kind, 'period_start', "
+                "to_char(s.period_start AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS') || '+00:00', "
+                "'period_end', "
+                "to_char(s.period_end AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS') || '+00:00'"
+                "))) AS plan_matches "
+                "FROM klines k JOIN instruments i USING (instrument_id) "
+                "LEFT JOIN sources s ON s.source_id=k.source_id "
+                "LEFT JOIN ingestion_runs r ON r.run_id=s.run_id "
+                "WHERE i.exchange='binance' AND i.market='spot' AND i.symbol=%s "
+                "AND k.bar_interval='1h' AND k.open_time >= %s AND k.open_time < %s "
+                "ORDER BY k.open_time",
+                (symbol, utc_from_ms(start_ms), utc_from_ms(end_ms)),
+            )
+            joined = [
+                (_kline_from_row([row[c] for c in columns]), row)
+                for row in cursor.fetchall()
+            ]
+        return bind_strict_spot_rows(
+            joined, symbol=symbol, start_ms=start_ms, end_ms=end_ms
+        )
 
     def read_funding(
         self, market: StoreMarket, symbol: str, start_ms: int, end_ms: int

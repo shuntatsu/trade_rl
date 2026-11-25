@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -78,7 +79,8 @@ def _existing(repository: Path, relative: str) -> bool:
 def _pytest_command(paths: set[str]) -> str | None:
     if not paths:
         return None
-    return "uv run pytest -q " + " ".join(sorted(paths))
+    # Render a POSIX shell command without splitting or expanding Git paths.
+    return shlex.join(["uv", "run", "pytest", "-q", *sorted(paths)])
 
 
 def _named_project_surfaces(signals: tuple[SemanticSignal, ...], kind: str) -> str:

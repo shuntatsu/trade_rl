@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -312,3 +313,25 @@ def test_binance_fallback_condition_change_routes_negative_integrity_tests(
         "fallback" in step.reason.lower() and "integrity" in step.reason.lower()
         for step in _by_tier(steps, "extended")
     )
+
+
+def test_fast_verification_preserves_special_character_paths(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    paths = {
+        "tests/test with spaces.py",
+        "tests/test'quote.py",
+        "tests/test$literal.py",
+        "tests/test&literal.py",
+        "tests/test_日本語.py",
+    }
+    for path in paths:
+        _test_stub(tmp_path, path)
+    steps = _by_tier(plan_verification(tmp_path, base_ref="main"), "fast")
+    assert len(steps) == 1
+    assert shlex.split(steps[0].command) == [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        *sorted(paths),
+    ]

@@ -22,7 +22,7 @@
 
 ## リポジトリ分離・フォルダ整理
 
-- [研究基盤と個別研究の分離計画](plans/repository-split.md) — 2リポジトリの目標責務、時間軸の拡張、研究から基盤へのIssue routing、最適化、配布・研究保証・CI・証拠保全、段階的cutover。別repoでpolicyの初期移植を行った段階であり、基盤の既存package配置・研究正本・実行権限は未変更。
+- [研究基盤と個別研究の分離計画](plans/repository-split.md) — 2リポジトリの目標責務、時間軸の拡張、研究から基盤へのIssue routing、最適化、配布・研究保証・CI・証拠保全、段階的cutover。別repoの統合Draftでpolicy・比較条件・合成検証の移行を進めている。研究側の移行台帳・現況は [研究リポジトリ](https://github.com/shuntatsu/trade_rl_research) を参照する。基盤の既存実行権限とsource-bound証拠はcutoverまで維持する。
 
 ## 変更目的から選ぶ
 

@@ -473,7 +473,12 @@ def test_exact_full_ci_admission(monkeypatch, fault):
         ("2026-11-24T03:00:00Z", "2026-11-24T04:00:00Z", False),
     ],
 )
-def test_owner_comment_created_after_gates(monkeypatch, created, updated, accepted):
+@pytest.mark.parametrize(
+    "late_fault", [None, "pr_head", "local_head", "local_dirty", "ci_attempt"]
+)
+def test_owner_comment_created_after_gates(
+    monkeypatch, created, updated, accepted, late_fault
+):
     from types import SimpleNamespace
 
     head = "a" * 40
@@ -484,7 +489,10 @@ def test_owner_comment_created_after_gates(monkeypatch, created, updated, accept
     url = "https://github.com/shuntatsu/trade_rl/pull/1355#issuecomment-456"
     body = study.authorization_body(packet)
 
+    owner_seen = False
+
     def api(path):
+        nonlocal owner_seen
         if path.endswith("/reviews/123"):
             return {
                 "id": 123,
@@ -492,6 +500,7 @@ def test_owner_comment_created_after_gates(monkeypatch, created, updated, accept
                 "submitted_at": "2026-11-24T01:00:00Z",
             }
         if path.endswith("/issues/comments/456"):
+            owner_seen = True
             return {
                 "id": 456,
                 "html_url": url,
@@ -505,15 +514,34 @@ def test_owner_comment_created_after_gates(monkeypatch, created, updated, accept
 
     def verified(*args, api_read, **kwargs):
         api_read("repos/shuntatsu/trade_rl/pulls/1355/reviews/123")
-        return SimpleNamespace(status="PASS")
+        return SimpleNamespace(
+            status="BLOCKED" if owner_seen and late_fault == "pr_head" else "PASS"
+        )
 
-    monkeypatch.setattr(study, "_git", lambda *a: "" if a[0] == "status" else head)
+    monkeypatch.setattr(
+        study,
+        "_git",
+        lambda *a: (
+            ("dirty" if owner_seen and late_fault == "local_dirty" else "")
+            if a[0] == "status"
+            else ("b" * 40 if owner_seen and late_fault == "local_head" else head)
+        ),
+    )
     monkeypatch.setattr(study, "_github_api_read", api)
     monkeypatch.setattr(study, "verify_github_review", verified)
     monkeypatch.setattr(
-        study, "_require_full_ci", lambda *a: (789, 1, "2026-11-24T02:00:00Z")
+        study,
+        "_require_full_ci",
+        lambda *a: (
+            789,
+            2 if owner_seen and late_fault == "ci_attempt" else 1,
+            "2026-11-24T02:00:00Z",
+        ),
     )
-    if accepted:
+    if accepted and late_fault:
+        with pytest.raises(ValueError, match="changed during admission"):
+            study._authorize(packet, 1355, 123, url)
+    elif accepted:
         assert study._authorize(packet, 1355, 123, url)["ci_run_id"] == 789
     else:
         with pytest.raises(ValueError, match="owner authorization"):

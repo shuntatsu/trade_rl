@@ -44,6 +44,13 @@ def _equity_path(equity: np.ndarray) -> np.ndarray:
     raw = _require_plain_native_array(equity, field_name="equity")
     if raw.dtype.kind not in "iuf":
         raise ValueError("equity must contain real numeric values")
+    # Match the native binary64 mark contract before conversion can merge
+    # distinct integer values. Narrow integer dtypes fit exactly; comparing
+    # them to 2**53 is unnecessary and may overflow scalar promotion.
+    if raw.dtype.itemsize > 8 or (
+        raw.dtype.kind in "iu" and raw.dtype.itemsize == 8 and np.any(raw > 2**53)
+    ):
+        raise ValueError("equity must contain binary64-compatible values")
     path = np.asarray(raw, dtype=np.float64)
     if (
         path.ndim != 1

@@ -254,3 +254,32 @@ def test_oversized_tree_blob_is_rejected_before_reading_content() -> None:
     with pytest.raises(ValueError, match="payload limit"):
         _reader(api).read_registry_bytes(REPOSITORY, COMMIT)
     assert len(api.calls) == 2
+
+
+@pytest.mark.parametrize("other", [{}, {"path": None}, {"path": 7}, {"path": ""}])
+def test_unidentifiable_tree_entry_prevents_unique_registry_path_proof(
+    other: dict[str, object],
+) -> None:
+    api = FakeGitApi()
+    entries = api.tree["tree"]
+    assert isinstance(entries, list)
+    entries.append(other)
+    with pytest.raises(ValueError, match="tree entry path"):
+        _reader(api).read_registry_bytes(REPOSITORY, COMMIT)
+    assert len(api.calls) == 2
+
+
+def test_unrelated_named_tree_entry_preserves_registry_read() -> None:
+    api = FakeGitApi()
+    entries = api.tree["tree"]
+    assert isinstance(entries, list)
+    entries.append(
+        {
+            "path": "unrelated file.txt",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "c" * 40,
+            "size": 1,
+        }
+    )
+    assert _reader(api).read_registry_bytes(REPOSITORY, COMMIT) == api.raw

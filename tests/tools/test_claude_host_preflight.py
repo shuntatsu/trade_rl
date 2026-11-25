@@ -452,3 +452,55 @@ def test_invalid_utf8_is_bounded_failure_without_execution(
     assert probe._index_fingerprint(root) == before
     assert "PRIVATE_MARKER" not in json.dumps(result)
     assert str(root) not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "needle, replacement",
+    [
+        ('"hooks": {', '"hooks": {}, "hooks": {'),
+        ('"SessionStart": [', '"SessionStart": [], "SessionStart": ['),
+        ('"command": "python"', '"command": "other", "command": "python"'),
+        ('"timeout": 15', '"timeout": 15, "timeout": 15'),
+    ],
+)
+def test_duplicate_settings_keys_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, needle: str, replacement: str
+) -> None:
+    root, _ = _fixture(tmp_path, monkeypatch)
+    path = root / ".claude/settings.json"
+    original = path.read_text(encoding="utf-8")
+    assert original.count(needle) == 1
+    modified = original.replace(needle, replacement, 1)
+    assert json.loads(modified) == json.loads(original)
+    path.write_text(modified, encoding="utf-8")
+    _git(root, "add", ".claude/settings.json")
+    _git(
+        root,
+        "-c",
+        "user.name=Test Agent",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "duplicate settings fixture",
+        "--quiet",
+    )
+    sha = _git(root, "rev-parse", "HEAD")
+    before = probe._index_fingerprint(root)
+    original_exec = probe._exec
+
+    def git_only(
+        args: list[str], *, cwd: Path, timeout: int = 5, input_data: str | None = None
+    ) -> tuple[int, str]:
+        assert args[0] == "git", "must not execute CLI or hook"
+        return original_exec(args, cwd=cwd, timeout=timeout, input_data=input_data)
+
+    monkeypatch.setattr(probe, "_exec", git_only)
+    result = probe.preflight(root, required_merge=sha)
+    assert result["configured_session_hook"] is False
+    assert result["working_tree_clean"] is True
+    assert result["claude_cli_present"] is False
+    assert result["hook_direct_exec_passed"] is False
+    assert result["preflight_ok"] is False
+    assert probe._index_fingerprint(root) == before
+    assert str(root) not in json.dumps(result)

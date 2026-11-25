@@ -280,8 +280,24 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         created_at,
     ):
         raise ValueError("owner authorization changed during admission")
-    if _github_api_read(review_path) != review_snapshot:
-        raise ValueError("independent research review changed during admission")
+    # Repeat the authenticated gates after the owner lookup: the open PR,
+    # latest CI attempt and local checkout can change independently.
+    if _require_full_ci(head, pr) != (ci_run_id, ci_attempt, ci_updated_at):
+        raise ValueError("Full CI changed during admission")
+    final_review = verify_github_review(
+        packet,
+        repository=REPOSITORY,
+        pr_number=pr,
+        review_id=review_id,
+        api_read=_github_api_read,
+    )
+    if (
+        final_review.status != "PASS"
+        or _github_api_read(review_path) != review_snapshot
+    ):
+        raise ValueError("independent research review or PR changed during admission")
+    if _git("rev-parse", "HEAD") != head or _git("status", "--porcelain"):
+        raise ValueError("local checkout changed during admission")
     protocol()
     return {
         "head": head,

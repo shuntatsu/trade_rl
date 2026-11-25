@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v34-native-risk-dataset.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v35-native-execution-identity.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "e050a4ab286601b2e3029dc3ac1420855474953dc1a7d32078de98c5decef4aa"
+    "c8a92c240f3dd33237bac4f44cb97e5e43c3bf1d8c881e1579937da1cb459f8d"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2225,7 +2225,13 @@ def test_native_risk_dataset_successor_preserves_immutable_cash_union() -> None:
         assurance_digest(previous)
         == "ac42d5ff650be41d7d2a59f6a27273db97c01d95397d645bb08a44865ac255af"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v34-native-risk-dataset.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "814580ea4857390b607e5729e0cb9f96cf4ce735",
         "protocol_head": "814580ea4857390b607e5729e0cb9f96cf4ce735",
@@ -2273,6 +2279,77 @@ def test_native_risk_dataset_successor_preserves_immutable_cash_union() -> None:
     assert diff.stdout.splitlines() == [
         "trade_rl/data/market.py",
         "trade_rl/risk/inputs.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_execution_identity_successor_preserves_native_risk_dataset() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v34-native-risk-dataset.json"
+    )
+    previous_bytes = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "c4b4606c57589e3212b3ea7036617bc2092ac85f9e74cb31a926f2cd90beaed1"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "e050a4ab286601b2e3029dc3ac1420855474953dc1a7d32078de98c5decef4aa"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "5139465355fce3d54fb509a246122a1161c96306",
+        "protocol_head": "5139465355fce3d54fb509a246122a1161c96306",
+    }
+    assert current.keys() == previous.keys()
+    for key in previous:
+        if key not in ("identity", "thesis", "claims", "evidence"):
+            assert current[key] == previous[key]
+    for key in previous["thesis"]:
+        if key == "limitations":
+            assert current["thesis"][key].startswith(previous["thesis"][key])
+        elif key == "cheapest_falsifier":
+            assert current["thesis"][key] == previous["thesis"][key].replace(
+                "814580ea4857390b607e5729e0cb9f96cf4ce735",
+                "5139465355fce3d54fb509a246122a1161c96306",
+            )
+        else:
+            assert current["thesis"][key] == previous["thesis"][key]
+    for key in previous["claims"]:
+        assert current["claims"][key] == (
+            previous["claims"][key].replace(
+                "814580ea4857390b607e5729e0cb9f96cf4ce735",
+                "5139465355fce3d54fb509a246122a1161c96306",
+            )
+            if key == "next_authorized_action"
+            else previous["claims"][key]
+        )
+    for key in previous["evidence"]:
+        if key == "independent_reconstruction":
+            assert current["evidence"][key].startswith(previous["evidence"][key])
+        else:
+            assert current["evidence"][key] == previous["evidence"][key]
+    a = set(_bound_code_paths("814580ea4857390b607e5729e0cb9f96cf4ce735"))
+    b = set(_bound_code_paths("5139465355fce3d54fb509a246122a1161c96306"))
+    assert a == b and len(b) == 189
+    diff = _git(
+        "diff",
+        "--name-only",
+        "814580ea4857390b607e5729e0cb9f96cf4ce735",
+        "5139465355fce3d54fb509a246122a1161c96306",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/simulation/__init__.py",
+        "trade_rl/simulation/execution.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

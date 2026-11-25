@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-native-risk-dataset.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-native-execution-identity.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-native-risk-dataset.json"
+    / "sd2-signal-diagnosis-research-assurance-20261125-native-execution-identity.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "7c08e19aa3f544e0470427c25f4f652f05bf8841d857e5ff3b3b77d38c350251"
+PINNED_DIGEST = "1c411e5a122deb30a961be6a77e0a307da0fef53485dccbb602d3c0c834aaf23"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1320,7 +1320,13 @@ def test_native_risk_dataset_successor_preserves_immutable_cash_union() -> None:
         assurance_digest(previous)
         == "114adc053cd041c26ac1c5ce67df3a47b605b84a331fe8c26122be5c3a353272"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-native-risk-dataset.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "814580ea4857390b607e5729e0cb9f96cf4ce735",
         "protocol_head": "814580ea4857390b607e5729e0cb9f96cf4ce735",
@@ -1368,6 +1374,77 @@ def test_native_risk_dataset_successor_preserves_immutable_cash_union() -> None:
     assert diff.stdout.splitlines() == [
         "trade_rl/data/market.py",
         "trade_rl/risk/inputs.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_execution_identity_successor_preserves_native_risk_dataset() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-native-risk-dataset.json"
+    )
+    previous_bytes = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "ca761e39afc7fa2c19d6dc918cec728ab38fffb99adc7095e1430024aaf96ac6"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "7c08e19aa3f544e0470427c25f4f652f05bf8841d857e5ff3b3b77d38c350251"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "5139465355fce3d54fb509a246122a1161c96306",
+        "protocol_head": "5139465355fce3d54fb509a246122a1161c96306",
+    }
+    assert current.keys() == previous.keys()
+    for key in previous:
+        if key not in ("identity", "thesis", "claims", "evidence"):
+            assert current[key] == previous[key]
+    for key in previous["thesis"]:
+        if key == "limitations":
+            assert current["thesis"][key].startswith(previous["thesis"][key])
+        elif key == "cheapest_falsifier":
+            assert current["thesis"][key] == previous["thesis"][key].replace(
+                "814580ea4857390b607e5729e0cb9f96cf4ce735",
+                "5139465355fce3d54fb509a246122a1161c96306",
+            )
+        else:
+            assert current["thesis"][key] == previous["thesis"][key]
+    for key in previous["claims"]:
+        assert current["claims"][key] == (
+            previous["claims"][key].replace(
+                "814580ea4857390b607e5729e0cb9f96cf4ce735",
+                "5139465355fce3d54fb509a246122a1161c96306",
+            )
+            if key == "next_authorized_action"
+            else previous["claims"][key]
+        )
+    for key in previous["evidence"]:
+        if key == "independent_reconstruction":
+            assert current["evidence"][key].startswith(previous["evidence"][key])
+        else:
+            assert current["evidence"][key] == previous["evidence"][key]
+    a = set(bound_code_paths("814580ea4857390b607e5729e0cb9f96cf4ce735"))
+    b = set(bound_code_paths("5139465355fce3d54fb509a246122a1161c96306"))
+    assert a == b and len(b) == 176
+    diff = _git(
+        "diff",
+        "--name-only",
+        "814580ea4857390b607e5729e0cb9f96cf4ce735",
+        "5139465355fce3d54fb509a246122a1161c96306",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/simulation/__init__.py",
+        "trade_rl/simulation/execution.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

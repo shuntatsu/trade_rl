@@ -269,3 +269,20 @@ def test_index_rejects_dotted_path_module_collision(tmp_path: Path) -> None:
         ValueError, match=r"ambiguous module path: trade_rl\.owner\.feature"
     ):
         SourceIndex.build(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("encoding", "cookie"),
+    [("utf-8-sig", ""), ("latin-1", "# coding: latin-1\n")],
+)
+def test_source_index_respects_python_source_encoding(
+    tmp_path: Path, encoding: str, cookie: str
+) -> None:
+    _tree(tmp_path)
+    target = "trade_rl/evaluation/runs/config.py"
+    expected = SourceIndex.build(tmp_path).context(target)
+    for path in tmp_path.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        path.write_bytes((cookie + "# caf\u00e9\n" + source).encode(encoding))
+        compile(path.read_bytes(), str(path), "exec")
+    assert SourceIndex.build(tmp_path).context(target) == expected

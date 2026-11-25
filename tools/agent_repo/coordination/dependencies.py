@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
+from graphlib import CycleError, TopologicalSorter
 
 from tools.agent_repo.coordination.model import (
     DependencyKind,
@@ -43,22 +44,18 @@ class DependencyGraph:
         return tuple(sorted(self._packets))
 
     def _assert_acyclic(self) -> None:
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(task_id: str) -> None:
-            if task_id in visiting:
-                raise ValueError("dependency graph contains a cycle")
-            if task_id in visited:
-                return
-            visiting.add(task_id)
-            for dependency in self._packets[task_id].dependencies:
-                visit(dependency.task_id)
-            visiting.remove(task_id)
-            visited.add(task_id)
-
-        for task_id in sorted(self._packets):
-            visit(task_id)
+        # The standard-library cycle check uses an explicit stack, so a valid
+        # dependency chain is not limited by Python's recursion depth.
+        graph = TopologicalSorter(
+            {
+                task_id: tuple(dep.task_id for dep in packet.dependencies)
+                for task_id, packet in self._packets.items()
+            }
+        )
+        try:
+            graph.prepare()
+        except CycleError as error:
+            raise ValueError("dependency graph contains a cycle") from error
 
     def execution_dependencies_satisfied(
         self,

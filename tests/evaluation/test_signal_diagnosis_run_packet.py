@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-td8-spooled-writer.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json"
+    / "sd2-signal-diagnosis-research-assurance-20261126-td8-spooled-writer.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "daa946b09c931270a68af5feb3507a5f5dee0525928ec6e03a8347bb68c491aa"
+PINNED_DIGEST = "b266983be68731f3b9edaa6b0a26262d8bb3e6f57b8493e9a9b60b53e0e5d156"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1998,9 +1998,65 @@ def test_td8_node_envelope_successor_preserves_previous_packet() -> None:
         assurance_digest(previous)
         == "42a990f0b5feeb0824c8795e4beec47353ed8ecab8e2d66a0544a02f8ae237f1"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json"
+        ).read_bytes()
+    )
     old_head = "296d0adaeeb4c078e0888ad68b28107cbbb35af1"
     new_head = "96db36f48f12ed7e4d91c24f7dc3633406d99801"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(bound_code_paths(old_head))
+    b = set(bound_code_paths(new_head))
+    assert a == b and len(b) == 177
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_spooled_writer_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "ddd3d24be5e028af9867009c3edafd1b1e5f799cb06dc1fcf316d5927e160eb7"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "daa946b09c931270a68af5feb3507a5f5dee0525928ec6e03a8347bb68c491aa"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "96db36f48f12ed7e4d91c24f7dc3633406d99801"
+    new_head = "4939478a1b9746ed654c7ddc2ed11e417a9c4b42"
     assert current["identity"] == {
         "implementation_head": new_head,
         "protocol_head": new_head,

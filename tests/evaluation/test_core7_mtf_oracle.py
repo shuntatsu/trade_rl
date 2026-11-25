@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v44-td8-spooled-writer.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "9454738b0e0dcea711bda939e3b020d79ab34289b87e222eaa239dcc739ef92a"
+    "727f00c55e53bab71afb4a32a56b7a162b7d6c3b08c21f3286e5fe9cc3e848a6"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2961,9 +2961,65 @@ def test_td8_node_envelope_successor_preserves_previous_packet() -> None:
         assurance_digest(previous)
         == "c6fd481b1ca65b24611a87e34c38f0d610224a2ffd6fdb497bf600068a8e0003"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json"
+        ).read_bytes()
+    )
     old_head = "296d0adaeeb4c078e0888ad68b28107cbbb35af1"
     new_head = "96db36f48f12ed7e4d91c24f7dc3633406d99801"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(_bound_code_paths(old_head))
+    b = set(_bound_code_paths(new_head))
+    assert a == b and len(b) == 191
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_spooled_writer_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "c74d40d856e37c79c9c948aa6c6966a0f883a214325b691dac393cc055252ff5"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "9454738b0e0dcea711bda939e3b020d79ab34289b87e222eaa239dcc739ef92a"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "96db36f48f12ed7e4d91c24f7dc3633406d99801"
+    new_head = "4939478a1b9746ed654c7ddc2ed11e417a9c4b42"
     assert current["identity"] == {
         "implementation_head": new_head,
         "protocol_head": new_head,

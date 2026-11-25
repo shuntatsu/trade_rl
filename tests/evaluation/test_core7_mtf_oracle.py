@@ -2941,7 +2941,13 @@ def test_v41_source_union_preserves_both_v40_packets() -> None:
         assurance_digest(cash)
         == "572c79dba6228ccb888525bf80cb047dbd1893112e8fac8605f3b29980fef081"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v41-bootstrap-fill-union.json"
+        ).read_bytes()
+    )
     head = "8e8e6f5a558cf31521560f6fbecb07e0dfa20e44"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(m2_raw)
@@ -3014,6 +3020,62 @@ def test_v41_source_union_preserves_both_v40_packets() -> None:
         assert diff.returncode == 0, diff.stderr
         assert diff.stdout.splitlines() == changed
     for record in (origin, m2, cash, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_atomic_publication_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "c90be3f2db75cd1b73472c2f9c91e8d7e10aae2c76b22882dd2f0ec66b82cdbc"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "f5b8f5b998631d00b892db432a738357d2957e7fd8342ca4efa6946e6d064568"
+    )
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v41-td8-atomic-publication.json"
+        ).read_bytes()
+    )
+    old_head = "26d879ef9b5543f4bd2f4cfc3f62147ad03b3af0"
+    new_head = "bd21022612d772ae9c3ff15353fb5e871f0d25da"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(_bound_code_paths(old_head))
+    b = set(_bound_code_paths(new_head))
+    assert a == b and len(b) == 191
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import mmap
 import os
 import re
 import shutil
@@ -1811,6 +1812,7 @@ def _quarantined_receipt_pairs(evidence: Sequence[object]) -> list[dict[str, obj
 
 
 def _encode_incomplete_receipt(
+    receipt_path: Path,
     failure: IncompletePairedLabelsError,
     *,
     dataset_id: str,
@@ -1820,50 +1822,62 @@ def _encode_incomplete_receipt(
     runtime_environment_digest: str,
     phase: str,
     observed_view_digest: str | None,
-) -> tuple[bytes, str]:
-    """Return canonical receipt bytes verified by the shared strict decoder.
+) -> str:
+    """Write canonical bytes via a private spool, with the shared strict check.
 
-    The bytes are checked by the reader's structural/canonical validator
-    before they are returned. If the encoding is rejected, every pair is
-    quarantined and checked again before claiming the destination root.
-    File-based reload also enforces a separate finite input-byte budget and
-    may reject an otherwise valid oversized receipt.
+    The writer maps only its own temporary spool, never a caller-provided
+    receipt file. This avoids the receipt-wide heap bytes join; per-pair
+    encoding, the decoded tree and file-backed pages still consume resources.
+    A semantic self-check failure uses the existing all-quarantine fallback.
+    I/O errors must not be reclassified as evidence-validation failures.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
-        try:
-            pairs = build_pairs(failure.evidence)
-            body: dict[str, object] = {
-                "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
-                "verdict": _INCOMPLETE_RECEIPT_VERDICT,
-                "reason": _INCOMPLETE_RECEIPT_REASON,
-                "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
-                "fit_admitted": False,
-                "dataset_id": dataset_id,
-                "protocol_digest": protocol_digest,
-                "actual_artifact_digest": actual_artifact_digest,
-                "implementation_digest": implementation_digest,
-                "runtime_environment_digest": runtime_environment_digest,
-                "block_id": failure.block_id,
-                "phase": phase,
-                "observed_view_digest": observed_view_digest,
-                "ineligible_pairs": len(pairs),
-                "pairs": pairs,
-                "pairs_digest": _receipt_content_digest(pairs),
-            }
-            receipt_digest = _receipt_content_digest(body)
-            encoded = b"".join(
-                _receipt_canonical_parts({**body, "receipt_digest": receipt_digest})
-            )
-            _decode_incomplete_receipt(
-                encoded,
-                expected_receipt_digest=receipt_digest,
-                expected_max_ineligible_pairs=len(pairs) or None,
-            )
-        except Exception as error:  # fall back to the all-quarantine encoding
-            last_error = error
-            continue
-        return encoded, receipt_digest
+        with tempfile.TemporaryFile(mode="w+b", dir=receipt_path.parent) as spool:
+            try:
+                pairs = build_pairs(failure.evidence)
+                body: dict[str, object] = {
+                    "schema_version": _INCOMPLETE_RECEIPT_SCHEMA,
+                    "verdict": _INCOMPLETE_RECEIPT_VERDICT,
+                    "reason": _INCOMPLETE_RECEIPT_REASON,
+                    "retry_policy": _INCOMPLETE_RECEIPT_RETRY_POLICY,
+                    "fit_admitted": False,
+                    "dataset_id": dataset_id,
+                    "protocol_digest": protocol_digest,
+                    "actual_artifact_digest": actual_artifact_digest,
+                    "implementation_digest": implementation_digest,
+                    "runtime_environment_digest": runtime_environment_digest,
+                    "block_id": failure.block_id,
+                    "phase": phase,
+                    "observed_view_digest": observed_view_digest,
+                    "ineligible_pairs": len(pairs),
+                    "pairs": pairs,
+                    "pairs_digest": _receipt_content_digest(pairs),
+                }
+                receipt_digest = _receipt_content_digest(body)
+                pair_count = len(pairs)
+                for part in _receipt_canonical_parts(
+                    {**body, "receipt_digest": receipt_digest}
+                ):
+                    spool.write(part)
+                spool.flush()
+                # The strict decoder need not coexist with the producer's tree.
+                del body, pairs, part
+                with mmap.mmap(spool.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+                    _decode_incomplete_receipt(
+                        raw,
+                        expected_receipt_digest=receipt_digest,
+                        expected_max_ineligible_pairs=pair_count or None,
+                    )
+            except OSError:
+                raise
+            except Exception as error:  # fall back to the all-quarantine encoding
+                last_error = error
+                continue
+            spool.seek(0)
+            with receipt_path.open("xb") as destination:
+                shutil.copyfileobj(spool, destination, length=1024 * 1024)
+            return receipt_digest
     raise ValueError(
         "failure receipt could not be encoded in a reloadable form"
     ) from last_error
@@ -1896,12 +1910,12 @@ def _persist_incomplete_pair_attempt(
     Implementation/runtime identities are resolved once before the study
     starts, so this abort path never depends on hashing the source tree.
 
-    Order of operations, so that no data-dependent failure can leave the root
-    retryable: (1) cheap identity preconditions, (2) encode the receipt and
-    decode it with the strict reader's validator (non-finite or unrepresentable
-    values are encoded, never raised; see ``_encode_incomplete_receipt``), and
-    only then (3) claim the destination. Only environmental I/O failures after
-    step 2 remain; they happen before any result is published.
+    Order of operations: (1) cheap identity preconditions, (2) encode the
+    receipt and decode it with the strict reader's validator, preserving the
+    existing sentinel and quarantine fallbacks, then (3) publish the
+    destination. Successful publication consumes the root. Storage, mapping
+    or unrecoverable encoding failures before publication do not claim
+    success, and an absent root alone does not authorize an economic retry.
 
     Prepare the complete receipt in a private sibling directory, then publish
     it using the OS-enforced no-replace directory rename. The destination
@@ -1929,20 +1943,20 @@ def _persist_incomplete_pair_attempt(
     destination = Path(output_dir)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"output_dir already exists: {destination}")
-    encoded, receipt_digest = _encode_incomplete_receipt(
-        failure,
-        dataset_id=dataset_id,
-        protocol_digest=protocol_digest,
-        actual_artifact_digest=actual_artifact_digest,
-        implementation_digest=implementation_digest,
-        runtime_environment_digest=runtime_environment_digest,
-        phase=phase,
-        observed_view_digest=observed_view_digest,
-    )
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
     try:
-        (stage / _INCOMPLETE_RECEIPT_FILE).write_bytes(encoded)
+        receipt_digest = _encode_incomplete_receipt(
+            stage / _INCOMPLETE_RECEIPT_FILE,
+            failure,
+            dataset_id=dataset_id,
+            protocol_digest=protocol_digest,
+            actual_artifact_digest=actual_artifact_digest,
+            implementation_digest=implementation_digest,
+            runtime_environment_digest=runtime_environment_digest,
+            phase=phase,
+            observed_view_digest=observed_view_digest,
+        )
         # The shared primitive uses an exclusive OS rename, never the
         # ordinary POSIX rename that can replace an empty directory.
         atomic_rename_directory(stage, destination)
@@ -2195,8 +2209,18 @@ def _validate_incomplete_pair_record(
     _require_canonical_round_trip(pair, field="pair record")
 
 
+_ReceiptInput = bytes | mmap.mmap
+
+
+def _receipt_has_prefix(raw: _ReceiptInput, prefix: bytes, offset: int = 0) -> bool:
+    """Compare at one byte position without slicing a receipt-sized buffer."""
+    if isinstance(raw, bytes):
+        return raw.startswith(prefix, offset)
+    return raw.find(prefix, offset, offset + len(prefix)) == offset
+
+
 def _preflight_receipt_json_depth(
-    raw: bytes, *, expected_max_json_nodes: int | None = None
+    raw: _ReceiptInput, *, expected_max_json_nodes: int | None = None
 ) -> None:
     """Bound nesting and optional aggregate value slots before decoding.
 
@@ -2278,7 +2302,7 @@ class _ReceiptPairLayout:
 
 
 def _preflight_receipt_pair_objects(
-    raw: bytes, *, expected_max_ineligible_pairs: int | None = None
+    raw: _ReceiptInput, *, expected_max_ineligible_pairs: int | None = None
 ) -> _ReceiptPairLayout | None:
     """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
@@ -2374,7 +2398,7 @@ def _preflight_receipt_pair_objects(
                         )
                     if not any(
                         key_bytes == len(name)
-                        and raw.startswith(name, root_key_start, offset)
+                        and _receipt_has_prefix(raw, name, root_key_start)
                         for name in allowed_root_keys
                     ):
                         raise ValueError("failure receipt fields are malformed")
@@ -2393,7 +2417,7 @@ def _preflight_receipt_pair_objects(
                     key_bytes = offset - pair_key_start
                     if not any(
                         key_bytes == len(name)
-                        and raw.startswith(name, pair_key_start, offset)
+                        and _receipt_has_prefix(raw, name, pair_key_start)
                         for name in allowed_pair_keys
                     ):
                         raise ValueError("failure receipt pair field is not recognised")
@@ -2548,7 +2572,9 @@ def _preflight_receipt_pair_objects(
         while end > start and raw[end - 1] in b" \t\r\n":
             end -= 1
         expected = str(actual_pair_count).encode("ascii")
-        if end - start != len(expected) or not raw.startswith(expected, start):
+        if end - start != len(expected) or not _receipt_has_prefix(
+            raw, expected, start
+        ):
             raise ValueError("failure receipt pair count mismatch")
     if (
         array_start is not None
@@ -2559,7 +2585,9 @@ def _preflight_receipt_pair_objects(
     return None
 
 
-def _decode_partitioned_receipt_json(raw: bytes, layout: _ReceiptPairLayout) -> object:
+def _decode_partitioned_receipt_json(
+    raw: _ReceiptInput, layout: _ReceiptPairLayout
+) -> object:
     """Decode the root and complete pairs without one receipt-wide Unicode copy.
 
     Only exact canonical array separators are accepted. Each fragment is
@@ -2628,11 +2656,11 @@ def _receipt_content_digest(value: dict[str, object] | Sequence[object]) -> str:
     return digest.hexdigest()
 
 
-def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
+def _require_canonical_receipt(raw: _ReceiptInput, loaded: dict[str, object]) -> None:
     offset = 0
     try:
         for part in _receipt_canonical_parts(loaded):
-            if not raw.startswith(part, offset):
+            if not _receipt_has_prefix(raw, part, offset):
                 raise ValueError("failure receipt must use canonical JSON bytes")
             offset += len(part)
     except RecursionError as error:
@@ -2641,7 +2669,7 @@ def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
         raise ValueError("failure receipt must use canonical JSON bytes")
 
 
-def _require_raw_receipt_pin(raw: bytes, expected_digest: str) -> None:
+def _require_raw_receipt_pin(raw: _ReceiptInput, expected_digest: str) -> None:
     """Reject unrelated canonical bytes before allocating decoded JSON objects.
 
     Both historical schemas sort their root keys. The receipt_digest member
@@ -2658,7 +2686,9 @@ def _require_raw_receipt_pin(raw: bytes, expected_digest: str) -> None:
         raise ValueError("failure receipt differs from the pinned digest")
     value_start = start + len(marker)
     member_end = value_start + 65  # 64 lowercase hex bytes and closing quote
-    if not raw.startswith(expected_digest.encode("ascii") + b'",', value_start):
+    if not _receipt_has_prefix(
+        raw, expected_digest.encode("ascii") + b'",', value_start
+    ):
         raise ValueError("failure receipt differs from the pinned digest")
     # Hash the canonical body without copying the potentially large receipt.
     digest = hashlib.sha256()
@@ -2670,7 +2700,7 @@ def _require_raw_receipt_pin(raw: bytes, expected_digest: str) -> None:
 
 
 def _decode_incomplete_receipt(
-    raw: bytes,
+    raw: _ReceiptInput,
     *,
     expected_receipt_digest: str | None = None,
     expected_max_ineligible_pairs: int | None = None,
@@ -2682,7 +2712,7 @@ def _decode_incomplete_receipt(
     _preflight_receipt_json_depth(raw, expected_max_json_nodes=expected_max_json_nodes)
     # A canonical failure receipt is always a root object. Reject broad arrays
     # and other non-objects before the JSON decoder can allocate their elements.
-    if not raw.startswith(b"{"):
+    if not _receipt_has_prefix(raw, b"{"):
         raise ValueError("failure receipt must contain a JSON object")
     layout = _preflight_receipt_pair_objects(
         raw, expected_max_ineligible_pairs=expected_max_ineligible_pairs
@@ -2690,7 +2720,7 @@ def _decode_incomplete_receipt(
     try:
         if layout is not None:
             loaded = _decode_partitioned_receipt_json(raw, layout)
-        elif (
+        elif isinstance(raw, mmap.mmap) or (
             expected_max_ineligible_pairs is not None
             and len(raw) > _DEFAULT_INCOMPLETE_RECEIPT_BYTES
         ):

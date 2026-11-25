@@ -107,7 +107,9 @@ def _evidence() -> dict[str, object]:
         "job_source": "attempt_scoped_only",
         "scope": "single_run_attempt",
         "job_count": 1,
-        "jobs": [{"id": 110, "name": "core", "status": "completed"}],
+        "jobs": [
+            {"id": 110, "name": "core", "status": "completed", "conclusion": "failure"}
+        ],
         "workflow_activity_checked": False,
         "task_registry_complete": False,
         "cleanup_authorized": False,
@@ -536,3 +538,139 @@ def test_unfinished_observations_require_explicit_conclusion(
     else:
         with pytest.raises(ValueError, match="conclusion is missing"):
             _inspect(e)
+
+
+@pytest.mark.parametrize(
+    ("state", "conclusion", "missing", "pattern"),
+    [
+        ("completed", "success", True, "job conclusion is missing"),
+        ("unknown", "success", False, "job status"),
+        ("completed", None, False, "completed job conclusion"),
+        ("queued", "success", False, "unfinished job"),
+        ("completed", [], False, "job conclusion"),
+        ("completed", "unknown", False, "job conclusion"),
+        ([], None, False, "job status"),
+    ],
+)
+def test_supplied_job_state_refuses_invalid_observation(
+    state: object, conclusion: object, missing: bool, pattern: str
+) -> None:
+    e = _evidence()
+    attempt = e["attempts"][0]  # type: ignore[index]
+    artifact = e["artifacts"][0]  # type: ignore[index]
+    attempt.update(status="in_progress", conclusion=None)
+    artifact.update(status="in_progress", conclusion=None)
+    job = attempt["jobs"][0]
+    job.update(status=state, conclusion=conclusion)
+    if missing:
+        del job["conclusion"]
+    with pytest.raises(ValueError, match=pattern):
+        _inspect(e)
+
+
+@pytest.mark.parametrize(
+    ("run_status", "run_conclusion", "job_status", "job_conclusion", "pattern"),
+    [
+        (
+            "completed",
+            "failure",
+            "in_progress",
+            None,
+            "completed run contains unfinished",
+        ),
+        (
+            "completed",
+            "success",
+            "completed",
+            "failure",
+            "successful run contains failed",
+        ),
+        (
+            "completed",
+            "success",
+            "completed",
+            "cancelled",
+            "successful run contains failed",
+        ),
+    ],
+)
+def test_supplied_run_and_job_contradictions_refuse(
+    run_status: str,
+    run_conclusion: str,
+    job_status: str,
+    job_conclusion: str | None,
+    pattern: str,
+) -> None:
+    e = _evidence()
+    attempt = e["attempts"][0]  # type: ignore[index]
+    artifact = e["artifacts"][0]  # type: ignore[index]
+    attempt.update(status=run_status, conclusion=run_conclusion)
+    artifact.update(status=run_status, conclusion=run_conclusion)
+    attempt["jobs"][0].update(status=job_status, conclusion=job_conclusion)
+    with pytest.raises(ValueError, match=pattern):
+        _inspect(e)
+
+
+@pytest.mark.parametrize("bad_name", [None, "", " ", 42])
+def test_supplied_job_name_is_required(bad_name: object) -> None:
+    e = _evidence()
+    job = e["attempts"][0]["jobs"][0]  # type: ignore[index]
+    job.update(name=bad_name, conclusion="failure")
+    with pytest.raises(ValueError, match="job name"):
+        _inspect(e)
+
+
+@pytest.mark.parametrize(
+    ("status", "conclusion"),
+    [
+        ("completed", "success"),
+        ("completed", "skipped"),
+        ("completed", "neutral"),
+        ("in_progress", None),
+        ("queued", None),
+    ],
+)
+def test_valid_supplied_job_status_remains_hold(
+    status: str, conclusion: str | None
+) -> None:
+    e = _evidence()
+    attempt = e["attempts"][0]  # type: ignore[index]
+    artifact = e["artifacts"][0]  # type: ignore[index]
+    attempt.update(
+        status=status, conclusion="success" if status == "completed" else None
+    )
+    artifact.update(status=attempt["status"], conclusion=attempt["conclusion"])
+    attempt["jobs"][0].update(status=status, conclusion=conclusion)
+    result = _inspect(e)
+    assert result["supplied_evidence_consistent"] is True
+    assert result["decision"] == "HOLD"
+    assert result["lease_reassignment_authorized"] is False
+    assert result["cleanup_authorized"] is False
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [".hidden/registry", "group.lock/registry", "registry.", "group/.hidden"],
+)
+def test_invalid_registry_ref_refuses_even_if_inventory_matches(suffix: str) -> None:
+    e = _evidence()
+    branch = f"coordination/{suffix}"
+    e["snapshot"].ref_name = f"refs/heads/{branch}"  # type: ignore[attr-defined]
+    e["inventory"]["branches"][-1]["name"] = branch  # type: ignore[index]
+    e["attempts"][0]["jobs"][0]["conclusion"] = "failure"  # type: ignore[index]
+    with pytest.raises(ValueError, match="safe coordination"):
+        _inspect(e)
+
+
+@pytest.mark.parametrize(
+    "suffix", ["group./registry", "nested/group/registry", "group.LOCK/registry"]
+)
+def test_valid_registry_ref_is_still_hold(suffix: str) -> None:
+    e = _evidence()
+    branch = f"coordination/{suffix}"
+    e["snapshot"].ref_name = f"refs/heads/{branch}"  # type: ignore[attr-defined]
+    e["inventory"]["branches"][-1]["name"] = branch  # type: ignore[index]
+    e["attempts"][0]["jobs"][0]["conclusion"] = "failure"  # type: ignore[index]
+    result = _inspect(e)
+    assert result["decision"] == "HOLD"
+    assert result["cleanup_authorized"] is False

@@ -120,17 +120,26 @@ class NativeBarClock:
             step_ns = self.fixed_seconds * _NS_PER_SECOND
             anchor_ns = int(self.fixed_anchor.astype(np.int64))
 
-        ticks = normalized.astype(np.int64)
-        previous = int(ticks[0]) - step_ns
-        # Use Python integers: subtracting two valid int64 timestamps can wrap.
-        for tick in ticks:
-            end = int(tick)
+        ticks = normalized.view(np.int64)
+        first = int(ticks[0])
+        # Anchor the first bar in unbounded integer arithmetic. An exact
+        # consecutive grid then inherits its phase without per-row modulo.
+        if (first - anchor_ns) % step_ns:
+            raise ValueError("native close is off the declared grid anchor")
+        # For strictly increasing signed timestamps the unsigned modular
+        # difference equals the mathematical positive distance, even across
+        # the epoch. Check order independently: reversed timestamps can alias
+        # a valid unsigned delta across the signed nanosecond boundary.
+        invalid = np.diff(ticks.view(np.uint64)) != np.uint64(step_ns)
+        invalid |= ticks[1:] <= ticks[:-1]
+        if np.any(invalid):
+            # The first invalid pair follows a valid anchored prefix; inspect
+            # that close alone to preserve the original error precedence.
+            end = int(ticks[int(np.argmax(invalid)) + 1])
             if (end - anchor_ns) % step_ns:
                 raise ValueError("native close is off the declared grid anchor")
-            if end - previous != step_ns:
-                raise ValueError("native closes must be consecutive")
-            previous = end
-        if int(ticks[0]) - step_ns < _MIN_FINITE_DATETIME64_NS:
+            raise ValueError("native closes must be consecutive")
+        if first - step_ns < _MIN_FINITE_DATETIME64_NS:
             raise ValueError("native start is outside the finite nanosecond range")
         starts = (ticks - np.int64(step_ns)).view("datetime64[ns]")
         return starts, normalized

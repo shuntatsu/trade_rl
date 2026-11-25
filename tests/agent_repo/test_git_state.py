@@ -187,13 +187,27 @@ def test_read_git_state_reports_both_rename_paths(
     assert state.changed_paths == (old, new)
 
 
-@pytest.mark.parametrize("branch", ["feature", "topic/feature"])
-def test_read_git_state_reports_literal_branch_when_tag_shadows_name(
-    tmp_path: Path, branch: str
+@pytest.mark.parametrize(
+    "branch",
+    [
+        "feature",
+        "topic/feature",
+        "heads/feature",
+        "feature\u00a0",
+        "feature\u2003",
+        "feature\u3000",
+        "feature\u0085",
+        "feature\u200b",
+    ],
+)
+@pytest.mark.parametrize("shadow_tag", [False, True])
+def test_read_git_state_reports_literal_branch_with_optional_tag_shadow(
+    tmp_path: Path, branch: str, shadow_tag: bool
 ) -> None:
     _init_repository(tmp_path)
     _git(tmp_path, "switch", "-c", branch)
-    _git(tmp_path, "tag", branch)
+    if shadow_tag:
+        _git(tmp_path, "tag", branch)
     _git(tmp_path, "config", "core.warnAmbiguousRefs", "true")
 
     state = read_git_state(tmp_path)

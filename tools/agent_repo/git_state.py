@@ -88,14 +88,15 @@ def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState
     root = repository.resolve()
     head = _git(root, "rev-parse", "HEAD").strip()
     try:
-        branch_ref = _git(root, "symbolic-ref", "-q", "HEAD").strip()
+        branch_ref = _git(root, "symbolic-ref", "-q", "HEAD").removesuffix("\n")
     except subprocess.CalledProcessError as error:
         if error.returncode != 1:
             raise
         branch: str | None = None
     else:
         # --short uses DWIM disambiguation (e.g. heads/name if a tag exists).
-        # Strip only the literal local branch namespace instead.
+        # Strip only the literal local branch namespace instead; the command
+        # terminator above is LF, not arbitrary Unicode whitespace.
         if not branch_ref.startswith("refs/heads/") or branch_ref == "refs/heads/":
             raise ValueError(f"HEAD does not reference a local branch: {branch_ref}")
         branch = branch_ref.removeprefix("refs/heads/")

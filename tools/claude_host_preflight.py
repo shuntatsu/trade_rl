@@ -134,12 +134,18 @@ def _skill_available(root: Path) -> bool:
         )
     except (OSError, UnicodeDecodeError):
         return False
-    header = skill.split("---", 2)
+    # read_text normalizes CR/LF; delimiters must occupy a physical line.
+    lines = skill.split("\n")
+    if lines[0] != "---":
+        return False
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return False
+    header = lines[1:end]
     return (
-        len(header) == 3
-        and header[0] == ""
-        and "name: research-challenge" in header[1].splitlines()
-        and "disable-model-invocation: true" in header[1].splitlines()
+        "name: research-challenge" in header
+        and "disable-model-invocation: true" in header
     )
 
 

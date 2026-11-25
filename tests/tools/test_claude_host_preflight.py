@@ -504,3 +504,53 @@ def test_duplicate_settings_keys_rejected(
     assert result["preflight_ok"] is False
     assert probe._index_fingerprint(root) == before
     assert str(root) not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "---junk\nname: research-challenge\ndisable-model-invocation: true\n---\n",
+        "---\nname: research-challenge\ndisable-model-invocation: true\n---junk\n",
+        "---\nname: research-challenge\ndisable-model-invocation: true\ntext---\n",
+        "---\nname: research-challenge\ndescription: text\u2028disable-model-invocation: true\n---\n",
+    ],
+)
+def test_manual_skill_rejects_nonphysical_frontmatter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, header: str
+) -> None:
+    root, _ = _fixture(tmp_path, monkeypatch)
+    path = root / ".claude/skills/research-challenge/SKILL.md"
+    path.write_text(header, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(
+        root,
+        "-c",
+        "user.name=Test Agent",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "invalid skill fixture",
+        "--quiet",
+    )
+    sha = _git(root, "rev-parse", "HEAD")
+    assert probe._skill_available(root) is False
+    report = probe.preflight(root, required_merge=sha)
+    assert report["working_tree_clean"] is True
+    assert report["manual_research_skill"] is False
+    assert report["claude_cli_present"] is False
+    assert report["hook_direct_exec_passed"] is False
+    assert report["preflight_ok"] is False
+
+
+def test_manual_skill_allows_inline_delimiter_in_description(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = _fixture(tmp_path, monkeypatch)
+    path = root / ".claude/skills/research-challenge/SKILL.md"
+    path.write_text(
+        '---\ndescription: "A --- B"\nname: research-challenge\n'
+        "disable-model-invocation: true\n---\n",
+        encoding="utf-8",
+    )
+    assert probe._skill_available(root) is True

@@ -770,6 +770,16 @@ it has **no** manual economic stage, training, checkpoint import or artifact
 upload. This hosted preflight is setup evidence, not a manual
 `workflow_dispatch` execution or evidence of a real PPO run.
 
+The separate `ci-original-runtime-probe.yml` (#1225/#1178) runs only on PRs
+changing that workflow. It downloads the exact 20260203 CPython 3.12.12 Linux
+x86_64 install-only stripped asset (release asset ID 350364012), verifies the
+pinned size and official SHA-256 before extraction, and checks the interpreter
+identity. No repository checkout, token permissions, dependency resolution,
+old receipts or economic execution are involved. Failure never falls back to
+another build or changes the cached-runtime preflight. Success is evidence of
+that hosted attempt only, not permanent availability, managed-uv selection of
+the same build, old receipt continuity or a PPO run.
+
 **New checkpoint lineage only.** After separate economic G0-G2/source review
 and owner authorization, its *first* checkpoint stage must be a fresh
 `prepare` with `checkpoint_artifacts_json=[]`, using a new immutable

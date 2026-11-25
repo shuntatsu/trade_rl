@@ -547,6 +547,39 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+### Opt-in strict spot cash execution
+
+`MarketExecutor` / `SharedPortfolioSession` /
+`run_shared_portfolio_replay(..., strict_spot_cash=True)` provide a
+cash-only deterministic long-only execution boundary. It requires
+`allow_short=False`, `max_leverage <= 1`, full collateral haircut and
+no stochastic slippage. The caller declares an all-spot roster; this
+does not authenticate venue instrument kind. On each processed row
+nonzero due funding and negative non-trade cash flows are refused.
+No future dataset tail is inspected for these checks.
+
+The original native `BookState.execute_fill` resolves the actual lot/
+no-lot quantity, price, multiplier and fee. Immediately before writing
+that same book it rejects a proposed negative cash or exact inventory,
+with no separate affordability arithmetic. The stateful processor records
+`no_fill` (insufficient_spot_cash or insufficient_spot_inventory), consumes
+no liquidity/cost/inventory, and leaves the ordinary IOC/GTC expiry and
+retry semantics in charge. Later fills may spend **already executed** sell
+proceeds, not projected future sales. Released reservation capacity is not
+reallocated within the same bar. This first contract refuses the entire
+allocated fill rather than shrinking it to the affordable lot; a separate
+decision-mark reserve can improve execution frequency. Existing terminal
+settlement orders use the same native path; legacy `liquidate_at_close`
+is explicitly refused in this mode. The book is checked at the incoming,
+pre-fill and completed interval boundaries.
+
+The executor's new strict policy digest wraps the existing digest; the
+default mode and ExecutionCostConfig payloads/identities remain unchanged.
+This is an opt-in software boundary, not retrospective economic equivalence,
+mixed spot/perp margin accounting, stochastic gap protection at order
+submission, or a claim of actual exchange admission. Historical study
+receipts and source-bound execution remain unchanged until reviewed cutover.
+
 `PreTradeRisk.constrain` は、有限なtarget/currentからの差分でもL1合計が
 float overflowし得るため、requested / ordinary / constrained / emergency
 turnoverとproposalからのprojection L1を有限値として検査する。非有限は

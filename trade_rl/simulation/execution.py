@@ -341,9 +341,14 @@ class MarketExecutor:
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+        strict_spot_cash: bool = False,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
+        if type(strict_spot_cash) is not bool:
+            raise ValueError("strict_spot_cash must be boolean")
+        self._strict_spot_cash = strict_spot_cash
+        self._validate_strict_spot_configuration()
         self.insolvency_valuation = insolvency_valuation
         if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
             raise ValueError(
@@ -369,6 +374,7 @@ class MarketExecutor:
                 tuple[str, ...],
                 str,
                 str | None,
+                bool,
             ]
             | None
         ) = None
@@ -396,6 +402,41 @@ class MarketExecutor:
         self._rng = np.random.default_rng(self.cost.random_seed)
         self._compatibility_order_book = OrderBookState.empty()
         self._compatibility_last_book: BookState | None = None
+
+    @property
+    def strict_spot_cash(self) -> bool:
+        """Opt-in cash-only native order admission (not venue spot attestation)."""
+        return self._strict_spot_cash
+
+    def _validate_strict_spot_configuration(self) -> None:
+        if self.strict_spot_cash and (
+            self.cost.allow_short
+            or self.cost.max_leverage > 1.0
+            or self.cost.collateral_haircut != 1.0
+            or self.cost.slippage_std != 0.0
+            or self.cost.tail_slippage_probability != 0.0
+        ):
+            raise ValueError(
+                "strict spot cash requires long-only unlevered deterministic execution and full collateral"
+            )
+
+    def _validate_strict_spot_row(self, index: int) -> None:
+        """Check only the processed row, never expose a future price to a policy."""
+        if not self.strict_spot_cash:
+            return
+        due = self.dataset.resolved_array("funding_due")[index]
+        rate = (
+            self.dataset.funding_rate[index]
+            if self.dataset.funding_price_rate is None
+            else self.dataset.funding_price_rate[index]
+        )
+        if np.any(due & (rate != 0.0)):
+            raise ValueError("strict spot cash refuses nonzero funding")
+        if (
+            np.any(self.dataset.resolved_array("dividend")[index] < 0.0)
+            or self.dataset.resolved_array("cash_rate")[index] < 0.0
+        ):
+            raise ValueError("strict spot cash refuses negative non-trade cash flows")
 
     def _get_insolvency_valuation(self) -> Literal["floor_zero", "retain_debt"]:
         return self._insolvency_valuation
@@ -1155,6 +1196,7 @@ class MarketExecutor:
             trigger_fraction_snapshot,
             self.insolvency_valuation,
             funding_semantics,
+            self.strict_spot_cash,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -1167,6 +1209,7 @@ class MarketExecutor:
             and previous_inputs[3] == trigger_fraction_snapshot
             and previous_inputs[4] == self.insolvency_valuation
             and previous_inputs[5] == funding_semantics
+            and previous_inputs[6] == self.strict_spot_cash
         ):
             return cached_digest
 
@@ -1206,6 +1249,15 @@ class MarketExecutor:
                     "schema_version": "funding_execution_policy_v1",
                     "base_policy_digest": digest,
                     "funding_semantics": funding_semantics,
+                }
+            )
+
+        if self.strict_spot_cash:
+            digest = content_digest(
+                {
+                    "schema_version": "strict_spot_cash_execution_v1",
+                    "base_policy_digest": digest,
+                    "unaffordable_fill": "no_fill",
                 }
             )
 
@@ -1354,6 +1406,8 @@ class MarketExecutor:
         return compatibility
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
+        if self.strict_spot_cash:
+            raise ValueError("strict spot cash requires stateful settlement orders")
         if self.market_order_profile is not None:
             raise ValueError(
                 "market profile liquidation requires explicit stateful orders"

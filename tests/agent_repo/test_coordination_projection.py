@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -380,3 +381,26 @@ def test_dashboard_rejects_null_main_oid() -> None:
 def test_dashboard_accepts_nonzero_main_oid_with_leading_zeroes() -> None:
     main_sha = "0" * 39 + "1"
     assert f"main: {main_sha}\n" in render_dashboard("#500", main_sha, ())
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        "<!-- agent-coordination:T500-04 -->",
+        "observed <!-- agent-coordination:other-task --> in a log",
+        "first\n<!-- agent-coordination:other-task -->\nlast",
+    ],
+)
+def test_status_comment_marker_in_payload_is_data(checkpoint: str) -> None:
+    record = replace(_record(), checkpoint=checkpoint)
+    rendered = render_status_comment(record)
+    assert parse_status_comment(rendered) == record
+
+
+def test_status_comment_requires_marker_outside_payload() -> None:
+    record = replace(_record(), checkpoint="<!-- agent-coordination:T500-04 -->")
+    rendered = render_status_comment(record)
+    with pytest.raises(ValueError, match="marker"):
+        parse_status_comment(rendered.partition("\n")[2])
+    with pytest.raises(ValueError, match="marker"):
+        parse_status_comment(rendered + "<!-- agent-coordination:other -->")

@@ -16,13 +16,13 @@ import numpy as np
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts.publication import (
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
 from trade_rl.data.market import MarketDataset
+from trade_rl.evaluation.experiments.bootstrap._json_reader import _read_json_object
 from trade_rl.evaluation.experiments.bootstrap.binance import (
     FrozenBinanceSource,
     _freeze_binance_source,
@@ -111,28 +111,6 @@ def _write_json(path: Path, payload: Mapping[str, object]) -> None:
         + "\n",
         encoding="utf-8",
     )
-
-
-def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"{label} must be a regular file")
-    try:
-        # Decode one verified descriptor rather than reopening the checked name.
-        with open_regular_binary(path, field=label) as handle:
-            encoded = handle.read()
-    except ValueError as error:
-        raise ValueError(f"{label} must be a regular file") from error
-    except OSError as error:
-        raise ValueError(f"{label} is invalid JSON") from error
-    try:
-        decoded = json.loads(encoded.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"{label} is invalid JSON") from error
-    if not isinstance(decoded, dict) or any(
-        not isinstance(key, str) for key in decoded
-    ):
-        raise ValueError(f"{label} must be a JSON object")
-    return cast(dict[str, object], decoded)
 
 
 def _require_digest(value: object, *, field: str) -> str:

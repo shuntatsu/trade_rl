@@ -1111,3 +1111,61 @@ def test_flat_pair_arrays_reject_nested_containers_before_decode(
     monkeypatch.setattr(study.json, "loads", forbidden_loads)
     with pytest.raises(ValueError, match="failure receipt pair array elements"):
         study._decode_incomplete_receipt(raw)
+
+
+@pytest.mark.parametrize("case", ["v2", "v3", "quarantine"])
+def test_receipt_canonical_identity_without_aggregate_encoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    from tests.evaluation.test_decision_value_failure_receipt_robustness import _as_v2
+
+    root = tmp_path / "attempt"
+    rows = (
+        [_row(baseline={"terminal_cash": "invalid-" + "\U0001f600" * 70_000})] * 3
+        if case == "quarantine"
+        else [_row(), _row(action=(0, 1))]
+    )
+    digest = _persist(root, *rows)
+    if case == "v2":
+        _as_v2(root)
+        digest = str(study.load_incomplete_pair_attempt(root)["receipt_digest"])
+    original = (root / "incomplete-pairs.json").read_bytes()
+    expected = study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+    encode = study.canonical_json_bytes
+    hash_value = study.content_digest
+    # The unchanged canonical encoder is the independent oracle for both
+    # writer output and each digest, even if writer and reader agree wrongly.
+    assert original == encode(expected)
+    assert expected["pairs_digest"] == hash_value(expected["pairs"])
+    assert digest == hash_value(
+        {key: value for key, value in expected.items() if key != "receipt_digest"}
+    )
+
+    def reject_aggregate(value: object) -> None:
+        if isinstance(value, list) or (
+            isinstance(value, dict) and "schema_version" in value and "pairs" in value
+        ):
+            raise AssertionError(
+                "aggregate canonical encoder received a complete receipt or pair array"
+            )
+
+    def checked_encode(value: object) -> bytes:
+        reject_aggregate(value)
+        return encode(value)
+
+    def checked_digest(value: object) -> str:
+        reject_aggregate(value)
+        return hash_value(value)
+
+    monkeypatch.setattr(study, "canonical_json_bytes", checked_encode)
+    monkeypatch.setattr(study, "content_digest", checked_digest)
+    assert (
+        study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+        == expected
+    )
+    assert (root / "incomplete-pairs.json").read_bytes() == original
+    if case != "v2":
+        # The current writer must emit the same v3 bytes, not a new schema.
+        replay = tmp_path / "repeat"
+        assert _persist(replay, *rows) == digest
+        assert (replay / "incomplete-pairs.json").read_bytes() == original

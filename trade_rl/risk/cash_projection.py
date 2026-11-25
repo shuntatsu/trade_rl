@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from numbers import Real
 
 import numpy as np
 
@@ -19,12 +18,21 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 
 
 def _finite(value: object, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise TypeError(f"{name} must be real")
-    try:
+    # Admit the same binary64-compatible native scalar domain as market
+    # inputs. Validate before narrowing: e.g. a negative longdouble can
+    # become -0.0, bypassing the long-only spot boundary.
+    if type(value) is int or (
+        isinstance(value, np.integer) and value.dtype.kind in "iu"
+    ):
+        if abs(int(value)) > 2**53:
+            raise ValueError(f"{name} must be binary64-compatible")
         v = float(value)
-    except OverflowError as exc:
-        raise ValueError(f"{name} must be representable") from exc
+    elif type(value) is float or isinstance(value, np.floating):
+        if isinstance(value, np.floating) and value.dtype.itemsize > 8:
+            raise ValueError(f"{name} must be binary64-compatible")
+        v = float(value)
+    else:
+        raise TypeError(f"{name} must be a native real scalar")
     if not math.isfinite(v):
         raise ValueError(f"{name} must be finite")
     return v
@@ -52,7 +60,10 @@ def project_mixed_cash_budget(
 ) -> MixedCashProjection:
     """Project a long-only spot / signed perpetual target at a single mark.
 
-    Every weight is a fraction of the same positive account equity. Explicit
+    Inputs are native binary64-compatible real scalars (no booleans,
+    arbitrary rationals, temporal scalars, wider floats or integers outside
+    the exact +/-2**53 domain). Every weight is a fraction of the same
+    positive account equity. Explicit
     sorted unique spot indices designate long-only principal-funded positions;
     every other position is a perpetual with the declared initial margin rate
     (normally 1 / native execution max_leverage). Empty spot indices mean

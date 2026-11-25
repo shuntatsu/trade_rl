@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 
 import numpy as np
 import pytest
 
-from trade_rl.evaluation.agy_anchor_oos.cash import cash_measure as old_mixed
-from trade_rl.evaluation.xs_lowvol_funding.policy import cash_factors as old_perp
 from trade_rl.risk.cash_projection import (
     project_mixed_cash_budget,
     snapshot_drawdown_scale,
@@ -51,20 +50,42 @@ def test_margin_and_net_are_distinct_and_tighter_factor_wins():
     assert both.net_factor == 0.485 and both.factor == 0.485
 
 
+# Frozen historical formulas, deliberately independent of the retired study
+# packages. The original implementation-to-implementation comparison remains
+# in the parent Git revision. Keeping these oracles literal permits deletion
+# of those legacy study modules without weakening this public API test.
+def _legacy_mixed_measure(weights):
+    return float(np.maximum(weights[0::2], 0.0).sum()) + 0.4 * float(
+        np.abs(weights[1::2]).sum()
+    )
+
+
+def _legacy_perp_factors(weights):
+    measure = 0.4 * float(np.abs(weights).sum())
+    net = float(weights.sum())
+    margin_factor = 1.0 / measure if measure > 1.0 + 1e-9 else 1.0
+    net_factor = 0.97 / net if net > 0.97 + 1e-9 else 1.0
+    return min(margin_factor, net_factor), margin_factor, net_factor
+
+
 def test_fixed_legacy_rosters_have_exact_projection_parity():
     rng = np.random.default_rng(819)
     for n in (1, 2, 6, 22):
         for _ in range(100):
             w = rng.uniform(-1.0, 1.0, n)
             got = project(w)
-            assert (got.factor, got.margin_factor, got.net_factor) == old_perp(w)
+            assert (
+                got.factor,
+                got.margin_factor,
+                got.net_factor,
+            ) == _legacy_perp_factors(w)
             assert got.margin_measure == 0.4 * float(np.abs(w).sum())
             assert got.net_exposure == float(w.sum())
             if n % 2 == 0:
                 w[0::2] = np.abs(w[0::2])
                 mixed = project(w, tuple(range(0, n, 2)))
-                assert mixed.margin_measure == old_mixed(w)
-                m = old_mixed(w)
+                assert mixed.margin_measure == _legacy_mixed_measure(w)
+                m = _legacy_mixed_measure(w)
                 net = float(w.sum())
                 assert mixed.factor == min(
                     1.0 / m if m > 1.0 + 1e-9 else 1.0,
@@ -163,3 +184,44 @@ def test_invalid_drawdown_snapshot_fails_closed(field, value):
     args[field] = value
     with pytest.raises((ValueError, TypeError)):
         snapshot_drawdown_scale(**args)
+
+
+@pytest.mark.parametrize(
+    "weight",
+    [
+        Fraction(-1, 10**400),
+        Fraction(1, 3),
+        2**53 + 1,
+        np.uint64(2**53 + 1),
+        np.timedelta64(1, "ns"),
+        np.bool_(True),
+    ],
+)
+def test_non_native_or_lossy_weights_refused(weight):
+    with pytest.raises((ValueError, TypeError)):
+        project((weight,), (0,))
+
+
+def test_wide_real_cannot_round_negative_spot_or_over_limit_to_valid():
+    if np.dtype(np.longdouble).itemsize <= 8:
+        pytest.skip("platform longdouble is binary64")
+    tiny_negative = -np.nextafter(np.longdouble(0), np.longdouble(1))
+    above_one = np.nextafter(np.longdouble(1), np.longdouble(2))
+    with pytest.raises((ValueError, TypeError)):
+        project((tiny_negative,), (0,))
+    with pytest.raises((ValueError, TypeError)):
+        project((0.5,), initial_margin_rate=above_one)
+    with pytest.raises((ValueError, TypeError)):
+        snapshot_drawdown_scale(
+            portfolio_value=1.0,
+            peak_value=1.0,
+            max_drawdown=tiny_negative,
+            drawdown_start=0.1,
+            drawdown_stop=0.2,
+        )
+
+
+def test_supported_native_scalar_types_keep_exact_binary64_value():
+    result = project((np.float32(0.5), np.float64(-0.5), np.int32(0)), (0, 2))
+    assert result.margin_measure == 0.7
+    assert result.net_exposure == 0.0

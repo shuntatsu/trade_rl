@@ -1156,7 +1156,11 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 
 The common decision-mark cash projection takes explicit sorted spot indices,
 nonnegative spot weights, signed perpetual weights and caller-declared
-margin/cash/net limits. It returns immutable pre-cap margin and signed net
+margin/cash/net limits. It admits native binary64-compatible scalars only
+(no booleans, arbitrary rationals, temporal values, wider floating-point
+values or integers outside the exact +/-2**53 domain); validate before
+narrowing to avoid masking negative spot weights or out-of-domain limits.
+It returns immutable pre-cap margin and signed net
 measures and their uniform scaling factors. The snapshot drawdown helper
 uses the same native PreTradeRisk ramp and preserves the historical snapshot
 peak-floor/clamp convention. Research owns the experimental constants and

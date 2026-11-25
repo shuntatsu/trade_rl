@@ -189,3 +189,31 @@ def test_non_ascii_space_cannot_close_tilde_fence() -> None:
     source = _fixture() + "\n~~~markdown\ntext\n~~~\u00a0\n"
     with pytest.raises(ValueError, match="unclosed"):
         split_sections(source)
+
+
+@pytest.mark.parametrize("separator", ("\v", "\f", "\x85", "\u2028", "\u2029"))
+def test_non_markdown_line_break_does_not_create_heading(separator: str) -> None:
+    source = _fixture().replace(
+        "marker for 目的", f"marker for 目的{separator}## Not a section"
+    )
+    assert render(source, ("all",)) == source
+    assert f"{separator}## Not a section" in render(source, ("core",))
+
+
+@pytest.mark.parametrize("separator", ("\v", "\f", "\x85", "\u2028", "\u2029"))
+def test_non_markdown_line_break_cannot_satisfy_required_heading(
+    separator: str,
+) -> None:
+    source = _fixture().replace(
+        "## Agent Eval protocol\n", f"ordinary text{separator}## Agent Eval protocol\n"
+    )
+    with pytest.raises(ValueError, match="missing sections"):
+        split_sections(source)
+
+
+@pytest.mark.parametrize("newline", ("\n", "\r\n", "\r"))
+def test_markdown_physical_line_endings_preserve_source(newline: str) -> None:
+    source = _fixture().replace("\n", newline)
+    assert render(source, ("all",)) == source
+    preamble, sections = split_sections(source)
+    assert preamble + "".join(sections.values()) == source

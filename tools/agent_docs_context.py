@@ -40,7 +40,8 @@ def _heading_positions(source: str) -> list[tuple[str, int]]:
     fence: tuple[str, int] | None = None
     html_comment = False
     offset = 0
-    for line in source.splitlines(keepends=True):
+    # Markdown physical lines end only at CR, LF, or CRLF.
+    for line in re.findall(r"[^\r\n]*(?:\r\n|\r|\n|$)", source):
         value = line.rstrip("\r\n")
         marker = _FENCE.match(value) if not html_comment else None
         comment_start = _HTML_COMMENT_START.match(value) if fence is None else None

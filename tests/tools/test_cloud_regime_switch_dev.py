@@ -47,6 +47,49 @@ def test_native_controls_and_ledger(arm):
         assert m["pre_interval_short_hours"] == 0
 
 
+@pytest.mark.parametrize("mutation", ["fee", "roster", "whitespace"])
+def test_frozen_protocol_refuses_replacement_before_admission(
+    monkeypatch, tmp_path, mutation
+):
+    import json
+
+    raw = study.PROTOCOL.read_bytes()
+    value = json.loads(raw)
+    if mutation == "fee":
+        value["scenarios"]["normal"]["fee_rate"] *= 2
+        raw = json.dumps(value).encode()
+    elif mutation == "roster":
+        value["arms"].remove("C2")
+        raw = json.dumps(value).encode()
+    else:
+        raw += b" "
+    replacement = tmp_path / "protocol.json"
+    replacement.write_bytes(raw)
+    monkeypatch.setattr(study, "PROTOCOL", replacement)
+    head = "a" * 40
+    packet = {
+        "identity": {"implementation_head": head, "protocol_head": head},
+        "thesis": {"limitations": hashlib.sha256(raw).hexdigest()},
+    }
+    monkeypatch.setattr(study, "_git", lambda *a: "" if a[0] == "status" else head)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid protocol reached review, market or result access")
+
+    monkeypatch.setattr(study, "verify_github_review", forbidden)
+    monkeypatch.setattr(study, "_github_api_read", forbidden)
+    monkeypatch.setattr(study, "load_published_market_dataset_artifact", forbidden)
+    for entry in (
+        study.protocol,
+        lambda: study.authorization_body(packet),
+        lambda: study._authorize(packet, 1355, 123, "unused"),
+        lambda: study._load_fixed("BTCUSDT"),
+        lambda: study.summarize_recorded_cells({}),
+    ):
+        with pytest.raises(ValueError, match="frozen protocol digest"):
+            entry()
+
+
 def test_git_lookup_is_independent_of_protocol_location(monkeypatch, tmp_path):
     monkeypatch.setattr(study, "PROTOCOL", tmp_path / "protocol.json")
     assert study._git("rev-parse", "--show-toplevel") == str(study.REPO_ROOT)

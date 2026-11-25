@@ -57,6 +57,9 @@ from trade_rl.strategies.portfolio_adapter import CashPortfolioPolicy
 REPOSITORY = "shuntatsu/trade_rl"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = REPO_ROOT / "report/cloud-regime-switch-dev-protocol-v1.json"
+FROZEN_PROTOCOL_SHA256 = (
+    "4a8d3c70c10332bff9d023b493baa88a03f2ee513b11a3d777a7f563605cb0cf"
+)
 INPUT_ROOT = Path(
     "/home/rei/デスクトップ/dev/trade_rl_divergence_real_dev_20261123/switch_dev_frozen_inputs_20261124"
 )
@@ -68,7 +71,12 @@ def _sha(path: Path) -> str:
 
 
 def protocol() -> dict:
-    return json.loads(PROTOCOL.read_bytes())
+    # Admission must bind the pre-registered bytes, not merely whichever
+    # protocol a caller or edited packet happens to reference.
+    raw = PROTOCOL.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != FROZEN_PROTOCOL_SHA256:
+        raise ValueError("frozen protocol digest differs")
+    return json.loads(raw)
 
 
 def _git(*args: str) -> str:
@@ -87,7 +95,7 @@ def authorization_body(packet: dict) -> str:
     return "\n".join(
         [
             "G4_AUTHORIZE_ONCE cloud_regime_switch_dev_v1",
-            f"protocol_sha256: {_sha(PROTOCOL)}",
+            f"protocol_sha256: {FROZEN_PROTOCOL_SHA256}",
             f"author_packet_sha256: {assurance_digest(packet)}",
             f"implementation_head: {packet['identity']['implementation_head']}",
             *(
@@ -215,7 +223,8 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         "protocol_head": head,
     }:
         raise ValueError("clean exact protocol/implementation HEAD required")
-    if _sha(PROTOCOL) not in packet["thesis"]["limitations"]:
+    protocol()
+    if FROZEN_PROTOCOL_SHA256 not in packet["thesis"]["limitations"]:
         raise ValueError("packet must bind exact protocol bytes")
     review_path = f"repos/{REPOSITORY}/pulls/{pr}/reviews/{review_id}"
     review_snapshot: dict = {}
@@ -273,6 +282,7 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         raise ValueError("owner authorization changed during admission")
     if _github_api_read(review_path) != review_snapshot:
         raise ValueError("independent research review changed during admission")
+    protocol()
     return {
         "head": head,
         "packet_digest": assurance_digest(packet),
@@ -285,7 +295,7 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         "pr": pr,
         "owner_comment": owner_url,
         "owner_body_sha256": owner.body_sha256,
-        "protocol_sha256": _sha(PROTOCOL),
+        "protocol_sha256": FROZEN_PROTOCOL_SHA256,
     }
 
 

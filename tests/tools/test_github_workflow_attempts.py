@@ -277,3 +277,30 @@ def test_unfinished_status_accepts_explicit_null_conclusion() -> None:
     assert result["conclusion"] is None
     assert result["jobs"][0]["conclusion"] is None
     assert result["cleanup_authorized"] is False
+
+
+@pytest.mark.parametrize("count", [100, 200])
+def test_full_final_attempt_page_requires_empty_terminal_page(count: int) -> None:
+    api = FakeReader(count=count)
+    api.pages = [
+        {"total_count": count, "jobs": [_job(i) for i in range(start, start + 100)]}
+        for start in range(1, count + 1, 100)
+    ]
+    api.pages.append({"total_count": count, "jobs": []})
+    result = observe_workflow_attempt(api, run_id=RUN_ID)
+    assert result["job_count"] == count
+    assert api.requests[-2][2] == {"per_page": "100", "page": str(count // 100 + 1)}
+
+
+def test_full_final_attempt_page_rejects_hidden_extra_job() -> None:
+    api = FakeReader(count=100)
+    api.pages.append({"total_count": 100, "jobs": [_job(101)]})
+    with pytest.raises(ValueError, match="pagination"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_full_final_attempt_page_rejects_changed_total() -> None:
+    api = FakeReader(count=100)
+    api.pages.append({"total_count": 101, "jobs": [_job(101)]})
+    with pytest.raises(ValueError, match="total_count changed"):
+        observe_workflow_attempt(api, run_id=RUN_ID)

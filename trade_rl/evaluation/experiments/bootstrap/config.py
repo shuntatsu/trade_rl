@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,8 +12,8 @@ import numpy as np
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.build import ExecutionEconomicsProfile
+from trade_rl.evaluation.experiments.bootstrap._json_reader import _read_json_object
 from trade_rl.evaluation.experiments.contracts import (
     ControlledFactor,
     StudyProtocol,
@@ -784,22 +783,11 @@ def load_canonical_m2_bootstrap_config(
 ) -> CanonicalM2BootstrapConfig:
     """Load one strict, regular-file bootstrap JSON contract."""
 
-    source = Path(path)
-    if source.is_symlink() or not source.is_file():
-        raise ValueError("bootstrap config must be a regular file")
-    try:
-        # Read through one verified no-follow regular-file descriptor.
-        with open_regular_binary(source, field="bootstrap config") as handle:
-            encoded = handle.read()
-    except ValueError as error:
-        raise ValueError("bootstrap config must be a regular file") from error
-    except OSError as error:
-        raise ValueError("bootstrap config is not valid JSON") from error
-    try:
-        decoded = json.loads(encoded.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("bootstrap config is not valid JSON") from error
-    raw = _require_mapping(decoded, field="bootstrap config")
+    raw = _read_json_object(
+        Path(path),
+        label="bootstrap config",
+        invalid_json_message="bootstrap config is not valid JSON",
+    )
     return _parse_config(raw)
 
 

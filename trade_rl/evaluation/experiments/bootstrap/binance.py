@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import open_regular_binary
+from trade_rl.evaluation.experiments.bootstrap._json_reader import _read_json_object
 from trade_rl.evaluation.experiments.bootstrap.config import CanonicalM2BootstrapConfig
 from trade_rl.integrations.binance import (
     BinanceExchangeInfoSnapshot,
@@ -215,28 +215,6 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
         + "\n",
         encoding="utf-8",
     )
-
-
-def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"{label} must be a regular file")
-    try:
-        # Do not reopen a checked pathname after a concurrent symlink swap.
-        with open_regular_binary(path, field=label) as handle:
-            encoded = handle.read()
-    except ValueError as error:
-        raise ValueError(f"{label} must be a regular file") from error
-    except OSError as error:
-        raise ValueError(f"{label} is invalid JSON") from error
-    try:
-        payload = json.loads(encoded.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"{label} is invalid JSON") from error
-    if not isinstance(payload, dict) or any(
-        not isinstance(key, str) for key in payload
-    ):
-        raise ValueError(f"{label} must be a JSON object")
-    return payload
 
 
 def _read_plan(path: Path) -> dict[str, object]:

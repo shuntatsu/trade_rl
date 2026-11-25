@@ -11,8 +11,13 @@ def finite_cash_scalar(value: object, name: str) -> float:
     # Admit the same binary64-compatible native scalar domain as market
     # inputs. Validate before narrowing: e.g. a negative longdouble can
     # become -0.0, bypassing the long-only spot boundary.
-    # Reject subclasses that can override conversion and hide an invalid value.
-    if isinstance(value, np.generic) and type(value) is not value.dtype.type:
+    # Use the actual type and native descriptor, never a foreign __class__
+    # or dtype getter: a subclass could otherwise spoof its own admission.
+    if issubclass(type(value), np.generic):
+        dtype = np.generic.dtype.__get__(value)
+        if type(value) is not dtype.type or dtype.kind not in "iuf":
+            raise TypeError(f"{name} must be a native real scalar")
+    elif type(value) is not int and type(value) is not float:
         raise TypeError(f"{name} must be a native real scalar")
     if type(value) is int or (
         isinstance(value, np.integer) and value.dtype.kind in "iu"

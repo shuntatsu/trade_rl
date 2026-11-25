@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -13,6 +14,7 @@ from trade_rl.risk.cash_projection import (
     snapshot_drawdown_scale,
 )
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.risk.spot_cash import spot_cash_target_factor
 
 
 def project(weights, spot=(), **changes):
@@ -234,3 +236,56 @@ def test_supported_native_scalar_types_keep_exact_binary64_value():
     result = project((np.float32(0.5), np.float64(-0.5), np.int32(0)), (0, 2))
     assert result.margin_measure == 0.7
     assert result.net_exposure == 0.0
+
+
+@pytest.mark.parametrize("api", ["mixed", "spot", "drawdown"])
+@pytest.mark.parametrize("spoof", ["dtype", "class", "metaclass"])
+def test_cash_boundaries_reject_foreign_scalar_getters(api, spoof):
+    accesses = []
+
+    class LossyFloat(np.float64):
+        @property
+        def dtype(self):
+            accesses.append("dtype")
+            return SimpleNamespace(type=type(self), itemsize=8)
+
+        def __float__(self):
+            accesses.append("float")
+            return 0.0
+
+    class Foreign:
+        @property
+        def __class__(self):
+            accesses.append("class")
+            raise RuntimeError("foreign getter must not run")
+
+    class ForeignMeta(type):
+        def __eq__(self, other):
+            accesses.append("type equality")
+            raise RuntimeError("foreign metaclass comparison must not run")
+
+    class ForeignType(metaclass=ForeignMeta):
+        pass
+
+    if spoof == "dtype":
+        value = LossyFloat(-0.5)
+    elif spoof == "class":
+        value = Foreign()
+    else:
+        value = ForeignType()
+    with pytest.raises(TypeError, match="native real scalar"):
+        if api == "mixed":
+            project((value,), (0,))
+        elif api == "spot":
+            spot_cash_target_factor(
+                (0.0,), (value,), cash_fraction=1.0, gross_limit=1.0, reserve_rate=0.0
+            )
+        else:
+            snapshot_drawdown_scale(
+                portfolio_value=1.0,
+                peak_value=1.0,
+                max_drawdown=value,
+                drawdown_start=0.1,
+                drawdown_stop=0.2,
+            )
+    assert not accesses

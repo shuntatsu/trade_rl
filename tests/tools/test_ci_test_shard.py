@@ -100,6 +100,16 @@ def test_verifier_refuses_incomplete_or_inconsistent_reports(
         verify_reports(tmp_path, count=4, head=HEAD, expected_items=items)
 
 
+@pytest.mark.parametrize("key", ["head", "index", "completed", "schema"])
+def test_verifier_rejects_duplicate_receipt_keys(tmp_path: Path, key: str) -> None:
+    items = [f"tests/test_example.py::test_cases[{i}]" for i in range(120)]
+    path = _reports(tmp_path, items)[0]
+    original = path.read_text()
+    path.write_text("{" + json.dumps(key) + ": null, " + original[1:])
+    with pytest.raises(ValueError, match="unreadable shard receipt"):
+        verify_reports(tmp_path, count=4, head=HEAD, expected_items=items)
+
+
 def _run_shard(
     root: Path, index: int, count: int, report: Path, *extra: str
 ) -> subprocess.CompletedProcess[str]:

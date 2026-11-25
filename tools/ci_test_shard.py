@@ -78,6 +78,15 @@ def shard_index(item: str, count: int) -> int:
     )
 
 
+def _unique_receipt_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate shard receipt key")
+        result[key] = value
+    return result
+
+
 def verify_reports(
     directory: Path, *, count: int, head: str, expected_items: Sequence[str]
 ) -> int:
@@ -92,7 +101,10 @@ def verify_reports(
     fingerprints: set[tuple[int, str]] = set()
     for file in files:
         try:
-            record = json.loads(file.read_text(encoding="utf-8"))
+            record = json.loads(
+                file.read_text(encoding="utf-8"),
+                object_pairs_hook=_unique_receipt_object,
+            )
         except (OSError, UnicodeError, ValueError) as error:
             raise ValueError("unreadable shard receipt") from error
         if type(record) is not dict or set(record) != {

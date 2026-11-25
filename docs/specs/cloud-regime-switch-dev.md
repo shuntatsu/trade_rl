@@ -96,9 +96,17 @@ roster is required for any decision. Failed or incomplete studies do not
 create permission to change the rules.
 
 The authorized runner tools/cloud_regime_switch_dev.py publishes each cell
-exclusively, with native ledger and admission identity hashes. Its --summarize
-mode independently reads back all recorded cells, verifies the ledger digest,
-window, dataset and decisive terminal scalars, and applies the fixed S2-only
-comparison rule. Missing/invalid primary cells are INCONCLUSIVE; technical
+exclusively, with native ledger and admission identity hashes. New software
+uses the opt-in native portfolio ledger v2 exposure observer, without changing
+the fixed reporting formula or execution. Its --summarize mode independently
+reads back all recorded cells, verifies the ledger digest, window, dataset,
+symbol, execution-policy identity and reported gross exposure, and applies
+the fixed S2-only comparison rule. The expected execution identity comes from
+the frozen scenario and independently SHA-256-bound Dataset manifest metadata
+(including funding-price-rate presence), read without decoding market arrays.
+The metadata reader refuses nonregular/symlinked inputs and manifests above
+8 MiB. It does not attest historical market data or the publisher of the
+ledger. A v1 ledger cannot be silently promoted to v2 evidence; no historical
+result may be rewritten or rerun under the successor. Missing/invalid primary cells are INCONCLUSIVE; technical
 failures do not authorize a retry. Latency results are descriptive and cannot
 by themselves establish latency robustness.

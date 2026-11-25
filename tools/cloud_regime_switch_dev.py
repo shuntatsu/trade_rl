@@ -23,7 +23,8 @@ import numpy as np
 from tools.agent_repo.research_assurance import assurance_digest
 from tools.core7_g4_comment import fetch_comment, parse_g4_url
 from tools.research_assurance_github import _github_api_read, verify_github_review
-from trade_rl.artifacts import canonical_json_bytes
+from trade_rl.artifacts import canonical_json_bytes, content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data.artifacts import load_published_market_dataset_artifact
 from trade_rl.data.features.cloud_regime_context import build_cloud_regime_context
 from trade_rl.data.features.cloud_regime_switch_context import (
@@ -31,14 +32,20 @@ from trade_rl.data.features.cloud_regime_switch_context import (
 )
 from trade_rl.data.features.cloud_trend_context import build_cloud_trend_context
 from trade_rl.data.features.divergence_mtf import build_divergence_cloud_mtf
+from trade_rl.data.identity import (
+    MARKET_DATASET_IDENTITY_SCHEMA,
+    MARKET_DATASET_IDENTITY_SCHEMA_V7,
+    parse_identity_json,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.evaluation.divergence_cloud_diagnostics import (
     attribute_single_symbol_ledger,
 )
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
+from trade_rl.evaluation.replay_exposure import mean_pre_interval_gross_from_ledger
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
 from trade_rl.strategies.allocation.buy_and_hold import BuyAndHoldPortfolioPolicy
 from trade_rl.strategies.cloud_regime_short_gate import (
@@ -386,6 +393,73 @@ def _policy(ds: MarketDataset, arm: str) -> PortfolioPolicy:
     raise ValueError("unregistered study arm")
 
 
+def _scenario_cost(protocol_value: dict, scenario: str) -> ExecutionCostConfig:
+    """Derive the native cost configuration only from the frozen protocol."""
+    if scenario not in protocol_value["scenarios"]:
+        raise ValueError("unregistered execution scenario")
+    return ExecutionCostConfig(
+        **protocol_value["scenarios"][scenario],
+        max_participation_rate=0.05,
+        allow_short=True,
+        max_leverage=1.0,
+    )
+
+
+def _verified_funding_price_rate_present(
+    raw: bytes, *, bound: dict, symbol: str
+) -> bool:
+    """Derive funding presence from the independently pinned manifest only.
+
+    No array decode, prices, or second execution. The artifact's verified
+    metadata is a contract, not an attestation of the original market.
+    """
+    if hashlib.sha256(raw).hexdigest() != bound["manifest_sha256"]:
+        raise ValueError("frozen manifest digest mismatch")
+    manifest = json.loads(raw)
+    if type(manifest) is not dict or canonical_json_bytes(manifest) != raw:
+        raise ValueError("noncanonical frozen manifest")
+    scalars = manifest.get("dataset")
+    arrays = manifest.get("arrays")
+    if type(scalars) is not dict or type(arrays) is not dict:
+        raise ValueError("frozen manifest metadata mismatch")
+    if (
+        manifest.get("artifact_digest") != bound["artifact_digest"]
+        or content_digest({k: v for k, v in manifest.items() if k != "artifact_digest"})
+        != bound["artifact_digest"]
+        or manifest.get("dataset_id") != bound["dataset_id"]
+        or scalars.get("dataset_id") != bound["dataset_id"]
+        or scalars.get("symbols") != [symbol]
+        or manifest.get("arrays_file") != "arrays.npz"
+        or manifest.get("arrays_digest") != bound["arrays_npz_sha256"]
+        or set(scalars).intersection(arrays)
+    ):
+        raise ValueError("frozen manifest identity mismatch")
+    identity_text = scalars.get("identity_payload_json")
+    if type(identity_text) is not str:
+        raise ValueError("frozen manifest identity metadata missing")
+    identity = parse_identity_json(identity_text)
+    present = "funding_price_rate" in arrays
+    expected_schema = (
+        ("market_dataset_artifact_v4", MARKET_DATASET_IDENTITY_SCHEMA_V7)
+        if present
+        else ("market_dataset_artifact_v3", MARKET_DATASET_IDENTITY_SCHEMA)
+    )
+    if (manifest.get("schema_version"), identity.get("schema")) != expected_schema:
+        raise ValueError("frozen manifest funding schema mismatch")
+    return present
+
+
+def _read_frozen_funding_presence(protocol_value: dict, symbol: str) -> bool:
+    bound = protocol_value["datasets"][symbol]
+    with open_regular_binary(
+        INPUT_ROOT / symbol / "manifest.json", field="frozen dataset manifest"
+    ) as handle:
+        raw = handle.read(8 * 1024 * 1024 + 1)
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError("frozen manifest exceeds metadata byte ceiling")
+    return _verified_funding_price_rate_present(raw, bound=bound, symbol=symbol)
+
+
 def evaluate_cell(
     ds: MarketDataset, arm: str, scenario: str, *, start: int, stop: int
 ) -> tuple[dict, bytes]:
@@ -399,18 +473,14 @@ def evaluate_cell(
     ):
         raise ValueError("unsupported dataset or study cell")
     initial = float(p["initial_capital_usdt"])
+    cost = _scenario_cost(p, scenario)
     out = run_shared_portfolio_replay(
         ds,
         _policy(ds, arm),
         start_index=start,
         stop_index=stop,
         initial_capital=initial,
-        execution_cost=ExecutionCostConfig(
-            **p["scenarios"][scenario],
-            max_participation_rate=0.05,
-            allow_short=True,
-            max_leverage=1.0,
-        ),
+        execution_cost=cost,
         risk=PreTradeRisk(
             PreTradeRiskConfig(
                 max_gross=1.0,
@@ -422,6 +492,7 @@ def evaluate_cell(
         ),
         settle_terminal_position=True,
         capture_ledger_evidence=True,
+        capture_exposure_evidence=True,
     )
     if out.ledger_evidence is None:
         raise ValueError("native ledger evidence missing")
@@ -469,6 +540,22 @@ def evaluate_cell(
     # comparison, especially when latency causes HOLD to cancel the order.
     valid = terminal_ok and (arm != "BH25" or any(q > 0 for q in quantities))
     raw_ledger = canonical_json_bytes(out.ledger_evidence.to_mapping())
+    expected_gross = math.fsum(gross) / len(gross) if gross else None
+    restored_gross = mean_pre_interval_gross_from_ledger(
+        raw_ledger,
+        expected_ledger_digest=hashlib.sha256(raw_ledger).hexdigest(),
+        expected_dataset_id=ds.dataset_id,
+        expected_execution_policy_digest=runtime_execution_policy_digest(
+            cost, funding_price_rate_present=ds.funding_price_rate is not None
+        ),
+        expected_symbols=ds.symbols,
+        expected_start_index=start,
+        expected_stop_index=stop,
+    )
+    if restored_gross != expected_gross:
+        raise ValueError(
+            "native exposure evidence differs from fixed reporting formula"
+        )
     metrics = {
         "valid": valid,
         "terminal_ok": terminal_ok,
@@ -485,7 +572,7 @@ def evaluate_cell(
         "directional_equity_buckets": asdict(attr),
         "pre_interval_long_hours": sum(q > 0 for q in quantities),
         "pre_interval_short_hours": sum(q < 0 for q in quantities),
-        "mean_pre_interval_gross": math.fsum(gross) / len(gross) if gross else None,
+        "mean_pre_interval_gross": expected_gross,
         "termination_reason": ledger.termination_reason,
         "ledger_sha256": hashlib.sha256(raw_ledger).hexdigest(),
     }
@@ -529,6 +616,7 @@ def summarize_recorded_cells(admission: dict) -> dict:
         raise ValueError("output root must not be a symlink")
     entries = list(OUTPUT_ROOT.iterdir()) if OUTPUT_ROOT.exists() else []
     cells = {}
+    funding_presence: dict[str, bool] = {}
     for path in entries:
         if path.name not in expected:
             raise ValueError("unregistered result directory: " + path.name)
@@ -543,10 +631,18 @@ def summarize_recorded_cells(admission: dict) -> dict:
         stop = int(
             (np.datetime64(f"{year + 1}-01-01", "h") - first) / np.timedelta64(1, "h")
         )
+        if symbol not in funding_presence:
+            funding_presence[symbol] = _read_frozen_funding_presence(p, symbol)
+        expected_policy = runtime_execution_policy_digest(
+            _scenario_cost(p, scenario),
+            funding_price_rate_present=funding_presence[symbol],
+        )
         cells[key] = read_cell(
             path,
             admission=admission,
             dataset_id=p["datasets"][symbol]["dataset_id"],
+            expected_symbol=symbol,
+            expected_execution_policy_digest=expected_policy,
             arm=arm,
             scenario=scenario,
             expected_start=start,

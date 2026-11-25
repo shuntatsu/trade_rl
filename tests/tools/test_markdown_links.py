@@ -497,3 +497,19 @@ def test_escaped_html_comment_opener_is_literal(
     source: str, expected: list[tuple[int, str]]
 ) -> None:
     assert destinations(source) == expected
+
+
+@pytest.mark.parametrize("separator", ["\x0b", "\x0c", "\x85", "\u2028", "\u2029"])
+def test_nonphysical_separator_cannot_open_fence_or_reference(separator: str) -> None:
+    assert destinations(f"text{separator}```\n[real](missing.md)") == [
+        (2, "missing.md")
+    ]
+    assert destinations(f"text{separator}[ref]: missing.md") == []
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\r\n"])
+def test_physical_line_endings_have_identical_link_locations(newline: str) -> None:
+    source = newline.join(
+        ["[first](one.md)", "", "[ref]: two.md", "", "[last](three.md)"]
+    )
+    assert destinations(source) == [(1, "one.md"), (3, "two.md"), (5, "three.md")]

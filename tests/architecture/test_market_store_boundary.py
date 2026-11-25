@@ -25,6 +25,7 @@ MODULES = {
     "export.py",
     "fetch.py",
     "ingest.py",
+    "lineage.py",
     "parse.py",
     "plan.py",
     "rules.py",

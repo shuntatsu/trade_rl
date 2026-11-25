@@ -10,6 +10,19 @@ import pytest
 
 from tests.strategies.test_divergence_cloud_follow import _native_market
 from tools import cloud_regime_switch_dev as study
+from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
+
+
+def _expected_policy(ds, scenario):
+    return runtime_execution_policy_digest(
+        ExecutionCostConfig(
+            **study.protocol()["scenarios"][scenario],
+            max_participation_rate=0.05,
+            allow_short=True,
+            max_leverage=1.0,
+        ),
+        funding_price_rate_present=ds.funding_price_rate is not None,
+    )
 
 
 def test_frozen_roster_and_protocol_identity():
@@ -163,6 +176,8 @@ def test_all_strategy_modes_use_canonical_replay_on_synthetic_warmup(
                 scenario=scenario,
                 expected_start=n - 48,
                 expected_stop=n - 1,
+                expected_symbol=ds.symbols[0],
+                expected_execution_policy_digest=_expected_policy(ds, scenario),
             )
             == metrics
         )
@@ -268,6 +283,10 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
         == metrics
     )
@@ -279,6 +298,10 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
     (path / "ledger.json.gz").write_bytes(z)
     metrics["net_return_pct"] += 10.0
@@ -290,6 +313,10 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
 
@@ -609,11 +636,21 @@ def test_readback_rejects_contradictory_drawdown(tmp_path, mutation):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
 
 @pytest.mark.parametrize(
-    "field", ["sharpe_hourly", "native_fills", "directional_equity_buckets"]
+    "field",
+    [
+        "sharpe_hourly",
+        "native_fills",
+        "directional_equity_buckets",
+        "mean_pre_interval_gross",
+    ],
 )
 def test_readback_rejects_tampered_diagnostic_scalar(tmp_path, field):
     from tools.cloud_regime_switch_summary import read_cell
@@ -640,6 +677,10 @@ def test_readback_rejects_tampered_diagnostic_scalar(tmp_path, field):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
     assert read() == metrics
@@ -694,6 +735,10 @@ def test_readback_rejects_rehashed_final_flow(tmp_path, final_field, metric_fiel
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
     assert read() == metrics
@@ -747,6 +792,10 @@ def test_readback_rejects_contradictory_terminal_evidence(tmp_path, mutation):
             dataset_id=ds.dataset_id,
             arm="BH25",
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
     assert read() == metrics
@@ -809,6 +858,10 @@ def test_readback_rejects_contradictory_control_identity(tmp_path, mutation):
             dataset_id=ds.dataset_id,
             arm=metrics["arm"],
             scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
         )
 
     assert read() == metrics
@@ -874,6 +927,8 @@ def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation)
             scenario="normal",
             expected_start=0,
             expected_stop=ds.n_bars - 1,
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
         )
 
     assert read() == metrics
@@ -944,6 +999,8 @@ def test_readback_rejects_order_event_identity(tmp_path, mutation):
             scenario="normal",
             expected_start=0,
             expected_stop=ds.n_bars - 1,
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
         )
 
     assert read() == metrics
@@ -1002,6 +1059,8 @@ def test_readback_rejects_impossible_native_bounds(tmp_path, mutation):
             scenario="normal",
             expected_start=0,
             expected_stop=ds.n_bars - 1,
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
         )
 
     assert read() == metrics
@@ -1017,3 +1076,226 @@ def test_readback_rejects_impossible_native_bounds(tmp_path, mutation):
         ledger["start_index"] = False
     with pytest.raises(ValueError, match="native (drawdown|flow|ledger window)"):
         read()
+
+
+@pytest.mark.parametrize("arm", ["CASH", "BH25"])
+def test_readback_rejects_relabelled_double_cost_as_normal(tmp_path, arm):
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, compressed = study.evaluate_cell(
+        ds, arm, "double_cost", start=0, stop=ds.n_bars - 1
+    )
+    metrics["scenario"] = "normal"
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+    (tmp_path / "ledger.json.gz").write_bytes(compressed)
+    (tmp_path / "result.json").write_bytes(
+        canonical_json_bytes(
+            {
+                **attempt,
+                "dataset_id": ds.dataset_id,
+                "metrics": metrics,
+                "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="execution policy"):
+        read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm=arm,
+            scenario="normal",
+            expected_symbol=ds.symbols[0],
+            expected_execution_policy_digest=_expected_policy(ds, "normal"),
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
+        )
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_independent_funding_presence_from_published_manifest_only(
+    tmp_path, monkeypatch, present
+):
+    import json
+
+    from tests.data.test_market_dataset_artifact import _dataset, _dataset_v7
+    from trade_rl.data import write_market_dataset_files
+
+    ds = _dataset_v7() if present else _dataset()
+    source = tmp_path / "synthetic-artifact"
+    write_market_dataset_files(source, ds)
+    raw = (source / "manifest.json").read_bytes()
+    manifest = json.loads(raw)
+    bound = {
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "artifact_digest": manifest["artifact_digest"],
+        "dataset_id": ds.dataset_id,
+        "arrays_npz_sha256": manifest["arrays_digest"],
+    }
+    metadata_root = tmp_path / "metadata-only"
+    symbol_dir = metadata_root / ds.symbols[0]
+    symbol_dir.mkdir(parents=True)
+    (symbol_dir / "manifest.json").write_bytes(raw)
+    monkeypatch.setattr(study, "INPUT_ROOT", metadata_root)
+    assert not (symbol_dir / "arrays.npz").exists()
+    assert (
+        study._read_frozen_funding_presence(
+            {"datasets": {ds.symbols[0]: bound}}, ds.symbols[0]
+        )
+        is present
+    )
+    with pytest.raises(ValueError, match="manifest digest"):
+        study._verified_funding_price_rate_present(
+            raw + b" ", bound=bound, symbol=ds.symbols[0]
+        )
+    with pytest.raises(ValueError, match="manifest identity"):
+        study._verified_funding_price_rate_present(raw, bound=bound, symbol="ETHUSDT")
+
+
+@pytest.mark.parametrize(
+    "mutation", ["funding_schema", "scalar_shadow", "missing_identity"]
+)
+def test_pinned_manifest_refuses_contradictory_metadata(tmp_path, mutation):
+    import json
+
+    from tests.data.test_market_dataset_artifact import _dataset_v7
+    from trade_rl.artifacts import canonical_json_bytes, content_digest
+    from trade_rl.data import write_market_dataset_files
+
+    ds = _dataset_v7()
+    write_market_dataset_files(tmp_path / "artifact", ds)
+    manifest = json.loads((tmp_path / "artifact" / "manifest.json").read_bytes())
+    if mutation == "funding_schema":
+        manifest["arrays"].pop("funding_price_rate")
+    elif mutation == "scalar_shadow":
+        manifest["dataset"]["funding_price_rate"] = None
+    else:
+        manifest["dataset"].pop("identity_payload_json")
+    manifest.pop("artifact_digest")
+    manifest["artifact_digest"] = content_digest(manifest)
+    raw = canonical_json_bytes(manifest)
+    bound = {
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "artifact_digest": manifest["artifact_digest"],
+        "dataset_id": ds.dataset_id,
+        "arrays_npz_sha256": manifest["arrays_digest"],
+    }
+    with pytest.raises(ValueError, match="frozen manifest"):
+        study._verified_funding_price_rate_present(
+            raw, bound=bound, symbol=ds.symbols[0]
+        )
+
+
+def test_metadata_only_year_summary_binds_native_exposure_and_scenario(
+    tmp_path, monkeypatch
+):
+    """Actual generated native replay, then independent manifest/receipt-only readback."""
+    import json
+
+    from trade_rl.artifacts import canonical_json_bytes
+    from trade_rl.data import write_market_dataset_files
+    from trade_rl.data.market import MarketDataset
+
+    p = study.protocol()
+    n = 8761
+    close = np.full((n, 1), 100.0)
+    ds = MarketDataset(
+        dataset_id="a" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2023-01-01", "ns")
+        + np.arange(n) * np.timedelta64(1, "h"),
+        features=np.zeros((n, 1, 1), dtype=np.float32),
+        global_features=np.zeros((n, 1), dtype=np.float32),
+        open=close,
+        high=close,
+        low=close,
+        close=close,
+        volume=np.full((n, 1), 100000.0),
+        funding_rate=np.zeros((n, 1)),
+        funding_price_rate=np.zeros((n, 1)),
+        tradable=np.ones((n, 1), dtype=bool),
+        feature_available=np.ones((n, 1, 1), dtype=bool),
+        feature_names=("synthetic",),
+        global_feature_names=("synthetic",),
+        periods_per_year=8760,
+    ).with_content_identity({"source": "synthetic-summary-integration"})
+    metadata = tmp_path / "metadata"
+    source = metadata / "BTCUSDT"
+    source.mkdir(parents=True)
+    write_market_dataset_files(source, ds)
+    raw = (source / "manifest.json").read_bytes()
+    manifest = json.loads(raw)
+    # Keep only independently pinned metadata. The summary must never
+    # require the array file, load a Dataset, or execute another book.
+    (source / "arrays.npz").unlink()
+    p["datasets"] = {
+        "BTCUSDT": {
+            "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+            "artifact_digest": manifest["artifact_digest"],
+            "dataset_id": ds.dataset_id,
+            "arrays_npz_sha256": manifest["arrays_digest"],
+        }
+    }
+    p["symbols"] = ["BTCUSDT"]
+    p["years"] = [2023]
+    p["warmup_start"] = "2022-12-31T23:00:00Z"
+    monkeypatch.setattr(study, "protocol", lambda: p)
+    monkeypatch.setattr(study, "INPUT_ROOT", metadata)
+    monkeypatch.setattr(study, "OUTPUT_ROOT", tmp_path / "results")
+    path = study.OUTPUT_ROOT / "BTCUSDT_2023_CASH_normal"
+    path.mkdir(parents=True)
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": path.name}
+    (path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+    metrics, compressed = study.evaluate_cell(ds, "CASH", "normal", start=0, stop=n - 1)
+    assert metrics["valid"] is True
+    assert metrics["mean_pre_interval_gross"] == 0.0
+
+    def publish(payload, ledger):
+        (path / "ledger.json.gz").write_bytes(ledger)
+        (path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": payload,
+                    "ledger_gzip_sha256": hashlib.sha256(ledger).hexdigest(),
+                }
+            )
+        )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("summary attempted market-array loading or another replay")
+
+    monkeypatch.setattr(study, "load_published_market_dataset_artifact", forbidden)
+    monkeypatch.setattr(study, "run_shared_portfolio_replay", forbidden)
+    publish(metrics, compressed)
+    result = study.summarize_recorded_cells(admission)
+    assert result["recorded_cells"] == 1
+    assert result["disposition"] == "INCONCLUSIVE"
+    assert not (source / "arrays.npz").exists()
+
+    publish({**metrics, "mean_pre_interval_gross": 1.0}, compressed)
+    with pytest.raises(ValueError, match="mean_pre_interval_gross"):
+        study.summarize_recorded_cells(admission)
+
+    # Preserve the flat outcome and rehash every affected identity. The
+    # trusted expected cost is independently derived from the fixed scenario.
+    ledger = json.loads(gzip.decompress(compressed))
+    wrong = _expected_policy(ds, "double_cost")
+    assert wrong != ledger["execution_policy_digest"]
+    ledger["execution_policy_digest"] = wrong
+    for interval in ledger["intervals"]:
+        for event in interval["order_events"]:
+            event["execution_policy_digest"] = wrong
+    forged = canonical_json_bytes(ledger)
+    publish(
+        {**metrics, "ledger_sha256": hashlib.sha256(forged).hexdigest()},
+        gzip.compress(forged, mtime=0),
+    )
+    with pytest.raises(ValueError, match="execution policy"):
+        study.summarize_recorded_cells(admission)

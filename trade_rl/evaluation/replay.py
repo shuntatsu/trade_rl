@@ -13,6 +13,11 @@ import numpy as np
 from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
+from trade_rl.evaluation.replay_exposure import (
+    EXPOSURE_LEDGER_SCHEMA,
+    PreIntervalMarkEvidence,
+    ReplayExposureEvidence,
+)
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRisk
 from trade_rl.risk.pretrade import (
@@ -281,6 +286,7 @@ class SharedCashPortfolioReplayLedgerEvidence:
 
     intervals: SharedCashReplayLedgerEvidence
     decisions: tuple[SharedCashPortfolioReplayDecision, ...]
+    exposure_evidence: ReplayExposureEvidence | None = None
 
     def to_mapping(self) -> dict[str, object]:
         payload = self.intervals.to_mapping()
@@ -289,6 +295,9 @@ class SharedCashPortfolioReplayLedgerEvidence:
         payload["portfolio_decisions"] = tuple(
             decision.to_mapping() for decision in self.decisions
         )
+        if self.exposure_evidence is not None:
+            payload["schema_version"] = EXPOSURE_LEDGER_SCHEMA
+            payload["pre_interval_exposure"] = self.exposure_evidence.to_mapping()
         return payload
 
 
@@ -875,6 +884,7 @@ def _run_shared_cash_replay_core(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     _portfolio_policy: PortfolioPolicy | None = None,
+    _exposure_rows: list[PreIntervalMarkEvidence] | None = None,
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
@@ -1077,6 +1087,23 @@ def _run_shared_cash_replay_core(
         borrow_cost_before = float(book.borrow_cost)
         turnover_total_before = float(book.turnover_total)
         max_drawdown_before = float(book.max_drawdown)
+        exposure_row = None
+        if _exposure_rows is not None:
+            multipliers = book.contract_multipliers
+            if multipliers is None:
+                raise RuntimeError(
+                    "native exposure evidence requires contract multipliers"
+                )
+            exposure_row = PreIntervalMarkEvidence(
+                start_index=interval_index,
+                timestamp_ns=int(
+                    dataset.timestamps[interval_index]
+                    .astype("datetime64[ns]")
+                    .astype(np.int64)
+                ),
+                mark_prices=tuple(float(value) for value in book.mark_prices),
+                contract_multipliers=tuple(float(value) for value in multipliers),
+            )
         if portfolio_session is not None:
             if interval_index != portfolio_session.current_index:
                 raise RuntimeError("portfolio session index differs from replay")
@@ -1172,6 +1199,9 @@ def _run_shared_cash_replay_core(
             )
             active_order_remainders = stateful_evidence.active_order_remainders
             terminal_order_reasons = stateful_evidence.terminal_order_reasons
+        if _exposure_rows is not None:
+            assert exposure_row is not None
+            _exposure_rows.append(exposure_row)
         book = execution.book
         returns.append(execution.interval_net_return)
         return risk_target, execution, effective_holds
@@ -1585,6 +1615,7 @@ def run_shared_portfolio_replay(
     market_order_profile: MarketOrderProfile | None = None,
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
+    capture_exposure_evidence: bool = False,
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
@@ -1604,7 +1635,9 @@ def run_shared_portfolio_replay(
     Strict spot cash is opt-in: native fills must preserve nonnegative cash
     and inventory at their actual execution price including costs. It refuses
     nonzero funding and negative non-trade cash flows on processed rows.
-    Defaults preserve existing replay behavior.
+    With capture_exposure_evidence=True and ledger capture enabled, emit
+    native pre-interval marks and multipliers in an opt-in v2 ledger.
+    Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
     if execution_cost is not None and not isinstance(
@@ -1617,6 +1650,13 @@ def run_shared_portfolio_replay(
     if on_native_advance is not None and not callable(on_native_advance):
         raise TypeError("on_native_advance must be callable")
 
+    if type(capture_exposure_evidence) is not bool or (
+        capture_exposure_evidence and capture_ledger_evidence is not True
+    ):
+        raise ValueError("exposure evidence requires explicit ledger capture")
+    exposure_rows: list[PreIntervalMarkEvidence] | None = (
+        [] if capture_exposure_evidence else None
+    )
     result, decisions = _run_shared_cash_replay_core(
         dataset,
         None,
@@ -1631,6 +1671,7 @@ def run_shared_portfolio_replay(
         settle_terminal_position=settle_terminal_position,
         capture_ledger_evidence=capture_ledger_evidence,
         _portfolio_policy=policy,
+        _exposure_rows=exposure_rows,
         terminal_reserve_bars=terminal_reserve_bars,
         insolvency_valuation=insolvency_valuation,
         hold_unchanged_risk_target=hold_unchanged_risk_target,
@@ -1643,6 +1684,13 @@ def run_shared_portfolio_replay(
         else SharedCashPortfolioReplayLedgerEvidence(
             intervals=result.ledger_evidence,
             decisions=decisions,
+            exposure_evidence=(
+                None
+                if exposure_rows is None
+                else ReplayExposureEvidence(
+                    symbols=dataset.symbols, rows=tuple(exposure_rows)
+                )
+            ),
         )
     )
     return SharedCashPortfolioReplayResult(

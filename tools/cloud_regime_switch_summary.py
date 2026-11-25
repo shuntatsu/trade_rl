@@ -21,6 +21,7 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.evaluation.divergence_cloud_diagnostics import (
     attribute_single_symbol_ledger,
 )
+from trade_rl.evaluation.replay_exposure import mean_pre_interval_gross_from_ledger
 from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.quantities import parse_quantity
 
@@ -246,8 +247,10 @@ def read_cell(
     dataset_id: str,
     arm: str,
     scenario: str,
-    expected_start: int | None = None,
-    expected_stop: int | None = None,
+    expected_symbol: str,
+    expected_execution_policy_digest: str,
+    expected_start: int,
+    expected_stop: int,
 ) -> dict:
     """Check identity, ledger bytes and decisive scalars, without a shadow replay.
 
@@ -288,17 +291,21 @@ def read_cell(
         raise ValueError("native ledger digest mismatch")
     ledger = _canonical_object(raw)
     if (
-        ledger.get("schema_version") != "shared_cash_portfolio_replay_ledger_v1"
+        ledger.get("schema_version") != "shared_cash_portfolio_replay_ledger_v2"
         or ledger.get("dataset_id") != dataset_id
     ):
         raise ValueError("native ledger schema or dataset identity mismatch")
+    if ledger.get("execution_policy_digest") != expected_execution_policy_digest:
+        raise ValueError("native execution policy identity mismatch")
     start, stop = ledger["start_index"], ledger["stop_index"]
     if (
         type(start) is not int
         or type(stop) is not int
         or not 0 <= start < stop
-        or (expected_start is not None and start != expected_start)
-        or (expected_stop is not None and stop != expected_stop)
+        or type(expected_start) is not int
+        or start != expected_start
+        or type(expected_stop) is not int
+        or stop != expected_stop
     ):
         raise ValueError("native ledger window mismatch")
     intervals = ledger["intervals"]
@@ -355,6 +362,17 @@ def read_cell(
     _verify_native_terminal_trace(ledger, intervals)
     _verify_decision_trace(ledger, intervals, arm, scenario)
     _verify_order_events(ledger, intervals)
+    exposure = mean_pre_interval_gross_from_ledger(
+        raw,
+        expected_ledger_digest=m["ledger_sha256"],
+        expected_dataset_id=dataset_id,
+        expected_execution_policy_digest=expected_execution_policy_digest,
+        expected_symbols=(expected_symbol,),
+        expected_start_index=expected_start,
+        expected_stop_index=expected_stop,
+    )
+    if _finite(m.get("mean_pre_interval_gross"), "mean_pre_interval_gross") != exposure:
+        raise ValueError("native scalar mismatch: mean_pre_interval_gross")
     expected = {
         "net_return_pct": 100 * (end / initial - 1),
         "max_drawdown_pct": 100 * ledger["final_max_drawdown"],

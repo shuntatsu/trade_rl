@@ -79,6 +79,8 @@ def _run(api: ArtifactReadApi, run_id: int, repository_id: int) -> _Run:
     sha = raw.get("head_sha")
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
         raise ValueError("run head SHA must be an exact Git SHA")
+    if sha == "0" * 40:
+        raise ValueError("run head SHA must not be a null SHA")
     status, conclusion = validate_workflow_state(raw, name="run")
     run_repo = _mapping(raw.get("repository"), "run repository")
     if _positive(run_repo.get("id"), "run repository id") != repository_id:

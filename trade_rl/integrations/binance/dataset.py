@@ -32,6 +32,7 @@ from trade_rl.integrations.binance.metadata import (
 from trade_rl.integrations.binance.source_clock import (
     BinanceSourceClosePolicy,
     _check_source_close_time,
+    _spot_v3_rows,
 )
 from trade_rl.integrations.binance.transport import BinancePublicTransport
 from trade_rl.integrations.binance.types import (
@@ -286,6 +287,11 @@ class BinanceMarketDataSource(MarketDataSource):
             raise ValueError("Binance range boundaries must align to the interval")
         self.transport_mode = _mode(transport_mode)
         self.transport = transport or BinancePublicTransport()
+        if (
+            self.source_close_policy
+            is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3
+        ):
+            self._require_spot_v3_scope(self.interval)
         self._sources_used: set[str] = set()
         self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
         self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
@@ -320,9 +326,29 @@ class BinanceMarketDataSource(MarketDataSource):
                 mode=self.transport_mode,
             )
             cached = (list(events), funding_source)
+            if (
+                self.source_close_policy
+                is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3
+                and cached[0]
+            ):
+                raise ValueError("spot Vision v3 requires no funding events")
             self._funding_cache[symbol] = cached
             self._record_source(funding_source)
         return cached[0]
+
+    def _require_spot_v3_scope(self, timeframe: str) -> None:
+        if (
+            self.market is not BinanceMarket.SPOT
+            or self.interval != "1h"
+            or timeframe != "1h"
+            or self.transport_mode is not BinanceTransportMode.VISION
+            or isinstance(self.transport, BaseIntervalAggregatingTransport)
+            or (
+                isinstance(self.transport, BinancePublicTransport)
+                and type(self.transport) is not BinancePublicTransport
+            )
+        ):
+            raise ValueError("spot Vision v3 requires direct spot 1h Vision input")
 
     def load(self, symbol: str) -> RawMarketSeries:
         return self.load_timeframe(symbol, self.interval)
@@ -376,18 +402,45 @@ class BinanceMarketDataSource(MarketDataSource):
                 raise ValueError(
                     "strict source close v2 requires verified higher-timeframe transport"
                 )
+        v3 = (
+            self.source_close_policy
+            is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3
+        )
+        if v3:
+            self._require_spot_v3_scope(timeframe)
         key = (symbol, timeframe)
         cached = self._series_cache.get(key)
         if cached is not None:
             return cached
-        rows, kline_source = self.transport.load_klines(
-            market=self.market,
-            symbol=symbol,
-            interval=timeframe,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            mode=self.transport_mode,
-        )
+        rows: Sequence[Sequence[object]]
+        if v3 and type(self.transport) is BinancePublicTransport:
+            rows = self.transport._load_vision_klines(
+                market=self.market,
+                symbol=symbol,
+                interval=timeframe,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                strict_header=True,
+            )
+            kline_source = "vision"
+        else:
+            rows, kline_source = self.transport.load_klines(
+                market=self.market,
+                symbol=symbol,
+                interval=timeframe,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                mode=self.transport_mode,
+            )
+        skipped = 0
+        if v3:
+            rows, skipped = _spot_v3_rows(
+                rows,
+                symbol=symbol,
+                interval_ms=interval_ms,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
         self._record_source(kline_source)
         if self.gap_policy is BinanceGapPolicy.NON_TRADABLE_ROWS:
             gap_series, report = _gap_tolerant_series(
@@ -404,6 +457,8 @@ class BinanceMarketDataSource(MarketDataSource):
                 ),
                 source_close_policy=self.source_close_policy,
             )
+            if v3:
+                report["source_placeholders_skipped"] = skipped
             self.gap_report[f"{symbol}:{timeframe}"] = report
             self._series_cache[key] = gap_series
             return gap_series
@@ -786,7 +841,7 @@ def build_binance_market_dataset(
     ):
         raise ValueError("source close policy conflicts with metadata evidence")
     identity_metadata: Mapping[str, object] | None = metadata_evidence
-    if resolved_close_policy is BinanceSourceClosePolicy.STRICT_SOURCE_CLOSE_V2:
+    if resolved_close_policy is not BinanceSourceClosePolicy.RECONSTRUCTED_V1:
         identity_metadata = {
             **(metadata_evidence or {}),
             "binance_source_close_policy": resolved_close_policy.value,
@@ -803,6 +858,21 @@ def build_binance_market_dataset(
         raise ValueError("Binance symbols must be unique")
     resolved_mode = _mode(transport_mode)
     requested_feature_timeframes = tuple(feature_timeframes or ())
+    if (
+        resolved_close_policy is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3
+        and (
+            resolved_market is not BinanceMarket.SPOT
+            or interval != "1h"
+            or resolved_mode is not BinanceTransportMode.VISION
+            or isinstance(transport, BaseIntervalAggregatingTransport)
+            or (
+                isinstance(transport, BinancePublicTransport)
+                and type(transport) is not BinancePublicTransport
+            )
+            or any(timeframe != "1h" for timeframe in requested_feature_timeframes)
+        )
+    ):
+        raise ValueError("spot Vision v3 requires direct spot 1h Vision input")
     resolved_features = (
         _default_features(interval)
         if not requested_feature_timeframes

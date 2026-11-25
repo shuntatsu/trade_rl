@@ -1166,7 +1166,9 @@ closure, not templates for new code.
 `spot_cash_target_factor` is a conservative long-only spot **decision-mark**
 budget: reserve the supplied deterministic cost envelope on worst-case gross
 turnover and reserve new buys against already available cash, without
-crediting unexecuted sales. `SpotCashBudgetPolicy` wraps an all-spot policy
+crediting unexecuted sales. Both spot and mixed cash projections share the
+native binary64-compatible scalar admission described below; reject invalid
+inputs before narrowing. `SpotCashBudgetPolicy` wraps an all-spot policy
 and leaves native risk/quantity HOLD and execution in charge. It rejects
 shorts and active orders; it does not guarantee execution-time cash under
 gaps, liquidity, fee overrides, or order-state changes. The separate opt-in
@@ -1177,7 +1179,7 @@ The old source-bound trend-OOS wrapper is unchanged until reviewed migration.
 The common decision-mark cash projection takes explicit sorted spot indices,
 nonnegative spot weights, signed perpetual weights and caller-declared
 margin/cash/net limits. It admits native binary64-compatible scalars only
-(no booleans, arbitrary rationals, temporal values, wider floating-point
+(no booleans, scalar subclasses, arbitrary rationals, temporal values, wider floating-point
 values or integers outside the exact +/-2**53 domain); validate before
 narrowing to avoid masking negative spot weights or out-of-domain limits.
 It returns immutable pre-cap margin and signed net

@@ -14,28 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.risk._cash_scalars import finite_cash_scalar
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
-
-
-def _finite(value: object, name: str) -> float:
-    # Admit the same binary64-compatible native scalar domain as market
-    # inputs. Validate before narrowing: e.g. a negative longdouble can
-    # become -0.0, bypassing the long-only spot boundary.
-    if type(value) is int or (
-        isinstance(value, np.integer) and value.dtype.kind in "iu"
-    ):
-        if abs(int(value)) > 2**53:
-            raise ValueError(f"{name} must be binary64-compatible")
-        v = float(value)
-    elif type(value) is float or isinstance(value, np.floating):
-        if isinstance(value, np.floating) and value.dtype.itemsize > 8:
-            raise ValueError(f"{name} must be binary64-compatible")
-        v = float(value)
-    else:
-        raise TypeError(f"{name} must be a native real scalar")
-    if not math.isfinite(v):
-        raise ValueError(f"{name} must be finite")
-    return v
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,12 +66,13 @@ def project_mixed_cash_budget(
     ):
         raise ValueError("spot indices must be sorted unique and within the roster")
     w = np.array(
-        [_finite(v, "effective weight") for v in effective_weights], dtype=np.float64
+        [finite_cash_scalar(v, "effective weight") for v in effective_weights],
+        dtype=np.float64,
     )
-    rate = _finite(initial_margin_rate, "initial margin rate")
-    cap = _finite(cash_limit, "cash limit")
-    net_cap = _finite(net_exposure_limit, "net exposure limit")
-    eps = _finite(tolerance, "projection tolerance")
+    rate = finite_cash_scalar(initial_margin_rate, "initial margin rate")
+    cap = finite_cash_scalar(cash_limit, "cash limit")
+    net_cap = finite_cash_scalar(net_exposure_limit, "net exposure limit")
+    eps = finite_cash_scalar(tolerance, "projection tolerance")
     if (
         not 0 < rate <= 1
         or not 0 < cap <= 1
@@ -139,11 +120,11 @@ def snapshot_drawdown_scale(
     external policies, including retained-debt snapshots, without copying
     the ramp itself. This does not revalue or update a book.
     """
-    value = _finite(portfolio_value, "portfolio value")
-    peak = _finite(peak_value, "peak value")
-    saved = _finite(max_drawdown, "maximum drawdown")
-    start = _finite(drawdown_start, "drawdown start")
-    stop = _finite(drawdown_stop, "drawdown stop")
+    value = finite_cash_scalar(portfolio_value, "portfolio value")
+    peak = finite_cash_scalar(peak_value, "peak value")
+    saved = finite_cash_scalar(max_drawdown, "maximum drawdown")
+    start = finite_cash_scalar(drawdown_start, "drawdown start")
+    stop = finite_cash_scalar(drawdown_stop, "drawdown stop")
     if peak < 0 or saved < 0:
         raise ValueError("peak value and maximum drawdown must be nonnegative")
     observed = min(1.0, max(0.0, 1.0 - value / max(peak, 1e-12), saved))

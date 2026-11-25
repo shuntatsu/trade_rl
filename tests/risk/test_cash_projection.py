@@ -221,6 +221,15 @@ def test_wide_real_cannot_round_negative_spot_or_over_limit_to_valid():
         )
 
 
+def test_mixed_projection_refuses_scalar_subclass_with_overridden_conversion():
+    class LossyFloat(np.float64):
+        def __float__(self):
+            return 0.0
+
+    with pytest.raises(TypeError, match="native real scalar"):
+        project((LossyFloat(-0.5),), (0,))
+
+
 def test_supported_native_scalar_types_keep_exact_binary64_value():
     result = project((np.float32(0.5), np.float64(-0.5), np.int32(0)), (0, 2))
     assert result.margin_measure == 0.7

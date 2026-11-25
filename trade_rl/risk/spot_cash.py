@@ -3,19 +3,8 @@
 from __future__ import annotations
 
 import math
-from numbers import Real
 
-
-def _real(value: object, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise TypeError(f"{name} must be real")
-    try:
-        number = float(value)
-    except OverflowError as exc:
-        raise ValueError(f"{name} must be finite") from exc
-    if not math.isfinite(number):
-        raise ValueError(f"{name} must be finite")
-    return number
+from trade_rl.risk._cash_scalars import finite_cash_scalar
 
 
 def spot_cash_target_factor(
@@ -29,6 +18,8 @@ def spot_cash_target_factor(
     """Uniform scale of effective long-only spot target weights at one mark.
 
     All weights and cash are fractions of the same positive account equity.
+    All scalar inputs must be native binary64-compatible real values, checked
+    before narrowing (the same domain as the mixed cash projection).
     Reserve worst-case current plus target turnover; separately reserve the
     new-buy principal and its fees against existing cash, never unexecuted
     sales. Zero can be returned for an already over-budget account: reducing
@@ -43,13 +34,13 @@ def spot_cash_target_factor(
         or len(current) != len(target)
     ):
         raise ValueError("aligned nonempty spot weight tuples required")
-    c = tuple(_real(v, "current weight") for v in current)
-    t = tuple(_real(v, "target weight") for v in target)
+    c = tuple(finite_cash_scalar(v, "current weight") for v in current)
+    t = tuple(finite_cash_scalar(v, "target weight") for v in target)
     if min(*c, *t) < 0:
         raise ValueError("spot weights must be nonnegative")
-    cash = _real(cash_fraction, "cash fraction")
-    limit = _real(gross_limit, "gross limit")
-    rate = _real(reserve_rate, "reserve rate")
+    cash = finite_cash_scalar(cash_fraction, "cash fraction")
+    limit = finite_cash_scalar(gross_limit, "gross limit")
+    rate = finite_cash_scalar(reserve_rate, "reserve rate")
     if not 0 < limit <= 1 or not 0 <= rate < 1:
         raise ValueError("gross limit must be in (0, 1] and reserve rate in [0, 1)")
     try:

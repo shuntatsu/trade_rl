@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -109,6 +110,84 @@ def test_projection_rejects_invalid_inputs(current, target, kwargs):
     params.update(kwargs)
     with pytest.raises((TypeError, ValueError)):
         spot_cash_target_factor(current, target, **params)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        Fraction(-1, 10**400),
+        Fraction(1, 3),
+        2**53 + 1,
+        np.uint64(2**53 + 1),
+        np.timedelta64(1, "ns"),
+        np.bool_(True),
+    ],
+)
+@pytest.mark.parametrize(
+    "field", ["current", "target", "cash_fraction", "gross_limit", "reserve_rate"]
+)
+def test_spot_projection_refuses_non_native_scalars_before_narrowing(value, field):
+    args = dict(
+        current=(0.0,),
+        target=(0.5,),
+        cash_fraction=1.0,
+        gross_limit=1.0,
+        reserve_rate=0.0,
+    )
+    args[field] = (value,) if field in {"current", "target"} else value
+    with pytest.raises((ValueError, TypeError)):
+        spot_cash_target_factor(**args)
+
+
+def test_wide_spot_inputs_cannot_round_to_valid_values():
+    if np.dtype(np.longdouble).itemsize <= 8:
+        pytest.skip("platform longdouble is binary64")
+    tiny_negative = -np.nextafter(np.longdouble(0), np.longdouble(1))
+    above_one = np.nextafter(np.longdouble(1), np.longdouble(2))
+    for changes in (
+        {"current": (tiny_negative,)},
+        {"target": (tiny_negative,)},
+        {"cash_fraction": above_one},
+        {"gross_limit": above_one},
+        {"reserve_rate": tiny_negative},
+    ):
+        args = dict(
+            current=(0.0,),
+            target=(0.5,),
+            cash_fraction=1.0,
+            gross_limit=1.0,
+            reserve_rate=0.0,
+        )
+        with pytest.raises(ValueError, match="binary64-compatible"):
+            spot_cash_target_factor(**(args | changes))
+
+
+def test_spot_projection_refuses_scalar_subclass_with_overridden_conversion():
+    class LossyFloat(np.float64):
+        def __float__(self):
+            return 0.0
+
+    with pytest.raises(TypeError, match="native real scalar"):
+        spot_cash_target_factor(
+            (LossyFloat(-0.5),),
+            (0.5,),
+            cash_fraction=1.0,
+            gross_limit=1.0,
+            reserve_rate=0.0,
+        )
+
+
+def test_spot_projection_accepts_native_scalar_types_without_changing_result():
+    assert (
+        spot_cash_target_factor(
+            (np.float32(0.0), np.int32(0)),
+            (np.float64(0.75), np.float32(0.25)),
+            cash_fraction=np.int64(1),
+            gross_limit=np.float32(1.0),
+            reserve_rate=np.float64(0.0),
+        )
+        == 1.0
+    )
 
 
 def test_policy_preserves_holds_and_rejects_short_spot():

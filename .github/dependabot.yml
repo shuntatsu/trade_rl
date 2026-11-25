@@ -16,8 +16,8 @@ updates:
       time: "03:30"
       timezone: "Asia/Tokyo"
     versioning-strategy: "lockfile-only"
-    # HOLD (#1175): past Dependabot updater supported 0.13.7 only; no
-    # actual updater E2E for the newly pinned 0.13.9 yet. Do not enable
+    # HOLD (#1175): the upstream updater pin was 0.13.7; no
+    # actual updater E2E for the security-fixed uv 0.13.10 yet. Do not enable
     # version-update PRs until a real hosted Dependabot run succeeds.
     open-pull-requests-limit: 0
     groups:

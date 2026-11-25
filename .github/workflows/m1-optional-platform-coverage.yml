@@ -124,7 +124,7 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           python-version: "3.12"
           enable-cache: true
       - name: Install locked dev dependencies
@@ -180,7 +180,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
       - name: Install locked optional forecast dependencies
         run: uv sync --locked --extra dev --extra forecast-gbm
@@ -219,7 +219,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
       - name: Install locked dev dependencies
         run: uv sync --locked --extra dev

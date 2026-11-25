@@ -78,7 +78,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
                 ), path
             total += 1
     assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
-    assert total == 19  # same inventory as the exact Action SHA contract
+    assert total == 20  # same inventory as the exact Action SHA contract
 
 
 def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(

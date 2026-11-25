@@ -826,7 +826,17 @@ def test_readback_rejects_contradictory_control_identity(tmp_path, mutation):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["missing", "duplicate_index", "target_shape", "hold_roster"]
+    "mutation",
+    [
+        "missing",
+        "duplicate_index",
+        "target_shape",
+        "hold_roster",
+        "target_over_cap",
+        "unsolicited_hold",
+        "changed_weight_hold",
+        "dropped_unchanged_hold",
+    ],
 )
 def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation):
     import json
@@ -874,6 +884,21 @@ def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation)
         decisions[1]["index"] = decisions[0]["index"]
     elif mutation == "target_shape":
         decisions[0]["target_weights"] = []
+    elif mutation == "target_over_cap":
+        decisions[0]["target_weights"] = [1.5]
+    elif mutation == "unsolicited_hold":
+        decisions[0]["requested_hold_symbols"] = []
+        decisions[0]["effective_hold_symbols"] = [0]
+    elif mutation == "changed_weight_hold":
+        decisions[0]["requested_hold_symbols"] = [0]
+        decisions[0]["effective_hold_symbols"] = [0]
+        decisions[0]["proposal_weights"] = [0.0]
+        decisions[0]["target_weights"] = [0.5]
+    elif mutation == "dropped_unchanged_hold":
+        decisions[0]["requested_hold_symbols"] = [0]
+        decisions[0]["effective_hold_symbols"] = []
+        decisions[0]["proposal_weights"] = [0.0]
+        decisions[0]["target_weights"] = [0.0]
     else:
         decisions[0]["requested_hold_symbols"] = [1]
     with pytest.raises(ValueError, match="native decision"):

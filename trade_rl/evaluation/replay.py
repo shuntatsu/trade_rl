@@ -878,6 +878,7 @@ def _run_shared_cash_replay_core(
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
+    strict_spot_cash: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
     """Replay all symbols against one shared cash, risk and execution book.
@@ -890,6 +891,10 @@ def _run_shared_cash_replay_core(
     """
 
     portfolio_mode = _portfolio_policy is not None
+    if type(strict_spot_cash) is not bool or (strict_spot_cash and not portfolio_mode):
+        raise ValueError(
+            "strict_spot_cash requires portfolio replay and a boolean mode"
+        )
     if portfolio_mode:
         if strategies is not None or gross_budget is not None:
             raise ValueError(
@@ -1009,6 +1014,7 @@ def _run_shared_cash_replay_core(
             terminal_reserve_bars=terminal_reserve_bars,
             insolvency_valuation=insolvency_valuation,
             hold_unchanged_risk_target=hold_unchanged_risk_target,
+            strict_spot_cash=strict_spot_cash,
             execution_observer=retain_latest_execution_observation,
         )
         if portfolio_session.agent_stop_index != agent_stop_index:
@@ -1582,6 +1588,7 @@ def run_shared_portfolio_replay(
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
+    strict_spot_cash: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
     """Call one simultaneous portfolio policy once for each actor interval.
@@ -1594,6 +1601,9 @@ def run_shared_portfolio_replay(
     successful result. An optional synchronous observer receives immutable
     facts after each returned native advance, before fallible diagnostics.
     Observer exceptions abort replay; unobserved internal state is not claimed.
+    Strict spot cash is opt-in: native fills must preserve nonnegative cash
+    and inventory at their actual execution price including costs. It refuses
+    nonzero funding and negative non-trade cash flows on processed rows.
     Defaults preserve existing replay behavior.
     """
 
@@ -1624,6 +1634,7 @@ def run_shared_portfolio_replay(
         terminal_reserve_bars=terminal_reserve_bars,
         insolvency_valuation=insolvency_valuation,
         hold_unchanged_risk_target=hold_unchanged_risk_target,
+        strict_spot_cash=strict_spot_cash,
         on_native_advance=on_native_advance,
     )
     ledger = (

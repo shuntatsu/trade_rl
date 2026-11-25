@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from trade_rl.data.contracts import VolumeUnit
+from trade_rl.simulation.accounting import SpotCashAdmissionError
 from trade_rl.simulation.bar_path import (
     BarPath,
     PathMode,
@@ -350,8 +351,8 @@ class StatefulSymbolFillProcessor:
                         0.0, remaining_capacity - allocation.filled_notional
                     ),
                 )
-                remaining_capacity = allocation.capacity_after
                 if abs(allocation.filled_quantity) <= _TOLERANCE:
+                    remaining_capacity = allocation.capacity_after
                     runtime.append_event(
                         previous=order,
                         updated=order,
@@ -410,16 +411,39 @@ class StatefulSymbolFillProcessor:
                 fill_prices[symbol] = execution_price
                 valuation_prices = runtime.book.mark_prices.copy()
                 valuation_prices[symbol] = execution_price
-                runtime.book.execute_fill(
-                    symbol_index=symbol,
-                    quantity=allocation.filled_quantity,
-                    lot_size=allocation.lot_size,
-                    lot_count=allocation.filled_lot_count,
-                    fill_prices=fill_prices,
-                    valuation_prices=valuation_prices,
-                    cost_amount=cost_amount,
-                    turnover=(allocation.filled_notional / context.period_start_value),
-                )
+                try:
+                    runtime.book.execute_fill(
+                        symbol_index=symbol,
+                        quantity=allocation.filled_quantity,
+                        lot_size=allocation.lot_size,
+                        lot_count=allocation.filled_lot_count,
+                        fill_prices=fill_prices,
+                        valuation_prices=valuation_prices,
+                        cost_amount=cost_amount,
+                        turnover=(
+                            allocation.filled_notional / context.period_start_value
+                        ),
+                        require_spot_cash=executor.strict_spot_cash,
+                    )
+                except SpotCashAdmissionError as error:
+                    if not executor.strict_spot_cash:
+                        raise
+                    runtime.append_event(
+                        previous=order,
+                        updated=order,
+                        event_type="no_fill",
+                        processing_index=processing_index,
+                        capacity_before=remaining_capacity,
+                        capacity_after=remaining_capacity,
+                        trigger_segment=None
+                        if trigger.segment is None
+                        else trigger.segment.value,
+                        available_volume_fraction=trigger.available_volume_fraction,
+                        reason=str(error),
+                        path=order_path,
+                    )
+                    continue
+                remaining_capacity = allocation.capacity_after
                 executor._update_margin(runtime.book)
                 runtime.order_book = runtime.order_book.replace(updated)
                 runtime.append_event(

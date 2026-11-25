@@ -55,6 +55,7 @@ def test_strategy_family_packages_exist() -> None:
         "dataset_scope.py",
         "position_duration.py",
         "portfolio_adapter.py",
+        "allocation/spot_cash.py",
         "carry.py",
         "rules/__init__.py",
         "rules/trend.py",

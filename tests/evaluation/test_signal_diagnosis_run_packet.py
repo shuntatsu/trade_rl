@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-native-spot-cash.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -27,12 +27,14 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
-    ROOT / "report" / "sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json"
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261125-native-spot-cash.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "bd13a6a48701c7473a32aeaed1a6b5eaafb7620c90ae707196e5896a0fbfa11a"
+PINNED_DIGEST = "114adc053cd041c26ac1c5ce67df3a47b605b84a331fe8c26122be5c3a353272"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1048,7 +1050,13 @@ def test_raw_mask_preserves_rsi_scratch_packet() -> None:
         == "77bdbb53137cdb06b9d50c59355e5ce4521e6bb63fc36d11f974b9c1cefafece"
     )
     previous = json.loads(raw)
-    current = packet()
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json"
+        ).read_bytes()
+    )
     assert (
         assurance_digest(previous)
         == "8629596c1c1c95104023fea98b04004f2a7e320795df2702ff208f62136e4526"
@@ -1098,5 +1106,193 @@ def test_raw_mask_preserves_rsi_scratch_packet() -> None:
         assert previous_path.name in _flat(doc)
         assert (
             "8629596c1c1c95104023fea98b04004f2a7e320795df2702ff208f62136e4526"
+            in _flat(doc)
+        )
+
+
+def test_strict_spot_cash_preserves_rsi_scratch_packet() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-rsi-scratch.json"
+    )
+    raw = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "77bdbb53137cdb06b9d50c59355e5ce4521e6bb63fc36d11f974b9c1cefafece"
+    )
+    previous = json.loads(raw)
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-strict-spot-cash.json"
+        ).read_bytes()
+    )
+    assert (
+        assurance_digest(previous)
+        == "8629596c1c1c95104023fea98b04004f2a7e320795df2702ff208f62136e4526"
+    )
+    assert (
+        assurance_digest(current)
+        == "f7939f9b3fdc195f9d560eef029c4e3ef249545ba7dcca830ea573432f4c3a77"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "evidence", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field not in ("limitations", "cheapest_falsifier"):
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["evidence"]:
+        if field != "independent_reconstruction":
+            assert current["evidence"][field] == previous["evidence"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["evidence"]["independent_reconstruction"].startswith(
+        previous["evidence"]["independent_reconstruction"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "811eeb6284bad90219773691d3e283bacb5640cf",
+        "protocol_head": "811eeb6284bad90219773691d3e283bacb5640cf",
+    }
+    old_head = previous["identity"]["implementation_head"]
+    new_head = current["identity"]["implementation_head"]
+    assert current["thesis"]["cheapest_falsifier"] == previous["thesis"][
+        "cheapest_falsifier"
+    ].replace(old_head, new_head)
+    old = set(bound_code_paths(old_head))
+    new = set(bound_code_paths(new_head))
+    assert old == new
+    changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == [
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/simulation/stateful/symbol_fills.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+    for doc in (STATUS, ARCHITECTURE):
+        assert previous_path.name in _flat(doc)
+        assert (
+            "8629596c1c1c95104023fea98b04004f2a7e320795df2702ff208f62136e4526"
+            in _flat(doc)
+        )
+
+
+def test_native_cash_union_retains_both_predecessors_and_exact_source() -> None:
+    a_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-raw-mask.json"
+    )
+    b_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-strict-spot-cash.json"
+    )
+    previous = json.loads(a_path.read_bytes())
+    parallel = json.loads(b_path.read_bytes())
+    current = packet()
+    assert (
+        hashlib.sha256(a_path.read_bytes()).hexdigest()
+        == "562697d44e15bc95949dba4a24984ea10290c4dd22e27394da6a71feb6ac029c"
+    )
+    assert (
+        hashlib.sha256(b_path.read_bytes()).hexdigest()
+        == "937459231a50c32d90a3dfb84527f66cfd4f2985c7e901381b8645576d26c37d"
+    )
+    assert (
+        assurance_digest(previous)
+        == "bd13a6a48701c7473a32aeaed1a6b5eaafb7620c90ae707196e5896a0fbfa11a"
+    )
+    assert (
+        assurance_digest(parallel)
+        == "f7939f9b3fdc195f9d560eef029c4e3ef249545ba7dcca830ea573432f4c3a77"
+    )
+    assert current["identity"] == {
+        "implementation_head": "31180c14867aaab2caeb56976090cee99c882591",
+        "protocol_head": "31180c14867aaab2caeb56976090cee99c882591",
+    }
+    assert current.keys() == previous.keys()
+    for key in previous:
+        if key not in ("identity", "thesis", "claims", "evidence"):
+            assert current[key] == previous[key] == parallel[key]
+    for key in previous["thesis"]:
+        if key not in ("limitations", "cheapest_falsifier"):
+            assert (
+                current["thesis"][key]
+                == previous["thesis"][key]
+                == parallel["thesis"][key]
+            )
+    for key in previous["evidence"]:
+        if key != "independent_reconstruction":
+            assert (
+                current["evidence"][key]
+                == previous["evidence"][key]
+                == parallel["evidence"][key]
+            )
+    for key in previous["claims"]:
+        if key != "next_authorized_action":
+            assert (
+                current["claims"][key]
+                == previous["claims"][key]
+                == parallel["claims"][key]
+            )
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    a = set(bound_code_paths(previous["identity"]["implementation_head"]))
+    b = set(bound_code_paths(current["identity"]["implementation_head"]))
+    assert a == b and len(b) == 176
+    diff = _git(
+        "diff",
+        "--name-only",
+        previous["identity"]["implementation_head"],
+        current["identity"]["implementation_head"],
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/simulation/stateful/symbol_fills.py",
+    ]
+    for record in (previous, parallel, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+    assert current["thesis"]["cheapest_falsifier"] == previous["thesis"][
+        "cheapest_falsifier"
+    ].replace(
+        "28dae2a341f04e30abfc954890e32e47ba2501bc",
+        "31180c14867aaab2caeb56976090cee99c882591",
+    )
+    assert current["evidence"]["independent_reconstruction"].startswith(
+        previous["evidence"]["independent_reconstruction"]
+    )
+    for doc in (STATUS, ARCHITECTURE):
+        assert (
+            a_path.name in _flat(doc)
+            and "bd13a6a48701c7473a32aeaed1a6b5eaafb7620c90ae707196e5896a0fbfa11a"
+            in _flat(doc)
+        )
+        assert (
+            b_path.name in _flat(doc)
+            and "f7939f9b3fdc195f9d560eef029c4e3ef249545ba7dcca830ea573432f4c3a77"
             in _flat(doc)
         )

@@ -194,6 +194,17 @@ def _verify_decision_trace(
                 or any(type(index) is not int or index != 0 for index in holds)
             ):
                 raise ValueError(label + " HOLD roster mismatch")
+        # The frozen study has a single-symbol gross/weight cap of one
+        # and does not enable automatic HOLD for unchanged risk targets.
+        # Compare recorded native fields only; do not run a second risk engine.
+        proposed = decision["proposal_weights"][0]
+        target = decision["target_weights"][0]
+        requested = decision["requested_hold_symbols"]
+        effective = decision["effective_hold_symbols"]
+        if abs(target) > 1.0:
+            raise ValueError(label + " exceeds fixed native weight cap")
+        if effective != (requested if target == proposed else []):
+            raise ValueError(label + " effective HOLD contradicts native target")
         reasons = decision.get("risk_reasons")
         if not isinstance(reasons, list) or any(
             type(reason) is not str for reason in reasons

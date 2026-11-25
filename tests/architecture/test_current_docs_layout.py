@@ -657,6 +657,20 @@ def test_current_relative_markdown_links_resolve() -> None:
             assert resolved.exists(), (path.relative_to(ROOT), target)
 
 
+def test_current_sd2_g4_digest_documentation_preserves_newline_delimiters() -> None:
+    text = (ROOT / "docs/architecture/research-assurance.md").read_text(
+        encoding="utf-8"
+    )
+    g4_bullets = [
+        line for line in text.splitlines() if line.startswith("- **G4 text.**")
+    ]
+    assert len(g4_bullets) == 1
+    assert (
+        r'`sha256("signal_diagnosis_g4_authorization_v1\n" + url + "\n" + protocol digest)`'
+        in g4_bullets[0]
+    )
+
+
 def test_current_authority_docs_do_not_embed_transient_pr_or_full_sha_refs() -> None:
     for path in CURRENT_AUTHORITY_DOCS:
         text = path.read_text(encoding="utf-8")

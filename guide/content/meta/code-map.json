@@ -55,7 +55,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Dependency direction",
-      "sha256": "1d9c3f0e8e82235a71b73994e1fb8daade406e403bcb36914cc8aac0116aabba"
+      "sha256": "2ee817dba14c2041d754569c2ef0de83f40b7f6aa714452bd7c67a7743e372a0"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -99,12 +99,13 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "853a612f677940b40d870ba2e71fde25694aec6b82dc3e01f801902fb87078a8",
+      "source_sha256": "48b35b61d5b2cba08b312049621b8882c29f99b179eae95a4a25396912524700",
       "label_ja": "市場データの共通契約",
-      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持し、timestampsと明示available_atのns範囲・精度をlosslessに検証します。",
+      "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持し、timestampsと明示available_atのns範囲・精度をlosslessに検証します。経過時間の履歴・将来検索でも符号付きnsの範囲外を安全に扱います。",
       "variables": [],
       "tests": [
-        "tests/data/test_market_artifact.py"
+        "tests/data/test_market_artifact.py",
+        "tests/data/test_market_dataset_v2.py"
       ]
     },
     {

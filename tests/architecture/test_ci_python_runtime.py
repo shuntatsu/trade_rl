@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.architecture.workflow_action_refs import setup_uv_action_matches
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -65,9 +67,7 @@ def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
     refs: list[str] = []
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         text = path.read_text(encoding="utf-8")
-        refs.extend(
-            re.findall(r"(?m)^\s+uses:\s+astral-sh/setup-uv@([^\s#]+)\s*$", text)
-        )
+        refs.extend(match.group("ref") for match in setup_uv_action_matches(text, path))
     assert len(refs) == 16
     assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 16
 

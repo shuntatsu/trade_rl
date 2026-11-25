@@ -72,6 +72,7 @@ def test_evaluation_root_keeps_core_primitives() -> None:
 def test_evaluation_responsibility_packages_exist() -> None:
     required = (
         "terminal_settlement.py",
+        "equity_path.py",
         "directional.py",
         "carry.py",
         "carry_multisymbol/__init__.py",
@@ -135,6 +136,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "paper/cli.py",
         "comparison/__init__.py",
         "comparison/bootstrap.py",
+        "comparison/overlapping_blocks.py",
         "comparison/paired.py",
         "comparison/seed_robustness.py",
         "comparison/strategies.py",

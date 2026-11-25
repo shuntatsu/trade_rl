@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import subprocess
 
 import pytest
 
@@ -23,6 +24,7 @@ class FakeGet:
         self.blob = hashlib.sha1(
             b"blob " + str(len(self.data)).encode() + b"\x00" + self.data
         ).hexdigest()
+        self.ref_name = REF
         self.ref_sha = COMMIT
         self.repository_node_id = "R_123"
         self.next_repository_node_id: str | None = None
@@ -46,12 +48,12 @@ class FakeGet:
             if self.repo_reads > 1 and self.next_repository_node_id is not None:
                 node_id = self.next_repository_node_id
             return {"full_name": REPOSITORY, "node_id": node_id, "id": 123}
-        if suffix == "git/ref/heads/coordination/task-registry":
+        if suffix == "git/ref/" + self.ref_name.removeprefix("refs/"):
             self.ref_reads += 1
             oid = self.ref_sha
             if self.ref_reads > 1 and self.next_ref_sha is not None:
                 oid = self.next_ref_sha
-            return {"ref": REF, "object": {"type": self.ref_type, "sha": oid}}
+            return {"ref": self.ref_name, "object": {"type": self.ref_type, "sha": oid}}
         if suffix == f"git/commits/{COMMIT}":
             return {"sha": COMMIT, "tree": {"sha": TREE}}
         if suffix == f"git/trees/{TREE}":
@@ -188,3 +190,32 @@ def test_observation_is_not_enrollment_permission_even_with_empty_registry() -> 
     assert result.authoritative_registry_established is False
     assert result.task_registry_complete is False
     assert result.cleanup_authorized is False
+
+
+@pytest.mark.parametrize("suffix", [".hidden", "group.lock/registry", "registry."])
+def test_git_invalid_coordination_ref_rejected_before_any_get(suffix: str) -> None:
+    ref = f"refs/heads/coordination/{suffix}"
+    assert subprocess.run(["git", "check-ref-format", ref], check=False).returncode != 0
+    api = FakeGet()
+    with pytest.raises(ValueError, match="safe coordination branch ref"):
+        observe_registry_snapshot(
+            api, expected_repository=REPOSITORY, ref_name=ref, registry_path=PATH
+        )
+    assert api.calls == []
+
+
+@pytest.mark.parametrize(
+    "suffix", ["group./registry", "group/registry-v1", "group.locked/registry"]
+)
+def test_git_valid_coordination_ref_preserves_readback(suffix: str) -> None:
+    ref = f"refs/heads/coordination/{suffix}"
+    assert subprocess.run(["git", "check-ref-format", ref], check=False).returncode == 0
+    api = FakeGet()
+    api.ref_name = ref
+    result = observe_registry_snapshot(
+        api, expected_repository=REPOSITORY, ref_name=ref, registry_path=PATH
+    )
+    assert result.ref_name == ref
+    assert result.ref_oid == COMMIT
+    assert result.cleanup_authorized is False
+    assert api.ref_reads == 2

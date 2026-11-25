@@ -1266,8 +1266,8 @@ def _runtime_provenance() -> dict[str, str]:
             "the configured uv executable could not be verified"
         ) from None
     version_match = re.match(r"^uv ([0-9]+\.[0-9]+\.[0-9]+)(?:\s|$)", result.stdout)
-    if version_match is None or version_match.group(1) != "0.10.0":
-        raise ValueError("the actual uv executable is not pinned at 0.10.0")
+    if version_match is None or version_match.group(1) != "0.13.9":
+        raise ValueError("the actual uv executable is not pinned at 0.13.9")
     if sys.version_info[:2] != (3, 12):
         raise ValueError("the Python runtime is not pinned to Python 3.12")
     return {

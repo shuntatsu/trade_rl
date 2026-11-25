@@ -60,6 +60,10 @@ globalのmarket return平均・標準偏差は、そのバーで利用できる�
 
 追加のnative calendar APIでは、指定されたUTC週・暦月・固定間隔と完全なsource memberを確認し、derived barの利用可能時刻を全memberのpublicationの最大値とします。時刻とOHLCVは欠損マスク付き配列やその所有元が追跡できるviewを拒否します。すでに呼出し前に失われた欠損情報は復元できません。この検査は取引所データの真正性・finalityや既存Datasetの長時間足対応を証明しません。
 
+別の opt-in Spot 受信データ用入口は、収集済みのUTC combined streamの確定フラグ・銘柄・時間足・時刻を照合し、受信時刻を利用可能時刻として同じ集約処理へ渡します。未確定バーや欠損・重複、UTC以外のstreamを代用しません。ネットワーク収集や接続・受信時計の真正性、先物の資金調達料、既存Datasetへの接続は別の課題です。
+
+明示したnative calendarの価格・出来高特徴量を判断時刻に対応付ける追加APIでは、週・暦月・固定間隔の連続した完全なバーを使用し、特徴量の窓はバー本数、鮮度は実経過時間で扱います。公開遅延と銘柄の有効期間を考慮します。資金調達・cross-asset、既存Datasetへの長期時間足の保存や学習・取引は未対応です。
+
 1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。

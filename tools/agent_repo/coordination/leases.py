@@ -53,6 +53,8 @@ def lease_branch_name(task_id: str, epoch: int, owner: str) -> str:
 
     if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task_id is invalid for a lease branch")
+    if ".." in task_id or task_id.endswith(".lock"):
+        raise ValueError("task_id is invalid for a lease branch")
     if type(epoch) is not int or epoch < 1:
         raise ValueError("epoch must be a positive integer")
     return f"agent/{task_id}/e{epoch:04d}-{_owner_slug(owner)}"

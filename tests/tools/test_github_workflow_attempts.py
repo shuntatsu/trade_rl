@@ -190,7 +190,7 @@ def test_run_and_job_status_contradictions_are_rejected() -> None:
 
     api = FakeReader()
     api.pages[0]["jobs"][0]["status"] = "in_progress"
-    with pytest.raises(ValueError, match="unfinished status"):
+    with pytest.raises(ValueError, match="unfinished job"):
         observe_workflow_attempt(api, run_id=RUN_ID)
 
 
@@ -247,3 +247,33 @@ def test_cli_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with pytest.raises(SystemExit, match="2"):
         main(["--run-id", str(RUN_ID)])
+
+
+@pytest.mark.parametrize("location", ["initial-run", "readback-run", "job"])
+def test_unfinished_status_requires_explicit_null_conclusion(location: str) -> None:
+    api = FakeReader()
+    api.runs = [_run(status="in_progress"), _run(status="in_progress")]
+    job = api.pages[0]["jobs"][0]
+    job["status"] = "in_progress"
+    job["conclusion"] = None
+    if location == "initial-run":
+        del api.runs[0]["conclusion"]
+    elif location == "readback-run":
+        del api.runs[1]["conclusion"]
+    else:
+        del job["conclusion"]
+    with pytest.raises(ValueError, match="conclusion is missing"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_unfinished_status_accepts_explicit_null_conclusion() -> None:
+    api = FakeReader()
+    api.runs = [_run(status="in_progress"), _run(status="in_progress")]
+    job = api.pages[0]["jobs"][0]
+    job["status"] = "in_progress"
+    job["conclusion"] = None
+    result = observe_workflow_attempt(api, run_id=RUN_ID)
+    assert result["status"] == "in_progress"
+    assert result["conclusion"] is None
+    assert result["jobs"][0]["conclusion"] is None
+    assert result["cleanup_authorized"] is False

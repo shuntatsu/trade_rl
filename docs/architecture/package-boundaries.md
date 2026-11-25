@@ -1148,6 +1148,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
+| `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
@@ -1191,6 +1192,17 @@ This is an opt-in projection for valid long-only spot / signed perpetual
 targets, **not** a mixed-instrument fill-time collateral or venue-margin
 guarantee. Existing source-bound AGY/XS/low-turnover implementations remain
 unchanged until reviewed consumer migration.
+
+`runtime_execution_policy_digest(cost, funding_price_rate_present=..., ...)`
+computes the exact runtime execution-policy identity without loading a Dataset.
+The caller must independently admit the configuration and explicitly bind the
+presence (not nonzero content) of the optional event-price funding array, any
+verified market-order-profile digest, rule stress, insolvency mode and strict
+spot-cash mode. `MarketExecutor.execution_policy_digest` uses the same digest
+composition, including wrapper order, and retains existing digests and cache
+semantics. This is identity computation, not source attestation, profile/Dataset
+validation, row-level cash admission or replay authorization. A result's own
+unverified metadata is not an independent expected identity.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.

@@ -6,6 +6,7 @@ from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     ExecutionResult,
     MarketExecutor,
+    runtime_execution_policy_digest,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ExecutionEnvironmentStress",
     "ExecutionResult",
     "MarketExecutor",
+    "runtime_execution_policy_digest",
 ]

@@ -176,7 +176,10 @@ def test_failure_receipt_writer_and_reader_share_one_validator() -> None:
         if isinstance(child, ast.Call)
         and isinstance(child.func, (ast.Name, ast.Attribute))
     ]
-    assert order.index("_encode_incomplete_receipt") < order.index("mkdir")
+    assert order.index("_encode_incomplete_receipt") < order.index(
+        "atomic_rename_directory"
+    )
+    assert "link" not in order
 
 
 def test_failure_receipt_numeric_bounds_and_versions_are_documented() -> None:

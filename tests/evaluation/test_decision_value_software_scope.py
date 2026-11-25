@@ -353,6 +353,7 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
     """Write-once must be atomic even when another writer claims the path."""
     from pathlib import Path
 
+    from trade_rl.artifacts import atomic_write
     from trade_rl.evaluation.decision_value_reachable_labels import (
         IneligiblePairOutcome,
     )
@@ -368,17 +369,18 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
     )
     error = study.IncompletePairedLabelsError("b1", (row,))
     destination = tmp_path / "race"
-    original_mkdir = Path.mkdir
+    real_rename = atomic_write._rename_directory_no_replace
     raced = False
 
-    def concurrent_writer(path: Path, *args, **kwargs):
+    def concurrent_writer(staging: Path, target: Path):
         nonlocal raced
-        if path == destination and not raced:
-            raced = True
-            original_mkdir(path, exist_ok=False)
-        return original_mkdir(path, *args, **kwargs)
+        assert target == destination and not target.exists()
+        assert (staging / "incomplete-pairs.json").is_file()
+        target.mkdir()
+        raced = True
+        return real_rename(staging, target)
 
-    monkeypatch.setattr(Path, "mkdir", concurrent_writer)
+    monkeypatch.setattr(atomic_write, "_rename_directory_no_replace", concurrent_writer)
     with pytest.raises(FileExistsError):
         study._persist_incomplete_pair_attempt(
             destination,
@@ -391,6 +393,7 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
             phase="training",
             observed_view_digest=None,
         )
+    assert raced
     assert destination.is_dir()
     assert tuple(destination.iterdir()) == ()
 
@@ -398,9 +401,10 @@ def test_incomplete_attempt_does_not_replace_concurrently_created_empty_dir(
 def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
     tmp_path, monkeypatch
 ) -> None:
-    """A competing file writer after our directory reservation must win safely."""
+    """A competing complete publication before exclusive rename must win safely."""
     from pathlib import Path
 
+    from trade_rl.artifacts import atomic_write
     from trade_rl.evaluation.decision_value_reachable_labels import (
         IneligiblePairOutcome,
     )
@@ -416,15 +420,21 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
     )
     error = study.IncompletePairedLabelsError("b1", (row,))
     destination = tmp_path / "race-file"
-    real_mkdir = Path.mkdir
+    real_rename = atomic_write._rename_directory_no_replace
+    raced = False
 
-    def concurrently_create_receipt(path: Path, *args, **kwargs):
-        result = real_mkdir(path, *args, **kwargs)
-        if path == destination:
-            (destination / "incomplete-pairs.json").write_text("other-writer")
-        return result
+    def concurrently_create_receipt(staging: Path, target: Path):
+        nonlocal raced
+        assert target == destination and not target.exists()
+        assert (staging / "incomplete-pairs.json").is_file()
+        target.mkdir()
+        (target / "incomplete-pairs.json").write_text("other-writer")
+        raced = True
+        return real_rename(staging, target)
 
-    monkeypatch.setattr(Path, "mkdir", concurrently_create_receipt)
+    monkeypatch.setattr(
+        atomic_write, "_rename_directory_no_replace", concurrently_create_receipt
+    )
     with pytest.raises(FileExistsError):
         study._persist_incomplete_pair_attempt(
             destination,
@@ -437,6 +447,7 @@ def test_incomplete_attempt_never_replaces_concurrent_receipt_file(
             phase="training",
             observed_view_digest=None,
         )
+    assert raced
     assert (destination / "incomplete-pairs.json").read_text() == "other-writer"
 
 

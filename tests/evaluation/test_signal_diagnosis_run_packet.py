@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-publication-union.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json"
+    / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-publication-union.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "537656baa28a648f6cfb0a4de83383e54b2bb8b77be7caf548b13962eaf58048"
+PINNED_DIGEST = "17eab857200007515c35a729278e2fe8a7babd4966cba5e24f598fa0367953cb"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1886,7 +1886,13 @@ def test_native_fill_cash_successor_preserves_td8_packet() -> None:
         assurance_digest(previous)
         == "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
         "protocol_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
@@ -1930,6 +1936,172 @@ def test_native_fill_cash_successor_preserves_td8_packet() -> None:
         "trade_rl/simulation/stateful/symbol_fills.py",
     ]
     for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_atomic_publication_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "a7f5cc757ce8a8eb8879002caa35bd5a44dc4c17f3c2c68953b19386fcdda346"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
+    )
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261126-td8-atomic-publication.json"
+        ).read_bytes()
+    )
+    old_head = "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"
+    new_head = "bd21022612d772ae9c3ff15353fb5e871f0d25da"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(bound_code_paths(old_head))
+    b = set(bound_code_paths(new_head))
+    assert a == b and len(b) == 177
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_fill_td8_publication_union_preserves_both_predecessors() -> None:
+    common = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+        ).read_bytes()
+    )
+    a_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json"
+    ).read_bytes()
+    b_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-td8-atomic-publication.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "89b5287c723434912fb6a69b6277589a684befe53dac5a09fb4d8edf7cf57ed7"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "e20e13547fb9f1a4108a44e7e9836de6a9a00f34455f4f67f954d32698a414a9"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "537656baa28a648f6cfb0a4de83383e54b2bb8b77be7caf548b13962eaf58048"
+    )
+    assert (
+        assurance_digest(b)
+        == "6288c55738ecbd7c4dfa785e162173f80451da76d9cccee2f1cbb2faa5c14826"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "f4b29a5b02f9943ee937896f61d3a753acc7db55"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+        ).read_bytes()
+    )
+    expected["identity"] = current["identity"]
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of both immutable predecessors: retain opt-in native fill cash observations and atomic TD8 failure-receipt directory publication; no change to frozen economic protocol, historical evidence or authorization. No general cash reconciliation, source authenticity, power-loss durability or aggregate resource guarantee.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Source-only union at f4b29a5b02f9943ee937896f61d3a753acc7db55. Static closure verified: 178 paths, exactly the union of the 178-path fill predecessor and 177-path TD8 predecessor; one shared TD8 publication module changes relative to the fill predecessor and seven replay/native-fill modules relative to the TD8 predecessor. No economic run, market data access or research approval.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert a[section][key].startswith(prefix) and b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = common[section][key].replace(
+            common["identity"]["implementation_head"], head
+        )
+        for predecessor in (a, b):
+            assert (
+                predecessor[section][key].replace(
+                    predecessor["identity"]["implementation_head"], head
+                )
+                == wanted
+            )
+        expected[section][key] = wanted
+    assert current == expected
+    a_head, b_head = (
+        a["identity"]["implementation_head"],
+        b["identity"]["implementation_head"],
+    )
+    a_paths, b_paths, union = (set(bound_code_paths(x)) for x in (a_head, b_head, head))
+    assert len(a_paths) == 178 and len(b_paths) == 177
+    assert len(union) == 178 and union == a_paths | b_paths
+    for previous, paths in (
+        (a_head, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (
+            b_head,
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (common, a, b, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

@@ -277,6 +277,8 @@ uv run pytest -q tests
 
 Hosted Full CIの `Lean Core tests` は全 `tests` を各runnerで収集し、pytest node IDの安定SHA-256で4分割する（実測で高負荷のmodule-scoped fixtureを共有する5 moduleだけは `tools/ci_test_shard.py` の明示的な配置に従い、同一shardでfixtureを再利用する）。各shardの成功時だけ同一HEAD・同一workflow attemptに紐付く完了node ID一覧と全収集件数/digestを発行する。 各nodeのfinish通知だけでは完了とせず、setup/call/teardownの実行reportまたは正当なsetup skipとteardownを照合する。setup-only/setup-plan等の非実行modeを拒否し、従来のskip/xfailは維持する。`Lean Core` は全4shardの成功、重複・漏れのない完了一覧と全収集digestおよび独立した通常pytest全収集との一致を必須とし、その後も従来の静的検査・配布物・installed smokeを行う。失敗・中断・artifact欠落・異なる収集roster・異なるHEADは拒否する。部分rerunの旧attempt receiptは再利用せず、必要なら全jobsをrerunする。通常のローカル `uv run pytest -q tests` は分割しない。専用PPO研究認可と他の必須CI/レビュー条件は変更しない。各shardで遅い25件とskip理由を記録し、実際のhosted wall time・待ち時間・runner minutesで改善を評価する。
 
+Python依存関係の監視は、Dependabotのuv更新がHOLD中でも継続する。 `.github/workflows/ci-uv-advisory-audit.yml` (#1441 / #1175) は固定uvとそのversionを強制する隔離configで公開OSVの全locked extrasを読み取り専用監査し、registry package rosterとreport件数、scanner終了状態、manifest/lock不変を検証する。PRではfindingsを明示するreport-onlyであり、scheduled/manual scanはfindingsで非0終了、scanner failureは全eventで非0終了する。通常の必須source Full CIとは別の監視で、成功は有効なreportの生成を意味し、脆弱性不在・更新復旧・研究実行認可ではない。新規advisoryと修正候補は#1441で追跡し、過去のlock、実行環境、receiptを変更しない。Dependabot本体の再有効化は#1175の実hosted updater E2E受入条件を維持する。
+
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
 
 テストGreenだけでは正しさを宣言しない。最終diff、削除物、public API、重要failure mode、未検証事項、残存riskを再確認する。

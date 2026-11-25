@@ -79,7 +79,9 @@ PACKET_V30_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v30-native-grid.json"
 )
 PACKET_PATH = (
-    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v31-rsi-scratch.json"
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v32-strict-spot-cash.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -131,7 +133,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d02463dac4a2525cda1c6960bbba203720945a5213fe68da91b367ff9249089e"
+    "b2164aab8f9fb059074d078d532e8c8f92d0ffa9e7eae866630d41f472c952af"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1958,7 +1960,13 @@ def test_v31_rsi_scratch_preserves_v30_and_economic_boundary() -> None:
         == "b961c914204a4fed06ab6ce4fa48c62ad05e6baa0914c5fb788e8bf9a449f938"
     )
     previous = json.loads(raw)
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v31-rsi-scratch.json"
+        ).read_bytes()
+    )
     assert (
         assurance_digest(previous)
         == "3c9174f259f8f2d64e64b2c47f468d478245814bba24db0edc0094a5fee99b11"
@@ -1988,6 +1996,69 @@ def test_v31_rsi_scratch_preserves_v30_and_economic_boundary() -> None:
     changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.splitlines() == ["trade_rl/data/features/core.py"]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_v32_strict_spot_cash_preserves_v31_and_economic_boundary() -> None:
+    raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v31-rsi-scratch.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "9352cb19d16920b0dc266c707f6786106c2ed6367a809383e977fcd141afe708"
+    )
+    previous = json.loads(raw)
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert (
+        assurance_digest(previous)
+        == "d02463dac4a2525cda1c6960bbba203720945a5213fe68da91b367ff9249089e"
+    )
+    assert (
+        assurance_digest(current)
+        == "b2164aab8f9fb059074d078d532e8c8f92d0ffa9e7eae866630d41f472c952af"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "811eeb6284bad90219773691d3e283bacb5640cf",
+        "protocol_head": "811eeb6284bad90219773691d3e283bacb5640cf",
+    }
+    old = set(_bound_code_paths(previous["identity"]["implementation_head"]))
+    new = set(_bound_code_paths(current["identity"]["implementation_head"]))
+    assert old == new
+    changed = _git(
+        "diff",
+        "--name-only",
+        previous["identity"]["implementation_head"],
+        current["identity"]["implementation_head"],
+        "--",
+        *sorted(old),
+    )
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == [
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/simulation/stateful/symbol_fills.py",
+    ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors

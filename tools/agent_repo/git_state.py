@@ -88,11 +88,17 @@ def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState
     root = repository.resolve()
     head = _git(root, "rev-parse", "HEAD").strip()
     try:
-        branch_value = _git(root, "symbolic-ref", "--short", "-q", "HEAD").strip()
-    except subprocess.CalledProcessError:
+        branch_ref = _git(root, "symbolic-ref", "-q", "HEAD").strip()
+    except subprocess.CalledProcessError as error:
+        if error.returncode != 1:
+            raise
         branch: str | None = None
     else:
-        branch = branch_value or None
+        # --short uses DWIM disambiguation (e.g. heads/name if a tag exists).
+        # Strip only the literal local branch namespace instead.
+        if not branch_ref.startswith("refs/heads/") or branch_ref == "refs/heads/":
+            raise ValueError(f"HEAD does not reference a local branch: {branch_ref}")
+        branch = branch_ref.removeprefix("refs/heads/")
 
     dirty_paths = _dirty_paths(root)
     untracked_paths = _nul_paths(

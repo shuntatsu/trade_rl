@@ -28,6 +28,7 @@ from trade_rl.integrations.market_store.checksum import ChecksumError
 from trade_rl.integrations.market_store.contracts import (
     DEFAULT_BASE_ASSETS,
     DEFAULT_INTERVAL,
+    StoreExportPolicy,
     StoreMarket,
     Universe,
 )
@@ -164,8 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument(
         "--feature-timeframes",
         type=_csv,
-        default=("4h", "1d"),
-        help="aggregated from the stored base interval (default: %(default)s)",
+        default=None,
+        help="derived timeframes (legacy default: 4h,1d; strict spot default: none)",
     )
     export.add_argument(
         "--gap-policy",
@@ -176,6 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--rules-snapshot-sha256",
         default=None,
         help="pin the exchangeInfo snapshot (default: latest; recorded in the receipt)",
+    )
+    export.add_argument(
+        "--export-policy",
+        choices=[policy.value for policy in StoreExportPolicy],
+        default=StoreExportPolicy.LEGACY_V1.value,
+        help="opt-in strict spot 1h original row lineage; legacy export remains default",
     )
     export.add_argument("--output-dir", type=Path, required=True)
     _add_warmup(export)
@@ -376,6 +383,7 @@ def run(
                     feature_timeframes=args.feature_timeframes,
                     gap_policy=BinanceGapPolicy(args.gap_policy),
                     rules_snapshot_sha256=args.rules_snapshot_sha256,
+                    export_policy=args.export_policy,
                     embargo=policy,
                 )
             _dump(publish_export(export, args.output_dir), stdout)

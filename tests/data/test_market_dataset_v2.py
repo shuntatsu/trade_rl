@@ -709,3 +709,72 @@ def test_elapsed_search_matches_integer_oracle_across_full_ns_span() -> None:
                 assert (
                     market.forward_index(start, hours, maximum_index=stop) == expected
                 )
+
+
+@pytest.mark.parametrize("view", [False, True])
+def test_dataset_constructor_refuses_all_retained_array_masks(view: bool) -> None:
+    # Every array exposed by the content contract, plus the legacy alias and
+    # opt-in event-price funding, must reject explicit missingness at admission.
+    baseline = MarketDataset(**kwargs())
+    arrays = {
+        **baseline.identity_arrays(),
+        "asset_active": baseline.resolved_array("symbol_active"),
+        "funding_price_rate": np.zeros_like(baseline.close),
+    }
+    admitted = []
+    for name, values in arrays.items():
+        masked = np.ma.array(values, mask=False, copy=True)
+        masked.mask.flat[0] = True
+        incoming = masked.astype(masked.dtype).view(np.ndarray) if view else masked
+        if view:
+            assert np.ma.isMaskedArray(incoming.base)
+        try:
+            MarketDataset(**{**kwargs(), name: incoming})
+        except ValueError as exc:
+            assert name in str(exc) and "masked array" in str(exc)
+        else:
+            admitted.append(name)
+    assert not admitted, f"silently accepted masked inputs: {admitted}"
+
+
+@pytest.mark.parametrize("wrapper", ["buffer", "opaque", "subclass"])
+def test_dataset_constructor_rejects_unverified_close_owner(wrapper: str) -> None:
+    close = np.asarray(kwargs()["close"])
+    masked = np.ma.array(close, mask=False, copy=True)
+    masked.mask.flat[0] = True
+    if wrapper == "buffer":
+        incoming = memoryview(masked)
+    elif wrapper == "opaque":
+        incoming = np.lib.stride_tricks.as_strided(np.asarray(memoryview(masked)))
+    else:
+
+        class Foreign(np.ndarray):
+            pass
+
+        incoming = close.view(Foreign)
+    with pytest.raises(ValueError, match="close.*(masked array|opaque|subclass)"):
+        MarketDataset(**{**kwargs(), "close": incoming})
+
+
+@pytest.mark.parametrize("backing", ["owned", "slice", "bytes", "bytearray", "buffer"])
+def test_dataset_constructor_plain_owners_preserve_content(backing: str) -> None:
+    baseline = MarketDataset(**kwargs()).with_content_identity()
+    close = baseline.close
+    if backing == "owned":
+        incoming = close.copy()
+    elif backing == "slice":
+        incoming = np.repeat(close, 2, axis=0)[::2]
+    elif backing == "bytes":
+        incoming = np.frombuffer(close.tobytes(), dtype=close.dtype).reshape(
+            close.shape
+        )
+    elif backing == "bytearray":
+        incoming = np.frombuffer(bytearray(close.tobytes()), dtype=close.dtype).reshape(
+            close.shape
+        )
+    else:
+        incoming = memoryview(close)
+    actual = MarketDataset(**{**kwargs(), "close": incoming}).with_content_identity()
+    assert actual.dataset_id == baseline.dataset_id
+    for name, values in baseline.identity_arrays().items():
+        np.testing.assert_array_equal(actual.identity_arrays()[name], values)

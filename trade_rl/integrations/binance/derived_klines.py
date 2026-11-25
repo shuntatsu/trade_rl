@@ -41,6 +41,8 @@ def aggregate_klines(
     """
 
     resolved_close_policy = BinanceSourceClosePolicy(source_close_policy)
+    if resolved_close_policy is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3:
+        raise ValueError("spot Vision v3 requires direct input, not aggregation")
     base_ms = _interval_ms(base_interval)
     step = _interval_ms(interval)
     if step % base_ms != 0 or step < base_ms:
@@ -107,6 +109,11 @@ class BaseIntervalAggregatingTransport:
     ) -> None:
         _interval_ms(base_interval)
         self._source_close_policy = BinanceSourceClosePolicy(source_close_policy)
+        if (
+            self._source_close_policy
+            is BinanceSourceClosePolicy.STRICT_SPOT_PLACEHOLDER_V3
+        ):
+            raise ValueError("spot Vision v3 requires direct input, not aggregation")
         self._klines = klines
         self._exchange_information = (
             klines if exchange_information is None else exchange_information

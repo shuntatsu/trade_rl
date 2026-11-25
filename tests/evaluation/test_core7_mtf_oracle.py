@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v41-bootstrap-fill-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "f5b8f5b998631d00b892db432a738357d2957e7fd8342ca4efa6946e6d064568"
+    "d07fd2181f9f0115d22a966bffa28d2ebb2dc3476aaceebb3837d10b1becc9fb"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2789,7 +2789,13 @@ def test_m2_bootstrap_snapshot_successor_preserves_td8_packet() -> None:
     assert assurance_digest(previous) == (
         "85f733a473f0176166a70e715a06ea9f0920493235c2dd664f6449bf44fcb517"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+        ).read_bytes()
+    )
     old_head = "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"
     new_head = "26d879ef9b5543f4bd2f4cfc3f62147ad03b3af0"
     assert current["identity"] == {
@@ -2893,6 +2899,121 @@ def test_native_fill_cash_successor_preserves_td8_packet() -> None:
         "trade_rl/simulation/stateful/symbol_fills.py",
     ]
     for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_v41_source_union_preserves_both_v40_packets() -> None:
+    original_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v39-td8-partitioned-decode.json"
+    ).read_bytes()
+    m2_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v40-m2-bootstrap-read-snapshot.json"
+    ).read_bytes()
+    cash_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v40-native-fill-cash.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(original_raw).hexdigest()
+        == "ab80f5c044af842afae22cb5404fd8653e9c9a1608300e4b4817f202e18c07a8"
+    )
+    assert (
+        hashlib.sha256(m2_raw).hexdigest()
+        == "c90be3f2db75cd1b73472c2f9c91e8d7e10aae2c76b22882dd2f0ec66b82cdbc"
+    )
+    assert (
+        hashlib.sha256(cash_raw).hexdigest()
+        == "b469ec7bbc7b05cc8c82478b5bd351a1b3103670688d4130efe3462bbfd482dd"
+    )
+    origin, m2, cash = (json.loads(raw) for raw in (original_raw, m2_raw, cash_raw))
+    assert (
+        assurance_digest(m2)
+        == "f5b8f5b998631d00b892db432a738357d2957e7fd8342ca4efa6946e6d064568"
+    )
+    assert (
+        assurance_digest(cash)
+        == "572c79dba6228ccb888525bf80cb047dbd1893112e8fac8605f3b29980fef081"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "8e8e6f5a558cf31521560f6fbecb07e0dfa20e44"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(m2_raw)
+    expected["identity"] = current["identity"]
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of the two immutable v40 successors. The new native fill cash observation and M2 read-snapshot boundary are both opt-in or fail-closed software changes. Other cash flows, source authenticity, economic admission and filesystem atomicity remain outside the verified contract. No protocol, prior evidence or economic authorization changed.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Source-only combined exact tree 8e8e6f5a558cf31521560f6fbecb07e0dfa20e44: 168 focused synthetic and architecture tests passed on the identical local tree. The static closure has 192 paths, the union of the two 191-path v40 closures, with seven fill-cash paths relative to the M2 pin and four bootstrap paths relative to the cash pin. SD2 remains identical to its fill-cash pin. The higher-clock overlay, visible-cloud optimization, external provenance and new training/time API are outside these bound static closures. No economic run or market data access.",
+        ),
+    ):
+        prefix = origin[section][key]
+        assert m2[section][key].startswith(prefix) and cash[section][key].startswith(
+            prefix
+        )
+        expected[section][key] = (
+            m2[section][key] + cash[section][key][len(prefix) :] + extra
+        )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = origin[section][key].replace(
+            "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36", head
+        )
+        assert (
+            m2[section][key].replace("26d879ef9b5543f4bd2f4cfc3f62147ad03b3af0", head)
+            == wanted
+        )
+        assert (
+            cash[section][key].replace("787140c94c75a96cda3a42e9b8309bc485783d0e", head)
+            == wanted
+        )
+        expected[section][key] = wanted
+    assert current == expected
+    a = set(_bound_code_paths("26d879ef9b5543f4bd2f4cfc3f62147ad03b3af0"))
+    b = set(_bound_code_paths("787140c94c75a96cda3a42e9b8309bc485783d0e"))
+    combined = set(_bound_code_paths(head))
+    assert len(a) == len(b) == 191
+    assert combined == a | b and len(combined) == 192
+    for old, changed in (
+        (
+            "26d879ef9b5543f4bd2f4cfc3f62147ad03b3af0",
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+        (
+            "787140c94c75a96cda3a42e9b8309bc485783d0e",
+            [
+                "trade_rl/evaluation/experiments/bootstrap/_json_reader.py",
+                "trade_rl/evaluation/experiments/bootstrap/binance.py",
+                "trade_rl/evaluation/experiments/bootstrap/config.py",
+                "trade_rl/evaluation/experiments/bootstrap/workflow.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", old, head, "--", *sorted(combined))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == changed
+    for record in (origin, m2, cash, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

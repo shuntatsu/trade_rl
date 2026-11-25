@@ -307,13 +307,36 @@ def test_invalid_run_status_and_nonexistent_head_are_not_absence() -> None:
         _observe(api)
 
 
-def test_hidden_older_artifacts_cannot_be_detected_from_misreported_count() -> None:
-    api = FakeGet(101)
-    api.fake_total = 100
+@pytest.mark.parametrize("count", [100, 200, 10_000])
+def test_full_final_page_requires_empty_terminal_page(count: int) -> None:
+    api = FakeGet(count)
     report = _observe(api)
-    assert report["artifact_count"] == 100
+    assert report["artifact_count"] == count
+    pages = [
+        int(query["page"])
+        for _, suffix, query in api.calls
+        if suffix.endswith("/artifacts") and query is not None
+    ]
+    assert pages == list(range(1, count // 100 + 2)) * 2
     assert report["artifact_history_complete"] is False
     assert report["lease_reassignment_authorized"] is False
+
+
+@pytest.mark.parametrize("second_scan_only", [False, True])
+def test_extra_artifact_after_full_page_refuses(second_scan_only: bool) -> None:
+    api = FakeGet(100 if second_scan_only else 101)
+    api.fake_total = 100
+    if second_scan_only:
+        api.next_artifacts = [*api.artifacts, _artifact(101)]
+    with pytest.raises(ValueError, match="pagination"):
+        _observe(api)
+
+
+def test_terminal_page_total_drift_refuses() -> None:
+    api = FakeGet(100)
+    api.second_page_total = 101
+    with pytest.raises(ValueError, match="total_count changed"):
+        _observe(api)
 
 
 @pytest.mark.parametrize("count", [2, 101])

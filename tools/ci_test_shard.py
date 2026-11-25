@@ -18,6 +18,18 @@ import pytest
 
 _SCHEMA = "ci_test_shard_v1"
 _MAX_SHARDS = 16
+# Four-way placement from #1416 run 45542520830 and #1420 run 45553392392:
+# keep the costly module-scoped fixtures together, without changing the
+# assignment or execution contract of other test modules or shard counts.
+# The first affinity run concentrated three expensive modules on shard 3;
+# move study and FS1 to shards 0 and 2 to reduce its observed critical path.
+_MEASURED_MODULE_AFFINITY = {
+    "tests/evaluation/test_dev_realdata_phase3.py": 1,
+    "tests/evaluation/test_dev_realdata_study.py": 0,
+    "tests/evaluation/test_forward_study_fs1.py": 2,
+    "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 0,
+    "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 3,
+}
 
 
 def _validate_count(count: int) -> None:
@@ -54,6 +66,11 @@ def shard_index(item: str, count: int) -> int:
     _validate_count(count)
     if type(item) is not str or not item:
         raise ValueError("invalid pytest node ID")
+    if count == 4:
+        module, _, _ = item.partition("::")
+        affinity = _MEASURED_MODULE_AFFINITY.get(module)
+        if affinity is not None:
+            return affinity
     return (
         int.from_bytes(
             hashlib.sha256(item.encode("utf-8", errors="surrogatepass")).digest()[:8],
@@ -61,6 +78,15 @@ def shard_index(item: str, count: int) -> int:
         )
         % count
     )
+
+
+def _unique_receipt_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate shard receipt key")
+        result[key] = value
+    return result
 
 
 def verify_reports(
@@ -77,7 +103,10 @@ def verify_reports(
     fingerprints: set[tuple[int, str]] = set()
     for file in files:
         try:
-            record = json.loads(file.read_text(encoding="utf-8"))
+            record = json.loads(
+                file.read_text(encoding="utf-8"),
+                object_pairs_hook=_unique_receipt_object,
+            )
         except (OSError, UnicodeError, ValueError) as error:
             raise ValueError("unreadable shard receipt") from error
         if type(record) is not dict or set(record) != {

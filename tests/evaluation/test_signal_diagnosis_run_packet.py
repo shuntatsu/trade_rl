@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-m1-target-missingness.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -26,15 +26,20 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = (
+PACKET_PRE_M1_TARGET_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-m1-target-missingness.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
+PINNED_DIGEST = "70263d7114d8887499cc104c3913ca496cc6f18e6585e010450687455ff57bae"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2418,7 +2423,7 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         assurance_digest(b)
         == "b266983be68731f3b9edaa6b0a26262d8bb3e6f57b8493e9a9b60b53e0e5d156"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_PRE_M1_TARGET_PATH.read_bytes())
     head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(a_raw)
@@ -2477,3 +2482,53 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         checked = evaluate_assurance(record)
         assert checked.status == "UNREVIEWED" and not checked.errors
         assert not checked.economic_execution_authorized
+
+
+def test_m1_target_missingness_source_successor() -> None:
+    raw = PACKET_PRE_M1_TARGET_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "6926ac8eac89972a6c68d59c762fc50c7890f1f2cad6104084fb36bbfca63840"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
+    head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " M1 source-only successor shares the accounting missingness snapshot across pretrade targets/current weights, risk evidence, boolean safety masks and native/compatibility/stateful/reconciliation target admission. Refuses retained masked owners and nested masked values before NumPy conversion and prevents object dtype promotion in strict dtype paths. Already erased mask information, other input boundaries, market validity, economic protocol and authorization are unchanged or outside this scope."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 8bf7caeb4a4da610f910c214f06a94cef48b4a5b: 14 synthetic target/risk missingness regressions RED before implementation; 36 new cases included in 1,267 simulation/risk tests passing after correction. Previous packets preserved. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(bound_code_paths(old_head))
+    new_paths = set(bound_code_paths(head))
+    assert len(old_paths) == 178 and new_paths == old_paths | {
+        "trade_rl/_array_snapshot.py"
+    }
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/_array_snapshot.py",
+        "trade_rl/risk/pretrade.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/native_transition.py",
+        "trade_rl/simulation/orders/reconciliation.py",
+        "trade_rl/simulation/targets/execution.py",
+    ]
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized

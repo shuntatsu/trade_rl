@@ -475,6 +475,28 @@ def test_source_packet_is_independent_of_git_rendering_environment(
         assert apply_result.returncode == 0, apply_result.stderr
 
 
+def test_source_packet_from_linked_worktree_with_unicode_object_directory(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo_日本語"
+    base, head = _repository(repository)
+    linked = tmp_path / "linked"
+    _git(repository, "worktree", "add", "--detach", str(linked), head)
+    expected = tmp_path / "primary-packet"
+    actual = tmp_path / "linked-packet"
+
+    for checkout, output in ((repository, expected), (linked, actual)):
+        result = _run(checkout, "--base", base, "--head", head, "--output", str(output))
+        assert result.returncode == 0, result.stderr
+
+    assert _packet_contents(actual) == _packet_contents(expected)
+    assert (
+        _tar_member((actual / "source.tar").read_bytes(), "files/binary.dat")
+        == b"\x00raw\xff\x01"
+    )
+    assert str(_git(linked, "status", "--porcelain=v1")) == ""
+
+
 def test_source_packet_rejects_moving_refs_and_existing_or_in_repo_output(
     tmp_path: Path,
 ) -> None:

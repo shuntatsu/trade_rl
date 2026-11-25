@@ -145,7 +145,10 @@ def _canonical_renderer(
     ):
         raise ValueError("temporary renderer parent must be outside every worktree")
 
-    object_directory_value = _git_text(repository, "rev-parse", "--git-path", "objects")
+    # Linked worktrees can return an absolute, non-ASCII object-store path.
+    object_directory_value = os.fsdecode(
+        _git(repository, "rev-parse", "--git-path", "objects").rstrip(b"\r\n")
+    )
     object_directory = Path(object_directory_value)
     if not object_directory.is_absolute():
         object_directory = repository / object_directory

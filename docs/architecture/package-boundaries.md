@@ -1160,6 +1160,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
+| `trade_rl.evaluation.strict_spot_cash_path` | `StrictSpotCashPathEvidence`, `verify_strict_spot_cash_path` (restricted source-backed cash-path audit) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
@@ -1196,6 +1197,28 @@ and rejects naive times, NaT, sub-nanosecond remainders and scalar subclasses.
 No local timezone inference or floating epoch conversion. Both modules are
 importable without Gymnasium/Torch/SB3/LightGBM imports; legacy transform
 serialization and private helpers stay unchanged for frozen source pins.
+
+The read-only strict_spot_cash_path_v1 audit accepts a content-verified
+continuous regular Dataset, a completed native portfolio ledger and the
+ordered native fill-cash observations, with independently expected Dataset,
+strict execution-policy, ledger and observation digests, exact interval,
+initial capital and explicit ordered spot subset. All source rows in the
+audited window have a fixed active spot roster; other symbols must be
+inactive, untradable and information-unavailable. Each single-bar interval
+must reconcile every actual native fill, exact quantity, signed principal,
+nonnegative cash and cumulative cost in order. Reconstruct nonnegative
+post-fill dividend then interest from the supplied source and native binary64
+arithmetic; require exact closure to the interval cash and complete flat
+terminal ledger with no active remainder or termination. No future sale
+proceeds or cumulative fee allowances. Reject due nonzero funding, borrow,
+negative non-order cash flows, split, roster changes, session gaps and
+unexplained settlement. This is a restricted in-memory audit, not a general
+cash-path reader, source/venue attestation, independent execution-price or
+fee-rate oracle, or study authorization. The caller must independently
+admit the provided Dataset and expected pins; content identity covers the
+provided Dataset, not proof of original market publication. Existing
+execution and ledger schemas, OOS protocols and historical evidence are
+unchanged.
 
 Every executable study must use the common native execution and accounting
 owner (MarketExecutor, BookState, SharedPortfolioSession / replay).

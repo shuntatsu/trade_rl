@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-exposure-m2-td8-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-exposure-m2-td8-union.json"
+    / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "d5234f153e355d063657c44979cbedcfde9cb7e6619bbe26b764fa2d096bc4ab"
+PINNED_DIGEST = "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1721,7 +1721,13 @@ def test_exposure_m2_td8_union_preserves_both_v37_lineages() -> None:
         assurance_digest(reader)
         == "7d8fec57badb5c75567c918e7aefc0903311329f7dda5757474f50afebe4d06a"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-exposure-m2-td8-union.json"
+        ).read_bytes()
+    )
     expected = json.loads(exposure_bytes)
     assert current["identity"] == {
         "implementation_head": "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
@@ -1796,6 +1802,64 @@ def test_exposure_m2_td8_union_preserves_both_v37_lineages() -> None:
         assert diff.returncode == 0, diff.stderr
         assert diff.stdout.splitlines() == changes
     for record in (origin, exposure, reader, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-exposure-m2-td8-union.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "243ebf9bc9558da7c2e1480550fb8afc84c16bce2dfb786cdb6c96eceedfc1d7"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "d5234f153e355d063657c44979cbedcfde9cb7e6619bbe26b764fa2d096bc4ab"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+        "protocol_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(
+            "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+            "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+        )
+    assert current == expected
+    a = set(bound_code_paths("0f8946eafd0b305c8bd72fab478e2ac516667b3b"))
+    b = set(bound_code_paths("81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"))
+    assert a == b and len(b) == 177
+    diff = _git(
+        "diff",
+        "--name-only",
+        "0f8946eafd0b305c8bd72fab478e2ac516667b3b",
+        "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

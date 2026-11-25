@@ -94,10 +94,15 @@ PACKET_V45_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json"
 )
-PACKET_PATH = (
+PACKET_V46_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v46-m2-bootstrap-duplicate-json.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v47-atomic-file-stage-ownership.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -149,7 +154,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
+    "db0f2233e6d5ce4a3a1bbc871f534b9669b93b55386d6d6f4634f005168d245a"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3583,7 +3588,7 @@ def test_m2_bootstrap_duplicate_json_successor_preserves_v45() -> None:
         assurance_digest(prior)
         == "b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V46_PATH.read_bytes())
     old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
     expected = json.loads(raw)
@@ -3610,6 +3615,47 @@ def test_m2_bootstrap_duplicate_json_successor_preserves_v45() -> None:
     ]
     for packet in (prior, current):
         verdict = evaluate_assurance(packet)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False
+
+
+def test_atomic_file_stage_ownership_successor_preserves_predecessor() -> None:
+    raw = PACKET_V46_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "b496809462ffe3477e3ab5b23a04d1f96e75fe1328fa34b7b60fd8e3044680ad"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
+    head = "3063948681ca930ded73824f790575ed172461d7"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " Source-only M1 atomic file-write successor: exclusive-stage creation failure and successful replacement never unlink a staging name owned by another writer. Post-replace directory sync failure remains an error that can follow publication. Trusted-parent assumption remains; no general protection against adversarial path substitution, crash durability, economic protocol, result or authorization change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3063948681ca930ded73824f790575ed172461d7: four deterministic real-filesystem failure cases RED before the fix, all six focused cases and 75 artifact/evidence tests PASS afterward. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(_bound_code_paths(old_head))
+    new_paths = set(_bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 192
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/artifacts/atomic_write.py"]
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED"
         assert verdict.errors == ()
         assert verdict.economic_execution_authorized is False

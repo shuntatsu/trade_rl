@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-atomic-file-stage-ownership.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -26,15 +26,20 @@ from trade_rl.evaluation.signal_diagnosis.protocol import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKET_PATH = (
+PACKET_PRE_ATOMIC_STAGE_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-atomic-file-stage-ownership.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
+PINNED_DIGEST = "5ca51b2e1b637baec69786116510e98951753039fe1d77ea89a8943d7d7744eb"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2418,7 +2423,7 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         assurance_digest(b)
         == "b266983be68731f3b9edaa6b0a26262d8bb3e6f57b8493e9a9b60b53e0e5d156"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_PRE_ATOMIC_STAGE_PATH.read_bytes())
     head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(a_raw)
@@ -2477,3 +2482,44 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         checked = evaluate_assurance(record)
         assert checked.status == "UNREVIEWED" and not checked.errors
         assert not checked.economic_execution_authorized
+
+
+def test_atomic_file_stage_ownership_successor_preserves_predecessor() -> None:
+    raw = PACKET_PRE_ATOMIC_STAGE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "6926ac8eac89972a6c68d59c762fc50c7890f1f2cad6104084fb36bbfca63840"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
+    head = "3063948681ca930ded73824f790575ed172461d7"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " Source-only M1 atomic file-write successor: exclusive-stage creation failure and successful replacement never unlink a staging name owned by another writer. Post-replace directory sync failure remains an error that can follow publication. Trusted-parent assumption remains; no general protection against adversarial path substitution, crash durability, economic protocol, result or authorization change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3063948681ca930ded73824f790575ed172461d7: four deterministic real-filesystem failure cases RED before the fix, all six focused cases and 75 artifact/evidence tests PASS afterward. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(bound_code_paths(old_head))
+    new_paths = set(bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 178
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/artifacts/atomic_write.py"]
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False

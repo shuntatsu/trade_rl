@@ -40,6 +40,13 @@ class StoreMarket(StrEnum):
         raise ValueError("the market store supports spot and USD-M perpetuals only")
 
 
+class StoreExportPolicy(StrEnum):
+    """Explicit opt-in for a new export identity; legacy exports stay unchanged."""
+
+    LEGACY_V1 = "legacy_v1"
+    STRICT_SPOT_LINEAGE_V2 = "strict_spot_lineage_v2"
+
+
 class ArchiveKind(StrEnum):
     KLINES = "klines"
     FUNDING_RATE = "funding_rate"
@@ -330,6 +337,7 @@ __all__ = [
     "StoredExchangeInfo",
     "WarmupRun",
     "StoreMarket",
+    "StoreExportPolicy",
     "Universe",
     "funding_digest",
     "klines_digest",

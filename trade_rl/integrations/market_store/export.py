@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trade_rl.artifacts import content_digest
 from trade_rl.data import MarketDataset, publish_market_dataset_artifact
@@ -42,6 +43,7 @@ from trade_rl.integrations.market_store.contracts import (
     KlineRow,
     MarketReader,
     StoredExchangeInfo,
+    StoreExportPolicy,
     StoreMarket,
     WarmupRun,
     funding_digest,
@@ -54,7 +56,12 @@ from trade_rl.integrations.market_store.embargo import (
     SealedWindowEmbargoError,
 )
 
+if TYPE_CHECKING:
+    from trade_rl.integrations.market_store.store import PostgresMarketStore
+
+
 EXPORT_SCHEMA = "market_store_export_v1"
+STRICT_SPOT_EXPORT_SCHEMA = "market_store_export_strict_spot_v2"
 ECONOMICS_PROFILE_NAME = "bot_overlay_only_assumptions_v1"
 DEFAULT_FEATURE_TIMEFRAMES = ("4h", "1d")
 TRANSPORT_SOURCE = "market_store"
@@ -168,7 +175,7 @@ class StoreExport:
             "feature_timeframes": list(self.build.feature_timeframes),
             "gap_report": {k: dict(v) for k, v in self.build.gap_report.items()},
             "n_bars": self.dataset.n_bars,
-            "schema_version": EXPORT_SCHEMA,
+            "schema_version": self.evidence["schema_version"],
             "sources_used": list(self.build.sources_used),
             "symbols": list(self.dataset.symbols),
         }
@@ -250,47 +257,105 @@ def export_market_dataset(
     interval: str,
     start_time: datetime,
     end_time: datetime,
-    feature_timeframes: Sequence[str] = DEFAULT_FEATURE_TIMEFRAMES,
+    feature_timeframes: Sequence[str] | None = None,
     gap_policy: BinanceGapPolicy = BinanceGapPolicy.NON_TRADABLE_ROWS,
     rules_snapshot_sha256: str | None = None,
     embargo: EmbargoPolicy | None = None,
     economics_profile_name: str = ECONOMICS_PROFILE_NAME,
+    export_policy: StoreExportPolicy | str = StoreExportPolicy.LEGACY_V1,
 ) -> StoreExport:
-    """Build a Dataset from the store with the existing builder; refuse closed FS1 spans."""
+    """Build with the existing Dataset builder; preserve the default legacy identity.
 
+    Strict spot lineage is an opt-in pre-warm-up, base-only SQL export; it
+    binds original source associations and exact stored values, not raw
+    historical exchange-rule availability or an attestation of the ingest code.
+    """
+
+    resolved_policy = StoreExportPolicy(export_policy)
+    strict = resolved_policy is StoreExportPolicy.STRICT_SPOT_LINEAGE_V2
+    if feature_timeframes is None:
+        feature_timeframes = () if strict else DEFAULT_FEATURE_TIMEFRAMES
+    if strict and (
+        market is not StoreMarket.SPOT
+        or interval != "1h"
+        or feature_timeframes
+        or start_time.tzinfo is None
+        or start_time.utcoffset() is None
+        or end_time.tzinfo is None
+        or end_time.utcoffset() is None
+        or start_time >= end_time
+        or start_time != utc_from_ms(ms_from_utc(start_time))
+        or end_time != utc_from_ms(ms_from_utc(end_time))
+        or ms_from_utc(start_time) % 3_600_000
+        or ms_from_utc(end_time) % 3_600_000
+        or end_time > EmbargoPolicy.enforced().warmup_start
+        or (embargo is not None and embargo.warmup_allowed)
+    ):
+        raise ValueError(
+            "strict spot lineage requires pre-warm-up spot 1h base-only export"
+        )
+    strict_reader: PostgresMarketStore | None = None
+    if strict:
+        # No optional PostgreSQL dependency for the legacy in-memory reader.
+        from trade_rl.integrations.market_store.store import PostgresMarketStore
+
+        if type(reader) is not PostgresMarketStore:
+            raise ValueError(
+                "strict spot lineage requires the maintained PostgreSQL reader"
+            )
+        strict_reader = reader
     policy = EmbargoPolicy.enforced() if embargo is None else embargo
     end_utc = end_time.astimezone(UTC)
     policy.check_range_end(end_utc, what="export")
-    state = reader.embargo_state()
-    if end_utc > state.sealed_from:
-        raise SealedWindowEmbargoError(
-            f"export end {end_utc.isoformat()} is past the store embargo boundary "
-            f"{state.sealed_from.isoformat()}; refusing unconditionally"
-        )
-    resolved_symbols = tuple(symbols)
-    start_ms = ms_from_utc(start_time)
-    end_ms = ms_from_utc(end_utc)
-
-    klines: dict[str, list[KlineRow]] = {}
-    funding: dict[str, list[FundingRow]] = {}
-    for symbol in resolved_symbols:
-        rows = reader.read_klines(market, symbol, interval, start_ms, end_ms)
-        if not rows:
-            raise StoreCoverageError(
-                f"the store holds no {market.value} {symbol} {interval} klines in "
-                f"[{start_time.isoformat()}, {end_utc.isoformat()})"
+    # Preserve the legacy reader contract. New lineage-bound reads use a
+    # single read-only repeatable snapshot, including all symbols and rules.
+    with (
+        strict_reader.connection.transaction()
+        if strict_reader is not None
+        else nullcontext()
+    ):
+        if strict_reader is not None:
+            strict_reader.connection.execute(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
             )
-        klines[symbol] = rows
-        if market is StoreMarket.USDS_M:
-            funding[symbol] = reader.read_funding(market, symbol, start_ms, end_ms)
-    exchange_info = reader.load_exchange_info(market, rules_snapshot_sha256)
+        state = reader.embargo_state()
+        if strict and end_utc > state.fs1_warmup_start:
+            raise ValueError("strict spot lineage refuses the database warm-up span")
+        if end_utc > state.sealed_from:
+            raise SealedWindowEmbargoError(
+                f"export end {end_utc.isoformat()} is past the store embargo boundary "
+                f"{state.sealed_from.isoformat()}; refusing unconditionally"
+            )
+        resolved_symbols = tuple(symbols)
+        start_ms = ms_from_utc(start_time)
+        end_ms = ms_from_utc(end_utc)
 
-    last_open = max(rows[-1].open_time_ms for rows in klines.values())
-    warmup_runs: list[WarmupRun] = []
-    if last_open >= ms_from_utc(policy.warmup_start):
-        warmup_runs = reader.warmup_provenance(
-            market, resolved_symbols, interval, start_ms, end_ms
-        )
+        klines: dict[str, list[KlineRow]] = {}
+        funding: dict[str, list[FundingRow]] = {}
+        lineage: dict[str, Any] = {}
+        for symbol in resolved_symbols:
+            if strict_reader is not None:
+                rows, lineage[symbol] = strict_reader.read_strict_spot_klines(
+                    symbol, start_ms, end_ms
+                )
+            else:
+                rows = reader.read_klines(market, symbol, interval, start_ms, end_ms)
+            if not rows:
+                raise StoreCoverageError(
+                    f"the store holds no {market.value} {symbol} {interval} klines in "
+                    f"[{start_time.isoformat()}, {end_utc.isoformat()})"
+                )
+            klines[symbol] = rows
+            if market is StoreMarket.USDS_M:
+                funding[symbol] = reader.read_funding(market, symbol, start_ms, end_ms)
+        exchange_info = reader.load_exchange_info(market, rules_snapshot_sha256)
+
+        last_open = max(rows[-1].open_time_ms for rows in klines.values())
+        warmup_runs: list[WarmupRun] = []
+        if last_open >= ms_from_utc(policy.warmup_start):
+            warmup_runs = reader.warmup_provenance(
+                market, resolved_symbols, interval, start_ms, end_ms
+            )
     evidence = export_evidence(
         market=market,
         symbols=resolved_symbols,
@@ -304,6 +369,9 @@ def export_market_dataset(
         exchange_info=exchange_info,
         warmup_runs=warmup_runs,
     )
+    if strict:
+        evidence["schema_version"] = STRICT_SPOT_EXPORT_SCHEMA
+        evidence["kline_lineage"] = lineage
     store_transport = StoreMarketTransport(
         market=market,
         interval=interval,
@@ -357,6 +425,7 @@ __all__ = [
     "DEFAULT_FEATURE_TIMEFRAMES",
     "ECONOMICS_PROFILE_NAME",
     "EXPORT_SCHEMA",
+    "STRICT_SPOT_EXPORT_SCHEMA",
     "StoreCoverageError",
     "StoreExport",
     "StoreMarketTransport",

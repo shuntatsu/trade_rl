@@ -73,6 +73,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
     required = (
         "terminal_settlement.py",
         "equity_path.py",
+        "strict_spot_cash_path.py",
         "directional.py",
         "carry.py",
         "carry_multisymbol/__init__.py",

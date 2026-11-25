@@ -1284,3 +1284,121 @@ def test_partitioned_receipt_keeps_full_document_canonical_and_utf8_checks(
         study._decode_incomplete_receipt(
             malformed, expected_receipt_digest=digest, expected_max_ineligible_pairs=2
         )
+
+
+@pytest.mark.parametrize("legacy_v2", [False, True])
+@pytest.mark.parametrize("tamper", ["body", "resealed"])
+def test_trusted_receipt_pin_refuses_forged_bytes_before_json_scanning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_v2: bool, tamper: str
+) -> None:
+    import json
+    from dataclasses import replace
+
+    from tests.evaluation.test_decision_value_failure_receipt_robustness import _as_v2
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.artifacts.hashing import content_digest
+
+    root = tmp_path / "attempt"
+    _persist(root, replace(_row(), reason_codes=("original" + chr(0x1F600) * 40000,)))
+    if legacy_v2:
+        _as_v2(root)
+    path = root / "incomplete-pairs.json"
+    original = path.read_bytes()
+    value = json.loads(original)
+    pin = value["receipt_digest"]
+    value["pairs"][0]["reason_codes"][0] += " altered"
+    if tamper == "resealed":
+        value["pairs_digest"] = content_digest(value["pairs"])
+        value["receipt_digest"] = content_digest(
+            {k: v for k, v in value.items() if k != "receipt_digest"}
+        )
+    forged = canonical_json_bytes(value)
+    assert forged != original
+    path.write_bytes(forged)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("bytes inconsistent with the pin reached JSON scanning")
+
+    monkeypatch.setattr(study, "_preflight_receipt_json_depth", forbidden)
+    monkeypatch.setattr(study.json, "loads", forbidden)
+    with pytest.raises(ValueError, match="pinned"):
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=pin, expected_max_ineligible_pairs=1
+        )
+    assert path.read_bytes() == forged
+
+
+@pytest.mark.parametrize("case", ["v2", "v3", "quarantine"])
+def test_raw_pin_check_preserves_nested_and_quoted_digest_lookalikes(
+    tmp_path: Path, case: str
+) -> None:
+    import json
+    from dataclasses import replace
+
+    from tests.evaluation.test_decision_value_failure_receipt_robustness import _as_v2
+    from trade_rl.artifacts.canonical import canonical_json_bytes
+    from trade_rl.artifacts.hashing import content_digest
+
+    root = tmp_path / "attempt"
+    quoted = (
+        'quoted ,"receipt_digest":"' + "f" * 64 + '" escaped ' + chr(92) + chr(0x1F600)
+    )
+    first = replace(_row(), reason_codes=(quoted,))
+    if case == "quarantine":
+        first = replace(first, baseline={"terminal_cash": "invalid" + quoted})
+    _persist(root, first, _row(action=(0, 1)))
+    if case == "v2":
+        _as_v2(root)
+    path = root / "incomplete-pairs.json"
+    value = json.loads(path.read_bytes())
+    value["pairs"][-1]["reference_vintage"] = {
+        "decoy": {"a": 1, "receipt_digest": "e" * 64},
+        "quoted": quoted,
+    }
+    value["pairs_digest"] = content_digest(value["pairs"])
+    pin = content_digest({k: v for k, v in value.items() if k != "receipt_digest"})
+    value["receipt_digest"] = pin
+    raw = canonical_json_bytes(value)
+    path.write_bytes(raw)
+    assert raw.count(b',"receipt_digest":"') == 2
+    assert (
+        study.load_incomplete_pair_attempt(root, expected_receipt_digest=pin) == value
+    )
+    assert (
+        study.load_incomplete_pair_attempt(
+            root, expected_receipt_digest=pin, expected_max_ineligible_pairs=2
+        )
+        == value
+    )
+    assert path.read_bytes() == raw
+
+
+def test_raw_pin_match_is_not_a_substitute_for_strict_validation(
+    tmp_path: Path,
+) -> None:
+    import hashlib
+    import json
+
+    root = tmp_path / "attempt"
+    _persist(root, _row())
+    path = root / "incomplete-pairs.json"
+    raw = path.read_bytes()
+    old = json.loads(raw)["receipt_digest"]
+    field = b',"receipt_digest":"' + old.encode("ascii") + b'"'
+    assert raw.count(field) == 1
+    body = raw.replace(field, b"", 1)
+    # Noncanonical but JSON-parseable body with a duplicated direct key.
+    body = body.replace(
+        b'"fit_admitted":false', b'"fit_admitted":false,"fit_admitted":false', 1
+    )
+    forged_pin = hashlib.sha256(body).hexdigest()
+    forged = raw.replace(
+        b'"fit_admitted":false', b'"fit_admitted":false,"fit_admitted":false', 1
+    )
+    new_field = b',"receipt_digest":"' + forged_pin.encode("ascii") + b'"'
+    forged = forged.replace(field, new_field, 1)
+    assert hashlib.sha256(forged.replace(new_field, b"", 1)).hexdigest() == forged_pin
+    path.write_bytes(forged)
+    with pytest.raises(ValueError, match="duplicated"):
+        study.load_incomplete_pair_attempt(root, expected_receipt_digest=forged_pin)
+    assert path.read_bytes() == forged

@@ -21,6 +21,7 @@ from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
 )
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
@@ -464,6 +465,7 @@ class MarketExecutor:
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         strict_spot_cash: bool = False,
+        fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
         self.dataset = dataset
         self.cost = cost or ExecutionCostConfig()
@@ -485,6 +487,9 @@ class MarketExecutor:
             execution_trace_observer
         ):
             raise TypeError("execution_trace_observer must be callable")
+        if fill_cash_observer is not None and not callable(fill_cash_observer):
+            raise TypeError("fill_cash_observer must be callable")
+        self._fill_cash_observer = fill_cash_observer
         self._execution_observer = execution_observer
         self._execution_trace_observer = execution_trace_observer
         self._execution_policy_digest_cache: str | None = None

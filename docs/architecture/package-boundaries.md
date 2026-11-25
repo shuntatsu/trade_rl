@@ -1154,9 +1154,12 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
+| `trade_rl.simulation.training_identity` | `training_execution_config_payload`, `training_execution_config_digest`, `training_risk_config_payload`, `training_risk_config_digest` (full legacy training config identity) |
+| `trade_rl.data.timestamps` | `utc_timestamp_ns` (exact native scalar UTC timestamp) |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
+| `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
@@ -1181,6 +1184,18 @@ authorization. Historical candidate-run v1 serialization and readers remain
 unchanged; new source naturally has a new source identity. Never reuse a
 historical v1/v2 receipt for this record. Study admission, source pin creation
 and cutover remain separate.
+
+The training identity helpers serialize the complete concrete ExecutionCostConfig
+and PreTradeRiskConfig dataclasses, matching the existing portfolio transform
+configuration payloads and canonical SHA-256. They are not the versioned
+execution-policy identity or runtime/venue admission. The zero-cost training
+config digest is distinct from its execution_policy_digest. The UTC scalar
+boundary accepts timezone-aware native Python datetime and native NumPy
+datetime64, verifies the original unit/multiplier and finite signed ns range,
+and rejects naive times, NaT, sub-nanosecond remainders and scalar subclasses.
+No local timezone inference or floating epoch conversion. Both modules are
+importable without Gymnasium/Torch/SB3/LightGBM imports; legacy transform
+serialization and private helpers stay unchanged for frozen source pins.
 
 Every executable study must use the common native execution and accounting
 owner (MarketExecutor, BookState, SharedPortfolioSession / replay).

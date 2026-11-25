@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+    / "sd2-signal-diagnosis-research-assurance-20261125-native-fill-cash.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
+PINNED_DIGEST = "537656baa28a648f6cfb0a4de83383e54b2bb8b77be7caf548b13962eaf58048"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1822,7 +1822,13 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
         assurance_digest(previous)
         == "d5234f153e355d063657c44979cbedcfde9cb7e6619bbe26b764fa2d096bc4ab"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
         "protocol_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
@@ -1858,6 +1864,70 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == [
         "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_native_fill_cash_successor_preserves_td8_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "a7f5cc757ce8a8eb8879002caa35bd5a44dc4c17f3c2c68953b19386fcdda346"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        "protocol_head": "787140c94c75a96cda3a42e9b8309bc485783d0e",
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    expected["thesis"]["limitations"] += (
+        " Source-only native fill-cash observer successor (#1306): separate opt-in order-fill observations capture actual cash, cost and exact quantity immediately before/after BookState.execute_fill, before margin handling; default execution and legacy ledger bytes unchanged. Other cash flows, venue authentication, and full independent cash reconciliation remain outside this boundary. No new economic or live authorization."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Source-only successor 787140c94c75a96cda3a42e9b8309bc485783d0e: 1114 related synthetic simulation, shared ledger and dependency tests passed on the identical source tree, including 13 new observer tests. Literal two-sale case: cash 0 to 98 to 9898, actual costs 2 and 200, conservative first-fill interval-cost reservation incorrectly gives -102. Strict rejected fill has no cash record, partial and terminal orders are observed, funding and non-order margin flattening remain separate, default and observed legacy ledger bytes agree. Static closure grows from 177 to 178 paths; six existing replay/stateful execution paths change and simulation/diagnostics/fill_cash.py is added. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(
+            "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+            "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        )
+    assert current == expected
+    a = set(bound_code_paths("81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"))
+    b = set(bound_code_paths("787140c94c75a96cda3a42e9b8309bc485783d0e"))
+    assert len(a) == 177
+    assert b == a | {"trade_rl/simulation/diagnostics/fill_cash.py"}
+    diff = _git(
+        "diff",
+        "--name-only",
+        "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
+        "787140c94c75a96cda3a42e9b8309bc485783d0e",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/replay.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+        "trade_rl/simulation/stateful/portfolio_session.py",
+        "trade_rl/simulation/stateful/runtime.py",
+        "trade_rl/simulation/stateful/symbol_fills.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

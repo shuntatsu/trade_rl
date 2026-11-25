@@ -1253,7 +1253,7 @@ policy flag.
 by the owner in a login session, an agent sandbox cannot reach the user D-Bus). Replace
 `<...>` values; `LC` is the launch commit and `D` the UTC seal date `YYYYMMDD`.
 
-1. Read-only host checks. `uv --version` must match the exact launch checkout's `[tool.uv].required-version` (new main checkouts pin `0.13.9`);
+1. Read-only host checks. `uv --version` must match the exact launch checkout's `[tool.uv].required-version` (new main checkouts pin `0.13.10`);
    check that sleep and automatic reboots are off: `systemctl is-enabled sleep.target
    suspend.target hibernate.target` (expect `masked`; masking is an OS setting that needs
    `sudo systemctl mask ...` and is the owner's decision), `systemctl list-unit-files

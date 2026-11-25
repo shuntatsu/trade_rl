@@ -758,7 +758,7 @@ workflow artifacts are **not migrated** by switching Python acquisition from
 managed builds to runner toolcache. The manual checkpoint runner now requires
 CPython **3.12.16** already present in the GitHub-hosted Ubuntu 24.04
 toolcache (before `actions/setup-python` can fall back to a download), exact
-`uv 0.13.9`, and `UV_PYTHON_PREFERENCE=only-system` /
+`uv 0.13.10`, and `UV_PYTHON_PREFERENCE=only-system` /
 `UV_PYTHON_DOWNLOADS=never`. The checkout must carry this exact new workflow
 policy; an old `inputs.code_sha` is refused before dependency installation.
 Both runner setup and the locked project's virtual environment must report
@@ -796,9 +796,9 @@ may import **only receipts produced under the same exact** full
 bytes of the workflow, lock, and pyproject. A workflow edit or runner image
 build change during a lineage can therefore block a later stage. This is
 intentional fail-closed evidence isolation; old checkpoint artifacts, including
-those recorded under uv 0.10.0, are preserved but cannot be resumed with
-the new 0.13.9 toolchain by rewriting their receipt or by major/minor-only
-Python matching. Checkpoint runtime preflight does not grant
+those recorded under uv 0.10.0 or 0.13.9, are preserved but cannot be
+resumed with the new 0.13.10 toolchain by rewriting their receipt or by
+major/minor-only Python matching. Checkpoint runtime preflight does not grant
 G0-G5 authorization or change the frozen economic protocol.
 
 Immutable-source workflows (PPO normalization one-shot and 4h source review)

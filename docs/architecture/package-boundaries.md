@@ -1149,6 +1149,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
+| `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
@@ -1168,9 +1169,26 @@ turnover and reserve new buys against already available cash, without
 crediting unexecuted sales. `SpotCashBudgetPolicy` wraps an all-spot policy
 and leaves native risk/quantity HOLD and execution in charge. It rejects
 shorts and active orders; it does not guarantee execution-time cash under
-gaps, liquidity, fee overrides, or order-state changes. A genuine strict
-fill-time spot cash contract remains a separate requirement (#1306).
+gaps, liquidity, fee overrides, or order-state changes. The separate opt-in
+native strict spot cash admission rejects unaffordable actual fills under its
+long-only, unlevered, deterministic execution contract (#1306).
 The old source-bound trend-OOS wrapper is unchanged until reviewed migration.
+
+The common decision-mark cash projection takes explicit sorted spot indices,
+nonnegative spot weights, signed perpetual weights and caller-declared
+margin/cash/net limits. It admits native binary64-compatible scalars only
+(no booleans, arbitrary rationals, temporal values, wider floating-point
+values or integers outside the exact +/-2**53 domain); validate before
+narrowing to avoid masking negative spot weights or out-of-domain limits.
+It returns immutable pre-cap margin and signed net
+measures and their uniform scaling factors. The snapshot drawdown helper
+uses the same native PreTradeRisk ramp and preserves the historical snapshot
+peak-floor/clamp convention. Research owns the experimental constants and
+report-only statistics, not a second balance, margin or risk calculation.
+This is an opt-in projection for valid long-only spot / signed perpetual
+targets, **not** a mixed-instrument fill-time collateral or venue-margin
+guarantee. Existing source-bound AGY/XS/low-turnover implementations remain
+unchanged until reviewed consumer migration.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.

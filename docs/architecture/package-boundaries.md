@@ -1143,10 +1143,56 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
 | `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
+| `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
+| `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
+| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+| `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
+| `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+The explicit equity-path API samples observed UTC midnight rows from aligned,
+strictly increasing int64 nanosecond timestamps and finite positive equity.
+It does not interpolate missing days or authenticate scoring-window coverage.
+CAGR uses elapsed time and caller-specified days/year; daily Sharpe uses sample
+standard deviation and the caller-specified annualization. Calendar-segment
+returns retain the original inclusive next-year-boundary convention.
+The overlapping-block API generates a common seeded non-circular resample
+matrix for paired excess paths, then simple annualized mean percentile and
+Bonferroni intervals. It is distinct from the existing circular
+`moving_block_mean_test`; neither changes the other's semantics.
+The new equity, bootstrap and divergence array boundaries require exact native
+ndarrays with ordinary ndarray/memoryview ownership ending in owned storage or
+exact raw bytes/bytearray; reject retained masks, subclasses and opaque owners
+before conversion. Missingness erased by a caller cannot be reconstructed.
+Nonfinite/bad inputs fail closed; the historical `ci95` mapping is available
+only for alpha=0.05. Both APIs match the historical method for valid inputs,
+are observer-only and own no dataset I/O, result selection, risk or accounting.
+Existing source-bound historical modules are deliberately unchanged until
+accepted migration/cutover; remove their legacy copies after consumer closure,
+not by silently changing frozen study source bytes now.
+
+
+The explicit divergence detector and visible cloud are native-row arithmetic,
+not strategy, replay or economic authorization. A confirmed divergence is
+emitted at its observation row, not its pivot; concept-family quorum and
+deduplication are explicit. The oscillator bank reuses canonical feature
+numerics and separates the optional additional oscillators. Missing values
+remain NaN; no existing Dataset feature profile is changed. Visible Ichimoku
+uses the span from the displaced past source row, not the existing unshifted
+cloud-position feature. All periods are counts of native bars; its readiness
+requires the entire longest dependency window through the visible row to be
+tradable. Midpoints retain normal arithmetic and avoid sum overflow. These
+primitives consume caller-supplied completed native observations: readiness
+is not publication-time availability. The caller must use the canonical
+native-clock and as-of alignment contracts, including missing-bar detection
+and availability delays, before serving a decision. No new 3d/weekly Dataset
+or execution-clock support follows merely from row arithmetic. Research
+owns timeframe composition, strategy thresholds, rosters and trial contexts.
+The original source-bound research branch is not modified by this API.
+
 
 `trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。
 このmarkerは全private moduleを安定APIと宣言するものではなく、NumPy arrayのshape・金融・因果性のruntime契約を静的型検査だけで保証するものでもない。外部研究は検証済みcore commit/wheel digestにpinし、互換性変更をIssue/PRと再テストで扱う。optional trainerのimportや既存artifact/source identityは変更しない。

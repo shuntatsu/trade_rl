@@ -8,6 +8,7 @@ decision-time analysis; this opt-in series intentionally has different semantics
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -22,6 +23,11 @@ class VisibleCloud:
     span_a: np.ndarray
     span_b: np.ndarray
     ready: np.ndarray
+
+
+def _midpoint(upper: float, lower: float) -> float:
+    total = upper + lower
+    return 0.5 * total if math.isfinite(total) else 0.5 * upper + 0.5 * lower
 
 
 def visible_ichimoku_cloud(
@@ -40,23 +46,24 @@ def visible_ichimoku_cloud(
     a = np.full(n, np.nan)
     b = np.full(n, np.nan)
     ready = np.zeros(n, dtype=np.bool_)
-    first_source = max(tenkan_period, kijun_period, span_b_period) - 1
+    dependency_period = max(tenkan_period, kijun_period, span_b_period)
+    first_source = dependency_period - 1
     for t in range(first_source + displacement, n):
         s = t - displacement
-        if not np.all(raw.tradable[s - span_b_period + 1 : t + 1]):
+        if not np.all(raw.tradable[s - dependency_period + 1 : t + 1]):
             continue
-        tenkan = 0.5 * (
-            float(np.max(raw.high[s - tenkan_period + 1 : s + 1]))
-            + float(np.min(raw.low[s - tenkan_period + 1 : s + 1]))
+        tenkan = _midpoint(
+            float(np.max(raw.high[s - tenkan_period + 1 : s + 1])),
+            float(np.min(raw.low[s - tenkan_period + 1 : s + 1])),
         )
-        kijun = 0.5 * (
-            float(np.max(raw.high[s - kijun_period + 1 : s + 1]))
-            + float(np.min(raw.low[s - kijun_period + 1 : s + 1]))
+        kijun = _midpoint(
+            float(np.max(raw.high[s - kijun_period + 1 : s + 1])),
+            float(np.min(raw.low[s - kijun_period + 1 : s + 1])),
         )
-        a[t] = 0.5 * (tenkan + kijun)
-        b[t] = 0.5 * (
-            float(np.max(raw.high[s - span_b_period + 1 : s + 1]))
-            + float(np.min(raw.low[s - span_b_period + 1 : s + 1]))
+        a[t] = _midpoint(tenkan, kijun)
+        b[t] = _midpoint(
+            float(np.max(raw.high[s - span_b_period + 1 : s + 1])),
+            float(np.min(raw.low[s - span_b_period + 1 : s + 1])),
         )
         ready[t] = True
     top = np.maximum(a, b)

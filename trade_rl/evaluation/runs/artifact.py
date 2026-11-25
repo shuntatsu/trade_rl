@@ -1222,6 +1222,59 @@ def _validate_v10_replay_evidence(summary: Mapping[str, object]) -> None:
         _validate_v8_replay_evidence(summary)
 
 
+def _validate_return_member_extent(
+    archive: zipfile.ZipFile, member: zipfile.ZipInfo
+) -> None:
+    """Reject inconsistent NPY extents before array materialization.
+
+    ZIP's uncompressed byte count is not an independent resource budget.
+    Match it to a bounded header using Python's exact integer arithmetic.
+    """
+    try:
+        with archive.open(member) as handle:
+            version = np.lib.format.read_magic(handle)
+            if version not in {(1, 0), (2, 0), (3, 0)}:
+                raise ValueError("unsupported NPY version")
+            width = 2 if version == (1, 0) else 4
+            length_bytes = handle.read(width)
+            if len(length_bytes) != width:
+                raise ValueError("short NPY header length")
+            header_length = int.from_bytes(length_bytes, "little")
+            if (
+                header_length > 10_000
+                or header_length > member.file_size - handle.tell()
+            ):
+                raise ValueError("invalid NPY header extent")
+            header = handle.read(header_length)
+            if len(header) != header_length:
+                raise ValueError("short NPY header")
+            # The admitted primitive numeric dtype header is ASCII even in
+            # NPY v3, whose length field matches v2. Avoid private NumPy APIs.
+            if version == (3, 0) and not header.isascii():
+                raise ValueError("non-ASCII primitive NPY header")
+            read_header = (
+                np.lib.format.read_array_header_1_0
+                if version == (1, 0)
+                else np.lib.format.read_array_header_2_0
+            )
+            shape, _, dtype = read_header(io.BytesIO(length_bytes + header))
+            header_end = handle.tell()
+    except (ValueError, TypeError, OverflowError, RecursionError, SyntaxError) as error:
+        raise ValueError(
+            "malformed candidate returns archive: invalid NPY header extent"
+        ) from error
+    if dtype.kind not in {"i", "u", "f"}:
+        raise ValueError("candidate return arrays must be real numeric and pickle-free")
+    if len(shape) != 1:
+        raise ValueError("candidate return arrays must be one-dimensional")
+    if type(shape[0]) is not int or shape[0] < 0:
+        raise ValueError("candidate return array shape is invalid")
+    if shape[0] * dtype.itemsize != member.file_size - header_end:
+        raise ValueError(
+            "candidate return array byte extent does not match shape and dtype"
+        )
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -1256,6 +1309,8 @@ def _load_returns(
                     raise ValueError(
                         "malformed candidate returns archive: unsupported compression"
                     )
+            for member in archive.zip.infolist():
+                _validate_return_member_extent(archive.zip, member)
             for key in sorted(expected_keys):
                 try:
                     # Bind the physical member, not NumPy's suffix alias.

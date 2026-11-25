@@ -33,6 +33,7 @@ from trade_rl.integrations.binance.types import (
     _mode,
 )
 from trade_rl.integrations.binance.vision import (
+    _KLINE_HEADER,
     _VISION_ROOT,
     _csv_rows_from_zip,
     _interval_ms,
@@ -332,6 +333,7 @@ class BinancePublicTransport:
         interval: str,
         start_ms: int,
         end_ms: int,
+        strict_header: bool = False,
     ) -> list[list[object]]:
         result: list[list[object]] = []
         start_time = datetime.fromtimestamp(start_ms / 1_000, tz=UTC)
@@ -340,7 +342,11 @@ class BinancePublicTransport:
             market, symbol, interval, start_time, end_time
         ):
             rows = _csv_rows_from_zip(self._request_bytes(url), source=url)
-            if rows and _looks_like_header(rows[0]):
+            if rows and (
+                tuple(rows[0]) == _KLINE_HEADER
+                if strict_header
+                else _looks_like_header(rows[0])
+            ):
                 rows = rows[1:]
             for row in rows:
                 if len(row) < 8:

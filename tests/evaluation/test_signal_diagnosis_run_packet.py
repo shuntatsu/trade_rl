@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-native-admission-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-m2-td8-readers.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-native-admission-union.json"
+    / "sd2-signal-diagnosis-research-assurance-20261125-m2-td8-readers.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "13669a5653f92528f479a057b5bebe2d53c53df0fd6a0d2c5df16aa23a3c2034"
+PINNED_DIGEST = "7d8fec57badb5c75567c918e7aefc0903311329f7dda5757474f50afebe4d06a"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1473,7 +1473,13 @@ def test_native_admission_union_preserves_execution_identity_packet() -> None:
         assurance_digest(previous)
         == "1c411e5a122deb30a961be6a77e0a307da0fef53485dccbb602d3c0c834aaf23"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-native-admission-union.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
         "protocol_head": "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
@@ -1528,6 +1534,65 @@ def test_native_admission_union_preserves_execution_identity_packet() -> None:
         "trade_rl/integrations/binance/transport.py",
         "trade_rl/integrations/binance/vision.py",
         "trade_rl/risk/inputs.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_m2_td8_reader_successor_preserves_native_admission_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-native-admission-union.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "8e9c72fa7921a4753544b8f449bd0fcf34801a1191518b9e9a1db7b299c14725"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "13669a5653f92528f479a057b5bebe2d53c53df0fd6a0d2c5df16aa23a3c2034"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        "protocol_head": "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(
+            "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+            "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        )
+    assert current == expected
+    a = set(bound_code_paths("018b5a5d3a4f6d08212e1efc6f78d1ee17f24212"))
+    b = set(bound_code_paths("05733c8f8fe94b7d08e1108d024c28f6fc86bab8"))
+    assert a == b and len(b) == 176
+    diff = _git(
+        "diff",
+        "--name-only",
+        "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+        "05733c8f8fe94b7d08e1108d024c28f6fc86bab8",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py",
+        "trade_rl/evaluation/runs/artifact.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

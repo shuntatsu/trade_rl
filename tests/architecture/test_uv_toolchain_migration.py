@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CURRENT_UV = "0.13.9"
 # Immutable reviewed/execution sources may require a historical uv version.
 SOURCE_BOUND_WORKFLOWS = {
+    "ci-original-runtime-probe.yml": 1,
     "ppo-normalization-execution.yml": 3,
     "ppo-4h-gemini-review.yml": 2,
 }
@@ -77,7 +78,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
                 ), path
             total += 1
     assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
-    assert total == 17  # same inventory as the exact Action SHA contract
+    assert total == 18  # same inventory as the exact Action SHA contract
 
 
 def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(

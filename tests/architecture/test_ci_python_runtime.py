@@ -62,14 +62,14 @@ def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
 
 
 def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
-    """A reviewed SHA update must cover *all* 17 Action steps, not just Core CI."""
+    """A reviewed SHA update must cover *all* 18 Action steps, not just Core CI."""
     workflows = ROOT / ".github" / "workflows"
     refs: list[str] = []
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         text = path.read_text(encoding="utf-8")
         refs.extend(match.group("ref") for match in setup_uv_action_matches(text, path))
-    assert len(refs) == 17
-    assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 17
+    assert len(refs) == 18
+    assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 18
 
 
 def test_full_core_shards_preserve_test_coverage_and_skip_reasons() -> None:

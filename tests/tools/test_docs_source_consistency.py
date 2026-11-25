@@ -353,6 +353,53 @@ def test_asof_equity_oracle_refuses_lossy_integer_marks(representation: str) -> 
         _verify_asof_equity(full, prior, 1)
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"],
+)
+def test_asof_equity_oracle_accepts_integer_dtype_boundaries(dtype: str) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    info = np.iinfo(dtype)
+    marks = np.array(
+        [max(int(info.min), -(2**53)), 1, min(int(info.max), 2**53)], dtype=dtype
+    )
+    # The exact representability limit is inclusive; narrow integer types
+    # have no marks outside the binary64 exact integer interval.
+    _verify_asof_equity(marks, marks.copy(), 2)
+    _verify_asof_equity(marks, [int(mark) for mark in marks], 2)
+    different = marks.copy()
+    different[1] = 2
+    with pytest.raises(ContractViolation, match="noncausal no-notice"):
+        _verify_asof_equity(marks, different, 2)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "value"),
+    [
+        ("int64", 2**53 + 1),
+        ("int64", -(2**53) - 1),
+        ("int64", -(2**63)),
+        ("uint64", 2**53 + 1),
+        ("uint64", 2**64 - 1),
+    ],
+)
+def test_asof_equity_oracle_rejects_wide_integer_dtype_boundaries(
+    dtype: str, value: int
+) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    marks = np.array([1, value], dtype=dtype)
+    with pytest.raises(ContractViolation, match="finite binary64-compatible"):
+        _verify_asof_equity(marks, marks.copy(), 1)
+    with pytest.raises(ContractViolation, match="finite binary64-compatible"):
+        _verify_asof_equity([np.dtype(dtype).type(value), 1], [1, 1], 1)
+
+
 def test_asof_equity_oracle_accepts_finite_native_vectors() -> None:
     import numpy as np
 

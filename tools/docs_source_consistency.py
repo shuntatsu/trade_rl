@@ -349,11 +349,13 @@ def _verify_asof_equity(full: object, truncated: object, observed_rows: int) -> 
             or not np.isfinite(marks).all()
         ):
             raise ContractViolation(error)
-        if marks.dtype.kind in "iu" and (
-            np.any(marks > exact_integer_limit)
-            or (marks.dtype.kind == "i" and np.any(marks < -exact_integer_limit))
-        ):
-            raise ContractViolation(error)
+        # Every integer dtype narrower than 64 bits fits exactly in binary64.
+        # Compare the precision bounds only where they are representable.
+        if marks.dtype.kind in "iu" and marks.dtype.itemsize == 8:
+            if np.any(marks > exact_integer_limit) or (
+                marks.dtype.kind == "i" and np.any(marks < -exact_integer_limit)
+            ):
+                raise ContractViolation(error)
         return marks.astype(np.float64, copy=True)
 
     if type(observed_rows) is not int or observed_rows <= 0:

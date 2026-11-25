@@ -15,7 +15,8 @@
 
 ## Development
 
-- 最初にObjective、Acceptance Criteria、Invariants、Failure Modes、Test Oracleを定める。変更は最小限とし、過去の説明を追記するより現行記述を置換する。
+- 新規の個別研究は [trade_rl_research](https://github.com/shuntatsu/trade_rl_research) で行う。基盤の修正・汎用機能はこのrepoのIssue/PRに集約し、移行中の既存実行経路は承認済みcutoverまで維持する。
+- 変更規模に応じて目的・受入条件・検証を明確にする。小規模なdocs/test/意味保存refactorは短い記録でよく、独立した設計文書や新しい経済研究packetを要求しない。大きな変更ではObjective、Acceptance Criteria、Invariants、Failure Modes、Test Oracleを定める。詳細はdocs/AGENTS.md。
 - 実装は専用branch/worktreeで行う。原則1 write Taskにつきdurable remote branchを1本とし、RED・format・smoke用のremote branchを増やさない。
 - Bugfixでは再現→RED→修正→GREENを基本とする。新function/classは可能ならproduction投入前に小さなfake/mockで主要な入出力・失敗を確認する。fakeだけで統合/E2Eを代替しない。
 - local-firstのtargeted tests・Ruff・format・mypy、影響に応じたintegrationを確認し、final diff/status/HEADを点検してpushする。詳細の実行コマンドはdocs/AGENTS.mdとCIを正本とする。

@@ -121,17 +121,19 @@ def _rsi(
     for start, stop in _contiguous_segments(usable):
         if stop - start <= period:
             continue
-        changes = np.zeros_like(close, dtype=np.float64)
-        changes[start + 1 : stop] = np.diff(close[start:stop])
+        # Scratch belongs only to this contiguous segment. Allocating the
+        # entire history per segment makes fragmented histories quadratic.
+        changes = np.asarray(np.diff(close[start:stop]), dtype=np.float64)
         gains = np.maximum(changes, 0.0)
         losses = np.maximum(-changes, 0.0)
         first = start + period
-        avg_gain = float(portable_mean(gains[start + 1 : first + 1]))
-        avg_loss = float(portable_mean(losses[start + 1 : first + 1]))
+        avg_gain = float(portable_mean(gains[:period]))
+        avg_loss = float(portable_mean(losses[:period]))
         for index in range(first, stop):
             if index > first:
-                avg_gain = ((period - 1) * avg_gain + gains[index]) / period
-                avg_loss = ((period - 1) * avg_loss + losses[index]) / period
+                offset = index - start - 1
+                avg_gain = ((period - 1) * avg_gain + gains[offset]) / period
+                avg_loss = ((period - 1) * avg_loss + losses[offset]) / period
             if avg_loss <= _EPSILON:
                 rsi = 100.0 if avg_gain > _EPSILON else 50.0
             else:

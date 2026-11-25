@@ -24,7 +24,7 @@ def _mapping(value: Any, name: str) -> dict[str, Any]:
 
 
 def _sha(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _SHA.fullmatch(value):
+    if not isinstance(value, str) or not _SHA.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{name} must be an exact commit SHA")
     return value
 

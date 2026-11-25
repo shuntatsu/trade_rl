@@ -14,6 +14,7 @@ from statistics import fmean
 
 import numpy as np
 
+from trade_rl.data._timestamps import _NANOSECONDS_PER_DAY
 from trade_rl.data.native_clock import NativeBarClock
 
 
@@ -70,20 +71,16 @@ def evaluate_native_bar_annualization(
             raise ValueError("native returns must be finite and greater than -1")
         normalized.append(number)
 
-    durations_ns = tuple(
-        int(end) - int(start)
-        for start, end in zip(
-            starts.astype(np.int64), ends.astype(np.int64), strict=True
-        )
-    )
-    total_ns = sum(durations_ns)
-    # Reuse the clock's ACT/365F convention, including the first interval.
-    elapsed = clock.elapsed_years(ends)
+    # The complete consecutive grid has already been validated. Each interval
+    # fits signed ns, but their total may not; subtract endpoints in Python.
+    durations_ns = ends.view(np.int64) - starts.view(np.int64)
+    total_ns = int(ends[-1].astype(np.int64)) - int(starts[0].astype(np.int64))
+    elapsed = Fraction(total_ns, 365 * _NANOSECONDS_PER_DAY)
     years = float(elapsed)
     try:
         total = math.fsum(normalized)
         drift = total / years
-        if all(duration == durations_ns[0] for duration in durations_ns):
+        if np.all(durations_ns == durations_ns[0]):
             # Center the small differences again: a rounded mean can land
             # on an endpoint when returns differ by only one floating-point ULP.
             mean = (
@@ -100,7 +97,7 @@ def evaluate_native_bar_annualization(
             exact = tuple(Fraction.from_float(value) for value in normalized)
             exact_total = sum(exact, Fraction(0))
             residuals = (
-                float(value - exact_total * duration / total_ns)
+                float(value - exact_total * int(duration) / total_ns)
                 for value, duration in zip(exact, durations_ns, strict=True)
             )
         scale = math.sqrt(years)

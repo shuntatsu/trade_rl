@@ -248,7 +248,8 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 
 - 現行の良い責務境界を優先し、将来使うかもしれない抽象化を追加しない。
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
-- 変更前にTest Oracleとfailure modeを決める。
+- 新規の個別研究（仮説、戦略、比較条件、固有runner、判定）は [trade_rl_research](https://github.com/shuntatsu/trade_rl_research) の責務とする。このrepoは共通データ・時間軸・指標・学習・risk・執行・会計・評価契約を所有する。研究側からの不足機能やbugは、再現条件と期待契約を示す短いIssueから着手できる。基盤は研究packageに依存しない。既存のsource-bound実行経路は移行と承認が完了するまで維持する。
+- 小規模なdocs/test/意味保存refactor・fabricated-input検証は、変更の目的と影響範囲に応じたoracleを短く記録すればよい。独立planや新しい経済研究packetを作る必要はない。挙動や共通契約を変える場合は事前にTest Oracleとfailure modeを決める。経済mechanism変更、実データ権限、Full CI、独立reviewの要件は変更しない。
 - 研究・経済mechanismを変更する場合は、経済結果を確認する前に `architecture/research-assurance.md` のG0-G2、falsifier、semantic invariant、Known limitationsを定義する。P&Lやwinner判定でG0-G2の不備を救済しない。
 - **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと異なるconfiguredモデルのfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。
@@ -271,6 +272,8 @@ uv run pytest -q tests
 ```
 
 さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。 Full PR CIは`Lean Core`・`PPO Runtime`・`Human Guide`・`Market Store PostgreSQL`の4ジョブを要求し、Market Storeでは実PostgreSQL serviceによるintegration test（skipなし）とmigrate/status smokeも確認する。古い3ジョブのみのGreenは現行Full gateの代替としない。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。Learning Labを含むPRでは同じ必須jobでlocked `learning-lab` extraも導入し、Torch・Stable-Baselines3・sb3-contrib・LightGBMの実importをfail-closedで確認してから、合成データだけの `tests/evaluation/test_learning_lab_runner.py`（実agent学習・checkpoint保存/読込・評価・real-data拒否）を実行する。Core側のoptional skipだけで実runtime検証を代替しない。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
+
+Hosted Full CIの `Lean Core tests` は全 `tests` を各runnerで収集し、pytest node IDの安定SHA-256で4分割する。各shardの成功時だけ同一HEAD・同一workflow attemptに紐付く完了node ID一覧と全収集件数/digestを発行する。 各nodeのfinish通知だけでは完了とせず、setup/call/teardownの実行reportまたは正当なsetup skipとteardownを照合する。setup-only/setup-plan等の非実行modeを拒否し、従来のskip/xfailは維持する。`Lean Core` は全4shardの成功、重複・漏れのない完了一覧と全収集digestおよび独立した通常pytest全収集との一致を必須とし、その後も従来の静的検査・配布物・installed smokeを行う。失敗・中断・artifact欠落・異なる収集roster・異なるHEADは拒否する。部分rerunの旧attempt receiptは再利用せず、必要なら全jobsをrerunする。通常のローカル `uv run pytest -q tests` は分割しない。専用PPO研究認可と他の必須CI/レビュー条件は変更しない。各shardで遅い25件とskip理由を記録し、実際のhosted wall time・待ち時間・runner minutesで改善を評価する。
 
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
 

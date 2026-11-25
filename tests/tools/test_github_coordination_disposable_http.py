@@ -146,6 +146,37 @@ def test_graphql_transport_rejects_untrusted_response(
     assert "secret-do-not-print" not in str(error.value)
 
 
+@pytest.mark.parametrize("allow_mutation", [False, True])
+def test_graphql_missing_ref_is_not_explicit_absence(
+    monkeypatch: pytest.MonkeyPatch, allow_mutation: bool
+) -> None:
+    api = _graphql_api(expected_oid="0" * 40, allow_mutation=allow_mutation)
+    response = json.loads(_read_body(oid=None))
+    del response["data"]["repository"]["ref"]
+    observed = _stub_post(api, monkeypatch, json.dumps(response).encode())
+    with pytest.raises(ValueError, match="repository ref is missing"):
+        api.execute(_READ_REF_QUERY, _query_vars())
+    if allow_mutation:
+        variables = _mutation_vars()
+        mutation = variables["input"]
+        assert isinstance(mutation, dict)
+        mutation["clientMutationId"] = f"coordination-cas:{'0' * 12}:{AFTER[:12]}"
+        mutation["refUpdates"][0]["beforeOid"] = "0" * 40
+        with pytest.raises(ValueError, match="requires prior ref read"):
+            api.execute(_UPDATE_REF_MUTATION, variables)
+    assert len(observed) == 1
+
+
+def test_graphql_explicit_null_ref_remains_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _graphql_api(expected_oid="0" * 40, allow_mutation=True)
+    body = _read_body(oid=None)
+    observed = _stub_post(api, monkeypatch, body)
+    assert api.execute(_READ_REF_QUERY, _query_vars()) == json.loads(body)
+    assert len(observed) == 1
+
+
 def test_graphql_transport_rejects_arbitrary_mutation_before_network(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -313,3 +313,78 @@ def test_native_account_and_proposal_refuse_nonfinite_before_wrapper(bad):
 def test_native_proposal_refuses_negative_hold_index():
     with pytest.raises(ValueError, match="non-negative"):
         PortfolioTargetProposal((0.0, 0.0, 0.0), (-1,))
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"insolvent": True},
+        {"termination_reason": "margin_call"},
+    ],
+)
+def test_terminated_native_book_is_held_without_invoking_inner(changes):
+    s = _snapshot()
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            raise AssertionError("terminated account invoked inner policy")
+
+    snap = replace(s, account=replace(s.account, **changes))
+    p = SpotCashBudgetPolicy(Never(), reserve_rate=0.001).decide_portfolio(snap)
+    assert p.target_weights == snap.account.weights
+    assert p.hold_current_quantity_symbols == tuple(range(len(snap.symbols)))
+
+
+@pytest.mark.parametrize(
+    "changes,reason",
+    [
+        ({"portfolio_value": 0.0}, "portfolio value"),
+        ({"portfolio_value": -1.0}, "portfolio value"),
+        ({"weights": (0.2, 0.0, 0.0), "quantities": (2.0, -1.0, 0.0)}, "nonnegative"),
+    ],
+)
+def test_invalid_native_book_refuses_before_inner(changes, reason):
+    s = _snapshot()
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            raise AssertionError("invalid account invoked inner policy")
+
+    snap = replace(s, account=replace(s.account, **changes))
+    with pytest.raises(ValueError, match=reason):
+        SpotCashBudgetPolicy(Never(), reserve_rate=0.001).decide_portfolio(snap)
+
+
+def test_pending_order_refuses_before_inner():
+    from trade_rl.strategies.portfolio import PortfolioPendingOrderSnapshot
+
+    s = _snapshot()
+    account = replace(
+        s.account,
+        weights=(0.2, 0.0, 0.0),
+        quantities=(2.0, 0.0, 0.0),
+        exact_quantities=("2", "0", "0"),
+    )
+    pending = PortfolioPendingOrderSnapshot(
+        symbol_index=0,
+        order_type="market",
+        time_in_force="gtc",
+        requested_quantity=1.0,
+        remaining_quantity=1.0,
+        status="eligible",
+        submit_index=0,
+        eligible_index=1,
+        last_processed_index=None,
+        trigger_index=None,
+        expiry_index=None,
+        reduce_only=False,
+    )
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            raise AssertionError("pending account invoked inner policy")
+
+    with pytest.raises(ValueError, match="active orders"):
+        SpotCashBudgetPolicy(Never(), reserve_rate=0.001).decide_portfolio(
+            replace(s, account=account, active_orders=(pending,))
+        )

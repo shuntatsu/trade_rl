@@ -329,7 +329,8 @@ class GitHubApi:
                             "unfinished workflow run is missing its head_branch"
                         )
                     names.add(head_branch)
-                if len(seen_run_ids) == count:
+                # A full page cannot prove exhaustion, even if total_count agrees.
+                if len(seen_run_ids) == count and len(runs) < 100:
                     break
                 page += 1
         return frozenset(names)

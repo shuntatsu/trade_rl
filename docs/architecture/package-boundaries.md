@@ -1174,6 +1174,12 @@ The old source-bound trend-OOS wrapper is unchanged until reviewed migration.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.
+Equity input uses the native binary64-compatible domain: reject wider numeric
+dtypes and integer marks above 2**53 before conversion, even if an individual
+out-of-range integer could happen to be representable. Positive narrow integer
+and binary64-compatible floating arrays remain supported. This is an input
+precision guard, not arbitrary-precision statistics: return and drawdown
+arithmetic retains the historical binary64 formulas.
 It does not interpolate missing days or authenticate scoring-window coverage.
 CAGR uses elapsed time and caller-specified days/year; daily Sharpe uses sample
 standard deviation and the caller-specified annualization. Calendar-segment

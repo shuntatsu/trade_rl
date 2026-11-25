@@ -227,3 +227,59 @@ def test_public_statistics_preserve_plain_slices_and_raw_buffer_arrays():
     values = np.array([100.0, 110.0, 105.0])
     for path in (values.copy(), np.frombuffer(values.tobytes(), dtype=np.float64)):
         assert np.array_equal(daily_equity(ts, path)[1], values)
+
+
+@pytest.mark.parametrize("dtype", ["int64", "uint64", ">i8", ">u8"])
+@pytest.mark.parametrize("order", ["fall", "rise"])
+def test_public_equity_rejects_precision_losing_integer_path(dtype, order):
+    from trade_rl.evaluation.equity_path import max_drawdown, per_year_returns
+
+    # These two distinct integers collapse to the same binary64 value.
+    marks = [2**53 + 1, 2**53] if order == "fall" else [2**53, 2**53 + 1]
+    values = np.array([*marks, marks[-1]], dtype=dtype)
+    ts = np.arange(3, dtype=np.int64) * DAY
+    operations = (
+        lambda: max_drawdown(values),
+        lambda: daily_returns(values),
+        lambda: daily_equity(ts, values),
+        lambda: per_year_returns(ts, values),
+        lambda: performance_summary(
+            ts, values, cagr_days_per_year=365, trading_days_per_year=365
+        ),
+    )
+    for operation in operations:
+        with pytest.raises(ValueError, match="binary64-compatible"):
+            operation()
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "int8",
+        "uint8",
+        "int16",
+        "uint16",
+        "int32",
+        "uint32",
+        "int64",
+        "uint64",
+        ">i8",
+        ">u8",
+    ],
+)
+def test_public_equity_accepts_positive_integer_dtype_boundaries(dtype):
+    info = np.iinfo(dtype)
+    peak = min(int(info.max), 2**53)
+    path = np.array([peak, max(1, peak // 2), peak], dtype=dtype)
+    ts = np.arange(3, dtype=np.int64) * DAY
+    expected = np.array([peak, max(1, peak // 2), peak], dtype=np.float64)
+    assert np.array_equal(daily_equity(ts, path)[1], expected)
+    assert np.array_equal(daily_returns(path), daily_returns(expected))
+
+
+def test_public_equity_refuses_wider_float_before_conversion():
+    if np.dtype(np.longdouble).itemsize <= 8:
+        pytest.skip("platform longdouble has no wider representation")
+    values = np.array([1, 2, 3], dtype=np.longdouble)
+    with pytest.raises(ValueError, match="binary64-compatible"):
+        daily_returns(values)

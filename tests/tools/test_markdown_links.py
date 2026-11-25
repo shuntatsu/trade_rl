@@ -473,3 +473,27 @@ def test_image_label_does_not_cross_other_block_boundaries(
     source: str, expected: list[tuple[int, str]]
 ) -> None:
     assert destinations(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (r"\<!-- [real](missing.md)", [(1, "missing.md")]),
+        (
+            r"before \<!-- [real](missing.md) --> [next](present.md)",
+            [(1, "missing.md"), (1, "present.md")],
+        ),
+        (
+            r"before \\<!-- [literal](missing.md) --> [next](present.md)",
+            [(1, "present.md")],
+        ),
+        (
+            r"\<!-- [real](missing.md) <!-- [literal](ignored.md) -->",
+            [(1, "missing.md")],
+        ),
+    ],
+)
+def test_escaped_html_comment_opener_is_literal(
+    source: str, expected: list[tuple[int, str]]
+) -> None:
+    assert destinations(source) == expected

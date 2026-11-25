@@ -172,3 +172,26 @@ def test_task_cli_invalid_input_fails_closed_without_stdout(tmp_path: Path) -> N
     assert result.returncode == 2
     assert result.stdout == ""
     assert result.stderr
+
+
+def test_task_dashboard_rejects_null_main_oid(tmp_path: Path) -> None:
+    path = tmp_path / "dashboard.json"
+    _write_json(
+        path,
+        {"parent_title": "#500", "main_sha": "0" * 40, "tasks": []},
+    )
+    result = _run(tmp_path, "task", "dashboard", str(path))
+    assert result.returncode != 0
+    assert "main_sha" in result.stderr
+    assert not result.stdout
+
+
+def test_task_dashboard_accepts_nonzero_main_oid_with_leading_zeroes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "dashboard.json"
+    main_sha = "0" * 39 + "1"
+    _write_json(path, {"parent_title": "#500", "main_sha": main_sha, "tasks": []})
+    result = _run(tmp_path, "task", "dashboard", str(path))
+    assert result.returncode == 0, result.stderr
+    assert f"main: {main_sha}\n" in json.loads(result.stdout)["dashboard"]

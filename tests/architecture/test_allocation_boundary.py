@@ -10,7 +10,7 @@ from tools.agent_repo.source_index import ImportCollector, within_module
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl"
 ALLOCATION = PACKAGE / "strategies" / "allocation"
-MODULES = ("solver.py", "cost_aware.py", "buy_and_hold.py", "costs.py")
+MODULES = ("solver.py", "cost_aware.py", "buy_and_hold.py", "costs.py", "spot_cash.py")
 
 
 def _imports(path: Path) -> set[str]:
@@ -56,6 +56,11 @@ def test_allocation_modules_only_use_numpy_and_the_detached_portfolio_contract()
         "trade_rl.strategies.allocation.solver",
         "trade_rl.strategies.portfolio",
     }
+    assert _trade_rl_imports(ALLOCATION / "spot_cash.py") == {
+        "trade_rl.risk.pretrade",
+        "trade_rl.risk.spot_cash",
+        "trade_rl.strategies.portfolio",
+    }
     for module in MODULES:
         assert _third_party(ALLOCATION / module) <= {"numpy"}, module
 
@@ -76,6 +81,13 @@ def test_only_the_cost_helper_reads_the_simulation_execution_profile() -> None:
     for module in MODULES:
         for imported in _trade_rl_imports(ALLOCATION / module):
             if module == "costs.py":
+                continue
+            # This one adapter explicitly delegates to the core-owned pure
+            # spot budget and the canonical drawdown scale, never a book.
+            if module == "spot_cash.py" and imported in {
+                "trade_rl.risk.pretrade",
+                "trade_rl.risk.spot_cash",
+            }:
                 continue
             assert not any(within_module(imported, prefix) for prefix in forbidden), (
                 module,

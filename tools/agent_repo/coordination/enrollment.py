@@ -21,8 +21,8 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _require_sha(value: str, field: str) -> None:
-    if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
-        raise ValueError(f"{field} must be an exact 40-character Git SHA")
+    if not isinstance(value, str) or not _SHA_RE.fullmatch(value) or value == "0" * 40:
+        raise ValueError(f"{field} must be an exact nonzero 40-character Git SHA")
 
 
 @dataclass(frozen=True)

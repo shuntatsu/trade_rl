@@ -474,7 +474,16 @@ def test_exact_full_ci_admission(monkeypatch, fault):
     ],
 )
 @pytest.mark.parametrize(
-    "late_fault", [None, "pr_head", "local_head", "local_dirty", "ci_attempt"]
+    "late_fault",
+    [
+        None,
+        "pr_head",
+        "local_head",
+        "local_dirty",
+        "ci_attempt",
+        "owner_body",
+        "owner_timestamp",
+    ],
 )
 def test_owner_comment_created_after_gates(
     monkeypatch, created, updated, accepted, late_fault
@@ -490,6 +499,7 @@ def test_owner_comment_created_after_gates(
     body = study.authorization_body(packet)
 
     owner_seen = False
+    final_review_seen = False
 
     def api(path):
         nonlocal owner_seen
@@ -506,13 +516,19 @@ def test_owner_comment_created_after_gates(
                 "html_url": url,
                 "issue_url": "https://api.github.com/repos/shuntatsu/trade_rl/issues/1355",
                 "user": {"id": 148511409, "login": "shuntatsu", "type": "User"},
-                "body": body,
+                "body": body + "\nREVOKED"
+                if final_review_seen and late_fault == "owner_body"
+                else body,
                 "created_at": created,
-                "updated_at": updated,
+                "updated_at": "2026-11-24T05:00:00Z"
+                if final_review_seen and late_fault == "owner_timestamp"
+                else updated,
             }
         pytest.fail(path)
 
     def verified(*args, api_read, **kwargs):
+        nonlocal final_review_seen
+        final_review_seen = owner_seen
         api_read("repos/shuntatsu/trade_rl/pulls/1355/reviews/123")
         return SimpleNamespace(
             status="BLOCKED" if owner_seen and late_fault == "pr_head" else "PASS"

@@ -273,13 +273,17 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         )
     if owner.body.strip() != authorization_body(packet):
         raise ValueError("separate exact owner authorization is required")
-    again = fetch_comment(owner_url, gh=owner_gh)
-    if (again.body_sha256, again.updated_at, owner_metadata.get("created_at")) != (
-        owner.body_sha256,
-        owner.updated_at,
-        created_at,
-    ):
-        raise ValueError("owner authorization changed during admission")
+
+    def require_unchanged_owner() -> None:
+        again = fetch_comment(owner_url, gh=owner_gh)
+        if (again.body_sha256, again.updated_at, owner_metadata.get("created_at")) != (
+            owner.body_sha256,
+            owner.updated_at,
+            created_at,
+        ):
+            raise ValueError("owner authorization changed during admission")
+
+    require_unchanged_owner()
     # Repeat the authenticated gates after the owner lookup: the open PR,
     # latest CI attempt and local checkout can change independently.
     if _require_full_ci(head, pr) != (ci_run_id, ci_attempt, ci_updated_at):
@@ -296,6 +300,10 @@ def _authorize(packet: dict, pr: int, review_id: int, owner_url: str) -> dict:
         or _github_api_read(review_path) != review_snapshot
     ):
         raise ValueError("independent research review or PR changed during admission")
+    # Owner approval can be edited or withdrawn while CI/review is rechecked.
+    # Re-read it before the final local checks; these independent reads do not
+    # constitute an atomic snapshot across GitHub and the checkout.
+    require_unchanged_owner()
     if _git("rev-parse", "HEAD") != head or _git("status", "--porcelain"):
         raise ValueError("local checkout changed during admission")
     protocol()

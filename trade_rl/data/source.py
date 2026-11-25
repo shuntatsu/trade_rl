@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
+from trade_rl.data.native_clock import _require_unmasked_array_owners
 
 
 def _readonly(
@@ -66,6 +67,24 @@ class RawMarketSeries:
     funding_event_count: np.ndarray | None = None
 
     def __post_init__(self) -> None:
+        # Reject explicit missingness before normalization can erase it.
+        # Ordinary arrays and existing non-array coercions are unchanged.
+        for field_name in (
+            "timestamps",
+            "available_at",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "funding_rate",
+            "tradable",
+            "funding_available",
+            "funding_event_count",
+        ):
+            value = getattr(self, field_name)
+            if issubclass(type(value), np.ndarray) or type(value) is memoryview:
+                _require_unmasked_array_owners(value, field_name=field_name)
         timestamps = _timestamp_ns_array(self.timestamps, field_name="timestamps")
         if timestamps.ndim != 1 or not np.issubdtype(timestamps.dtype, np.datetime64):
             raise ValueError("timestamps must be a one-dimensional datetime64 array")

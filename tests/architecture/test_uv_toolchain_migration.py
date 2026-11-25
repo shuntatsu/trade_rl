@@ -15,9 +15,10 @@ from tests.architecture.workflow_action_refs import setup_uv_action_matches
 from tools import ppo_checkpoint_actions as checkpoint
 
 ROOT = Path(__file__).resolve().parents[2]
-CURRENT_UV = "0.13.9"
+CURRENT_UV = "0.13.10"
 # Immutable reviewed/execution sources may require a historical uv version.
 SOURCE_BOUND_WORKFLOWS = {
+    "ci-original-runtime-probe.yml": 1,
     "ppo-normalization-execution.yml": 3,
     "ppo-4h-gemini-review.yml": 2,
 }
@@ -77,7 +78,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
                 ), path
             total += 1
     assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
-    assert total == 17  # same inventory as the exact Action SHA contract
+    assert total == 18  # same inventory as the exact Action SHA contract
 
 
 def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
@@ -88,7 +89,7 @@ def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
     original_read = Path.read_text
     source = original_read(workflow, encoding="utf-8")
     before = (
-        '          version: "0.13.9"\n'
+        '          version: "0.13.10"\n'
         "          enable-cache: true\n"
         "\n"
         "      - name: Install\n"
@@ -98,7 +99,7 @@ def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
         "\n"
         '      - run: echo "later step"\n'
         "        env:\n"
-        '          version: "0.13.9"\n'
+        '          version: "0.13.10"\n'
         "\n"
         "      - name: Install\n"
     )
@@ -138,7 +139,7 @@ def test_existing_commented_setup_uv_still_requires_its_version(
     # A valid pin with a YAML comment remains in the exact step inventory.
     test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
     mutated = mutated.replace(
-        '          version: "0.13.9"\n', '          version: "0.10.0"\n', 1
+        '          version: "0.13.10"\n', '          version: "0.10.0"\n', 1
     )
     with pytest.raises(AssertionError):
         test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
@@ -183,11 +184,12 @@ def test_setup_uv_check_covers_yaml_suffix_as_well_as_yml(
 @pytest.mark.parametrize(
     ("reported", "allowed"),
     [
-        ("0.13.9", True),
-        ("0.13.9 (x86_64-unknown-linux-gnu)", True),
+        ("0.13.10", True),
+        ("0.13.10 (x86_64-unknown-linux-gnu)", True),
         ("0.10.0", False),
         ("0.13.7", False),
-        ("0.13.90", False),
+        ("0.13.9", False),
+        ("0.13.100", False),
     ],
 )
 def test_checkpoint_runtime_provenance_preserves_exact_version_lineage(
@@ -213,7 +215,7 @@ def test_manual_checkpoint_version_guard_accepts_platform_suffix(
     workflow: str,
 ) -> None:
     source = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
-    assert "grep -Eq '^uv 0\\.13\\.9([[:space:]]|$)'" in source
+    assert "grep -Eq '^uv 0\\.13\\.10([[:space:]]|$)'" in source
     assert "grep -Fx 'uv 0.10.0'" not in source
 
 
@@ -230,7 +232,7 @@ def test_manual_checkpoint_version_guard_accepts_platform_suffix(
         "      - uses: astral-sh/setup-uv@v7",
         '      - uses: "Astral-sh/Setup-uv@v7"',
         '      - uses: "astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d"\n'
-        '        with:\n          version: "0.13.9"',
+        '        with:\n          version: "0.13.10"',
     ],
 )
 def test_additional_setup_uv_action_cannot_hide_in_yaml_scalar_syntax(
@@ -309,7 +311,7 @@ def test_quoted_setup_uv_cannot_change_version_or_sha(
     monkeypatch.setattr(runtime, "ROOT", tmp_path)
     monkeypatch.setitem(globals(), "ROOT", tmp_path)
     ci.write_text(
-        good.replace('version: "0.13.9"', 'version: "0.10.0"', 1), encoding="utf-8"
+        good.replace('version: "0.13.10"', 'version: "0.10.0"', 1), encoding="utf-8"
     )
     with pytest.raises(AssertionError):
         test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()

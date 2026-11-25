@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v44-fill-td8-node-union.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "52485e632694ea43a030ff1ca3a4f37073d68e0d8784c0f7a19ad5b2f85ebbb7"
+    "b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3346,7 +3346,13 @@ def test_fill_td8_node_union_preserves_both_predecessors() -> None:
         assurance_digest(b)
         == "9454738b0e0dcea711bda939e3b020d79ab34289b87e222eaa239dcc739ef92a"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v44-fill-td8-node-union.json"
+        ).read_bytes()
+    )
     head = "25e7f8998d296a07526cb7ed07fd0d488c0bea49"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(a_raw)
@@ -3463,3 +3469,99 @@ def test_td8_spooled_writer_successor_preserves_previous_packet() -> None:
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized
+
+
+def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
+    a_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v44-fill-td8-node-union.json"
+    ).read_bytes()
+    b_raw = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v44-td8-spooled-writer.json"
+    ).read_bytes()
+    common = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v43-td8-node-envelope.json"
+        ).read_bytes()
+    )
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "ab8331d73adaad40780c38a672b1c3cb8e8386320e3b1c92846ef2354d756196"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "988710eac91345e2710e69276c0c3afd199937774c4f6371466b691935f5c9e6"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "52485e632694ea43a030ff1ca3a4f37073d68e0d8784c0f7a19ad5b2f85ebbb7"
+    )
+    assert (
+        assurance_digest(b)
+        == "727f00c55e53bab71afb4a32a56b7a162b7d6c3b08c21f3286e5fe9cc3e848a6"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "4c6432d10de6cea273e57660d76a0487fabc8488"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(a_raw)
+    expected["identity"] = current["identity"]
+    for section, key, extra in [
+        (
+            "thesis",
+            "limitations",
+            " Source-only integration of immutable fill/node union and TD8 spooled-writer successor. No changes to economic protocols, evidence, authorization or strict-cash scope. The private spool does not bound aggregate producer output or establish crash durability.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Exact integration anchor 4c6432d10de6cea273e57660d76a0487fabc8488; verified 192-path union. Compared with previous fill/node union only TD8 shared study module changes; compared with the spooled writer only seven replay/native-fill paths differ. Writer-only candidate 94320514b0d045c53e51ec0921da69fc20ba320f refetched, 413 related tests plus 10 packet/history/doc tests PASS. No market data or economic execution.",
+        ),
+    ]:
+        prefix = common[section][key]
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+        b[section][key] = a[section][key]
+    ah, bh = a["identity"]["implementation_head"], b["identity"]["implementation_head"]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = a[section][key].replace(ah, head)
+        assert b[section][key].replace(bh, head) == wanted
+        expected[section][key] = wanted
+        b[section][key] = a[section][key]
+    b["identity"] = a["identity"]
+    assert a == b and current == expected
+    ap, bp, union = (set(_bound_code_paths(x)) for x in (ah, bh, head))
+    assert len(ap) == 192 and len(bp) == 191
+    assert len(union) == 192 and union == ap | bp
+    for previous, paths in (
+        (ah, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (
+            bh,
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (a, json.loads(b_raw), common, current):
+        checked = evaluate_assurance(record)
+        assert checked.status == "UNREVIEWED" and not checked.errors
+        assert not checked.economic_execution_authorized

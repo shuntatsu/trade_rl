@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json"
+    / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "9afe855813642edc646c5c63732c833315c99206250dcee0eb8066aff09851d9"
+PINNED_DIGEST = "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2260,7 +2260,13 @@ def test_fill_td8_node_union_preserves_both_predecessors() -> None:
         assurance_digest(b)
         == "daa946b09c931270a68af5feb3507a5f5dee0525928ec6e03a8347bb68c491aa"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json"
+        ).read_bytes()
+    )
     head = "25e7f8998d296a07526cb7ed07fd0d488c0bea49"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(a_raw)
@@ -2375,3 +2381,99 @@ def test_td8_spooled_writer_successor_preserves_previous_packet() -> None:
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized
+
+
+def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
+    a_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json"
+    ).read_bytes()
+    b_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-td8-spooled-writer.json"
+    ).read_bytes()
+    common = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json"
+        ).read_bytes()
+    )
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "5953c5f5a06ca66395ecd15859846b55435427ad4154bf5d304c9e09fb11f576"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "37066cfa188dbe9a26d7d2a51a78bb11ee81fd68063959223da6eb2b7a09ee8d"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "9afe855813642edc646c5c63732c833315c99206250dcee0eb8066aff09851d9"
+    )
+    assert (
+        assurance_digest(b)
+        == "b266983be68731f3b9edaa6b0a26262d8bb3e6f57b8493e9a9b60b53e0e5d156"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "4c6432d10de6cea273e57660d76a0487fabc8488"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(a_raw)
+    expected["identity"] = current["identity"]
+    for section, key, extra in [
+        (
+            "thesis",
+            "limitations",
+            " Source-only integration of immutable fill/node union and TD8 spooled-writer successor. No changes to economic protocols, evidence, authorization or strict-cash scope. The private spool does not bound aggregate producer output or establish crash durability.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Exact integration anchor 4c6432d10de6cea273e57660d76a0487fabc8488; verified 178-path union. Compared with previous fill/node union only TD8 shared study module changes; compared with the spooled writer only seven replay/native-fill paths differ. Writer-only candidate 94320514b0d045c53e51ec0921da69fc20ba320f refetched, 413 related tests plus 10 packet/history/doc tests PASS. No market data or economic execution.",
+        ),
+    ]:
+        prefix = common[section][key]
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+        b[section][key] = a[section][key]
+    ah, bh = a["identity"]["implementation_head"], b["identity"]["implementation_head"]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = a[section][key].replace(ah, head)
+        assert b[section][key].replace(bh, head) == wanted
+        expected[section][key] = wanted
+        b[section][key] = a[section][key]
+    b["identity"] = a["identity"]
+    assert a == b and current == expected
+    ap, bp, union = (set(bound_code_paths(x)) for x in (ah, bh, head))
+    assert len(ap) == 178 and len(bp) == 177
+    assert len(union) == 178 and union == ap | bp
+    for previous, paths in (
+        (ah, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (
+            bh,
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (a, json.loads(b_raw), common, current):
+        checked = evaluate_assurance(record)
+        assert checked.status == "UNREVIEWED" and not checked.errors
+        assert not checked.economic_execution_authorized

@@ -20,6 +20,8 @@ from trade_rl.artifacts import canonical_json_bytes
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.evaluation.agy_anchor_oos import data, protocol, runner
 from trade_rl.evaluation.core7_mtf_study import tierd
+from trade_rl.simulation import MarketExecutor
+from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.agy_anchor.inputs import (
     from_market_dataset,
     funding_observations,
@@ -291,17 +293,23 @@ def test_the_fixture_binding_detects_a_changed_or_missing_fixture(
 def test_the_initial_margin_rate_is_the_engines_one_over_max_leverage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    dataset = assemble(small_window(monkeypatch, protocol.STAGE_DEV)).dataset
+    weights = np.zeros(dataset.n_symbols)
+    weights[:2] = (0.5, -0.25)
+    prices = np.full(dataset.n_symbols, 100.0)
     for scenario in protocol.SCENARIOS:
         cost = protocol.scenario_cost(scenario)
         assert cost.max_leverage == 2.5 and cost.max_participation_rate == 0.01
         assert protocol.INITIAL_MARGIN_RATE == pytest.approx(1.0 / cost.max_leverage)
+        book = BookState.from_weights(weights=weights, capital=1_000.0, prices=prices)
+        MarketExecutor(dataset, cost)._update_margin(book)
+        # Gross notional is 750, not the net long exposure of 250.
+        assert not book.insolvent
+        assert book.margin_used == pytest.approx(750.0 * protocol.INITIAL_MARGIN_RATE)
     protocol.verify_margin_binding()
     monkeypatch.setattr(protocol, "INITIAL_MARGIN_RATE", 0.25)
     with pytest.raises(protocol.ProtocolBindingError, match="1 / max_leverage"):
         protocol.verify_margin_binding()
-    execution = Path(protocol.core7.__file__).resolve().parents[2] / "simulation"
-    line = (execution / "execution.py").read_text("utf-8").splitlines()[755]
-    assert "margin_used = gross_notional / self.cost.max_leverage" in line
 
 
 def test_costs_risk_and_roster_are_the_core7_values_and_the_spec_text() -> None:

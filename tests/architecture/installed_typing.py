@@ -12,6 +12,7 @@ from pathlib import Path
 
 _IMPORTS = """\
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, assert_type
 import numpy as np
 
@@ -25,6 +26,10 @@ from trade_rl.evaluation.replay import (
     run_shared_portfolio_replay,
 )
 from trade_rl.evaluation.replay_exposure import ReplayExposureEvidence, mean_pre_interval_gross_from_ledger
+from trade_rl.evaluation.runs.external_provenance import (
+    ExternalPackageInput, ExternalSourceProvenance, PackageFilePin, PackageSourcePin,
+    verify_external_source_provenance,
+)
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
@@ -62,6 +67,16 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         assert_type(result.ledger_evidence.exposure_evidence, ReplayExposureEvidence | None)
     assert_type(mean_pre_interval_gross_from_ledger(b"", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2), float)
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
+def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: Path, package: Path) -> None:
+    source = assert_type(ExternalPackageInput(core, wheel, package), ExternalPackageInput)
+    other = ExternalPackageInput(research, wheel, package)
+    result = assert_type(verify_external_source_provenance(
+        source, other, runtime_config={"fee": 0.0},
+        expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64,
+        expected_runtime_config_digest="c"*64,
+    ), ExternalSourceProvenance)
+    assert_type(result.digest, str)
+    assert_type(core.files, tuple[PackageFilePin, ...])
 """
 )
 _NEGATIVE = (
@@ -80,6 +95,10 @@ runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_presen
 runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg
 mean_pre_interval_gross_from_ledger("bad", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2)  # expect: arg-type
 PreTradeRiskConfig(max_gross="wrong")  # expect: arg-type
+PackageFilePin("file.py", "bad", "a"*64)  # expect: arg-type
+def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
+    ExternalPackageInput(pin, "bad", path)  # expect: arg-type
+    verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """

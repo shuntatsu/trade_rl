@@ -34,6 +34,7 @@ EXPECTED_PACKAGE_FILES = {
     "diagnostics": {
         "__init__.py",
         "execution_stress.py",
+        "fill_cash.py",
         "funding.py",
         "runtime_performance.py",
         "runtime_performance_io.py",

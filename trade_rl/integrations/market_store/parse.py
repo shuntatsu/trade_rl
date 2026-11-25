@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Final
@@ -25,10 +24,18 @@ from trade_rl.integrations.binance import (
     binance_interval_milliseconds,
 )
 from trade_rl.integrations.binance.source_clock import (
+    KNOWN_PLACEHOLDER_OPEN_MS as KNOWN_PLACEHOLDER_OPEN_MS,
+)
+from trade_rl.integrations.binance.source_clock import (
+    KNOWN_PLACEHOLDER_SYMBOLS as KNOWN_PLACEHOLDER_SYMBOLS,
+)
+from trade_rl.integrations.binance.source_clock import (
     BinanceSourceClosePolicy,
     _check_source_close_time,
+    _is_known_spot_placeholder,
 )
 from trade_rl.integrations.binance.vision import (
+    _KLINE_HEADER,
     _csv_rows_from_zip,
     _looks_like_header,
     _normalize_epoch_ms,
@@ -52,42 +59,6 @@ from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 # a trade record, so it holds no information beyond "no bar was published".
 KNOWN_PLACEHOLDER_MARKET: Final = StoreMarket.SPOT
 KNOWN_PLACEHOLDER_INTERVAL: Final = "1h"
-KNOWN_PLACEHOLDER_SYMBOLS: Final[frozenset[str]] = frozenset(
-    {
-        "BTCUSDT",
-        "ETHUSDT",
-        "BNBUSDT",
-        "XRPUSDT",
-        "ADAUSDT",
-        "SOLUSDT",
-        # the same bar, opening at the same instant, was then observed (result-blind
-        # trend_oos coverage run) as the only rejected row of the 2020-12 archives of
-        # these symbols; the predicate below still demands every exact condition
-        "LTCUSDT",
-        "AVAXUSDT",
-        "DOGEUSDT",
-        "DOTUSDT",
-        "LINKUSDT",
-    }
-)
-KNOWN_PLACEHOLDER_OPEN_MS: Final = ms_from_utc(datetime(2020, 12, 21, 14, tzinfo=UTC))
-
-# Vision kline archives may be headerless or carry this ordered column header.
-# A nonnumeric first cell alone cannot prove that a row is metadata.
-_KLINE_HEADER: Final = (
-    "open_time",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "close_time",
-    "quote_volume",
-    "count",
-    "taker_buy_volume",
-    "taker_buy_quote_volume",
-    "ignore",
-)
 
 
 class ArchiveContentError(ValueError):
@@ -191,17 +162,26 @@ def is_known_exchange_placeholder(
     validation as usual.
     """
 
-    return (
-        spec.market is KNOWN_PLACEHOLDER_MARKET
-        and spec.interval == KNOWN_PLACEHOLDER_INTERVAL
-        and spec.symbol in KNOWN_PLACEHOLDER_SYMBOLS
-        and row.open_time_ms == KNOWN_PLACEHOLDER_OPEN_MS
-        and row.open > 0
-        and row.open == row.high == row.low == row.close
-        and row.volume == row.quote_volume == 0
-        and row.taker_buy_base_volume == row.taker_buy_quote_volume == 0
-        and row.trades == 0
-        and 0 < row.open_time_ms - row.close_time_ms < interval_ms
+    if (
+        spec.market is not KNOWN_PLACEHOLDER_MARKET
+        or spec.interval != KNOWN_PLACEHOLDER_INTERVAL
+    ):
+        return False
+    return _is_known_spot_placeholder(
+        market=spec.market.value,
+        interval=spec.interval or "",
+        symbol=spec.symbol,
+        interval_ms=interval_ms,
+        open_ms=row.open_time_ms,
+        close_ms=row.close_time_ms,
+        prices=(row.open, row.high, row.low, row.close),
+        quantities=(
+            row.volume,
+            row.quote_volume,
+            row.taker_buy_base_volume,
+            row.taker_buy_quote_volume,
+        ),
+        trades=row.trades,
     )
 
 

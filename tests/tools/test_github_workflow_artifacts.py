@@ -382,3 +382,12 @@ def test_unfinished_artifact_run_accepts_explicit_null_but_not_authority() -> No
     assert report["conclusion"] is None
     assert report["cleanup_authorized"] is False
     assert report["lease_reassignment_authorized"] is False
+
+
+def test_matching_null_run_and_artifact_heads_are_not_exact_commits() -> None:
+    api = FakeGet()
+    api.run["head_sha"] = "0" * 40
+    for artifact in api.artifacts:
+        artifact["workflow_run"]["head_sha"] = "0" * 40
+    with pytest.raises(ValueError, match="SHA"):
+        _observe(api)

@@ -227,7 +227,9 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   既存ReturnSeries / PerformanceMetrics / Datasetのschema・identity・既定値は不変。
   Dataset/replayからの接続、source provenance、execution/carryは別の受入条件である。
 - Opt-in `RollingPortfolioRiskInputsProvider(native_clock=...)` は、観測した
-  close-to-close log returnのnative intervalと公開時刻を検証し、ACT/365Fで
+  close-to-close log returnのnative intervalと公開時刻を検証し、消費する価格窓は
+  native binary64-compatibleな配列に限定する（より広い浮動小数点型、絶対値が2**53を
+  超える64bit整数は変換前に拒否し、未来rowの値は検査しない）。ACT/365Fで
   年率共分散を算出する。等間隔では既存sample covarianceの整数丸め前の年率換算と
   一致する。不等間隔では総経過時間T、各区間t_iについて、総log returnの
   t_i/Tを差し引いた残差の外積和を、実効観測時間 T - sum(t_i²)/T で割る

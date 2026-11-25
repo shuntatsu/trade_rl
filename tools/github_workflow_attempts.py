@@ -85,6 +85,8 @@ def _text(value: Any, name: str) -> str:
 def _sha(value: Any, name: str) -> str:
     if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase 40-hex SHA")
+    if value == "0" * 40:
+        raise ValueError(f"{name} must not be a null SHA")
     return value
 
 

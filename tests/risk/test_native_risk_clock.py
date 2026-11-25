@@ -219,3 +219,44 @@ def test_native_hourly_covariance_exactly_preserves_legacy_numerics() -> None:
     np.testing.assert_array_equal(actual.beta, expected.beta)
     np.testing.assert_array_equal(actual.stress_losses, expected.stress_losses)
     assert actual.provider_digest != expected.provider_digest
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.uint64, np.longdouble])
+def test_native_risk_refuses_price_precision_loss_before_conversion(dtype) -> None:
+    data = _history(np.arange("2024-01", "2024-06", dtype="datetime64[M]"))
+    # Distinct wide prices can alias on float64 conversion. Keep a second
+    # well-conditioned series to ensure covariance would otherwise be accepted.
+    values = np.array(
+        [[100, 100], [110, 105], [90, 120], [120, 115], [140, 130]], dtype=dtype
+    )
+    if np.dtype(dtype).kind in "iu":
+        values[1, 0] = 2**53 + 1
+    elif np.dtype(dtype).itemsize <= 8:
+        # Some platforms implement longdouble as binary64; that native
+        # representation is a valid control, not an invalid wide input.
+        data.close = values.astype(np.float64)
+        provider = _provider(NativeBarClock(NativeClockKind.UTC_MONTH))
+        expected = provider.inputs(data, index=3)
+        data.close = values
+        assert provider.inputs(data, index=3).digest == expected.digest
+        return
+    else:
+        values[1, 0] = np.longdouble(110) + np.finfo(np.longdouble).eps * 128
+    data.close = values
+    with pytest.raises(ValueError, match="binary64-compatible"):
+        _provider(NativeBarClock(NativeClockKind.UTC_MONTH)).inputs(data, index=3)
+
+
+def test_native_risk_precision_check_is_causal_and_preserves_narrow_inputs() -> None:
+    data = _history(np.arange("2024-01", "2024-06", dtype="datetime64[M]"))
+    values = np.array(
+        [[100, 100], [110, 105], [90, 120], [120, 115], [140, 130]], dtype=np.int64
+    )
+    provider = _provider(NativeBarClock(NativeClockKind.UTC_MONTH))
+    data.close = values.astype(np.float64)
+    expected = provider.inputs(data, index=3)
+    data.close = values.astype(np.int16)
+    assert provider.inputs(data, index=3).digest == expected.digest
+    values[-1, 0] = 2**53 + 1
+    data.close = values
+    assert provider.inputs(data, index=3).digest == expected.digest

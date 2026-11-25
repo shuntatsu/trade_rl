@@ -230,6 +230,17 @@ def _native_risk_window(
     raw_prices = _native_unmasked_array(dataset.close, field_name="risk closes")[window]
     if raw_prices.dtype.kind not in "fiu":
         raise ValueError("portfolio risk native closes must be real numbers")
+    # Do not let narrowing erase a distinct source price or hide invalid
+    # history. Inspect only the consumed window, never future row values.
+    if raw_prices.dtype.itemsize > 8 or (
+        raw_prices.dtype.kind in "iu"
+        and raw_prices.dtype.itemsize == 8
+        and (
+            np.any(raw_prices > 2**53)
+            or (raw_prices.dtype.kind == "i" and np.any(raw_prices < -(2**53)))
+        )
+    ):
+        raise ValueError("portfolio risk native closes must be binary64-compatible")
     prices = np.asarray(raw_prices, dtype=np.float64)
     if prices.shape != (observations + 1, dataset.n_symbols):
         raise ValueError("portfolio risk closes must match native history")

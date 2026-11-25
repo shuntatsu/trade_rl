@@ -1147,6 +1147,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
 | `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
+| `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
@@ -1158,8 +1159,28 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
+| `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+The opt-in external source record (external_source_provenance_v1) verifies
+two explicitly pinned package closures: reviewed repository/commit/tree,
+whole-wheel digest/size, and a complete sorted raw-byte file manifest for
+one top-level package in each wheel and installed directory. The expected
+pin and runtime-config digests come from independently established review
+records. Missing/extra resources, alias or prefix collisions, symlinks,
+junctions, unsupported paths and compiled caches are rejected. The supported
+boundary is a regular single-package wheel with one dist-info roster, safe
+ASCII paths, at most 10,000 members and 128 MiB wheel and package payload per
+distribution. Use a fresh noneditable installation with Python -B. Recheck
+with the first record digest after the operation to detect persistent
+source/config/runtime-manifest drift. Paths are not serialized. This checks
+declared roots and bytes, not actual import resolution, installed dist-info,
+dependency bytes, transient mutation, Git/approval authenticity or scientific
+authorization. Historical candidate-run v1 serialization and readers remain
+unchanged; new source naturally has a new source identity. Never reuse a
+historical v1/v2 receipt for this record. Study admission, source pin creation
+and cutover remain separate.
 
 Every executable study must use the common native execution and accounting
 owner (MarketExecutor, BookState, SharedPortfolioSession / replay).
@@ -1297,4 +1318,4 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（型不一致7件の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（各行で宣言された型不一致等の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。

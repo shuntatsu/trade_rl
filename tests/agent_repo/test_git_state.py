@@ -165,3 +165,23 @@ def test_read_git_state_does_not_alias_cr_and_lf_paths(tmp_path: Path) -> None:
 
     assert state.dirty_paths == tuple(sorted(paths))
     assert state.changed_paths == tuple(sorted(paths))
+
+
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("renames", ["true", "false", "copies"])
+def test_read_git_state_reports_both_rename_paths(
+    tmp_path: Path, committed: bool, renames: str
+) -> None:
+    _init_repository(tmp_path)
+    _git(tmp_path, "config", "diff.renames", renames)
+    _git(tmp_path, "switch", "-c", "feature")
+    old = "trade_rl/a.py"
+    new = "trade_rl/renamed.py"
+    _git(tmp_path, "mv", old, new)
+    if committed:
+        _git(tmp_path, "commit", "-m", "rename")
+
+    state = read_git_state(tmp_path, base_ref="main")
+
+    assert state.dirty_paths == (() if committed else (old, new))
+    assert state.changed_paths == (old, new)

@@ -2603,6 +2603,34 @@ def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
         raise ValueError("failure receipt must use canonical JSON bytes")
 
 
+def _require_raw_receipt_pin(raw: bytes, expected_digest: str) -> None:
+    """Reject unrelated canonical bytes before allocating decoded JSON objects.
+
+    Both historical schemas sort their root keys. The receipt_digest member
+    follows pairs and all later root values are scalars. Thus the last literal
+    member marker in a valid canonical receipt belongs to the root, even if
+    a nested record contains a same-named key. Quoted lookalikes are escaped.
+    This is only a necessary byte-level admission check: malformed documents
+    with a matching raw hash must still pass every strict decoder check.
+    """
+    require_sha256(expected_digest, field="expected_receipt_digest")
+    marker = b',"receipt_digest":"'
+    start = raw.rfind(marker)
+    if start < 0:
+        raise ValueError("failure receipt differs from the pinned digest")
+    value_start = start + len(marker)
+    member_end = value_start + 65  # 64 lowercase hex bytes and closing quote
+    if not raw.startswith(expected_digest.encode("ascii") + b'",', value_start):
+        raise ValueError("failure receipt differs from the pinned digest")
+    # Hash the canonical body without copying the potentially large receipt.
+    digest = hashlib.sha256()
+    with memoryview(raw) as view:
+        digest.update(view[:start])
+        digest.update(view[member_end:])
+    if digest.hexdigest() != expected_digest:
+        raise ValueError("failure receipt differs from the pinned digest")
+
+
 def _decode_incomplete_receipt(
     raw: bytes,
     *,
@@ -2610,6 +2638,8 @@ def _decode_incomplete_receipt(
     expected_max_ineligible_pairs: int | None = None,
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
+    if expected_receipt_digest is not None:
+        _require_raw_receipt_pin(raw, expected_receipt_digest)
     _preflight_receipt_json_depth(raw)
     # A canonical failure receipt is always a root object. Reject broad arrays
     # and other non-objects before the JSON decoder can allocate their elements.
@@ -2767,6 +2797,8 @@ def load_incomplete_pair_attempt(
     An explicitly pinned trusted digest is required to request a larger finite
     budget, up to 512 MiB. Reading a larger file never falls back to an
     unbounded allocation, and changed regular-file metadata fails closed.
+    A supplied trusted digest is also checked against the canonical body bytes
+    before JSON preflight or decoding; the full strict validation still runs.
 
     A caller may additionally supply a positive native integer ceiling derived
     from an independently verified frozen block and action roster. When given,

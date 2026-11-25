@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261125-native-grid.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json"
+    / "sd2-signal-diagnosis-research-assurance-20261125-native-grid.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "e89bcb29086cd4e00543a041e47e7019cb04dca87fde4bfc9fa4bef5d69a3d7c"
+PINNED_DIGEST = "d18bb91dee5ea551ce8129a1189afeafc45b3ae50e8dfceb575f87c712166fab"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -691,7 +691,13 @@ def test_integrated_core7_packet_preserves_real_request_predecessor() -> None:
         assurance_digest(prior)
         == "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
     )
-    current = packet()
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json"
+        ).read_bytes()
+    )
     for record in (prior, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and verdict.errors == ()
@@ -751,5 +757,207 @@ def test_integrated_core7_packet_preserves_real_request_predecessor() -> None:
         )
         assert (
             "8c46efca4cd9c112816d3d8e5082f08df5f468ff4c22bce2696b05cea0228686"
+            in _flat(doc)
+        )
+
+
+def test_calendar_feature_source_preserves_integrated_core7_packet() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261124-integrated-core7.json"
+    )
+    raw = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "2a8408117fd74b914a3e007937c9dd657a5e63a16df8a69d8b4141a6940dade3"
+    )
+    previous = json.loads(raw)
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-calendar-feature.json"
+        ).read_bytes()
+    )
+    assert (
+        assurance_digest(previous)
+        == "e89bcb29086cd4e00543a041e47e7019cb04dca87fde4bfc9fa4bef5d69a3d7c"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "evidence", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field not in ("limitations", "cheapest_falsifier"):
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["evidence"]:
+        if field != "independent_reconstruction":
+            assert current["evidence"][field] == previous["evidence"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["evidence"]["independent_reconstruction"].startswith(
+        previous["evidence"]["independent_reconstruction"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "a542bcb38bc3118c4419bf7497e74c1d670d8075",
+        "protocol_head": "a542bcb38bc3118c4419bf7497e74c1d670d8075",
+    }
+    old_head = previous["identity"]["implementation_head"]
+    new_head = current["identity"]["implementation_head"]
+    assert current["thesis"]["cheapest_falsifier"] == previous["thesis"][
+        "cheapest_falsifier"
+    ].replace(old_head, new_head)
+    old = set(bound_code_paths(old_head))
+    new = set(bound_code_paths(new_head))
+    assert new - old == {"trade_rl/data/native_clock.py"}
+    assert not old - new
+    changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old | new))
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == ["trade_rl/data/features/multitimeframe.py"]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+    for doc in (STATUS, ARCHITECTURE):
+        assert previous_path.name in _flat(doc)
+        assert (
+            "e89bcb29086cd4e00543a041e47e7019cb04dca87fde4bfc9fa4bef5d69a3d7c"
+            in _flat(doc)
+        )
+
+
+def test_elapsed_dataset_preserves_calendar_feature_packet() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-calendar-feature.json"
+    )
+    raw = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "389cf75cf22a3dc3ad0e765285988097b9c38907da08b31578ccdd108235a7e1"
+    )
+    previous = json.loads(raw)
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-dataset-elapsed.json"
+        ).read_bytes()
+    )
+    assert (
+        assurance_digest(previous)
+        == "687e870e69d64f6972da234e965be6415e8a50e40f2b38281c507be3678622da"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "evidence", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field not in ("limitations", "cheapest_falsifier"):
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["evidence"]:
+        if field != "independent_reconstruction":
+            assert current["evidence"][field] == previous["evidence"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["evidence"]["independent_reconstruction"].startswith(
+        previous["evidence"]["independent_reconstruction"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "1dc565ad09e379b0fc77f24d68561ce52896a348",
+        "protocol_head": "1dc565ad09e379b0fc77f24d68561ce52896a348",
+    }
+    old_head = previous["identity"]["implementation_head"]
+    new_head = current["identity"]["implementation_head"]
+    assert current["thesis"]["cheapest_falsifier"] == previous["thesis"][
+        "cheapest_falsifier"
+    ].replace(old_head, new_head)
+    old = set(bound_code_paths(old_head))
+    new = set(bound_code_paths(new_head))
+    assert new == old
+    changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+    for doc in (STATUS, ARCHITECTURE):
+        assert previous_path.name in _flat(doc)
+        assert (
+            "687e870e69d64f6972da234e965be6415e8a50e40f2b38281c507be3678622da"
+            in _flat(doc)
+        )
+
+
+def test_native_grid_preserves_elapsed_dataset_packet() -> None:
+    previous_path = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-dataset-elapsed.json"
+    )
+    raw = previous_path.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "4b19d91233737d3f892279f7e54e1b9601547f17316e359bcb4862f3cb2f6956"
+    )
+    previous = json.loads(raw)
+    current = packet()
+    assert (
+        assurance_digest(previous)
+        == "84ccdd78a87d2d0f471b8dba988e1893426e054a6f47ed0e52c5a7b94c80e77a"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "evidence", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field not in ("limitations", "cheapest_falsifier"):
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["evidence"]:
+        if field != "independent_reconstruction":
+            assert current["evidence"][field] == previous["evidence"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["evidence"]["independent_reconstruction"].startswith(
+        previous["evidence"]["independent_reconstruction"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "da5bee160c0a37b4c2dbe5130aa95c99f20e1313",
+        "protocol_head": "da5bee160c0a37b4c2dbe5130aa95c99f20e1313",
+    }
+    old_head = previous["identity"]["implementation_head"]
+    new_head = current["identity"]["implementation_head"]
+    assert current["thesis"]["cheapest_falsifier"] == previous["thesis"][
+        "cheapest_falsifier"
+    ].replace(old_head, new_head)
+    old = set(bound_code_paths(old_head))
+    new = set(bound_code_paths(new_head))
+    assert new == old
+    changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == ["trade_rl/data/native_clock.py"]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+    for doc in (STATUS, ARCHITECTURE):
+        assert previous_path.name in _flat(doc)
+        assert (
+            "84ccdd78a87d2d0f471b8dba988e1893426e054a6f47ed0e52c5a7b94c80e77a"
             in _flat(doc)
         )

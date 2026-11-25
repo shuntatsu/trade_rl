@@ -624,3 +624,88 @@ def test_gemini4_market_notional_rejects_nonzero_underflow() -> None:
             prices=np.array([1e-200]),
             volume=np.array([1e-200]),
         )
+
+
+def _continuous_near_ns_boundary(*, upper: bool) -> MarketDataset:
+    limits = np.iinfo(np.int64)
+    hour_ns = 3_600_000_000_000
+    first = int(limits.max) - 2 * hour_ns if upper else int(limits.min) + 1
+    values = kwargs(n_bars=3, n_symbols=1)
+    values["timestamps"] = np.array(
+        [first + i * hour_ns for i in range(3)], dtype=np.int64
+    ).view("datetime64[ns]")
+    return MarketDataset(**values)
+
+
+def test_elapsed_forward_search_does_not_wrap_above_ns_maximum() -> None:
+    market = _continuous_near_ns_boundary(upper=True)
+    with np.errstate(over="raise"):
+        assert market.forward_index(0, 3.0) == 2
+        assert market.forward_index(0, 3.0, maximum_index=1) == 1
+        assert market.bars_until(0, 3.0) == 2
+        with pytest.raises(ValueError, match="too short"):
+            market.minimum_index_for_history(3.0)
+
+
+def test_elapsed_lookback_does_not_wrap_below_ns_minimum() -> None:
+    market = _continuous_near_ns_boundary(upper=False)
+    with np.errstate(over="raise"):
+        with pytest.raises(ValueError, match="insufficient history"):
+            market.lookback_index(1, 3.0)
+        assert market.lookback_index(2, 2.0) == 0
+
+
+@pytest.mark.parametrize("upper", [False, True])
+def test_finite_hours_beyond_entire_timestamp_domain(upper: bool) -> None:
+    market = _continuous_near_ns_boundary(upper=upper)
+    huge = float(np.finfo(np.float64).max)
+    with np.errstate(over="raise"):
+        with pytest.raises(ValueError, match="insufficient history"):
+            market.lookback_index(2, huge)
+        with pytest.raises(ValueError, match="too short"):
+            market.minimum_index_for_history(huge)
+        assert market.forward_index(0, huge) == 2
+
+
+@pytest.mark.parametrize("upper", [False, True])
+def test_elapsed_search_preserves_exact_boundary_and_adjacent_ns(upper: bool) -> None:
+    market = _continuous_near_ns_boundary(upper=upper)
+    just_over_hour = (3_600_000_000_000 + 1) / 3_600_000_000_000
+    assert market.lookback_index(2, 1.0) == 1
+    assert market.lookback_index(2, just_over_hour) == 0
+    assert market.minimum_index_for_history(1.0) == 1
+    assert market.minimum_index_for_history(just_over_hour) == 2
+    assert market.forward_index(0, 1.0) == 1
+    assert market.forward_index(0, just_over_hour) == 2
+
+
+def test_elapsed_search_matches_integer_oracle_across_full_ns_span() -> None:
+    market = _session_with_extreme_timestamp_span()
+    ticks = [int(tick) for tick in market._timestamp_ns]
+    # Include durations larger than signed int64 as well as ordinary windows.
+    for hours in (1.0, 24.0 * 7, 24.0 * 31, 2_000_000.0, 3_000_000.0, 6_000_000.0):
+        duration = round(hours * 3_600_000_000_000)
+        history = [i for i, t in enumerate(ticks) if t - ticks[0] >= duration]
+        if history:
+            assert market.minimum_index_for_history(hours) == history[0]
+        else:
+            with pytest.raises(ValueError, match="too short"):
+                market.minimum_index_for_history(hours)
+        for start in range(1, len(ticks)):
+            eligible = [i for i in range(start) if ticks[start] - ticks[i] >= duration]
+            if eligible:
+                assert market.lookback_index(start, hours) == eligible[-1]
+            else:
+                with pytest.raises(ValueError, match="insufficient history"):
+                    market.lookback_index(start, hours)
+        for start in range(len(ticks) - 1):
+            for stop in range(start + 1, len(ticks)):
+                eligible = [
+                    i
+                    for i in range(start + 1, stop + 1)
+                    if ticks[i] - ticks[start] >= duration
+                ]
+                expected = eligible[0] if eligible else stop
+                assert (
+                    market.forward_index(start, hours, maximum_index=stop) == expected
+                )

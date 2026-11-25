@@ -224,8 +224,92 @@ def test_spot_wrapper_uses_native_drawdown_scale_once_and_rejects_inconsistent_h
         current=np.array(s.account.weights),
         drawdown=0.2,
     )
-    assert 0 < sum(native.weights) <= 0.5
+    # Gross reservation binds before the native risk cap. Check the
+    # wrapper output, not merely a downstream cap that masks mutations.
+    expected = (1 - 0.001 * 0.2) / (1.001 * 1.5)
+    assert target.target_weights == pytest.approx((expected,) * 3)
+    assert native.weights == pytest.approx((1 / 6,) * 3)
     with pytest.raises(ValueError, match="held spot target"):
         SpotCashBudgetPolicy(
             Fixed(PortfolioTargetProposal((0.3, 0.0, 0.0), (0,))), reserve_rate=0.001
         ).decide_portfolio(s)
+
+
+@pytest.mark.parametrize(
+    "held,weights,expected",
+    [
+        ((), (0.0, 1.0, 0.0), (0.0, 0.4, 0.0)),
+        ((0,), (0.75, 1.0, 0.0), (0.6, 0.4, 0.0)),
+    ],
+)
+def test_drawdown_cash_binding_releases_holds_and_scales_exactly_once(
+    held, weights, expected
+):
+    s = _snapshot()
+    s = replace(
+        s,
+        risk=replace(
+            s.risk,
+            max_gross=1.0,
+            max_abs_weight=1.0,
+            max_turnover=None,
+            drawdown_start=0.0,
+            drawdown_stop=1.0,
+        ),
+        account=replace(
+            s.account,
+            weights=(0.75, 0.0, 0.0),
+            quantities=(7.5, 0.0, 0.0),
+            exact_quantities=("15/2", "0", "0"),
+            cash=250.0,
+            portfolio_value=1000.0,
+            peak_value=2000.0,
+            max_drawdown=0.5,
+        ),
+    )
+
+    class Fixed:
+        def decide_portfolio(self, snapshot):
+            return PortfolioTargetProposal(weights, held)
+
+    # Literal oracle: cash 1/4, buy fee 1/4, thus buy budget 1/5.
+    # At scale 1/2 the new buy target is 1/2, so factor = 2/5.
+    # With a held 3/4 weight, its scaled effective target is 3/10.
+    # Release the hold and invert drawdown scale exactly once.
+    result = SpotCashBudgetPolicy(Fixed(), reserve_rate=0.25).decide_portfolio(s)
+    assert result.target_weights == pytest.approx(expected)
+    assert result.hold_current_quantity_symbols == ()
+    for cap in (1.0, 0.5):
+        risk = PreTradeRisk(
+            PreTradeRiskConfig(
+                max_gross=1.0,
+                max_abs_weight=cap,
+                max_turnover=None,
+                drawdown_start=0.0,
+                drawdown_stop=1.0,
+            )
+        )
+        native = risk.constrain(
+            np.array(result.target_weights),
+            current=np.array(s.account.weights),
+            drawdown=0.5,
+        )
+        # Native risk clips each proposal before multiplying by scale.
+        expected_native = tuple(min(v, cap) * 0.5 for v in expected)
+        assert native.weights == pytest.approx(expected_native)
+        assert native.weights[1] == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_native_account_and_proposal_refuse_nonfinite_before_wrapper(bad):
+    snapshot = _snapshot()
+    for field in ("quantities", "weights"):
+        with pytest.raises(ValueError, match="finite"):
+            replace(snapshot.account, **{field: (bad, 0.0, 0.0)})
+    with pytest.raises(ValueError, match="finite"):
+        PortfolioTargetProposal((bad, 0.0, 0.0))
+
+
+def test_native_proposal_refuses_negative_hold_index():
+    with pytest.raises(ValueError, match="non-negative"):
+        PortfolioTargetProposal((0.0, 0.0, 0.0), (-1,))

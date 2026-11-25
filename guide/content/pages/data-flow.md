@@ -36,6 +36,8 @@ source URL、SHA-256、size、取引所metadata等を保存し、再取得時に
 
 CSVのevent timeと `available_at` は、ISO日時本体のfractionをnanosecondまで保って読み込みます。timezone offsetに小数秒を含む場合はmicrosecond精度で反映し、6桁より細かい桁にnon-zero digitがあれば拒否します（余分な桁がすべてzeroなら値は失われません）。integer epochは既存の秒/millisecond判定を整数演算で適用し、範囲外やnanosecond未満の精度を失う値は拒否します。1ns遅れたavailabilityも同時刻へ丸めず、後段の特徴量生成まで遅れとして保ちます。
 
+RawMarketSeriesは通常のNumPy配列・bufferからの入力を正規化する前に、残っているマスク情報と所有元を検査します。所有元を確認できない特殊配列やsubclassは拒否します。既に欠損情報を捨てた入力から欠損を復元する仕組みではなく、既存の非配列coercionや市場データの真正性を保証するものでもありません。
+
 ## 3. 未来情報を混ぜずに特徴量を作る
 
 基本条件は次です。

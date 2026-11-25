@@ -92,7 +92,7 @@ PACKET_V32_STRICT_SPOT_PATH = (
 PACKET_PATH = (
     ROOT
     / "report"
-    / "issue810-core7-mtf-ppo-research-assurance-v35-native-execution-identity.json"
+    / "issue810-core7-mtf-ppo-research-assurance-v36-native-admission-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +144,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "c8a92c240f3dd33237bac4f44cb97e5e43c3bf1d8c881e1579937da1cb459f8d"
+    "54cad87f12905b1ba1d761e099023cc2ff099d2637032c106dc6b63ca84241e1"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -2302,7 +2302,13 @@ def test_execution_identity_successor_preserves_native_risk_dataset() -> None:
         assurance_digest(previous)
         == "e050a4ab286601b2e3029dc3ac1420855474953dc1a7d32078de98c5decef4aa"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "issue810-core7-mtf-ppo-research-assurance-v35-native-execution-identity.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "5139465355fce3d54fb509a246122a1161c96306",
         "protocol_head": "5139465355fce3d54fb509a246122a1161c96306",
@@ -2350,6 +2356,83 @@ def test_execution_identity_successor_preserves_native_risk_dataset() -> None:
     assert diff.stdout.splitlines() == [
         "trade_rl/simulation/__init__.py",
         "trade_rl/simulation/execution.py",
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_native_admission_union_preserves_execution_identity_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "issue810-core7-mtf-ppo-research-assurance-v35-native-execution-identity.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "6798ade2686adb5db1bdf6ea04796357bc0cc0c0e7a03827ec8f56ae56b3dcf2"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "c8a92c240f3dd33237bac4f44cb97e5e43c3bf1d8c881e1579937da1cb459f8d"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current["identity"] == {
+        "implementation_head": "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+        "protocol_head": "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+    }
+    assert current.keys() == previous.keys()
+    for key in previous:
+        if key not in ("identity", "thesis", "claims", "evidence"):
+            assert current[key] == previous[key]
+    assert current["thesis"].keys() == previous["thesis"].keys()
+    for key in previous["thesis"]:
+        if key == "limitations":
+            assert current["thesis"][key].startswith(previous["thesis"][key])
+        elif key == "cheapest_falsifier":
+            assert current["thesis"][key] == previous["thesis"][key].replace(
+                "5139465355fce3d54fb509a246122a1161c96306",
+                "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+            )
+        else:
+            assert current["thesis"][key] == previous["thesis"][key]
+    assert current["claims"].keys() == previous["claims"].keys()
+    for key in previous["claims"]:
+        assert current["claims"][key] == (
+            previous["claims"][key].replace(
+                "5139465355fce3d54fb509a246122a1161c96306",
+                "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+            )
+            if key == "next_authorized_action"
+            else previous["claims"][key]
+        )
+    assert current["evidence"].keys() == previous["evidence"].keys()
+    for key in previous["evidence"]:
+        if key == "independent_reconstruction":
+            assert current["evidence"][key].startswith(previous["evidence"][key])
+        else:
+            assert current["evidence"][key] == previous["evidence"][key]
+    a = set(_bound_code_paths("5139465355fce3d54fb509a246122a1161c96306"))
+    b = set(_bound_code_paths("018b5a5d3a4f6d08212e1efc6f78d1ee17f24212"))
+    assert a == b and len(b) == 189
+    diff = _git(
+        "diff",
+        "--name-only",
+        "5139465355fce3d54fb509a246122a1161c96306",
+        "018b5a5d3a4f6d08212e1efc6f78d1ee17f24212",
+        "--",
+        *sorted(a),
+    )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/integrations/binance/dataset.py",
+        "trade_rl/integrations/binance/derived_klines.py",
+        "trade_rl/integrations/binance/source_clock.py",
+        "trade_rl/integrations/binance/transport.py",
+        "trade_rl/integrations/binance/vision.py",
+        "trade_rl/risk/inputs.py",
     ]
     for record in (previous, current):
         verdict = evaluate_assurance(record)

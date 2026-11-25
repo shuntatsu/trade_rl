@@ -40,11 +40,12 @@ def ready_tasks(
     if unknown_leases:
         raise ValueError(f"lease references unknown task: {sorted(unknown_leases)[0]}")
 
+    # A lease reserves its hard resources even before execution or while
+    # blocked/stale. A condition change alone is not proof execution ended.
     active = [
         packet_by_id[task_id]
         for task_id, status in statuses.items()
-        if status.phase is TaskPhase.EXECUTING
-        and status.condition is TaskCondition.HEALTHY
+        if task_id in leased or status.phase is TaskPhase.EXECUTING
     ]
     candidates: list[TaskPacket] = []
     for packet in packets:

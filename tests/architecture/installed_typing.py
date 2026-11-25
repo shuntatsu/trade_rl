@@ -24,6 +24,7 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.replay_exposure import ReplayExposureEvidence, mean_pre_interval_gross_from_ledger
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
@@ -57,6 +58,9 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         risk=PreTradeRisk(PreTradeRiskConfig()), capture_ledger_evidence=True,
     ), SharedCashPortfolioReplayResult)
     assert_type(result.ledger_evidence, SharedCashPortfolioReplayLedgerEvidence | None)
+    if result.ledger_evidence is not None:
+        assert_type(result.ledger_evidence.exposure_evidence, ReplayExposureEvidence | None)
+    assert_type(mean_pre_interval_gross_from_ledger(b"", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2), float)
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
 """
 )
@@ -74,6 +78,7 @@ FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
 ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present="unknown")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg
+mean_pre_interval_gross_from_ledger("bad", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2)  # expect: arg-type
 PreTradeRiskConfig(max_gross="wrong")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type

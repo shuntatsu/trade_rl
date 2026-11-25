@@ -185,6 +185,7 @@ def test_only_permanent_workflows_remain() -> None:
         "ppo-feature-checkpoint.yml",
         "ppo-checkpoint-runtime-preflight.yml",
         "ci-original-runtime-probe.yml",
+        "ci-uv-advisory-audit.yml",
         "ppo-normalization-execution.yml",
     }
 

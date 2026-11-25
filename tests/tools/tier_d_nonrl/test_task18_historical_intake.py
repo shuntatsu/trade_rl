@@ -360,3 +360,213 @@ def test_protocol_resealed_metadata_must_match_frozen_dataset_and_recipe(change)
         intake._check_protocol(
             protocol, recipe, intake._sha(canonical_json_bytes(protocol))
         )
+
+
+@pytest.fixture
+def r2_native_provenance(tmp_path, monkeypatch):
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(tmp_path), *args]).strip()
+
+    git("init", "-q")
+    package = tmp_path / "trade_rl"
+    package.mkdir()
+    sources = {
+        "__init__.py": b"raise AssertionError('must not import archived code')\n",
+        "runner.py": b"original = True\n",
+    }
+    for name, raw in sources.items():
+        (package / name).write_bytes(raw)
+    (package / "unrelated.txt").write_bytes(b"not a Python source")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "original",
+    )
+    commit = git("rev-parse", "HEAD").decode()
+    tree = git("rev-parse", "HEAD^{tree}").decode()
+    implementation = {
+        "schema_version": "candidate_run_implementation_v1",
+        "files": [
+            {"path": name, "sha256": intake._sha(raw)}
+            for name, raw in sorted(sources.items())
+        ],
+    }
+    runtime = {
+        "schema_version": "candidate_run_runtime_v1",
+        "python": {"implementation": "CPython", "version": "3.12.0"},
+        "os": {"family": "Windows", "release": "11"},
+        "machine": "AMD64",
+        "packages": {"numpy": "1.26.4"},
+    }
+    native = {
+        "schema_version": "candidate_run_provenance_v1",
+        "implementation": implementation,
+        "implementation_digest": intake._sha(canonical_json_bytes(implementation)),
+        "runtime_environment": runtime,
+        "runtime_environment_digest": intake._sha(canonical_json_bytes(runtime)),
+        "research_context_digest": None,
+    }
+    monkeypatch.setattr(intake, "_RELEASE_SOURCE", commit)
+    monkeypatch.setattr(intake, "_RELEASE_TREE", tree)
+    monkeypatch.setattr(intake, "_R2_SOURCE_FILE_COUNT", len(sources))
+    monkeypatch.setattr(
+        intake, "_R2_IMPLEMENTATION_DIGEST", native["implementation_digest"]
+    )
+    monkeypatch.setattr(
+        intake, "_R2_RUNTIME_DIGEST", native["runtime_environment_digest"]
+    )
+    return tmp_path, native, git
+
+
+def test_original_r2_provenance_audit_proves_exact_source_and_declared_runtime(
+    r2_native_provenance,
+):
+    repo, native, git = r2_native_provenance
+    result = intake._audit_r2_native_provenance(repo, native)
+    assert result == {
+        "source_commit": git("rev-parse", "HEAD").decode(),
+        "source_tree": git("rev-parse", "HEAD^{tree}").decode(),
+        "python_source_pins_verified": 2,
+        "implementation_digest": native["implementation_digest"],
+        "runtime_environment_digest": native["runtime_environment_digest"],
+        "runtime_environment_declaration": native["runtime_environment"],
+    }
+
+
+@pytest.mark.parametrize("change", ["implementation", "runtime", "context", "schema"])
+def test_original_r2_provenance_refuses_resealed_foreign_metadata(
+    r2_native_provenance, change
+):
+    repo, native, _git = r2_native_provenance
+    if change == "implementation":
+        native["implementation"]["files"][0]["sha256"] = "a" * 64
+        native["implementation_digest"] = intake._sha(
+            canonical_json_bytes(native["implementation"])
+        )
+    elif change == "runtime":
+        native["runtime_environment"]["packages"]["numpy"] = "2.0.0"
+        native["runtime_environment_digest"] = intake._sha(
+            canonical_json_bytes(native["runtime_environment"])
+        )
+    elif change == "context":
+        native["research_context_digest"] = "a" * 64
+    else:
+        native["schema_version"] = "foreign"
+    with pytest.raises(ValueError):
+        intake._audit_r2_native_provenance(repo, native)
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["duplicate", "case_alias", "traversal", "wrong_path", "wrong_blob", "short"],
+)
+def test_original_r2_provenance_requires_complete_regular_source_roster(
+    r2_native_provenance, monkeypatch, change
+):
+    repo, native, _git = r2_native_provenance
+    files = native["implementation"]["files"]
+    if change == "duplicate":
+        files[1] = files[0].copy()
+    elif change == "case_alias":
+        files[1]["path"] = files[0]["path"].upper()
+    elif change == "traversal":
+        files[1]["path"] = "../runner.py"
+    elif change == "wrong_path":
+        files[1]["path"] = "not-present.py"
+    elif change == "wrong_blob":
+        files[1]["sha256"] = "a" * 64
+    else:
+        files.pop()
+    # Reseal the artificial declaration to exercise the Git/roster oracle
+    # independently of its outer fixed historical metadata pin.
+    native["implementation_digest"] = intake._sha(
+        canonical_json_bytes(native["implementation"])
+    )
+    monkeypatch.setattr(
+        intake, "_R2_IMPLEMENTATION_DIGEST", native["implementation_digest"]
+    )
+    with pytest.raises(ValueError):
+        intake._audit_r2_native_provenance(repo, native)
+
+
+def test_original_r2_provenance_ignores_git_replace_refs(
+    r2_native_provenance,
+):
+    repo, native, git = r2_native_provenance
+    original = git("rev-parse", "HEAD").decode()
+    (repo / "trade_rl" / "runner.py").write_bytes(b"replacement = True\n")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "replacement",
+    )
+    git("replace", original, git("rev-parse", "HEAD").decode())
+    assert (
+        intake._audit_r2_native_provenance(repo, native)["python_source_pins_verified"]
+        == 2
+    )
+
+
+def test_original_r2_provenance_refuses_extra_git_source(
+    r2_native_provenance, monkeypatch
+):
+    repo, native, git = r2_native_provenance
+    (repo / "trade_rl" / "extra.py").write_bytes(b"extra = True\n")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "extra",
+    )
+    monkeypatch.setattr(intake, "_RELEASE_SOURCE", git("rev-parse", "HEAD").decode())
+    monkeypatch.setattr(
+        intake, "_RELEASE_TREE", git("rev-parse", "HEAD^{tree}").decode()
+    )
+    with pytest.raises(ValueError, match="roster"):
+        intake._audit_r2_native_provenance(repo, native)
+
+
+def test_original_r2_provenance_rejects_wrong_tree(r2_native_provenance, monkeypatch):
+    repo, native, _git = r2_native_provenance
+    monkeypatch.setattr(intake, "_RELEASE_TREE", "0" * 40)
+    with pytest.raises(ValueError, match="commit/tree differs"):
+        intake._audit_r2_native_provenance(repo, native)
+
+
+def test_original_r2_provenance_refuses_symlink_even_with_matching_blob(
+    r2_native_provenance, monkeypatch
+):
+    repo, native, git = r2_native_provenance
+    # A symlink mode with exactly the original source blob is not a regular
+    # Python source. Set the index mode directly so Windows needs no symlinks.
+    oid = git("rev-parse", "HEAD:trade_rl/runner.py").decode()
+    git("update-index", "--cacheinfo", f"120000,{oid},trade_rl/runner.py")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "symlink",
+    )
+    monkeypatch.setattr(intake, "_RELEASE_SOURCE", git("rev-parse", "HEAD").decode())
+    monkeypatch.setattr(
+        intake, "_RELEASE_TREE", git("rev-parse", "HEAD^{tree}").decode()
+    )
+    with pytest.raises(ValueError, match="regular Python blob"):
+        intake._audit_r2_native_provenance(repo, native)

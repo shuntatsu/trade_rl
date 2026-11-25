@@ -863,3 +863,48 @@ def test_work_inventory_default_branch_readback_failure() -> None:
     api.repository_default_branch = default_branch  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="default branch API unavailable"):
         build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("location", ["main", "branch", "PR head", "PR base"])
+def test_inventory_rejects_zero_oid_as_commit(location: str) -> None:
+    api = FakeWorkApi()
+    zero = "0" * 40
+    if location == "main":
+        api.branch_rows = (BranchInfo("main", zero, False), *api.branch_rows[1:])
+    elif location == "branch":
+        api.branch_rows += (BranchInfo("feature/zero", zero, False),)
+    else:
+        api.pull_rows = [
+            {
+                "number": 123,
+                "head": {
+                    "ref": "feature/fork",
+                    "sha": zero if location == "PR head" else "d" * 40,
+                    "repo": {"full_name": "someone/fork"},
+                },
+                "base": {
+                    "ref": "main",
+                    "sha": zero if location == "PR base" else "a" * 40,
+                    "repo": {"full_name": api.repository},
+                },
+            }
+        ]
+    with pytest.raises(ValueError, match="exact commit SHA"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("location", ["head", "main"])
+def test_compare_rejects_zero_oid_before_http(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+
+    def unexpected_request(*args: object, **kwargs: object) -> object:
+        raise AssertionError("zero OID must be rejected before HTTP")
+
+    monkeypatch.setattr(api._reader, "_request_json", unexpected_request)
+    with pytest.raises(ValueError, match="exact commit SHA"):
+        api.compare_head_to_main(
+            "0" * 40 if location == "head" else "a" * 40,
+            "0" * 40 if location == "main" else "b" * 40,
+        )

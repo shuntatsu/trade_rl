@@ -146,3 +146,55 @@ def test_adjacent_fixed_returns_preserve_fractional_mean(
         assert actual.sharpe == pytest.approx(
             actual.annualized_arithmetic_return / expected, rel=1e-14, abs=0
         )
+
+
+@pytest.mark.parametrize("kind", ["fixed", "weekly", "monthly"])
+def test_annualization_validates_native_grid_once(monkeypatch, kind: str) -> None:
+    if kind == "fixed":
+        clock = NativeBarClock(
+            NativeClockKind.FIXED_ELAPSED, 900, np.datetime64("2020-01-01")
+        )
+        closes = np.datetime64("2020-01-01") + np.arange(1, 4097) * np.timedelta64(
+            15, "m"
+        )
+    elif kind == "weekly":
+        clock = NativeBarClock(NativeClockKind.UTC_WEEK)
+        closes = np.datetime64("2024-01-08") + np.arange(520) * np.timedelta64(7, "D")
+    else:
+        clock = NativeBarClock(NativeClockKind.UTC_MONTH)
+        closes = np.arange("2016-02", "2026-02", dtype="datetime64[M]")
+    expected_elapsed = clock.elapsed_years(closes)
+    original = NativeBarClock.interval_bounds
+    calls = 0
+
+    def counted(self, requested):
+        nonlocal calls
+        calls += 1
+        return original(self, requested)
+
+    monkeypatch.setattr(NativeBarClock, "interval_bounds", counted)
+    values = tuple(0.01 if i % 2 else -0.02 for i in range(len(closes)))
+    actual = evaluate_native_bar_annualization(values, clock=clock, closes=closes)
+    assert calls == 1
+    assert actual.elapsed_years == expected_elapsed
+    assert actual.periods_per_year == len(values) / expected_elapsed
+    assert actual.annualized_arithmetic_return == math.fsum(values) / float(
+        expected_elapsed
+    )
+
+
+def test_native_annualization_total_can_exceed_signed_nanoseconds() -> None:
+    seconds = 8_000_000_000
+    first = -1_000_000_000_000_000_000
+    step = seconds * 10**9
+    closes = np.array([first, first + step], dtype=np.int64).view("datetime64[ns]")
+    clock = NativeBarClock(NativeClockKind.FIXED_ELAPSED, seconds, closes[0])
+    result = evaluate_native_bar_annualization(
+        (0.01, -0.02), clock=clock, closes=closes
+    )
+    expected_years = Fraction(2 * seconds, 365 * 86400)
+    assert result.elapsed_years == expected_years
+    assert result.periods_per_year == 2 / expected_years
+    assert result.annualized_volatility == pytest.approx(
+        math.hypot(0.015, 0.015) / math.sqrt(float(expected_years))
+    )

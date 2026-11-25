@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -164,6 +165,7 @@ def _resume(
     *,
     stop_after_publish: bool = False,
     stop_at_partial: bool = False,
+    stop_before_publish: bool = False,
 ) -> None:
     from tools.tier_d_nonrl import task18_native as native
     from tools.tier_d_nonrl import task18_native_recovery as recovery
@@ -192,6 +194,13 @@ def _resume(
         return original_decide(self, snapshot)
 
     def checked_publish(root, **kwargs):
+        if stop_before_publish:
+            # This is reached after the real replay returned and the writer
+            # created its first arms directory, before any receipt publication.
+            assert (root / "arms").is_dir() and not list((root / "arms").iterdir())
+            atomic_write_bytes(base / "scaffold-ready", b"before first receipt rename")
+            while True:
+                time.sleep(0.1)
         published = original_publish(root, **kwargs)
         if stop_after_publish:
             digest = file_digest_and_size(root.parent / "lineage.json")[0]
@@ -249,7 +258,7 @@ def _resume(
             successor_run_label=label,
             arm_ids=(arm_id,),
         )
-    assert not stop_after_publish and not stop_at_partial
+    assert not stop_after_publish and not stop_at_partial and not stop_before_publish
     assert calls == [arm_id]
     assert resumed.run.run_id == f"task18-synthetic-successor:{pins['handoff']}:{label}"
     assert resumed.predecessor_handoff_sha256 == pins["handoff"]
@@ -300,6 +309,176 @@ def _stop_after_publication(base, mode, context, *, ready_name, log_name):
                 child.kill()
                 child.wait(timeout=15)
         assert child.returncode not in (None, 0)
+
+
+@pytest.fixture(scope="module")
+def empty_publication_bundle(tmp_path_factory):
+    from tools.tier_d_nonrl.task18_frozen_inputs import (
+        prepare_frozen_inputs,
+        publish_frozen_inputs,
+    )
+    from tools.tier_d_nonrl.task18_native import open_synthetic_native_attempt
+
+    base = tmp_path_factory.mktemp("empty-native-publication").resolve()
+    market, binding, source, report, source_raw = _fixture()
+    root = base / "original"
+    pin = publish_frozen_inputs(root, prepare_frozen_inputs(market, binding=binding))
+    attempt = open_synthetic_native_attempt(
+        market, root / "frozen-plan.bin", expected_binding=binding, expected_pin=pin
+    )
+    run = _run(attempt, source, report)
+    atomic_write_bytes(root / "source-verification.json", source_raw)
+    atomic_write_bytes(
+        root / "stopped-run.json", canonical_json_bytes(run.to_mapping())
+    )
+    pins = tuple(_pin(root, name) for name in sorted(_snapshot(root)))
+    return root, attempt, source, binding, pin, run, pins
+
+
+def test_empty_first_publication_scaffold_preserves_pending_roster(
+    empty_publication_bundle, tmp_path
+):
+    from tools.tier_d_nonrl.task18_native_recovery import (
+        inspect_synthetic_stopped_recovery,
+        open_synthetic_staged_recovery,
+        stage_synthetic_stopped_recovery,
+    )
+
+    original, attempt, source, binding, pin, _, pins = empty_publication_bundle
+    root = tmp_path / "stopped"
+    shutil.copytree(original, root)
+    kwargs = dict(attempt=attempt, expected_source_binding=source)
+    baseline = inspect_synthetic_stopped_recovery(root, pins, **kwargs)
+    before = _snapshot(root)
+    # The writer makes this exact directory after enrolling a RUNNING arm
+    # and before the first atomic completed receipt is published.
+    scaffold = root / "arms"
+    scaffold.mkdir()
+    observed = inspect_synthetic_stopped_recovery(root, pins, **kwargs)
+    assert observed.handoff == baseline.handoff
+    assert observed.completed_arm_ids == ()
+    assert observed.pending_arm_ids == baseline.pending_arm_ids
+    assert len(observed.pending_arm_ids) == 48
+    assert not observed.execution_authorized
+    destination = tmp_path / "handoff"
+    stage_synthetic_stopped_recovery(
+        root,
+        destination,
+        pins,
+        expected_handoff_sha256=baseline.handoff.sha256,
+        **kwargs,
+    )
+    assert scaffold.is_dir() and not list(scaffold.iterdir())
+    assert _snapshot(root) == before
+    assert not (destination / "arms").exists()
+    reopened = open_synthetic_staged_recovery(
+        destination,
+        dataset=attempt.dataset,
+        expected_binding=binding,
+        expected_pin=pin,
+        expected_source_binding=source,
+        expected_handoff_sha256=baseline.handoff.sha256,
+    )
+    assert reopened.pending_arm_ids == baseline.pending_arm_ids
+    # Published handoffs remain exact canonical file trees. An unexpected
+    # empty directory introduced after publication is not a raw stop scaffold.
+    (destination / "arms").mkdir()
+    with pytest.raises(ValueError, match="unexpected"):
+        open_synthetic_staged_recovery(
+            destination,
+            dataset=attempt.dataset,
+            expected_binding=binding,
+            expected_pin=pin,
+            expected_source_binding=source,
+            expected_handoff_sha256=baseline.handoff.sha256,
+        )
+
+
+@pytest.mark.parametrize("change", ["foreign_file", "partial_staging", "arm_directory"])
+def test_first_publication_scaffold_refuses_any_content(
+    empty_publication_bundle, tmp_path, change
+):
+    from tools.tier_d_nonrl.task18_native_recovery import (
+        inspect_synthetic_stopped_recovery,
+    )
+
+    original, attempt, source, _, _, _, pins = empty_publication_bundle
+    root = tmp_path / "stopped"
+    shutil.copytree(original, root)
+    scaffold = root / "arms"
+    scaffold.mkdir()
+    if change == "foreign_file":
+        (scaffold / "foreign.json").write_bytes(b"foreign")
+    elif change == "partial_staging":
+        (scaffold / ".PAIR-01-NONRL.staging-partial").mkdir()
+    else:
+        (scaffold / _NONRL).mkdir()
+    with pytest.raises(ValueError, match="unexpected"):
+        inspect_synthetic_stopped_recovery(
+            root, pins, attempt=attempt, expected_source_binding=source
+        )
+
+
+def test_empty_scaffold_requires_started_arm(empty_publication_bundle, tmp_path):
+    from tools.tier_d_nonrl.task18_native_recovery import (
+        inspect_synthetic_stopped_recovery,
+    )
+
+    original, attempt, source, _, _, run, pins = empty_publication_bundle
+    root = tmp_path / "stopped"
+    shutil.copytree(original, root)
+    (root / "arms").mkdir()
+    never_started = replace(
+        run,
+        arms=(
+            replace(
+                run.arms[0],
+                status="NOT_ATTEMPTED",
+                reason_code="NOT_STARTED",
+                initial_equity_usdt=None,
+            ),
+            *run.arms[1:],
+        ),
+    )
+    atomic_write_bytes(
+        root / "stopped-run.json", canonical_json_bytes(never_started.to_mapping())
+    )
+    pins = tuple(_pin(root, p.path) for p in pins)
+    with pytest.raises(ValueError, match="requires a started slot"):
+        inspect_synthetic_stopped_recovery(
+            root, pins, attempt=attempt, expected_source_binding=source
+        )
+
+
+def test_empty_scaffold_refuses_symlink_before_traversal(
+    empty_publication_bundle, tmp_path, monkeypatch
+):
+    from tools.tier_d_nonrl.task18_native_recovery import (
+        inspect_synthetic_stopped_recovery,
+    )
+
+    original, attempt, source, _, _, _, pins = empty_publication_bundle
+    root = tmp_path / "stopped"
+    shutil.copytree(original, root)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    scaffold = root / "arms"
+    try:
+        scaffold.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unsupported")
+    original_iterdir = Path.iterdir
+
+    def guarded_iterdir(path):
+        if path == scaffold:
+            pytest.fail("aliased scaffold must not be enumerated")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
+    with pytest.raises(ValueError, match="directory"):
+        inspect_synthetic_stopped_recovery(
+            root, pins, attempt=attempt, expected_source_binding=source
+        )
 
 
 def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
@@ -716,6 +895,54 @@ def test_full_size_native_late_receipt_stop_recovery_and_successor(tmp_path):
     assert partial_frontier.completed_arm_ids == (_NONRL,)
     assert partial_frontier.pending_arm_ids[0] == _CASH
 
+    # Stop at the actual first-publication boundary after all 6,599 native
+    # advances have returned, but before even a single receipt file exists.
+    _stop_after_publication(
+        base,
+        "resume-scaffold-stop",
+        context | {"destination": "scaffold-stop", "label": "scaffold-generation"},
+        ready_name="scaffold-ready",
+        log_name="scaffold.log",
+    )
+    scaffold_root = base / "scaffold-stop"
+    raw_attempt = scaffold_root / "attempt"
+    assert (raw_attempt / "arms").is_dir() and not list(
+        (raw_attempt / "arms").iterdir()
+    )
+    stopped_bytes = _snapshot(scaffold_root)
+    stopped_slots = json.loads(stopped_bytes["attempt/stopped-run.json"])["arms"]
+    slot = next(a for a in stopped_slots if a["arm_id"] == _CASH)
+    assert slot["status"] == "RUNNING" and slot["external_report"] is None
+    assert slot["progress"]["native_advances_observed"] == 6599
+    scaffold_pins = tuple(_pin(raw_attempt, n) for n in sorted(_snapshot(raw_attempt)))
+    lineage_sha = hashlib.sha256(stopped_bytes["lineage.json"]).hexdigest()
+    stopped_args = dict(
+        attempt=attempt,
+        expected_source_binding=source,
+        ancestors=ancestry,
+        expected_lineage_sha256=lineage_sha,
+    )
+    frontier = inspect_synthetic_stopped_recovery(
+        scaffold_root, scaffold_pins, **stopped_args
+    )
+    assert frontier.completed_arm_ids == (_NONRL,)
+    assert frontier.pending_arm_ids[0] == _CASH and len(frontier.pending_arm_ids) == 47
+    staged_scaffold = base / "scaffold-handoff"
+    stage_synthetic_stopped_recovery(
+        scaffold_root,
+        staged_scaffold,
+        scaffold_pins,
+        expected_handoff_sha256=frontier.handoff.sha256,
+        **stopped_args,
+    )
+    assert _snapshot(scaffold_root) == stopped_bytes
+    assert (raw_attempt / "arms").is_dir() and not list(
+        (raw_attempt / "arms").iterdir()
+    )
+    assert not (staged_scaffold / "attempt" / "arms").exists()
+    assert _snapshot(base / "retained") == before
+    assert _snapshot(base / "handoff") == handoff
+
     # An occupied output cannot be overwritten or executed again.
     occupied_root = base / "retained-second"
     occupied = _snapshot(occupied_root)
@@ -741,12 +968,14 @@ if __name__ == "__main__":
         "resume",
         "resume-stop",
         "resume-partial-stop",
+        "resume-scaffold-stop",
     ):
         _resume(
             Path(sys.argv[2]),
             sys.argv[3],
             stop_after_publish=sys.argv[1] == "resume-stop",
             stop_at_partial=sys.argv[1] == "resume-partial-stop",
+            stop_before_publish=sys.argv[1] == "resume-scaffold-stop",
         )
     else:
         raise SystemExit("closed synthetic native recovery test worker only")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,13 +30,15 @@ class GitState:
 
 
 def _git(repository: Path, *args: str) -> str:
-    return subprocess.run(
+    # Text-mode subprocess pipes normalize CR and CRLF, including inside
+    # NUL-delimited Git pathnames. Decode raw bytes without newline conversion.
+    output = subprocess.run(
         ["git", *args],
         cwd=repository,
         check=True,
         capture_output=True,
-        text=True,
     ).stdout
+    return os.fsdecode(output)
 
 
 def _nul_paths(value: str) -> tuple[str, ...]:

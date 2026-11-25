@@ -189,3 +189,60 @@ def test_non_ascii_space_cannot_close_tilde_fence() -> None:
     source = _fixture() + "\n~~~markdown\ntext\n~~~\u00a0\n"
     with pytest.raises(ValueError, match="unclosed"):
         split_sections(source)
+
+
+_NONPHYSICAL_LINE_SEPARATORS = (
+    "\v",
+    "\f",
+    "\x1c",
+    "\x1d",
+    "\x1e",
+    "\x85",
+    "\u2028",
+    "\u2029",
+)
+
+
+@pytest.mark.parametrize("separator", _NONPHYSICAL_LINE_SEPARATORS)
+def test_non_markdown_line_break_does_not_create_heading(separator: str) -> None:
+    source = _fixture().replace(
+        "marker for 目的", f"marker for 目的{separator}## Not a section"
+    )
+    assert render(source, ("all",)) == source
+    assert f"{separator}## Not a section" in render(source, ("core",))
+
+
+@pytest.mark.parametrize("separator", _NONPHYSICAL_LINE_SEPARATORS)
+def test_non_markdown_line_break_cannot_satisfy_required_heading(
+    separator: str,
+) -> None:
+    source = _fixture().replace(
+        "## Agent Eval protocol\n", f"ordinary text{separator}## Agent Eval protocol\n"
+    )
+    with pytest.raises(ValueError, match="missing sections"):
+        split_sections(source)
+
+
+@pytest.mark.parametrize("newline", ("\n", "\r\n", "\r"))
+def test_markdown_physical_line_endings_preserve_source(newline: str) -> None:
+    source = _fixture().replace("\n", newline)
+    assert render(source, ("all",)) == source
+    preamble, sections = split_sections(source)
+    assert preamble + "".join(sections.values()) == source
+
+
+@pytest.mark.parametrize("separator", _NONPHYSICAL_LINE_SEPARATORS)
+def test_nonphysical_separator_cannot_open_comment_or_fence(separator: str) -> None:
+    for marker in ("<!--", "~~~"):
+        source = _fixture().replace(
+            "marker for 目的", f"marker for 目的{separator}{marker}"
+        )
+        assert render(source, ("all",)) == source
+        assert f"{separator}{marker}" in render(source, ("core",))
+
+
+@pytest.mark.parametrize("separator", _NONPHYSICAL_LINE_SEPARATORS)
+def test_nonphysical_separator_cannot_close_unclosed_fence(separator: str) -> None:
+    source = _fixture() + f"\n~~~markdown\nordinary text{separator}~~~\n"
+    with pytest.raises(ValueError, match="unclosed Markdown code fence"):
+        split_sections(source)

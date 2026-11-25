@@ -125,3 +125,43 @@ def test_read_git_state_fails_closed_for_missing_explicit_base(tmp_path: Path) -
 
     with pytest.raises(subprocess.CalledProcessError):
         read_git_state(tmp_path, base_ref="missing-base")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids CR/LF in filenames")
+@pytest.mark.parametrize("separator", ["\r", "\r\n"])
+def test_read_git_state_preserves_cr_in_all_path_sources(
+    tmp_path: Path, separator: str
+) -> None:
+    _init_repository(tmp_path)
+    _git(tmp_path, "switch", "-c", "feature")
+    committed = f"trade_rl/committed{separator}name.py"
+    staged = f"trade_rl/staged{separator}name.py"
+    unstaged = f"trade_rl/unstaged{separator}name.py"
+    untracked = f"scratch{separator}name.txt"
+    for name in (committed, staged, unstaged):
+        (tmp_path / name).write_text("VALUE = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", committed, staged, unstaged)
+    _git(tmp_path, "commit", "-m", "add CR paths")
+    for name in (staged, unstaged, untracked):
+        (tmp_path / name).write_text("VALUE = 2\n", encoding="utf-8")
+    _git(tmp_path, "add", staged)
+
+    state = read_git_state(tmp_path, base_ref="main")
+
+    assert state.dirty_paths == tuple(sorted((staged, unstaged)))
+    assert state.untracked_paths == (untracked,)
+    assert state.changed_paths == tuple(sorted((committed, staged, unstaged)))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids CR/LF in filenames")
+def test_read_git_state_does_not_alias_cr_and_lf_paths(tmp_path: Path) -> None:
+    _init_repository(tmp_path)
+    paths = ("trade_rl/alias\rname.py", "trade_rl/alias\nname.py")
+    for name in paths:
+        (tmp_path / name).write_text("VALUE = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", *paths)
+
+    state = read_git_state(tmp_path)
+
+    assert state.dirty_paths == tuple(sorted(paths))
+    assert state.changed_paths == tuple(sorted(paths))

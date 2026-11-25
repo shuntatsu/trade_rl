@@ -143,7 +143,9 @@ class GitHubGraphQLHttpApi:
             raise ValueError("authenticated Coordinator differs from expected login")
         repo = cas._mapping(data.get("repository"), "repository")
         repository_id = cas._text(repo.get("id"), "repository node id")
-        ref = repo.get("ref")
+        if "ref" not in repo:
+            raise ValueError("repository ref is missing")
+        ref = repo["ref"]
         if ref is None:
             oid = cas.ZERO_OID
         else:

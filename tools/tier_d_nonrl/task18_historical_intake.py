@@ -4,7 +4,10 @@ Only the exact published 2026-10-15 release is admitted by the public entry
 point. Hash opaque members (including forecasts and nested gzip/NPZ files)
 without decoding them or extracting the ZIP. Parse only bounded manifest,
 protocol, provenance and attempt-status metadata. Dataset declarations are
-not proof that the original market arrays or runtime are available.
+not proof that the original market arrays or runtime are available. The v2
+inventory also verifies every pinned original R2 Python source in its Git tree
+and both archived native provenance digests; the runtime is a declaration,
+not an observation of a restored installation.
 """
 
 from __future__ import annotations
@@ -33,6 +36,12 @@ from trade_rl.artifacts.verified_file import open_regular_binary, read_verified_
 
 _TAG = "research/issue810-development-checkpoint-20261015"
 _RELEASE_SOURCE = "30c5ab54fdb9db7f03b947c1687a09c8b929c461"
+_RELEASE_TREE = "75744f807c54539f355499fc9b204820f2d0489c"
+_R2_SOURCE_FILE_COUNT = 288
+_R2_IMPLEMENTATION_DIGEST = (
+    "71e69fa9ad2087c0740a0c77efa3f3da9937bc5ce5a17623a0790e16601dec3d"
+)
+_R2_RUNTIME_DIGEST = "0c56fc67d16f583d49b5dea7a3878e3fcba0f58e6abd0e9dd66e51393c994cc9"
 _R2_PROTOCOL = "ee21a2ce876f0e79a3ec518a963320fafe74430bef1944e9df918c760dfe43a1"
 _R2_MATRIX = "0fdc9537019ac3feffd834de5220c7845b27ae252d449e47a0cd0a91417dc79b"
 _PREFIX = "output/issue810-tier-d-nonrl-preparation/"
@@ -264,39 +273,111 @@ def _check_protocol(
         raise ValueError("historical protocol or declared Dataset binding differs")
 
 
+def _git_output(repo: Path, *args: str) -> bytes:
+    return subprocess.check_output(
+        ["git", "--no-replace-objects", "-C", str(repo), *args],
+        timeout=10,
+    )
+
+
 def _audit_reference_source(repo: Path, recipe: Task18Protocol) -> int:
     ref = recipe.historical_reference
-    if (
-        subprocess.check_output(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(repo),
-                "cat-file",
-                "-t",
-                ref.source_commit,
-            ],
-            timeout=10,
-        ).strip()
-        != b"commit"
-    ):
+    if _git_output(repo, "cat-file", "-t", ref.source_commit).strip() != b"commit":
         raise ValueError("historical recipe source is not a commit")
     for pin in ref.source_file_pins:
-        raw = subprocess.check_output(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(repo),
-                "show",
-                f"{ref.source_commit}:{pin.path}",
-            ],
-            timeout=10,
-        )
-        if _sha(raw) != pin.sha256:
+        if (
+            _sha(_git_output(repo, "show", f"{ref.source_commit}:{pin.path}"))
+            != pin.sha256
+        ):
             raise ValueError("historical recipe source pin mismatch")
     return len(ref.source_file_pins)
+
+
+def _audit_r2_native_provenance(repo: Path, native: object) -> dict[str, Any]:
+    """Verify the exact original Python source roster, not a live runtime."""
+    if (
+        type(native) is not dict
+        or native.keys()
+        != {
+            "schema_version",
+            "implementation",
+            "implementation_digest",
+            "runtime_environment",
+            "runtime_environment_digest",
+            "research_context_digest",
+        }
+        or native["schema_version"] != "candidate_run_provenance_v1"
+        or native["research_context_digest"] is not None
+    ):
+        raise ValueError("historical R2 native provenance schema differs")
+    implementation = native["implementation"]
+    runtime = native["runtime_environment"]
+    if (
+        type(implementation) is not dict
+        or implementation.keys() != {"schema_version", "files"}
+        or implementation["schema_version"] != "candidate_run_implementation_v1"
+        or type(runtime) is not dict
+        or runtime.get("schema_version") != "candidate_run_runtime_v1"
+        or native["implementation_digest"] != _R2_IMPLEMENTATION_DIGEST
+        or native["runtime_environment_digest"] != _R2_RUNTIME_DIGEST
+        or _sha(canonical_json_bytes(implementation)) != _R2_IMPLEMENTATION_DIGEST
+        or _sha(canonical_json_bytes(runtime)) != _R2_RUNTIME_DIGEST
+    ):
+        raise ValueError("historical R2 implementation/runtime declaration differs")
+
+    files = implementation["files"]
+    if type(files) is not list or len(files) != _R2_SOURCE_FILE_COUNT:
+        raise ValueError("historical R2 Python source roster differs")
+    pins: dict[str, str] = {}
+    for item in files:
+        if type(item) is not dict or item.keys() != {"path", "sha256"}:
+            raise ValueError("historical R2 Python source pin schema differs")
+        pin = SourceFilePin(**item)
+        if not pin.path.endswith(".py") or pin.path in pins:
+            raise ValueError("historical R2 Python source roster differs")
+        pins[pin.path] = pin.sha256
+    if len({path.casefold() for path in pins}) != len(pins):
+        raise ValueError("case-aliased historical R2 Python source roster")
+
+    if _git_output(
+        repo, "cat-file", "-t", _RELEASE_SOURCE
+    ).strip() != b"commit" or _git_output(
+        repo, "rev-parse", f"{_RELEASE_SOURCE}^{{tree}}"
+    ).strip() != _RELEASE_TREE.encode("ascii"):
+        raise ValueError("historical release commit/tree differs")
+    # NUL-separated tree records avoid Git path quoting and worktree/CRLF
+    # conversion. The retained release pins match the original raw Git blobs.
+    listing = _git_output(
+        repo, "ls-tree", "-r", "-z", "--full-tree", _RELEASE_SOURCE, "--", "trade_rl/"
+    )
+    blobs: dict[str, str] = {}
+    for record in listing.split(b"\0"):
+        if not record:
+            continue
+        identity, raw_path = record.split(b"\t", 1)
+        mode, kind, oid = identity.split()
+        if not raw_path.startswith(b"trade_rl/"):
+            raise ValueError("historical R2 Git source is outside the package")
+        path = raw_path.removeprefix(b"trade_rl/").decode("utf-8")
+        if not path.endswith(".py"):
+            continue
+        if mode not in {b"100644", b"100755"} or kind != b"blob" or path in blobs:
+            raise ValueError("historical R2 source is not a unique regular Python blob")
+        blobs[path] = oid.decode("ascii")
+    if blobs.keys() != pins.keys():
+        raise ValueError("historical R2 Git Python source roster differs")
+    for path, digest in pins.items():
+        if _sha(_git_output(repo, "cat-file", "blob", blobs[path])) != digest:
+            raise ValueError("historical R2 Python source pin mismatch")
+
+    return {
+        "source_commit": _RELEASE_SOURCE,
+        "source_tree": _RELEASE_TREE,
+        "python_source_pins_verified": len(pins),
+        "implementation_digest": _R2_IMPLEMENTATION_DIGEST,
+        "runtime_environment_digest": _R2_RUNTIME_DIGEST,
+        "runtime_environment_declaration": runtime,
+    }
 
 
 def _verify_opaque_file(path: Path, expected_sha256: str, *, limit: int) -> int:
@@ -413,22 +494,7 @@ def inspect_historical_checkpoint(
             raise ValueError("historical R2 plan/forecast/receipt inventory differs")
         plan = r2_pins["native-plan.json.gz"]
         forecasts = {name: asdict(r2_pins[name]) for name in forecast_paths}
-    if (
-        subprocess.check_output(
-            [
-                "git",
-                "--no-replace-objects",
-                "-C",
-                str(repo),
-                "cat-file",
-                "-t",
-                _RELEASE_SOURCE,
-            ],
-            timeout=10,
-        ).strip()
-        != b"commit"
-    ):
-        raise ValueError("historical release source is not a commit")
+    original_r2_provenance = _audit_r2_native_provenance(repo, provenance["native"])
     matched = _audit_reference_source(repo, recipe)
     dataset_sizes = (
         None
@@ -442,7 +508,7 @@ def inspect_historical_checkpoint(
         sorted(name for name in drivers if drivers[name] == reference_by_name.get(name))
     )
     return {
-        "schema": "task18_historical_checkpoint_intake_v1",
+        "schema": "task18_historical_checkpoint_intake_v2",
         "scope": "READ_ONLY_CONSUMED_DEVELOPMENT_ARCHIVE_INVENTORY",
         "release_tag": _TAG,
         "release_assets": {
@@ -452,6 +518,7 @@ def inspect_historical_checkpoint(
         "verified_archive_members": len(pins) + 1,
         "verified_uncompressed_bytes": total,
         "release_source_commit": _RELEASE_SOURCE,
+        "original_r2_provenance": original_r2_provenance,
         "r1": r1_summary,
         "r2": {
             **r2_summary,

@@ -7,7 +7,6 @@ from typing import cast
 
 import numpy as np
 
-from trade_rl._validation import require_aware_datetime
 from trade_rl.data._timestamps import (
     _MAX_DATETIME64_NS,
     _MIN_FINITE_DATETIME64_NS,
@@ -28,9 +27,13 @@ def utc_timestamp_ns(value: datetime | np.datetime64) -> int:
     This boundary cannot recover precision lost by the caller beforehand.
     """
     if type(value) is datetime:
-        require_aware_datetime(value, field="timestamp")
+        offset = value.utcoffset()
+        if offset is None:
+            raise ValueError("timestamp must be timezone-aware")
         try:
-            elapsed = value.astimezone(UTC) - _EPOCH
+            # Sample the offset exactly once: astimezone may query mutable tzinfo
+            # again and can interpret a missing second offset as host-local time.
+            elapsed = (value.replace(tzinfo=UTC) - _EPOCH) - offset
         except (OverflowError, ValueError) as exc:
             raise ValueError(
                 "timestamp is outside the finite nanosecond range"

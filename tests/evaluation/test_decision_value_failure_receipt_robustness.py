@@ -885,3 +885,52 @@ raise AssertionError("publication interruption was not reached")
     assert sorted(path.name for path in receipt_root.iterdir()) == [_RECEIPT]
     if phase == "after":
         _assert_locked_and_reloadable(root, str(receipt["receipt_digest"]))
+
+
+def test_writer_self_checks_staged_bytes_without_whole_receipt_heap_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The producer must not recreate a complete heap bytes object for validation."""
+    import mmap
+
+    root = tmp_path / "attempt"
+    real_decode = study._decode_incomplete_receipt
+    checked: list[str] = []
+
+    def inspect_decode(raw: object, **kwargs: Any) -> dict[str, object]:
+        assert not root.exists(), "self-check must precede publication"
+        assert isinstance(raw, mmap.mmap), "writer materialized the full receipt bytes"
+        result = real_decode(raw, **kwargs)  # type: ignore[arg-type]
+        checked.append(str(result["receipt_digest"]))
+        return result
+
+    first = _row(baseline={"terminal_cash": "bad" + chr(0x1F600) * 70000})
+    monkeypatch.setattr(study, "_decode_incomplete_receipt", inspect_decode)
+    digest = _persist(root, first, _row(action=(0, 1)))
+    monkeypatch.setattr(study, "_decode_incomplete_receipt", real_decode)
+    assert checked == [digest]
+    receipt = _assert_locked_and_reloadable(root, digest)
+    assert (root / _RECEIPT).read_bytes() == canonical_json_bytes(receipt)
+    assert not list(tmp_path.glob(".td8-incomplete-*"))
+
+
+def test_spool_copy_io_failure_does_not_publish_or_reclassify_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "attempt"
+    calls: list[str] = []
+
+    def fail_copy(*args: object, **kwargs: object) -> None:
+        calls.append("copy")
+        raise OSError("injected spool copy failure")
+
+    def forbidden_fallback(*args: object, **kwargs: object) -> None:
+        pytest.fail("storage I/O failure must not quarantine financial evidence")
+
+    monkeypatch.setattr(study.shutil, "copyfileobj", fail_copy)
+    monkeypatch.setattr(study, "_quarantined_receipt_pairs", forbidden_fallback)
+    with pytest.raises(OSError, match="spool copy failure"):
+        _persist(root, _row())
+    assert calls == ["copy"]
+    assert not root.exists()
+    assert not list(tmp_path.glob(".td8-incomplete-*"))

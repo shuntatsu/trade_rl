@@ -1147,6 +1147,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
 | `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
+| `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
 | `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |

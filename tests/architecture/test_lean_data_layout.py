@@ -17,6 +17,7 @@ def test_data_lifecycle_packages_exist() -> None:
         "features/cross_asset.py",
         "features/economic.py",
         "features/multitimeframe.py",
+        "features/clocked_overlay.py",
         "features/price_channels.py",
         "features/divergence.py",
         "features/indicators/__init__.py",

@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.evaluation.trend_stop_support import synthetic_dataset
+from tests.evaluation.generated_market_fixture import synthetic_dataset
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
 from trade_rl.evaluation.dev_realdata_study.runner import (
@@ -414,39 +414,6 @@ def test_no_public_path_changes_the_venue_minimum() -> None:
     assert replayed.ledger_evidence is not None
     held = replayed.ledger_evidence.intervals.terminal_exact_quantities
     assert any(Fraction(v) != 0 for v in held)
-
-
-def test_trend_stop_cell_with_dust_only_terminal_is_valid_and_haircut() -> None:
-    from trade_rl.evaluation.trend_stop_study import runner as trend_runner
-    from trade_rl.evaluation.trend_stop_study.protocol import (
-        PROTOCOL as TREND_PROTOCOL,
-    )
-
-    protocol = dataclasses.replace(TREND_PROTOCOL, initial_capital=CAPITAL)
-    dataset = _dataset(drop=True)
-    result = trend_runner._replay(
-        dataset,
-        BuyAndHoldPortfolioPolicy(symbols=SYMBOLS, gross_budget=0.12),
-        protocol,
-        "base",
-        start_index=1,
-        stop_index=dataset.n_bars - 1,
-    )
-    cell = trend_runner.summarize_cell(
-        arm="equal_weight_buy_and_hold",
-        timeframe="4h",
-        variant=None,
-        scenario="base",
-        result=result,
-        dataset=dataset,
-        protocol=protocol,
-    )
-    reconciliation = cell.summary["reconciliation"]
-    assert reconciliation["terminal_dust_only"] is True
-    assert trend_runner._cell_valid(cell.summary) is True
-    cost = reconciliation["terminal_dust_exit_cost_usdt"]
-    assert cost > 0.0
-    assert cell.equity[-1] == pytest.approx(cell.engine_equity[-1] - cost)
 
 
 def test_phase2_replay_cell_with_dust_only_terminal_is_reconciled_and_haircut() -> None:

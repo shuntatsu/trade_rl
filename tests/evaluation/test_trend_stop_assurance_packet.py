@@ -14,11 +14,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
-from trade_rl.evaluation.trend_stop_study.protocol import (
-    SUPERSEDES_PROTOCOL_DIGEST,
-    protocol_digest,
+from tests.evaluation.trend_stop_archive_support import (
+    PROTOCOL_SOURCE,
+    SPEC_SOURCE,
+    archived_text,
 )
+from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET = ROOT / "report" / "trend-stop-research-assurance-20261110.json"
@@ -39,8 +40,11 @@ def _packet() -> dict[str, Any]:
 def test_packet_digest_is_pinned_and_its_protocol_is_superseded() -> None:
     assert assurance_digest(_packet()) == PINNED_PACKET_DIGEST
     # The frozen protocol moved on: revision 1's digest is only a recorded lineage.
-    assert SUPERSEDES_PROTOCOL_DIGEST == REVISION_1_PROTOCOL_DIGEST
-    assert protocol_digest() != REVISION_1_PROTOCOL_DIGEST
+    assert REVISION_1_PROTOCOL_DIGEST in archived_text(PROTOCOL_SOURCE)
+    assert (
+        "2e5ceb6bdad76deaab503ebf5be714cff1b7b8611b0c44048bd562897f707fda"
+        in archived_text(SPEC_SOURCE)
+    )
 
 
 def test_packet_is_a_valid_unreviewed_record_that_authorizes_nothing() -> None:
@@ -83,7 +87,8 @@ def test_packet_names_the_g0_to_g3_elements_and_the_stop_rule() -> None:
 
 
 def test_spec_is_active_links_the_packet_and_states_the_boundary() -> None:
-    text = SPEC.read_text(encoding="utf-8")
+    text = archived_text(SPEC_SOURCE)
+    assert "Status: Archived" in SPEC.read_text(encoding="utf-8")
     assert "Status: Active" in text
     assert "report/trend-stop-research-assurance-20261110.json" in text
     assert "2026-07-31" in text

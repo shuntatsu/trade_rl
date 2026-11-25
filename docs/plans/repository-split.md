@@ -136,7 +136,8 @@ resource、CI、外部consumerの完全なclosureを証明しない。各移行�
 | 現行の研究群・source | 移行先候補 | 先に確認する境界 |
 |---|---|---|
 | `evaluation/carry_multisymbol/`, `evaluation/carry.py`, `strategies/carry.py` | carry | `paper/account.py` がcarryを参照。共通paired executionを残す。 |
-| `evaluation/trend_stop_study/`, `evaluation/trend_oos/` | trend | 他研究から11 moduleが参照。閉じたscreenの再実行をしない。 |
+| `evaluation/trend_stop_study/` | [固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/trend_stop_archive.json) | 終了済みstudyを削除。共通rule・native replayを維持。 |
+| `evaluation/trend_oos/` | trend | 現行consumer・source-bound実行経路を確認して移管。 |
 | `evaluation/agy_anchor_oos/`, `strategies/agy_anchor/` | trend/agy_anchor | 原著provenance、他研究、固定OOS判定。 |
 | `evaluation/xs_lowvol_funding/` | cross_sectional | universe/delisting/stage、未使用範囲・owner認可。 |
 | `evaluation/core7_mtf_study/`, `strategies/rl/shadow_anchor_mtf.py` | rl/core7 | 他研究9 module、source closure、v14 packet、checkpoint。 |
@@ -146,7 +147,7 @@ resource、CI、外部consumerの完全なclosureを証明しない。各移行�
 | `evaluation/dev_realdata_study/` | historical_development | forward_study/fs1とregistryが依存。旧registryはcoreに固定維持。 |
 | `evaluation/residual_rl/` | rl/residual | synthetic-only、独自ledgerの比較限定契約を維持。 |
 | `evaluation/ppo_*study.py`, `ppo_*checkpoint.py`, `ppo_*normalization*.py`, `ppo_4h_indicator_smoke.py` | rl/ppo | 固定activation JSON、PPO関連CI、optional extras、checkpoint互換性。 |
-| `evaluation/rl_family_comparison/` | rl/comparison | 共通schemaか個別研究rosterかを判別。 |
+| `evaluation/rl_family_comparison/` | [研究側](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rl_family_comparison_sources.json) | 移管済みの個別比較契約・oracleの旧実装を削除。共通fitterは維持。 |
 
 `tools/trend_breadth.py`、`trend_exit_arms_forward.py`、`mtf_combo_forward.py`、
 `btc_trend_ensemble.py`、`agy_clean_all_forward.py`、`carry_multisymbol_screen.py` 等の

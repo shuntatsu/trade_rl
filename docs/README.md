@@ -60,7 +60,7 @@ python -m tools.markdown_links --check
 ### トレンド・売買ルール
 
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
-- Trend following with fast stops (pre-registered revision 2, not yet run): [specs/trend-following-stops.md](specs/trend-following-stops.md)
+- Trend following with fast stops (closed historical revision 2, NO_WINNER): [specs/trend-following-stops.md](specs/trend-following-stops.md)
 - Signal diagnosis run SD2 (frozen protocol v4, runner implemented, not run on real data): [specs/signal-diagnosis-run.md](specs/signal-diagnosis-run.md)
 - Daily trend breadth screen (pre-registered, one-shot, class 2 known-used data, not yet run; no economic result): [specs/trend-breadth.md](specs/trend-breadth.md)
 - Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.

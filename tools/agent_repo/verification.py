@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import shlex
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -106,7 +107,8 @@ def _has_scope_symbols(root: Path, source: str) -> bool:
     """Detect real names, not comments mentioning dataset or symbol scope."""
 
     path = checked_repo_file(root, root / source)
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=source)
+    with tokenize.open(path) as stream:
+        tree = ast.parse(stream.read(), filename=source)
     names = {
         node.id if isinstance(node, ast.Name) else node.attr
         for node in ast.walk(tree)

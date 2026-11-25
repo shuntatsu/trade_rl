@@ -4,7 +4,13 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from tools.agent_repo.verification import VerificationStep, plan_verification
+import pytest
+
+from tools.agent_repo.verification import (
+    VerificationStep,
+    _has_scope_symbols,
+    plan_verification,
+)
 
 FINAL_COMMANDS = {
     "uv run ruff check trade_rl tests tools",
@@ -335,3 +341,44 @@ def test_fast_verification_preserves_special_character_paths(tmp_path: Path) -> 
         "-q",
         *sorted(paths),
     ]
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "latin-1", "cp932"])
+@pytest.mark.parametrize("has_scope", [True, False])
+def test_scope_symbols_respect_python_source_encoding(
+    tmp_path: Path, encoding: str, has_scope: bool
+) -> None:
+    relative = "trade_rl/strategies/scope.py"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    cookie = "utf-8" if encoding == "utf-8-sig" else encoding
+    comment = "日本語" if encoding == "cp932" else "café"
+    name = "select_feature_names" if has_scope else "select_names"
+    path.write_bytes(
+        (f"# coding: {cookie}\n# feature {comment}\ndef {name}():\n    pass\n").encode(
+            encoding
+        )
+    )
+    assert _has_scope_symbols(tmp_path, relative) is has_scope
+
+
+def test_scope_symbols_reject_invalid_source_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "scope.py"
+    path.write_bytes(b"# coding: utf-8\n# \xff\ndef select_feature_names(): pass\n")
+    with pytest.raises(UnicodeDecodeError):
+        _has_scope_symbols(tmp_path, "scope.py")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"# coding: unknown-codec\ndef select_feature_names(): pass\n",
+        b"\xef\xbb\xbf# coding: latin-1\ndef select_feature_names(): pass\n",
+    ],
+)
+def test_scope_symbols_reject_invalid_encoding_cookie(
+    tmp_path: Path, data: bytes
+) -> None:
+    (tmp_path / "scope.py").write_bytes(data)
+    with pytest.raises(SyntaxError):
+        _has_scope_symbols(tmp_path, "scope.py")

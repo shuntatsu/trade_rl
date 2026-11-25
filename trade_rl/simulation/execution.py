@@ -9,6 +9,7 @@ from typing import Literal, Sequence
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
@@ -268,6 +269,127 @@ class ExecutionCostConfig:
             maintenance_margin_rate=0.0,
             limit_offset_rate=0.0,
         )
+
+
+def _runtime_execution_policy_digest(
+    cost: ExecutionCostConfig,
+    *,
+    rule_stress: ExecutionRuleStress,
+    market_order_profile_digest: str | None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"],
+    funding_price_rate_present: bool,
+    strict_spot_cash: bool,
+) -> str:
+    """Single owner of the historical native digest composition."""
+    if market_order_profile_digest is not None:
+        digest = content_digest(
+            {
+                "schema_version": "profile_market_execution_v1",
+                "base_policy_digest": cost.execution_policy_digest,
+                "market_order_profile_digest": market_order_profile_digest,
+                "rule_stress": rule_stress.digest_payload(),
+            }
+        )
+    elif rule_stress.enabled:
+        digest = content_digest(
+            {
+                "schema_version": "stressed_execution_policy_v1",
+                "base_policy_digest": cost.execution_policy_digest,
+                "rule_stress": rule_stress.digest_payload(),
+            }
+        )
+    else:
+        digest = cost.execution_policy_digest
+
+    if insolvency_valuation == "retain_debt":
+        digest = content_digest(
+            {
+                "schema_version": "insolvency_execution_policy_v2",
+                "base_policy_digest": digest,
+                "insolvency_valuation": insolvency_valuation,
+                "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
+            }
+        )
+
+    if funding_price_rate_present:
+        digest = content_digest(
+            {
+                "schema_version": "funding_execution_policy_v1",
+                "base_policy_digest": digest,
+                "funding_semantics": "dataset_funding_price_rate_v1",
+            }
+        )
+
+    if strict_spot_cash:
+        digest = content_digest(
+            {
+                "schema_version": "strict_spot_cash_execution_v1",
+                "base_policy_digest": digest,
+                "unaffordable_fill": "no_fill",
+            }
+        )
+    return digest
+
+
+def runtime_execution_policy_digest(
+    cost: ExecutionCostConfig,
+    *,
+    funding_price_rate_present: bool,
+    rule_stress: ExecutionRuleStress | None = None,
+    market_order_profile_digest: str | None = None,
+    insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
+    strict_spot_cash: bool = False,
+) -> str:
+    """Compute native execution identity from independently admitted metadata.
+
+    The funding flag explicitly distinguishes legacy bar-mark funding from
+    the optional event-price-rate array, even when every rate is zero. A
+    profile digest is an independently verified identity, not source evidence
+    merely because the caller supplies it. No dataset, arrays, execution,
+    or policy side effects are required. This identifies the declared runtime
+    configuration; it does not validate a profile against a dataset, validate
+    rule arrays or processed funding rows, or authorize replay.
+    """
+    if type(cost) is not ExecutionCostConfig:
+        raise ValueError("cost must be an ExecutionCostConfig")
+    if rule_stress is not None and type(rule_stress) is not ExecutionRuleStress:
+        raise ValueError("rule_stress must be an ExecutionRuleStress")
+    if type(funding_price_rate_present) is not bool:
+        raise ValueError("funding_price_rate_present must be boolean")
+    if type(strict_spot_cash) is not bool:
+        raise ValueError("strict_spot_cash must be boolean")
+    mode: object = insolvency_valuation
+    if type(mode) is not str or mode not in (
+        "floor_zero",
+        "retain_debt",
+    ):
+        raise ValueError("insolvency_valuation must be floor_zero or retain_debt")
+    if market_order_profile_digest is not None:
+        if type(market_order_profile_digest) is not str:
+            raise ValueError("market_order_profile_digest must be a digest")
+        require_sha256(market_order_profile_digest, field="market_order_profile_digest")
+        if market_order_profile_digest == "0" * 64:
+            raise ValueError("market_order_profile_digest must not be null")
+        if cost.order_type != "market":
+            raise ValueError("market order profile requires MARKET configuration")
+    if strict_spot_cash and (
+        cost.allow_short
+        or cost.max_leverage > 1.0
+        or cost.collateral_haircut != 1.0
+        or cost.slippage_std != 0.0
+        or cost.tail_slippage_probability != 0.0
+    ):
+        raise ValueError(
+            "strict spot cash requires long-only unlevered deterministic execution and full collateral"
+        )
+    return _runtime_execution_policy_digest(
+        cost,
+        rule_stress=rule_stress if rule_stress is not None else ExecutionRuleStress(),
+        market_order_profile_digest=market_order_profile_digest,
+        insolvency_valuation=insolvency_valuation,
+        funding_price_rate_present=funding_price_rate_present,
+        strict_spot_cash=strict_spot_cash,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1213,53 +1335,18 @@ class MarketExecutor:
         ):
             return cached_digest
 
-        if self.market_order_profile is not None:
-            digest = content_digest(
-                {
-                    "schema_version": "profile_market_execution_v1",
-                    "base_policy_digest": self.cost.execution_policy_digest,
-                    "market_order_profile_digest": self.market_order_profile.digest,
-                    "rule_stress": self.rule_stress.digest_payload(),
-                }
-            )
-        elif self.rule_stress.enabled:
-            digest = content_digest(
-                {
-                    "schema_version": "stressed_execution_policy_v1",
-                    "base_policy_digest": self.cost.execution_policy_digest,
-                    "rule_stress": self.rule_stress.digest_payload(),
-                }
-            )
-        else:
-            digest = self.cost.execution_policy_digest
-
-        if self.insolvency_valuation == "retain_debt":
-            digest = content_digest(
-                {
-                    "schema_version": "insolvency_execution_policy_v2",
-                    "base_policy_digest": digest,
-                    "insolvency_valuation": self.insolvency_valuation,
-                    "loss_metric_semantics": "unbounded_simple_return_drawdown_v1",
-                }
-            )
-
-        if funding_semantics is not None:
-            digest = content_digest(
-                {
-                    "schema_version": "funding_execution_policy_v1",
-                    "base_policy_digest": digest,
-                    "funding_semantics": funding_semantics,
-                }
-            )
-
-        if self.strict_spot_cash:
-            digest = content_digest(
-                {
-                    "schema_version": "strict_spot_cash_execution_v1",
-                    "base_policy_digest": digest,
-                    "unaffordable_fill": "no_fill",
-                }
-            )
+        digest = _runtime_execution_policy_digest(
+            self.cost,
+            rule_stress=self.rule_stress,
+            market_order_profile_digest=(
+                self.market_order_profile.digest
+                if self.market_order_profile is not None
+                else None
+            ),
+            insolvency_valuation=self.insolvency_valuation,
+            funding_price_rate_present=funding_semantics is not None,
+            strict_spot_cash=self.strict_spot_cash,
+        )
 
         self._execution_policy_digest_cache_inputs = cache_inputs
         self._execution_policy_digest_cache = digest

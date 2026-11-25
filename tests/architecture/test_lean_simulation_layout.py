@@ -82,6 +82,7 @@ EXPECTED_PUBLIC = {
     "ExecutionEnvironmentStress",
     "ExecutionResult",
     "MarketExecutor",
+    "runtime_execution_policy_digest",
 }
 
 

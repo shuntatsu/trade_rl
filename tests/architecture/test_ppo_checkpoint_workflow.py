@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ppo-feature-checkpoint.yml"
@@ -175,3 +181,93 @@ def test_non_economic_hosted_checkpoint_python_smoke_is_bounded() -> None:
         "fit --",
     ):
         assert forbidden not in text
+
+
+ORIGINAL_RUNTIME_PROBE = (
+    ROOT / ".github" / "workflows" / "ci-original-runtime-probe.yml"
+)
+
+
+def test_original_standalone_probe_is_exact_and_separate_from_execution() -> None:
+    current = RUNTIME_SMOKE.read_text(encoding="utf-8")
+    text = ORIGINAL_RUNTIME_PROBE.read_text(encoding="utf-8")
+    header, original = text.split("\n  original-standalone:", 1)
+    assert "original-standalone" not in current
+    assert "on:\n  pull_request:" in header
+    assert "paths:\n      - .github/workflows/ci-original-runtime-probe.yml\n" in header
+    assert "permissions: {}" in header
+    for forbidden in (
+        "workflow_dispatch:",
+        "schedule:",
+        "push:",
+        "issue_comment:",
+        "pull_request_target:",
+    ):
+        assert forbidden not in header
+    assert "UV_PYTHON_DOWNLOADS: never" in current
+    assert 'python-version: "3.12.16"' in current
+    assert "runs-on: ubuntu-24.04" in original
+    assert "timeout-minutes: 5" in original
+    assert (
+        "20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+        in original
+    )
+    assert (
+        "5164e8ddfca4b0b04a160e11bf411bc453e6c2f8f111f6a9bbd152a1b1a6d7b4" in original
+    )
+    assert "--max-time 90" in original
+    assert "--max-filesize 33892322" in original
+    assert '[[ "$(stat -c %s "$archive")" == 33892322 ]]' in original
+    assert original.index("sha256sum --check --strict") < original.index("tar -xzf")
+    assert original.index("tar -xzf") < original.index("/python/bin/python3.12")
+    assert "sys.version_info[:3] == (3, 12, 12)" in original
+    assert "sys.implementation.name == 'cpython'" in original
+    assert "uses:" not in original
+    assert "uv sync" not in original
+    assert "github.event" not in original
+    assert "secrets." not in original
+    assert "|| true" not in original
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Ubuntu runner uses GNU coreutils")
+@pytest.mark.parametrize("failure", ["http", "size", "digest"])
+def test_original_standalone_probe_fails_before_extracting_unverified_bytes(
+    tmp_path: Path, failure: str
+) -> None:
+    text = ORIGINAL_RUNTIME_PROBE.read_text(encoding="utf-8")
+    job = text.split("\n  original-standalone:", 1)[1]
+    script = textwrap.dedent(job.split("        run: |\n", 1)[1])
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "extracted"
+    curl = bin_dir / "curl"
+    curl.write_text(
+        "#!/bin/bash\nset -eu\n"
+        'while [[ "$1" != --output ]]; do shift; done\n'
+        'case "$FAILURE" in\n'
+        "  http) exit 22 ;;\n"
+        '  size) printf x > "$2" ;;\n'
+        '  digest) truncate -s 33892322 "$2" ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    tar = bin_dir / "tar"
+    tar.write_text('#!/bin/bash\ntouch "$EXTRACTED"\nexit 99\n', encoding="utf-8")
+    for command in (curl, tar):
+        command.chmod(0o700)
+    env = {
+        **os.environ,
+        "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+        "TMPDIR": str(tmp_path),
+        "LC_ALL": "C",
+        "FAILURE": failure,
+        "EXTRACTED": str(marker),
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], env=env, capture_output=True, timeout=10, check=False
+    )
+    assert result.returncode != 0
+    assert not marker.exists()
+    assert set(tmp_path.iterdir()) == {bin_dir}
+    if failure == "digest":
+        assert b"FAILED" in result.stdout

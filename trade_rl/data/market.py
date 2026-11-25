@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from numbers import Integral
 
 import numpy as np
@@ -19,6 +19,7 @@ from trade_rl.data.identity import (
     compute_market_dataset_id,
     parse_identity_json,
 )
+from trade_rl.data.native_clock import _require_unmasked_array_owners
 
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
@@ -245,6 +246,14 @@ class MarketDataset:
     _eligibility_feature_source: np.ndarray = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        # Check all constructor arrays, including optional economics and aliases,
+        # before any conversion or comparison can discard explicit missingness.
+        # Only inspect native owner links; existing non-array coercions remain.
+        for descriptor in fields(self):
+            if descriptor.init:
+                value = getattr(self, descriptor.name)
+                if issubclass(type(value), np.ndarray) or type(value) is memoryview:
+                    _require_unmasked_array_owners(value, field_name=descriptor.name)
         require_sha256(self.dataset_id, field="dataset_id")
         require_sha256(self.feature_config_digest, field="feature_config_digest")
         require_sha256(self.normalization_digest, field="normalization_digest")

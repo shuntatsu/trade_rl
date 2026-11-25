@@ -53,8 +53,8 @@ def render_dashboard(
 
     if not parent_title.strip():
         raise ValueError("parent_title must be non-empty")
-    if not _FULL_SHA_RE.fullmatch(main_sha):
-        raise ValueError("main_sha must be a lowercase 40-hex Git SHA")
+    if not _FULL_SHA_RE.fullmatch(main_sha) or main_sha == "0" * 40:
+        raise ValueError("main_sha must be a nonzero lowercase 40-hex Git SHA")
     ordered = sorted(snapshots, key=lambda snapshot: snapshot.task_id)
     if len({snapshot.task_id for snapshot in ordered}) != len(ordered):
         raise ValueError("dashboard contains duplicate task_id")

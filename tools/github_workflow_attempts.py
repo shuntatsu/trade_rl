@@ -210,7 +210,8 @@ def observe_workflow_attempt(reader: WorkflowReadApi, *, run_id: int) -> dict[st
                 raise ValueError("duplicate workflow job id")
             seen.add(item["id"])
             jobs.append(item)
-        if len(jobs) == total:
+        # A full final page does not establish exhaustion, even if count matches.
+        if len(jobs) == total and len(records) < _PAGE_SIZE:
             break
         page += 1
 

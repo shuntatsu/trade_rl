@@ -301,7 +301,79 @@ def _verify_asof_equity(full: object, truncated: object, observed_rows: int) -> 
     """Equal point-in-time information must never produce different past equity."""
     import numpy as np
 
-    a, b = np.asarray(full, dtype=float), np.asarray(truncated, dtype=float)
+    def finite_marks(value: object) -> np.ndarray:
+        # The synthetic oracle consumes native real vectors, not coercion
+        # protocols that may erase missingness or the imaginary component.
+        error = "trend_breadth: as-of equity must contain finite binary64-compatible real marks"
+        # The native replay emits binary64 equity. Refuse integer inputs
+        # whose precision cannot be guaranteed before NumPy promotes them.
+        exact_integer_limit = 2**53
+        if type(value) is np.ndarray:
+            owner: object = value
+            while True:
+                # Exact types avoid arbitrary owner attribute access and
+                # reject subclasses carrying additional array semantics.
+                if type(owner) is np.ndarray:
+                    owner = np.ndarray.base.__get__(owner)
+                elif type(owner) is memoryview:
+                    owner = owner.obj
+                else:
+                    break
+            # Do not follow arbitrary array-interface wrappers or their base
+            # getters: an opaque owner may retain a hidden masked array.
+            # Ordinary owned arrays and exact raw-byte buffers are sufficient
+            # for the synthetic native equity contract.
+            if (
+                owner is not None
+                and type(owner) is not bytes
+                and type(owner) is not bytearray
+            ):
+                raise ContractViolation(error)
+        elif isinstance(value, (list, tuple)) and type(value) in (list, tuple):
+            sequence: tuple[object, ...] = tuple(value)
+            for mark in sequence:
+                if type(mark) not in (int, float):
+                    if not isinstance(mark, np.generic):
+                        raise ContractViolation(error)
+                    dtype = np.generic.dtype.__get__(mark)
+                    if (
+                        type(mark) is not dtype.type
+                        or dtype.kind not in "iuf"
+                        or dtype.itemsize > 8
+                    ):
+                        raise ContractViolation(error)
+                if (
+                    isinstance(mark, (int, np.integer))
+                    and abs(int(mark)) > exact_integer_limit
+                ):
+                    raise ContractViolation(error)
+            value = sequence
+        else:
+            raise ContractViolation(error)
+        try:
+            marks = np.asarray(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ContractViolation(error) from exc
+        if (
+            marks.dtype.kind not in "iuf"
+            or marks.dtype.itemsize > 8
+            or not np.isfinite(marks).all()
+        ):
+            raise ContractViolation(error)
+        # Every integer dtype narrower than 64 bits fits exactly in binary64.
+        # Compare the precision bounds only where they are representable.
+        if marks.dtype.kind in "iu" and marks.dtype.itemsize == 8:
+            if np.any(marks > exact_integer_limit) or (
+                marks.dtype.kind == "i" and np.any(marks < -exact_integer_limit)
+            ):
+                raise ContractViolation(error)
+        return marks.astype(np.float64, copy=True)
+
+    if type(observed_rows) is not int or observed_rows <= 0:
+        raise ContractViolation(
+            "trend_breadth: as-of observation count must be positive"
+        )
+    a, b = finite_marks(full), finite_marks(truncated)
     expected = observed_rows + 1  # initial cash row plus decision marks
     if (
         a.ndim != 1

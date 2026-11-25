@@ -248,7 +248,10 @@ def _plain_directory(path: Path) -> Path:
     return path
 
 
-def _check_bundle_roster(root: Path, pins: tuple[RecoveryFilePin, ...]) -> None:
+def _check_bundle_roster(
+    root: Path, pins: tuple[RecoveryFilePin, ...], *, allow_empty_arms: bool = False
+) -> bool:
+    """Check the exact file tree, optionally admitting the raw writer's empty scaffold."""
     # Traverse only the exact known directory tree, never an unexpected child.
     expected: dict[Path, set[str]] = {root: set()}
     for pin in pins:
@@ -258,16 +261,41 @@ def _check_bundle_roster(root: Path, pins: tuple[RecoveryFilePin, ...]) -> None:
                 break
             child = path.relative_to(parent).parts[0]
             expected.setdefault(parent, set()).add(child)
+    empty_arms = False
     for directory in sorted(expected, key=lambda p: len(p.parts)):
         names = expected[directory]
         if directory.is_symlink() or directory.is_junction() or not directory.is_dir():
             raise ValueError("invalid recovery bundle directory")
-        if {p.name for p in directory.iterdir()} != names:
+        actual = {p.name for p in directory.iterdir()}
+        if (
+            directory == root
+            and allow_empty_arms
+            and "arms" not in names
+            and "arms" in actual
+        ):
+            # The native writer creates this directory before the first
+            # completed receipt rename. Only a regular, empty scaffold may
+            # be absent from the file pins; never ignore partial staging.
+            scaffold = root / "arms"
+            if scaffold.is_symlink() or scaffold.is_junction() or not scaffold.is_dir():
+                raise ValueError("invalid recovery bundle directory")
+            if any(scaffold.iterdir()):
+                raise ValueError(
+                    "recovery bundle contains missing or unexpected entries"
+                )
+            actual.remove("arms")
+            empty_arms = True
+        if actual != names:
             raise ValueError("recovery bundle contains missing or unexpected entries")
     for pin in pins:
         path = root / pin.path
         if path.is_symlink() or path.is_junction() or not path.is_file():
             raise ValueError("recovery bundle file must be a regular file")
+    return empty_arms
+
+
+def _has_started_slot(stopped: RunReceipt) -> bool:
+    return any(arm.status in {"RUNNING", "INTERRUPTED"} for arm in stopped.arms)
 
 
 def _stream_pinned_file(
@@ -306,6 +334,7 @@ def _stage_stopped_recovery(
     expected_source_commit: str,
     expected_frozen_plan_sha256: str,
     expected_handoff_sha256: str,
+    allow_empty_arms: bool = False,
 ) -> RecoveryHandoff:
     """Publish a byte-identical recovery input bundle at a fresh destination.
 
@@ -317,13 +346,15 @@ def _stage_stopped_recovery(
     """
     require_sha256(expected_handoff_sha256, field="expected recovery handoff")
     source = _plain_directory(Path(source))
-    plan, _, _ = _read_bundle_plan(
+    plan, _, stopped = _read_bundle_plan(
         protocol,
         source,
         pins,
         expected_source_commit=expected_source_commit,
         expected_frozen_plan_sha256=expected_frozen_plan_sha256,
+        allow_empty_arms=allow_empty_arms,
     )
+    allow_empty_arms = allow_empty_arms and _has_started_slot(stopped)
     if plan.sha256 != expected_handoff_sha256:
         raise ValueError("recovery handoff digest mismatch")
     destination = Path(destination)
@@ -335,13 +366,13 @@ def _stage_stopped_recovery(
         raise FileExistsError("recovery destination already exists")
     if destination.is_relative_to(source) or source.is_relative_to(destination):
         raise ValueError("recovery destination must be outside the stopped bundle")
-    _check_bundle_roster(source, plan.files)
+    _check_bundle_roster(source, plan.files, allow_empty_arms=allow_empty_arms)
 
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.staging-", dir=parent))
     try:
         for pin in plan.files:
             _copy_pinned_file(source / pin.path, staging / pin.path, pin)
-        _check_bundle_roster(source, plan.files)
+        _check_bundle_roster(source, plan.files, allow_empty_arms=allow_empty_arms)
         atomic_write_bytes(staging / "recovery.json", plan.canonical_bytes())
         atomic_rename_directory(staging, destination)
     finally:
@@ -472,15 +503,24 @@ def _read_bundle_plan(
     expected_source_commit: str,
     expected_frozen_plan_sha256: str,
     manifest_pin: RecoveryFilePin | None = None,
+    allow_empty_arms: bool = False,
 ) -> tuple[RecoveryHandoff, frozenset[str], RunReceipt]:
     require_git_sha(expected_source_commit)
     require_sha256(expected_frozen_plan_sha256, field="pre-stop frozen plan")
     by_path, receipt_paths = _bundle_pins(protocol, pins)
     if by_path["frozen-plan.bin"].sha256 != expected_frozen_plan_sha256:
         raise ValueError("frozen plan differs from pre-stop digest")
-    _check_bundle_roster(root, pins if manifest_pin is None else (*pins, manifest_pin))
+    empty_arms = _check_bundle_roster(
+        root,
+        pins if manifest_pin is None else (*pins, manifest_pin),
+        allow_empty_arms=allow_empty_arms and manifest_pin is None,
+    )
     try:
         stopped = _parse_run(_read_pinned_metadata(root, by_path["stopped-run.json"]))
+        if empty_arms and not _has_started_slot(stopped):
+            raise ValueError(
+                "empty native publication scaffold requires a started slot"
+            )
         candidates = tuple(
             _parse_arm(_read_pinned_metadata(root, by_path[path]))
             for path in receipt_paths
@@ -510,6 +550,8 @@ def _verify_remaining_files(
     plan: RecoveryHandoff,
     metadata_paths: frozenset[str],
     manifest_pin: RecoveryFilePin | None = None,
+    *,
+    allow_empty_arms: bool = False,
 ) -> None:
     for pin in plan.files:
         if pin.path not in metadata_paths:
@@ -517,7 +559,9 @@ def _verify_remaining_files(
     if manifest_pin is not None:
         _stream_pinned_file(root / manifest_pin.path, manifest_pin)
     _check_bundle_roster(
-        root, plan.files if manifest_pin is None else (*plan.files, manifest_pin)
+        root,
+        plan.files if manifest_pin is None else (*plan.files, manifest_pin),
+        allow_empty_arms=allow_empty_arms and manifest_pin is None,
     )
 
 
@@ -528,6 +572,7 @@ def _inspect_stopped_recovery(
     *,
     expected_source_commit: str,
     expected_frozen_plan_sha256: str,
+    allow_empty_arms: bool = False,
 ) -> tuple[RecoveryHandoff, RunReceipt]:
     """Read-only inspection of an externally pinned stopped bundle.
 
@@ -541,8 +586,14 @@ def _inspect_stopped_recovery(
         pins,
         expected_source_commit=expected_source_commit,
         expected_frozen_plan_sha256=expected_frozen_plan_sha256,
+        allow_empty_arms=allow_empty_arms,
     )
-    _verify_remaining_files(root, plan, metadata_paths)
+    _verify_remaining_files(
+        root,
+        plan,
+        metadata_paths,
+        allow_empty_arms=allow_empty_arms and _has_started_slot(stopped),
+    )
     return plan, stopped
 
 

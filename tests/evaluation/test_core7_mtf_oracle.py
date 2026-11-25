@@ -75,8 +75,11 @@ PACKET_V29_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v29-dataset-elapsed.json"
 )
-PACKET_PATH = (
+PACKET_V30_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v30-native-grid.json"
+)
+PACKET_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v31-rsi-scratch.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -128,7 +131,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "3c9174f259f8f2d64e64b2c47f468d478245814bba24db0edc0094a5fee99b11"
+    "d02463dac4a2525cda1c6960bbba203720945a5213fe68da91b367ff9249089e"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -1912,7 +1915,7 @@ def test_v30_native_grid_preserves_v29_and_economic_boundary() -> None:
         == "b2249c119ea2153dd4f4b22851fba282b65ae00ce1e100bf52b128b433473029"
     )
     previous = json.loads(raw)
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V30_PATH.read_bytes())
     assert (
         assurance_digest(previous)
         == "623ed09497650e4ba084e49996638c97e691e5dc3d995b8678d0f859f13f1515"
@@ -1942,6 +1945,49 @@ def test_v30_native_grid_preserves_v29_and_economic_boundary() -> None:
     changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
     assert changed.returncode == 0, changed.stderr
     assert changed.stdout.splitlines() == ["trade_rl/data/native_clock.py"]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_v31_rsi_scratch_preserves_v30_and_economic_boundary() -> None:
+    raw = PACKET_V30_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "b961c914204a4fed06ab6ce4fa48c62ad05e6baa0914c5fb788e8bf9a449f938"
+    )
+    previous = json.loads(raw)
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert (
+        assurance_digest(previous)
+        == "3c9174f259f8f2d64e64b2c47f468d478245814bba24db0edc0094a5fee99b11"
+    )
+    assert current.keys() == previous.keys()
+    for field in previous:
+        if field not in ("identity", "thesis", "claims"):
+            assert current[field] == previous[field]
+    for field in previous["thesis"]:
+        if field != "limitations":
+            assert current["thesis"][field] == previous["thesis"][field]
+    for field in previous["claims"]:
+        if field != "next_authorized_action":
+            assert current["claims"][field] == previous["claims"][field]
+    assert current["thesis"]["limitations"].startswith(
+        previous["thesis"]["limitations"]
+    )
+    assert current["identity"] == {
+        "implementation_head": "c8f09fe5f5c80665e6c3e9ddf45c6ed0c3498473",
+        "protocol_head": "c8f09fe5f5c80665e6c3e9ddf45c6ed0c3498473",
+    }
+    old_head = previous["identity"]["implementation_head"]
+    new_head = current["identity"]["implementation_head"]
+    old = set(_bound_code_paths(old_head))
+    new = set(_bound_code_paths(new_head))
+    assert new == old
+    changed = _git("diff", "--name-only", old_head, new_head, "--", *sorted(old))
+    assert changed.returncode == 0, changed.stderr
+    assert changed.stdout.splitlines() == ["trade_rl/data/features/core.py"]
     for record in (previous, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors

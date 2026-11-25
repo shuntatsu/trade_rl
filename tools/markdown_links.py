@@ -271,6 +271,9 @@ def _mask_comments(source: str) -> str:
         begin = source.find("<!--", start)
         if begin < 0:
             break
+        if _escaped(source, begin):
+            start = begin + 4
+            continue
         end = source.find("-->", begin + 4)
         stop = len(source) if end < 0 else end + 3
         for index in range(begin, stop):

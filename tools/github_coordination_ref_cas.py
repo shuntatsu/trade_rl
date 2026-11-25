@@ -136,7 +136,9 @@ def _read_snapshot(
     viewer_login = _login(viewer.get("login"), "authenticated viewer login")
     repo = _mapping(data.get("repository"), "repository")
     repository_id = _text(repo.get("id"), "repository node id")
-    raw_ref = repo.get("ref")
+    if "ref" not in repo:
+        raise ValueError("repository ref is missing")
+    raw_ref = repo["ref"]
     if raw_ref is None:
         oid = ZERO_OID
     else:

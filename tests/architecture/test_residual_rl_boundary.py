@@ -55,10 +55,16 @@ def test_residual_rl_is_documented_as_synthetic_only() -> None:
     )
     assert "evaluation/residual_rl/" in boundaries
     assert "never a profitability claim" in boundaries
+    manifest_url = (
+        "https://github.com/shuntatsu/trade_rl_research/blob/main/"
+        "migration/residual_rl_archive.json"
+    )
+    assert manifest_url in boundaries
     status = (ROOT / "docs" / "research" / "current-status.md").read_text(
         encoding="utf-8"
     )
     assert "synthetic residual-PPO over the cost-aware allocator" in status
+    assert manifest_url in status
     assert (
         "real-data RL remains blocked behind the fee-only learnability check" in status
     )

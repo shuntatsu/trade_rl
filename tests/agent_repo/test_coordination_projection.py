@@ -370,3 +370,13 @@ def test_handoff_validates_snapshot_before_mutable_caller_change(
     assert source == [123]
     assert getattr(handoff, field) == ("original-id",)
     validate_handoff(handoff, packet, lease)
+
+
+def test_dashboard_rejects_null_main_oid() -> None:
+    with pytest.raises(ValueError, match="main_sha"):
+        render_dashboard("#500 Agent Coordination Plane", "0" * 40, ())
+
+
+def test_dashboard_accepts_nonzero_main_oid_with_leading_zeroes() -> None:
+    main_sha = "0" * 39 + "1"
+    assert f"main: {main_sha}\n" in render_dashboard("#500", main_sha, ())

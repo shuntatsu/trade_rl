@@ -1,6 +1,6 @@
 # 研究基盤と個別研究のリポジトリ分離計画
 
-Status: Active — initial policy pilot imported; full migration and execution cutover are not authorized by this plan.
+Status: Active — external study migration in progress; execution cutover and core cleanup remain separately gated.
 
 ## 目的と非目標
 
@@ -8,7 +8,7 @@ Status: Active — initial policy pilot imported; full migration and execution c
 [shuntatsu/trade_rl_research](https://github.com/shuntatsu/trade_rl_research) に個別研究の実装、仮説、比較条件、実行、判定、証拠参照を段階的に集約する。
 Python配布名 `trade-rl` とimport名 `trade_rl` は変更しない。
 研究用の別配布名は `trade-rl-research`、import名は `trade_rl_research` とする。
-別repoの初期policy importは完了しているが、公開範囲の変更、ライセンスの追加判断、既存sourceの削除は別途確認する。
+新規の個別研究は研究repoを通常の作業場所とする。移行中の研究実装・台帳・検証状況は [研究リポジトリ](https://github.com/shuntatsu/trade_rl_research) で確認し、基盤側へ研究別進捗の複製を増やさない。公開範囲の変更、ライセンスの追加判断、既存sourceの削除は別途確認する。
 本計画は基盤の現行source配置、研究結果、gate、実行権限を変更しない。
 
 目標は研究候補の追加によって共通会計・データ・学習基盤の責務やリリースを変更しなくてよい状態。
@@ -29,6 +29,7 @@ Python配布名 `trade-rl` とimport名 `trade_rl` は変更しない。
 
 依存は `trade_rl_research -> trade_rl` のみ。基盤から研究のpackage/CLI/testsを
 importしない。研究は共通engineを呼び出し、独自の注文・リスク・会計経路を作らない。
+研究からの基盤改善依頼は、既存Issueへの追記または短いIssue（再現条件、期待契約、影響範囲）でよい。小規模なdocs/test/意味保存変更には新しい研究packetを要求せず、変更規模に応じた検証を行う。実験認可・正確な証拠保全・統合時の必須review/CIは従来どおりとする。
 基盤にreference strategyが必要な場合は最小の比較用実装だけを残す。戦略を一般化した
 という理由だけで学習済みcheckpointやstudy固有の閾値を基盤へ昇格させない。
 

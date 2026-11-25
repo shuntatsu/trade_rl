@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-td8-atomic-publication.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+    / "sd2-signal-diagnosis-research-assurance-20261126-td8-atomic-publication.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
+PINNED_DIGEST = "6288c55738ecbd7c4dfa785e162173f80451da76d9cccee2f1cbb2faa5c14826"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -1822,7 +1822,13 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
         assurance_digest(previous)
         == "d5234f153e355d063657c44979cbedcfde9cb7e6619bbe26b764fa2d096bc4ab"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+        ).read_bytes()
+    )
     assert current["identity"] == {
         "implementation_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
         "protocol_head": "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36",
@@ -1855,6 +1861,56 @@ def test_td8_partitioned_decoder_successor_preserves_union_packet() -> None:
         "--",
         *sorted(a),
     )
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_atomic_publication_successor_preserves_previous_packet() -> None:
+    previous_bytes = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261125-td8-partitioned-decode.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(previous_bytes).hexdigest()
+        == "a7f5cc757ce8a8eb8879002caa35bd5a44dc4c17f3c2c68953b19386fcdda346"
+    )
+    previous = json.loads(previous_bytes)
+    assert (
+        assurance_digest(previous)
+        == "138062e2a9004f6d343cad737a313bb9af508c9d0f24cf662417813bebcf6649"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "81a47fc7b3df3c5b6f3833fc0c31a2f5a7892e36"
+    new_head = "bd21022612d772ae9c3ff15353fb5e871f0d25da"
+    assert current["identity"] == {
+        "implementation_head": new_head,
+        "protocol_head": new_head,
+    }
+    expected = json.loads(previous_bytes)
+    expected["identity"] = current["identity"]
+    for section, key in (
+        ("thesis", "limitations"),
+        ("evidence", "independent_reconstruction"),
+    ):
+        assert current[section][key].startswith(previous[section][key])
+        expected[section][key] = current[section][key]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = previous[section][key].replace(old_head, new_head)
+    assert current == expected
+    a = set(bound_code_paths(old_head))
+    b = set(bound_code_paths(new_head))
+    assert a == b and len(b) == 177
+    diff = _git("diff", "--name-only", old_head, new_head, "--", *sorted(b))
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == [
         "trade_rl/evaluation/decision_value_dev_study.py"

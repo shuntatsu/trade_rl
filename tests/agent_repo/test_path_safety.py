@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tools.agent_repo.git_state import read_git_state
+from tools.agent_repo.path_safety import checked_repo_path
 from tools.agent_repo.source_index import SourceIndex
 from tools.agent_repo.verification import plan_verification
 
@@ -140,3 +141,24 @@ def test_verification_rejects_symlinked_integration_directory(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="symlink|repository"):
         plan_verification(tmp_path, base_ref="main")
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_checked_repo_path_rejects_parent_traversal_before_resolution(
+    tmp_path: Path, absolute: bool
+) -> None:
+    root = tmp_path / "repo"
+    target = _write(root, "module.py", "VALUE = 1\n")
+    candidate = Path("..") / root.name / target.name
+    if absolute:
+        candidate = root / candidate
+    with pytest.raises(ValueError, match="escapes repository"):
+        checked_repo_path(root, candidate)
+
+
+def test_checked_repo_path_accepts_contained_relative_and_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    target = _write(tmp_path, "nested/module.py", "VALUE = 1\n")
+    assert checked_repo_path(tmp_path, target) == target
+    assert checked_repo_path(tmp_path, Path("nested/module.py")) == target

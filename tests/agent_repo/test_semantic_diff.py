@@ -269,3 +269,60 @@ def test_empty_literal_persistence_roster_differs_from_dynamic_expression(
         and item.name == "Config.JSON_FIELDS"
         for item in signals
     )
+
+
+@pytest.mark.parametrize("rename_mode", ["true", "false", "copies"])
+def test_semantic_diff_rename_reports_removed_and_added_surfaces(
+    tmp_path: Path, rename_mode: str
+) -> None:
+    _baseline(tmp_path)
+    _git(tmp_path, "config", "diff.renames", rename_mode)
+    _git(tmp_path, "mv", "trade_rl/example.py", "trade_rl/renamed.py")
+    signals = semantic_diff(tmp_path, base_ref="main")
+    assert {
+        (item.path, item.change)
+        for item in signals
+        if item.kind == "SCHEMA" and item.name == "OLD_SCHEMA"
+    } == {
+        ("trade_rl/example.py", "removed"),
+        ("trade_rl/renamed.py", "added"),
+    }
+
+
+@pytest.mark.parametrize("name", ["日本語.py", "space name.py"])
+@pytest.mark.parametrize("tracked", [True, False])
+def test_semantic_diff_preserves_exact_path(
+    tmp_path: Path, name: str, tracked: bool
+) -> None:
+    _baseline(tmp_path)
+    path = f"trade_rl/{name}"
+    if tracked:
+        _write(tmp_path, path, "SCHEMA = 'v1'\n")
+        _git(tmp_path, "add", path)
+        _git(tmp_path, "commit", "-m", "add file")
+    _write(tmp_path, path, "SCHEMA = 'v2'\n")
+    signals = semantic_diff(tmp_path, base_ref="main")
+    assert any(
+        item.path == path
+        and item.kind == "SCHEMA"
+        and item.change == ("changed" if tracked else "added")
+        for item in signals
+    )
+
+
+def test_semantic_diff_unicode_module_dependency_does_not_appear_added(
+    tmp_path: Path,
+) -> None:
+    _baseline(tmp_path)
+    _write(tmp_path, "trade_rl/日本語.py", "value = 1\n")
+    _write(tmp_path, "trade_rl/example.py", "from trade_rl import 日本語\n")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "unicode module")
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "from trade_rl import 日本語\nSCHEMA = 'v2'\n",
+    )
+    signals = semantic_diff(tmp_path, base_ref="main")
+    assert not any(item.kind == "DEPENDENCY" for item in signals)
+    assert any(item.kind == "SCHEMA" and item.change == "added" for item in signals)

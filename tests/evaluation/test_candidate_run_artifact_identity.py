@@ -312,3 +312,23 @@ def test_candidate_reader_resolves_exact_physical_members_not_suffix_aliases(
     loaded = load_candidate_run_artifact(root)
     np.testing.assert_array_equal(loaded.returns["cell"], [0.1])
     np.testing.assert_array_equal(loaded.returns["cell.npy"], [0.2])
+
+
+@pytest.mark.parametrize(
+    "reader", [load_candidate_run_artifact, inspect_candidate_run_artifact]
+)
+def test_candidate_public_reader_refuses_trailing_npy_bytes(
+    tmp_path: Path, reader
+) -> None:
+    root = tmp_path / "artifact"
+    _write_root(root, compressed=True)
+    path = root / "returns.npz"
+    key = "symbol_0_strategy_0.npy"
+    with zipfile.ZipFile(path) as archive:
+        member = archive.read(key)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(key, member + b"not part of the return array")
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="byte extent"):
+        reader(root)
+    assert path.read_bytes() == original

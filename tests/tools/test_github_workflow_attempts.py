@@ -190,7 +190,7 @@ def test_run_and_job_status_contradictions_are_rejected() -> None:
 
     api = FakeReader()
     api.pages[0]["jobs"][0]["status"] = "in_progress"
-    with pytest.raises(ValueError, match="unfinished status"):
+    with pytest.raises(ValueError, match="unfinished job"):
         observe_workflow_attempt(api, run_id=RUN_ID)
 
 

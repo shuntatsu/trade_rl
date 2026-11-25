@@ -24,6 +24,7 @@ _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
 _ZERO_DIGEST = "0" * 64
 
+
 _CROSS_ASSET_GLOBAL_PREFIX = "xa_"  # Reserved for external market-context features.
 _CROSS_ASSET_VINTAGE_BASIS = "latest_vintage_at_capture_not_first_release"
 _CROSS_ASSET_OVERLAY_SCHEMA = "cross_asset_global_overlay_v3"
@@ -44,6 +45,16 @@ _CROSS_ASSET_RECEIPT_FIELDS = frozenset(
         "revision_hindsight_series",
     }
 )
+
+
+def _elapsed_search_duration_ns(hours: float) -> int:
+    """Round as before, capping only beyond every representable timestamp span."""
+    scaled = float(hours) * _NS_PER_HOUR
+    # A distance of 2**64 ns exceeds the entire signed-ns timestamp domain.
+    # It suffices for a search bound and also avoids rounding positive infinity.
+    if scaled >= 1 << 64:
+        return 1 << 64
+    return round(scaled)
 
 
 def _validate_cross_asset_global_provenance(
@@ -1006,8 +1017,12 @@ class MarketDataset:
             raise ValueError("lookback index is outside the dataset")
         if not math.isfinite(hours) or hours <= 0.0:
             raise ValueError("hours must be finite and positive")
-        target_ns = self._timestamp_ns[index] - int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="right") - 1)
+        target_ns = int(self._timestamp_ns[index]) - _elapsed_search_duration_ns(hours)
+        if target_ns < int(self._timestamp_ns[0]):
+            raise ValueError("insufficient history for requested hours")
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="right") - 1
+        )
         if result < 0 or result >= index:
             raise ValueError("insufficient history for requested hours")
         return result
@@ -1015,8 +1030,12 @@ class MarketDataset:
     def minimum_index_for_history(self, hours: float) -> int:
         if not math.isfinite(hours) or hours <= 0.0:
             raise ValueError("hours must be finite and positive")
-        target_ns = self._timestamp_ns[0] + int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="left"))
+        target_ns = int(self._timestamp_ns[0]) + _elapsed_search_duration_ns(hours)
+        if target_ns > int(self._timestamp_ns[-1]):
+            raise ValueError("dataset is too short for requested history")
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="left")
+        )
         if result >= self.n_bars:
             raise ValueError("dataset is too short for requested history")
         return result
@@ -1035,8 +1054,14 @@ class MarketDataset:
         maximum = self.n_bars - 1 if maximum_index is None else maximum_index
         if not start_index < maximum < self.n_bars:
             raise ValueError("maximum_index is outside the forward range")
-        target_ns = self._timestamp_ns[start_index] + int(round(hours * _NS_PER_HOUR))
-        result = int(np.searchsorted(self._timestamp_ns, target_ns, side="left"))
+        target_ns = int(self._timestamp_ns[start_index]) + _elapsed_search_duration_ns(
+            hours
+        )
+        if target_ns >= int(self._timestamp_ns[maximum]):
+            return maximum
+        result = int(
+            np.searchsorted(self._timestamp_ns, np.int64(target_ns), side="left")
+        )
         return min(maximum, max(start_index + 1, result))
 
     def bars_until(

@@ -223,3 +223,52 @@ def test_malformed_comment_fields_fail_closed(changed: str) -> None:
         api.comments[0]["updated_at"] = ""
     with pytest.raises(ValueError):
         _read(api)
+
+
+@pytest.mark.parametrize("count", [100, 1000])
+def test_full_last_page_requires_empty_terminal_page(count: int) -> None:
+    api = FakeApi()
+    api.comments = [api.comments[0]] + [
+        dict(id=20 + i, user={"id": 999}, body="discussion", updated_at="now")
+        for i in range(count - 1)
+    ]
+    api.issue["comments"] = count
+    result = _read(api)
+    assert result.comment_id == 15
+    pages = [query["page"] for _, _, query in api.requests if query is not None]
+    assert pages == [str(i) for i in range(1, count // 100 + 2)] * 2
+
+
+@pytest.mark.parametrize("count", [100, 1000])
+@pytest.mark.parametrize("scan", [1, 2])
+def test_extra_comment_after_declared_full_page_is_rejected(
+    count: int, scan: int
+) -> None:
+    class ExtraPageApi(FakeApi):
+        def _request_json(
+            self, method: str, suffix: str, *, query: dict[str, str] | None = None
+        ) -> object:
+            result = super()._request_json(method, suffix, query=query)
+            if (
+                query is not None
+                and int(query["page"]) == count // 100 + 1
+                and self.issue_reads == scan
+            ):
+                return [
+                    dict(
+                        id=9999,
+                        user={"id": AUTHOR},
+                        body=render_status_comment(STATUS),
+                        updated_at="now",
+                    )
+                ]
+            return result
+
+    api = ExtraPageApi()
+    api.comments = [api.comments[0]] + [
+        dict(id=20 + i, user={"id": 999}, body="discussion", updated_at="now")
+        for i in range(count - 1)
+    ]
+    api.issue["comments"] = count
+    with pytest.raises(ValueError, match="pagination"):
+        _read(api)

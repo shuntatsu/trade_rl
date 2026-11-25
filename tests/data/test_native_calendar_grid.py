@@ -223,3 +223,47 @@ def test_native_clock_requires_an_explicit_unmasked_array() -> None:
     starts, ends = clock.interval_bounds(closes)
     assert starts[0] == np.datetime64("2024-01-01")
     assert ends[0] == closes[0]
+
+
+@pytest.mark.parametrize(("seconds", "count"), [(900, 350640), (3600, 87660)])
+def test_long_fixed_grid_exact_against_integer_oracle(seconds: int, count: int) -> None:
+    # Ten years of continuous synthetic observations crossing the Unix epoch.
+    anchor = np.datetime64("1965-01-01T00:00:00.000000003", "ns")
+    clock = NativeBarClock(NativeClockKind.FIXED_ELAPSED, seconds, anchor)
+    step = seconds * 10**9
+    first = int(anchor.astype(np.int64))
+    expected = np.fromiter((first + i * step for i in range(count + 1)), dtype=np.int64)
+    closes = expected[1:].view("datetime64[ns]")
+    starts, ends = clock.interval_bounds(closes)
+    np.testing.assert_array_equal(starts.view(np.int64), expected[:-1])
+    np.testing.assert_array_equal(ends.view(np.int64), expected[1:])
+    assert clock.elapsed_years(closes) == Fraction(count * seconds, 365 * 86400)
+    for index in (1, count // 2, count - 1):
+        broken = closes.copy()
+        broken[index] += np.timedelta64(1, "ns")
+        with pytest.raises(ValueError):
+            clock.interval_bounds(broken)
+
+
+def test_fixed_grid_rejects_reverse_wrap_alias() -> None:
+    # A naive signed/unsigned subtraction alone observes a one-second delta.
+    high = 2**63 - 500_000_000
+    low = high + 10**9 - 2**64
+    clock = NativeBarClock(NativeClockKind.FIXED_ELAPSED, 1, np.datetime64(high, "ns"))
+    with pytest.raises(ValueError):
+        clock.interval_bounds(
+            np.array([high, low], dtype=np.int64).view("datetime64[ns]")
+        )
+
+
+def test_fixed_grid_accepts_large_exact_positive_delta_across_epoch() -> None:
+    seconds = 8_000_000_000
+    first = -1_000_000_000_000_000_000
+    step = seconds * 10**9
+    clock = NativeBarClock(
+        NativeClockKind.FIXED_ELAPSED, seconds, np.datetime64(first, "ns")
+    )
+    closes = np.array([first, first + step], dtype=np.int64).view("datetime64[ns]")
+    starts, ends = clock.interval_bounds(closes)
+    np.testing.assert_array_equal(starts.view(np.int64), [first - step, first])
+    np.testing.assert_array_equal(ends, closes)

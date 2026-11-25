@@ -10,10 +10,18 @@ import gzip
 import hashlib
 import json
 import math
+from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
+
 from trade_rl.artifacts import canonical_json_bytes
+from trade_rl.evaluation.divergence_cloud_diagnostics import (
+    attribute_single_symbol_ledger,
+)
+from trade_rl.simulation.orders.model import OrderEvent
 from trade_rl.simulation.quantities import parse_quantity
 
 CellKey = tuple[str, int, str, str]
@@ -57,6 +65,167 @@ def _read(path: Path) -> dict:
     if path.is_symlink() or not path.is_file():
         raise ValueError("missing or nonregular receipt")
     return _canonical_object(path.read_bytes())
+
+
+def _verify_native_flows(ledger: dict, intervals: list[dict]) -> None:
+    # Native observer totals are cumulative from a fresh account. Reconcile
+    # the redundant evidence without recomputing fills, funding or turnover.
+    for total, interval_field in (
+        ("total_cost", "interval_cost"),
+        ("funding_pnl", "interval_funding"),
+        ("borrow_cost", "interval_borrow_cost"),
+        ("turnover_total", None),
+    ):
+        previous = 0.0
+        flows: list[float] = []
+        for row in intervals:
+            before = _finite(row[total + "_before"], total)
+            after = _finite(row[total + "_after"], total)
+            if not math.isclose(before, previous, abs_tol=1e-7, rel_tol=1e-10):
+                raise ValueError("native flow discontinuity: " + total)
+            # Cost, borrow and turnover are cumulative nonnegative native
+            # magnitudes; funding alone is signed.
+            if total != "funding_pnl" and (before < 0 or after < before):
+                raise ValueError("native flow outside cumulative bounds: " + total)
+            if interval_field is not None:
+                flow = _finite(row[interval_field], interval_field)
+                if not math.isclose(after - before, flow, abs_tol=1e-7, rel_tol=1e-10):
+                    raise ValueError("native flow increment mismatch: " + total)
+                flows.append(flow)
+            previous = after
+        final = _finite(ledger["final_" + total], total)
+        if not math.isclose(final, previous, abs_tol=1e-7, rel_tol=1e-10) or (
+            interval_field is not None
+            and not math.isclose(final, math.fsum(flows), abs_tol=1e-7, rel_tol=1e-10)
+        ):
+            raise ValueError("native flow terminal mismatch: " + total)
+
+
+def _verify_native_terminal_trace(ledger: dict, intervals: list[dict]) -> None:
+    # The frozen replay uses a fresh account and the native floor-zero
+    # insolvency convention. Verify redundant observations, not fills/P&L.
+    first, last = intervals[0], intervals[-1]
+    prior_cash = 10000.0
+    if first["exact_quantities_before"] != ["0"]:
+        raise ValueError("native terminal trace has nonflat initial inventory")
+    for i, row in enumerate(intervals):
+        before = _finite(row["cash_before"], "cash before")
+        if not math.isclose(before, prior_cash, abs_tol=1e-7, rel_tol=1e-10):
+            raise ValueError("native cash discontinuity")
+        prior_cash = _finite(row["cash_after"], "cash after")
+        start = _finite(row["portfolio_value_before"], "interval start equity")
+        end = _finite(row["portfolio_value_after"], "interval end equity")
+        observed = _finite(row["interval_net_return"], "interval return")
+        if start <= 0 or not math.isclose(
+            observed,
+            max(max(end, 0.0) / start - 1.0, -1.0 + 1e-12),
+            abs_tol=1e-12,
+            rel_tol=1e-10,
+        ):
+            raise ValueError("native interval return mismatch")
+        if i != len(intervals) - 1 and row["termination_reason"] is not None:
+            raise ValueError("native terminal reason before final interval")
+    if not math.isclose(
+        _finite(ledger["final_cash"], "final cash"),
+        prior_cash,
+        abs_tol=1e-7,
+        rel_tol=1e-10,
+    ):
+        raise ValueError("native terminal cash mismatch")
+    if ledger["terminal_exact_quantities"] != last["exact_quantities_after"]:
+        raise ValueError("native terminal quantity mismatch")
+    if ledger["termination_reason"] != last["termination_reason"]:
+        raise ValueError("native terminal reason mismatch")
+
+
+def _verify_order_events(ledger: dict, intervals: list[dict]) -> None:
+    # Use the native event schema, then bind each observed event to this
+    # single-symbol book and its decision/processing interval.
+    for row in intervals:
+        events = row["order_events"]
+        if not isinstance(events, list):
+            raise ValueError("native order event roster mismatch")
+        for raw in events:
+            if not isinstance(raw, dict):
+                raise ValueError("native order event must be an object")
+            try:
+                event = OrderEvent.from_mapping(raw)
+            except (ValueError, OverflowError) as error:
+                raise ValueError("native order event schema mismatch") from error
+            if (
+                event.dataset_id != ledger["dataset_id"]
+                or event.execution_policy_digest != ledger["execution_policy_digest"]
+                or event.symbol_index != 0
+                or not row["start_index"] <= event.processing_index <= row["next_index"]
+            ):
+                raise ValueError("native order event identity mismatch")
+
+
+def _verify_decision_trace(
+    ledger: dict, intervals: list[dict], arm: str, scenario: str
+) -> None:
+    # All eleven arms use the same single-symbol native portfolio actor.
+    # A completed actor prefix is mandatory even for an invalid terminal result.
+    label = "native control decision" if arm in ("CASH", "BH25") else "native decision"
+    decisions = ledger["portfolio_decisions"]
+    reserve = 2 if scenario == "latency_1h" else 1
+    expected = min(
+        len(intervals), ledger["stop_index"] - ledger["start_index"] - reserve
+    )
+    if not isinstance(decisions, list) or expected <= 0 or len(decisions) != expected:
+        raise ValueError(label + " missing or extra decisions")
+    for i, decision in enumerate(decisions):
+        if (
+            not isinstance(decision, dict)
+            or type(decision.get("index")) is not int
+            or decision["index"] != intervals[i]["start_index"]
+        ):
+            raise ValueError(label + " identity mismatch")
+        for field in ("proposal_weights", "target_weights"):
+            weights = decision.get(field)
+            if not isinstance(weights, list) or len(weights) != 1:
+                raise ValueError(label + " weight roster mismatch")
+            _finite(weights[0], label + " weight")
+        for field in ("requested_hold_symbols", "effective_hold_symbols"):
+            holds = decision.get(field)
+            if (
+                not isinstance(holds, list)
+                or len(holds) > 1
+                or any(type(index) is not int or index != 0 for index in holds)
+            ):
+                raise ValueError(label + " HOLD roster mismatch")
+        reasons = decision.get("risk_reasons")
+        if not isinstance(reasons, list) or any(
+            type(reason) is not str for reason in reasons
+        ):
+            raise ValueError(label + " risk reason mismatch")
+        if arm not in ("CASH", "BH25"):
+            continue
+        weight = decision["proposal_weights"][0]
+        holds = decision["requested_hold_symbols"]
+        if arm == "CASH":
+            if weight != 0 or holds != []:
+                raise ValueError("native control CASH must request zero")
+        elif i == 0:
+            if weight != 0.25 or holds != []:
+                raise ValueError("native control BH25 initial weight mismatch")
+        elif holds != [0]:
+            raise ValueError("native control BH25 must request HOLD")
+    if arm not in ("CASH", "BH25"):
+        return
+    for row in intervals:
+        for field in ("exact_quantities_before", "exact_quantities_after"):
+            quantities = row[field]
+            if not isinstance(quantities, list) or len(quantities) != 1:
+                raise ValueError("native control quantity roster mismatch")
+            quantity = parse_quantity(quantities[0])
+            if quantity < 0 or (arm == "CASH" and quantity != 0):
+                raise ValueError("native control inventory contradicts arm")
+        if arm == "CASH" and any(
+            event["event_type"] in ("filled", "partial_fill")
+            for event in row["order_events"]
+        ):
+            raise ValueError("native control CASH contains fills")
 
 
 def read_cell(
@@ -113,8 +282,12 @@ def read_cell(
     ):
         raise ValueError("native ledger schema or dataset identity mismatch")
     start, stop = ledger["start_index"], ledger["stop_index"]
-    if (expected_start is not None and start != expected_start) or (
-        expected_stop is not None and stop != expected_stop
+    if (
+        type(start) is not int
+        or type(stop) is not int
+        or not 0 <= start < stop
+        or (expected_start is not None and start != expected_start)
+        or (expected_stop is not None and stop != expected_stop)
     ):
         raise ValueError("native ledger window mismatch")
     intervals = ledger["intervals"]
@@ -123,7 +296,13 @@ def read_cell(
     if intervals[0]["start_index"] != start:
         raise ValueError("native ledger start mismatch")
     for index, row in enumerate(intervals, start=start):
-        if row["start_index"] != index or row["next_index"] != index + 1:
+        if (
+            type(row["start_index"]) is not int
+            or type(row["next_index"]) is not int
+            or row["start_index"] != index
+            or row["next_index"] != index + 1
+            or row["next_index"] > stop
+        ):
             raise ValueError("noncontiguous native interval evidence")
     initial = _finite(intervals[0]["portfolio_value_before"], "initial equity")
     if initial != 10000.0:
@@ -134,6 +313,37 @@ def read_cell(
         last["portfolio_value_after"], end, abs_tol=1e-7, rel_tol=1e-10
     ):
         raise ValueError("native terminal equity mismatch")
+    # Intrabar native observations may exceed the close-path drawdown, so
+    # observed boundary equity is a lower bound, not a replacement metric.
+    peak = initial
+    observed_dd = 0.0
+    prior_native_dd = 0.0
+    for row in intervals:
+        before_dd = _finite(row["max_drawdown_before"], "drawdown before")
+        after_dd = _finite(row["max_drawdown_after"], "drawdown after")
+        # This protocol uses native floor-zero loss semantics, not retain-debt.
+        if not (0 <= before_dd <= 1 and 0 <= after_dd <= 1):
+            raise ValueError("native drawdown outside floor-zero bounds")
+        if not math.isclose(before_dd, prior_native_dd, abs_tol=1e-8, rel_tol=0):
+            raise ValueError("native drawdown discontinuity")
+        for field in ("portfolio_value_before", "portfolio_value_after"):
+            equity = max(_finite(row[field], field), 0.0)
+            peak = max(peak, equity)
+            observed_dd = max(observed_dd, 1.0 - equity / peak)
+        if after_dd < max(observed_dd, before_dd) - 1e-8:
+            raise ValueError("native drawdown below observed boundary lower bound")
+        prior_native_dd = after_dd
+    if not math.isclose(
+        _finite(ledger["final_max_drawdown"], "final drawdown"),
+        prior_native_dd,
+        abs_tol=1e-8,
+        rel_tol=0,
+    ):
+        raise ValueError("native terminal drawdown mismatch")
+    _verify_native_flows(ledger, intervals)
+    _verify_native_terminal_trace(ledger, intervals)
+    _verify_decision_trace(ledger, intervals, arm, scenario)
+    _verify_order_events(ledger, intervals)
     expected = {
         "net_return_pct": 100 * (end / initial - 1),
         "max_drawdown_pct": 100 * ledger["final_max_drawdown"],
@@ -147,6 +357,51 @@ def read_cell(
             _finite(m[name], name), _finite(value, name), rel_tol=1e-10, abs_tol=1e-7
         ):
             raise ValueError("native scalar mismatch: " + name)
+    # Reconstruct non-decisive diagnostics from the unchanged native receipt.
+    returns = np.asarray(
+        [_finite(row["interval_net_return"], "interval return") for row in intervals]
+    )
+    sd = float(np.std(returns))
+    sharpe = float(np.mean(returns) / sd * np.sqrt(8760)) if sd > 1e-12 else None
+    reported_sharpe = m.get("sharpe_hourly")
+    if (
+        (sharpe is None and reported_sharpe is not None)
+        or (
+            sharpe is not None
+            and not math.isclose(
+                _finite(reported_sharpe, "sharpe_hourly"),
+                sharpe,
+                rel_tol=1e-10,
+                abs_tol=1e-7,
+            )
+        )
+        or "sharpe_hourly" not in m
+    ):
+        raise ValueError("native scalar mismatch: sharpe_hourly")
+    fills = sum(
+        event["event_type"] in ("filled", "partial_fill")
+        for row in intervals
+        for event in row["order_events"]
+    )
+    if type(m.get("native_fills")) is not int or m["native_fills"] != fills:
+        raise ValueError("native scalar mismatch: native_fills")
+    attribution = asdict(
+        attribute_single_symbol_ledger([SimpleNamespace(**row) for row in intervals])
+    )
+    reported = m.get("directional_equity_buckets")
+    if not isinstance(reported, dict) or reported.keys() != attribution.keys():
+        raise ValueError("native scalar mismatch: directional_equity_buckets")
+    for name, value in attribution.items():
+        actual = reported[name]
+        if (type(value) is int and (type(actual) is not int or actual != value)) or (
+            type(value) is not int
+            and not math.isclose(
+                _finite(actual, name), value, rel_tol=1e-10, abs_tol=1e-7
+            )
+        ):
+            raise ValueError(
+                "native scalar mismatch: directional_equity_buckets." + name
+            )
     quantities = [
         parse_quantity(row["exact_quantities_before"][0]) for row in intervals
     ]

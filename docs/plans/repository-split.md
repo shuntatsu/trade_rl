@@ -216,6 +216,15 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   整数期間数に変換できず拒否する。この制約を丸めやcalendar種別の偽装で回避しない。
   native intervalとelapsed yearを表す新契約が必要ならschema/reader/identityを
   versioned migrationとして変更する。
+- Opt-in `trade_rl.evaluation.native_annualization.evaluate_native_bar_annualization`
+  は完全なnative gridと1区間1 simple returnを受け取り、ACT/365Fの実経過年と
+  観測頻度をFractionで返す。riskは算術driftに対する区間時間比例の残差二乗和を
+  実経過年で割る明示的な記述モデルとし、zero-target downsideも同じ実経過年で
+  正規化する。固定等間隔では既存ratioの丸め前の定義に一致する（ゼロ分散に
+  対する浮動小数点の偽の残差は除く）。月足を固定30日扱いせず、名目月次Sharpe、
+  CAGR、独立増分、providerの真正性または取引可能性の主張ではない。
+  既存ReturnSeries / PerformanceMetrics / Datasetのschema・identity・既定値は不変。
+  Dataset/replayからの接続、source provenance、execution/carryは別の受入条件である。
 - 長い履歴（複数年・細かい足）を固定した件数上限や特定年に依存せず扱えること。
   必要なwarmupの実時間はnative intervalから求める。先読み防止と同じ結果を
   保ったまま計算量・peak memoryを測定し、期間延長で再計算量が過度に増えない

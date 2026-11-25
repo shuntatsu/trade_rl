@@ -60,8 +60,13 @@ def test_admission_refuses_dirty_or_mismatched_head(monkeypatch):
         study._authorize({"identity": {}}, 1, 2, "unused")
 
 
-def test_all_strategy_modes_use_canonical_replay_on_synthetic_warmup():
+@pytest.mark.parametrize("scenario", ["normal", "double_cost", "latency_1h"])
+def test_all_strategy_modes_use_canonical_replay_on_synthetic_warmup(
+    tmp_path, scenario
+):
     from tests.data.test_divergence_cloud_mtf import _bars
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
     from trade_rl.data.market import MarketDataset
 
     raw = _bars(24 * 90)
@@ -86,8 +91,38 @@ def test_all_strategy_modes_use_canonical_replay_on_synthetic_warmup():
         periods_per_year=8760,
     )
     for arm in study.protocol()["arms"]:
-        metrics, _ = study.evaluate_cell(ds, arm, "normal", start=n - 48, stop=n - 1)
+        metrics, compressed = study.evaluate_cell(
+            ds, arm, scenario, start=n - 48, stop=n - 1
+        )
         assert metrics["terminal_ok"] and metrics["valid"], arm
+        path = tmp_path / arm
+        path.mkdir()
+        admission = {"synthetic_only": True}
+        attempt = {"admission": admission, "cell": path.name}
+        (path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+        (path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        (path / "ledger.json.gz").write_bytes(compressed)
+        assert (
+            read_cell(
+                path,
+                admission=admission,
+                dataset_id=ds.dataset_id,
+                arm=arm,
+                scenario=scenario,
+                expected_start=n - 48,
+                expected_stop=n - 1,
+            )
+            == metrics
+        )
 
 
 def _synthetic_cells():
@@ -440,3 +475,433 @@ def test_owner_comment_created_after_gates(monkeypatch, created, updated, accept
     else:
         with pytest.raises(ValueError, match="owner authorization"):
             study._authorize(packet, 1355, 123, url)
+
+
+@pytest.mark.parametrize("mutation", ["terminal_dd", "understated_path_dd"])
+def test_readback_rejects_contradictory_drawdown(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    admission = {"synthetic_only": True}
+    name = "BTCUSDT_2022_BH25_normal"
+    metrics, compressed = study.evaluate_cell(
+        ds, "BH25", "normal", start=0, stop=ds.n_bars - 1
+    )
+    ledger = json.loads(gzip.decompress(compressed))
+    assert ledger["final_max_drawdown"] > 0
+    ledger["final_max_drawdown"] = 0.0
+    metrics["max_drawdown_pct"] = 0.0
+    if mutation == "understated_path_dd":
+        for row in ledger["intervals"]:
+            row["max_drawdown_before"] = row["max_drawdown_after"] = 0.0
+    raw = canonical_json_bytes(ledger)
+    compressed = gzip.compress(raw, mtime=0)
+    metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+    path = tmp_path / name
+    path.mkdir()
+    attempt = {"admission": admission, "cell": name}
+    (path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+    (path / "result.json").write_bytes(
+        canonical_json_bytes(
+            {
+                **attempt,
+                "dataset_id": ds.dataset_id,
+                "metrics": metrics,
+                "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+            }
+        )
+    )
+    (path / "ledger.json.gz").write_bytes(compressed)
+    with pytest.raises(ValueError, match="drawdown"):
+        read_cell(
+            path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["sharpe_hourly", "native_fills", "directional_equity_buckets"]
+)
+def test_readback_rejects_tampered_diagnostic_scalar(tmp_path, field):
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    admission = {"head": "a" * 40}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    record = {
+        **attempt,
+        "dataset_id": ds.dataset_id,
+        "metrics": metrics,
+        "ledger_gzip_sha256": hashlib.sha256(z).hexdigest(),
+    }
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+    (tmp_path / "ledger.json.gz").write_bytes(z)
+
+    def read():
+        (tmp_path / "result.json").write_bytes(canonical_json_bytes(record))
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+        )
+
+    assert read() == metrics
+    if field == "directional_equity_buckets":
+        metrics[field]["net_long_usdt"] += 1000000
+    else:
+        metrics[field] = 999999
+    with pytest.raises(ValueError, match=field):
+        read()
+
+
+@pytest.mark.parametrize(
+    ("final_field", "metric_field"),
+    [
+        ("final_total_cost", "total_cost_usdt"),
+        ("final_funding_pnl", "funding_pnl_usdt"),
+        ("final_borrow_cost", "borrow_cost_usdt"),
+        ("final_turnover_total", "turnover"),
+    ],
+)
+def test_readback_rejects_rehashed_final_flow(tmp_path, final_field, metric_field):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+        )
+
+    assert read() == metrics
+    ledger[final_field] += 100.0
+    metrics[metric_field] += 100.0
+    with pytest.raises(ValueError, match="native flow"):
+        read()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "terminal_quantity",
+        "terminal_cash",
+        "cash_chain",
+        "termination",
+        "interval_return",
+    ],
+)
+def test_readback_rejects_contradictory_terminal_evidence(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+        )
+
+    assert read() == metrics
+    rows = ledger["intervals"]
+    if mutation == "terminal_quantity":
+        assert rows[-1]["exact_quantities_after"] == ["0"]
+        assert float(rows[-1]["portfolio_value_before"]) > 0
+        rows[-1]["exact_quantities_after"] = ["1"]
+    elif mutation == "terminal_cash":
+        ledger["final_cash"] += 100.0
+    elif mutation == "cash_chain":
+        rows[1]["cash_before"] += 100.0
+    elif mutation == "termination":
+        rows[-1]["termination_reason"] = "synthetic_contradiction"
+    else:
+        rows[1]["interval_net_return"] += 0.25
+        returns = np.asarray([row["interval_net_return"] for row in rows])
+        metrics["sharpe_hourly"] = float(
+            np.mean(returns) / np.std(returns) * np.sqrt(8760)
+        )
+    with pytest.raises(ValueError, match="native (terminal|cash|interval)"):
+        read()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["cash_relabel", "hold_initial_weight", "hold_rebalance", "hold_missing_decision"],
+)
+def test_readback_rejects_contradictory_control_identity(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm=metrics["arm"],
+            scenario="normal",
+        )
+
+    assert read() == metrics
+    if mutation == "cash_relabel":
+        metrics["arm"] = "CASH"
+    elif mutation == "hold_initial_weight":
+        ledger["portfolio_decisions"][0]["proposal_weights"] = [0.5]
+    elif mutation == "hold_missing_decision":
+        ledger["portfolio_decisions"].pop()
+    else:
+        assert ledger["portfolio_decisions"][1]["requested_hold_symbols"] == [0]
+        ledger["portfolio_decisions"][1]["requested_hold_symbols"] = []
+    with pytest.raises(ValueError, match="native control"):
+        read()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "duplicate_index", "target_shape", "hold_roster"]
+)
+def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "S2", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="S2",
+            scenario="normal",
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
+        )
+
+    assert read() == metrics
+    decisions = ledger["portfolio_decisions"]
+    if mutation == "missing":
+        decisions.pop()
+    elif mutation == "duplicate_index":
+        decisions[1]["index"] = decisions[0]["index"]
+    elif mutation == "target_shape":
+        decisions[0]["target_weights"] = []
+    else:
+        decisions[0]["requested_hold_symbols"] = [1]
+    with pytest.raises(ValueError, match="native decision"):
+        read()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["dataset", "symbol", "policy", "processing", "malformed"]
+)
+def test_readback_rejects_order_event_identity(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
+        )
+
+    assert read() == metrics
+    row = ledger["intervals"][0]
+    event = next(e for e in row["order_events"] if e["event_type"] == "filled")
+    if mutation == "dataset":
+        event["dataset_id"] = "different-dataset"
+    elif mutation == "symbol":
+        event["symbol_index"] = 1
+    elif mutation == "policy":
+        event["execution_policy_digest"] = "f" * 64
+    elif mutation == "processing":
+        event["processing_index"] = row["next_index"] + 1
+    else:
+        del event["execution_price"]
+    with pytest.raises(ValueError, match="native order event"):
+        read()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["drawdown_over_one", "negative_turnover", "bool_window"]
+)
+def test_readback_rejects_impossible_native_bounds(tmp_path, mutation):
+    import json
+
+    from tools.cloud_regime_switch_summary import read_cell
+    from trade_rl.artifacts import canonical_json_bytes
+
+    ds = _native_market()
+    metrics, z = study.evaluate_cell(ds, "BH25", "normal", start=0, stop=ds.n_bars - 1)
+    ledger = json.loads(gzip.decompress(z))
+    admission = {"synthetic_only": True}
+    attempt = {"admission": admission, "cell": tmp_path.name}
+    (tmp_path / "attempt.json").write_bytes(canonical_json_bytes(attempt))
+
+    def read():
+        raw = canonical_json_bytes(ledger)
+        compressed = gzip.compress(raw, mtime=0)
+        metrics["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+        (tmp_path / "ledger.json.gz").write_bytes(compressed)
+        (tmp_path / "result.json").write_bytes(
+            canonical_json_bytes(
+                {
+                    **attempt,
+                    "dataset_id": ds.dataset_id,
+                    "metrics": metrics,
+                    "ledger_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            )
+        )
+        return read_cell(
+            tmp_path,
+            admission=admission,
+            dataset_id=ds.dataset_id,
+            arm="BH25",
+            scenario="normal",
+            expected_start=0,
+            expected_stop=ds.n_bars - 1,
+        )
+
+    assert read() == metrics
+    if mutation == "drawdown_over_one":
+        ledger["intervals"][-1]["max_drawdown_after"] = 1.5
+        ledger["final_max_drawdown"] = 1.5
+        metrics["max_drawdown_pct"] = 150.0
+    elif mutation == "negative_turnover":
+        ledger["intervals"][-1]["turnover_total_after"] = -1.0
+        ledger["final_turnover_total"] = -1.0
+        metrics["turnover"] = -1.0
+    else:
+        ledger["start_index"] = False
+    with pytest.raises(ValueError, match="native (drawdown|flow|ledger window)"):
+        read()

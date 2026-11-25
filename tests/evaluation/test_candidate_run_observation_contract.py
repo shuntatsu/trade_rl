@@ -721,3 +721,46 @@ def test_loaded_candidate_run_is_deeply_immutable(tmp_path: Path) -> None:
         values.setflags(write=True)
     with pytest.raises(ValueError):
         values[0] = 1.0
+
+
+@pytest.mark.parametrize(
+    "reader", [load_candidate_run_artifact, inspect_candidate_run_artifact]
+)
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "lean_candidate_result_v6",
+        "lean_candidate_result_v8",
+        "lean_candidate_result_v10",
+    ],
+)
+@pytest.mark.parametrize("length", [0, 3, 5])
+def test_modern_candidate_rejects_mismatched_npy_length_before_decode(
+    tmp_path, monkeypatch, reader, schema, length
+):
+    artifact = publish_candidate_run(
+        tmp_path / "run",
+        _holding_result(seed=7, ppo_returns=(0.01,) * 4),
+        _provenance(),
+    )
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = schema
+    if schema != "lean_candidate_result_v10":
+        summary["candidate_config"].pop("forecast_switch_cost")
+    if schema == "lean_candidate_result_v6":
+        summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    assert reader(artifact.root) is not None
+    with np.load(artifact.returns_path, allow_pickle=False) as archive:
+        arrays = {key: archive[key].copy() for key in archive.files}
+    arrays["symbol_0_strategy_0"] = np.zeros(length, dtype=np.float64)
+    np.savez_compressed(artifact.returns_path, **arrays)
+    original = artifact.returns_path.read_bytes()
+
+    def forbidden_decode(*args, **kwargs):
+        raise AssertionError("invalid period count reached array materialization")
+
+    monkeypatch.setattr(np.lib.npyio.NpzFile, "__getitem__", forbidden_decode)
+    with pytest.raises(ValueError, match="return period count"):
+        reader(artifact.root)
+    assert artifact.returns_path.read_bytes() == original

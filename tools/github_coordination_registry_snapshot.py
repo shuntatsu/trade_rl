@@ -47,13 +47,17 @@ def _mapping(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
-def _requested_ref(ref_name: str) -> str:
+def validate_coordination_ref(ref_name: str) -> str:
+    """Require the restricted coordination-ref grammar before using observations."""
     if (
-        not isinstance(ref_name, str)
+        type(ref_name) is not str
         or not _REF_RE.fullmatch(ref_name)
-        or any(part in {".", ".."} for part in ref_name.split("/"))
+        or any(
+            part.startswith(".") or part.endswith(".lock")
+            for part in ref_name.split("/")
+        )
         or ".." in ref_name
-        or ref_name.endswith(".lock")
+        or ref_name.endswith(".")
     ):
         raise ValueError("ref must be a safe coordination branch ref")
     return ref_name
@@ -104,7 +108,7 @@ def observe_registry_snapshot(
         expected_repository
     ):
         raise ValueError("expected repository must be owner/name")
-    ref_name = _requested_ref(ref_name)
+    ref_name = validate_coordination_ref(ref_name)
     reader = GitHubRegistryObjectReader(
         api,
         expected_repository=expected_repository,
@@ -132,4 +136,8 @@ def observe_registry_snapshot(
     )
 
 
-__all__ = ["RegistryRefSnapshot", "observe_registry_snapshot"]
+__all__ = [
+    "RegistryRefSnapshot",
+    "observe_registry_snapshot",
+    "validate_coordination_ref",
+]

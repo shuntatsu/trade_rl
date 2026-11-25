@@ -751,3 +751,48 @@ def test_nested_merged_pr_exact_tip_opt_in_does_not_weaken_normal_cleanup(
         "fix/direct",
         "fix/nested",
     ]
+
+
+@pytest.mark.parametrize("count", [100, 900])
+@pytest.mark.parametrize("extra_run", [False, True])
+def test_full_workflow_page_requires_empty_successor(
+    monkeypatch: pytest.MonkeyPatch, count: int, extra_run: bool
+) -> None:
+    from tools.branch_hygiene import GitHubApi
+
+    api = GitHubApi(
+        repository="owner/repo", token="token", api_url="https://api.github.test"
+    )
+    pages: list[int] = []
+
+    def fake_request(
+        method: str, suffix: str, *, query: dict[str, str] | None = None
+    ) -> dict[str, object]:
+        assert method == "GET" and suffix == "actions/runs" and query is not None
+        status = query["status"]
+        if status != "queued":
+            return {"total_count": 0, "workflow_runs": []}
+        page = int(query["page"])
+        pages.append(page)
+        ids = range((page - 1) * 100 + 1, min(page * 100, count) + 1)
+        if page == count // 100 + 1 and extra_run:
+            ids = range(count + 1, count + 2)
+        return {
+            "total_count": count,
+            "workflow_runs": [
+                {"id": i, "status": status, "head_branch": f"task/{i}"} for i in ids
+            ],
+        }
+
+    monkeypatch.setattr(api, "_request_json", fake_request)
+    monkeypatch.setattr("tools.branch_hygiene.time.sleep", lambda _: None)
+    expected_pages = list(range(1, count // 100 + 2))
+    if extra_run:
+        with pytest.raises(RuntimeError, match="pagination"):
+            api.active_workflow_branch_names()
+        assert pages == expected_pages * 8
+    else:
+        assert api.active_workflow_branch_names() == frozenset(
+            f"task/{i}" for i in range(1, count + 1)
+        )
+        assert pages == expected_pages

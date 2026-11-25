@@ -104,12 +104,14 @@ class GitHubRegistryObjectReader:
         entries = tree.get("tree")
         if not isinstance(entries, list):
             raise ValueError("tree entries must be a list")
-        matches = [
-            entry
-            for item in entries
-            if (entry := _mapping(item, "tree entry")).get("path")
-            == self._registry_path
-        ]
+        matches = []
+        for item in entries:
+            entry = _mapping(item, "tree entry")
+            path = entry.get("path")
+            if not isinstance(path, str) or not path:
+                raise ValueError("tree entry path must be a nonempty string")
+            if path == self._registry_path:
+                matches.append(entry)
         if len(matches) != 1:
             raise ValueError("registry path must exist exactly once in Git tree")
         target = matches[0]

@@ -29,7 +29,11 @@ def _require_aware(value: datetime, *, field_name: str) -> None:
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
-    if not isinstance(value, str) or not _FULL_SHA_RE.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or not _FULL_SHA_RE.fullmatch(value)
+        or value == "0" * 40
+    ):
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 

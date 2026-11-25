@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-publication-union.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -29,12 +29,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
     ROOT
     / "report"
-    / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-publication-union.json"
+    / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-node-union.json"
 )
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "17eab857200007515c35a729278e2fe8a7babd4966cba5e24f598fa0367953cb"
+PINNED_DIGEST = "9afe855813642edc646c5c63732c833315c99206250dcee0eb8066aff09851d9"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2220,6 +2220,102 @@ def test_td8_node_envelope_successor_preserves_previous_packet() -> None:
         "trade_rl/evaluation/decision_value_dev_study.py"
     ]
     for record in (previous, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_fill_td8_node_union_preserves_both_predecessors() -> None:
+    common = json.loads(
+        (
+            ROOT
+            / "report"
+            / "sd2-signal-diagnosis-research-assurance-20261126-td8-atomic-publication.json"
+        ).read_bytes()
+    )
+    a_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-publication-union.json"
+    ).read_bytes()
+    b_raw = (
+        ROOT
+        / "report"
+        / "sd2-signal-diagnosis-research-assurance-20261126-td8-node-envelope.json"
+    ).read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "caeeae6591d814601f99704ba5c65132d85eb4dfaef9bf4a46b472421863f385"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "ddd3d24be5e028af9867009c3edafd1b1e5f799cb06dc1fcf316d5927e160eb7"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "17eab857200007515c35a729278e2fe8a7babd4966cba5e24f598fa0367953cb"
+    )
+    assert (
+        assurance_digest(b)
+        == "daa946b09c931270a68af5feb3507a5f5dee0525928ec6e03a8347bb68c491aa"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "25e7f8998d296a07526cb7ed07fd0d488c0bea49"
+    assert current["identity"] == {"implementation_head": head, "protocol_head": head}
+    expected = json.loads(a_raw)
+    expected["identity"] = current["identity"]
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only integration of immutable fill/TD8 publication union and TD8 pre-decode pin/node-envelope successors. Optional reader node admission is not a producer or absolute resource guarantee. Strict spot cash verification and POSIX path quoting are outside this bound closure. No economic protocol, evidence or authority change.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Source-only exact integration anchor 25e7f8998d296a07526cb7ed07fd0d488c0bea49; verified 178-path union of the prior 178-path combined closure and 177-path TD8 closure. Relative to the prior combined closure only decision_value_dev_study.py changes. Relative to TD8 only seven replay/native-fill paths differ. No market data or economic execution.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+    a_head, b_head = (
+        a["identity"]["implementation_head"],
+        b["identity"]["implementation_head"],
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = a[section][key].replace(a_head, head)
+        assert b[section][key].replace(b_head, head) == wanted
+        expected[section][key] = wanted
+    assert current == expected
+    a_paths, b_paths, union = (set(bound_code_paths(x)) for x in (a_head, b_head, head))
+    assert len(a_paths) == 178 and len(b_paths) == 177
+    assert len(union) == 178 and union == a_paths | b_paths
+    for previous, paths in (
+        (a_head, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (
+            b_head,
+            [
+                "trade_rl/evaluation/replay.py",
+                "trade_rl/simulation/diagnostics/fill_cash.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/stateful/execution.py",
+                "trade_rl/simulation/stateful/portfolio_session.py",
+                "trade_rl/simulation/stateful/runtime.py",
+                "trade_rl/simulation/stateful/symbol_fills.py",
+            ],
+        ),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (common, a, b, current):
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders.model import (
@@ -261,6 +262,28 @@ def _execute_stateful_orders_impl(
         if absorbing and runtime.book.insolvent:
             break
 
-    return StatefulExecutionResult(
+    result = StatefulExecutionResult(
         **runtime.result_payload(start_index=start_index, bars=bars_advanced)
     )
+    if runtime.fill_cash_records is not None:
+        observer = executor._fill_cash_observer
+        if observer is None:
+            raise RuntimeError("native fill cash observer was removed during execution")
+        records = tuple(runtime.fill_cash_records)
+        if tuple(row.event for row in records) != tuple(
+            event
+            for event in result.order_events
+            if event.event_type in ("filled", "partial_fill")
+        ):
+            raise RuntimeError("native fill cash observation omitted an order fill")
+        observer(
+            NativeFillCashObservation(
+                dataset_id=dataset.dataset_id,
+                execution_policy_digest=executor.execution_policy_digest,
+                start_index=start_index,
+                next_index=result.next_index,
+                fills=records,
+                interval_cost=result.interval_cost,
+            )
+        )
+    return result

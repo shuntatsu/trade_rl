@@ -310,14 +310,25 @@ def _verify_asof_equity(full: object, truncated: object, observed_rows: int) -> 
         exact_integer_limit = 2**53
         if type(value) is np.ndarray:
             owner: object = value
-            while isinstance(owner, (np.ndarray, memoryview)):
-                if np.ma.isMaskedArray(owner):
-                    raise ContractViolation(error)
-                owner = (
-                    np.ndarray.base.__get__(owner)
-                    if isinstance(owner, np.ndarray)
-                    else owner.obj
-                )
+            while True:
+                # Exact types avoid arbitrary owner attribute access and
+                # reject subclasses carrying additional array semantics.
+                if type(owner) is np.ndarray:
+                    owner = np.ndarray.base.__get__(owner)
+                elif type(owner) is memoryview:
+                    owner = owner.obj
+                else:
+                    break
+            # Do not follow arbitrary array-interface wrappers or their base
+            # getters: an opaque owner may retain a hidden masked array.
+            # Ordinary owned arrays and exact raw-byte buffers are sufficient
+            # for the synthetic native equity contract.
+            if (
+                owner is not None
+                and type(owner) is not bytes
+                and type(owner) is not bytearray
+            ):
+                raise ContractViolation(error)
         elif isinstance(value, (list, tuple)) and type(value) in (list, tuple):
             sequence: tuple[object, ...] = tuple(value)
             for mark in sequence:

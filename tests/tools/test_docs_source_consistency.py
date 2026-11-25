@@ -400,6 +400,85 @@ def test_asof_equity_oracle_rejects_wide_integer_dtype_boundaries(
         _verify_asof_equity([np.dtype(dtype).type(value), 1], [1, 1], 1)
 
 
+@pytest.mark.parametrize("side", ["full", "prior"])
+@pytest.mark.parametrize("wrapper", ["masked_stride", "opaque_stride", "subclass"])
+def test_asof_equity_oracle_refuses_opaque_array_owners(
+    side: str, wrapper: str
+) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    if wrapper == "masked_stride":
+        masked = np.ma.array([1.0, 1.0, 1.0], mask=[False, True, False])
+        marks = np.lib.stride_tricks.as_strided(np.asarray(memoryview(masked)))
+    elif wrapper == "opaque_stride":
+        # A benign opaque owner is outside the closed native vector contract
+        # too: arbitrary base getters cannot establish missingness provenance.
+        marks = np.lib.stride_tricks.as_strided(np.ones(3))
+    else:
+
+        class ForeignArray(np.ndarray):
+            pass
+
+        owner = np.ones(3).view(ForeignArray)
+        marks = np.asarray(memoryview(owner))
+        assert isinstance(marks.base, memoryview)
+        assert type(marks.base.obj) is ForeignArray
+    assert type(marks) is np.ndarray
+    good = np.ones(3)
+    full, prior = (marks, good) if side == "full" else (good, marks)
+    with pytest.raises(ContractViolation, match="finite binary64-compatible"):
+        _verify_asof_equity(full, prior, 2)
+
+
+def test_asof_equity_oracle_never_calls_opaque_owner_attributes() -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    class OpaqueOwner:
+        def __init__(self) -> None:
+            self.array = np.ones(3)
+            self.__array_interface__ = self.array.__array_interface__
+            self.guard = False
+
+        @property
+        def __class__(self) -> type:
+            if self.guard:
+                pytest.fail("opaque owner class getter called")
+            return OpaqueOwner
+
+        @property
+        def base(self) -> object:
+            pytest.fail("opaque owner base getter called")
+
+    owner = OpaqueOwner()
+    marks = np.asarray(owner)
+    assert marks.base is owner
+    owner.guard = True
+    with pytest.raises(ContractViolation, match="finite binary64-compatible"):
+        _verify_asof_equity(marks, np.ones(3), 2)
+
+
+@pytest.mark.parametrize("backing", ["owned", "strided", "bytes", "bytearray"])
+def test_asof_equity_oracle_accepts_closed_native_array_owners(backing: str) -> None:
+    import numpy as np
+
+    from tools.docs_source_consistency import _verify_asof_equity
+
+    if backing == "owned":
+        marks = np.ones(3)
+    elif backing == "strided":
+        marks = np.ones(6)[::2]
+    elif backing == "bytes":
+        marks = np.frombuffer(np.ones(3).tobytes(), dtype=np.float64)
+    else:
+        marks = np.frombuffer(bytearray(np.ones(3).tobytes()), dtype=np.float64)
+    _verify_asof_equity(marks, np.ones(3), 2)
+    _verify_asof_equity(np.ones(3), marks, 2)
+
+
 def test_asof_equity_oracle_accepts_finite_native_vectors() -> None:
     import numpy as np
 

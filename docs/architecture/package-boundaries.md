@@ -1155,6 +1155,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.risk.cash_projection` | `MixedCashProjection`, `project_mixed_cash_budget`, `snapshot_drawdown_scale` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+| `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
 
@@ -1205,6 +1206,25 @@ composition, including wrapper order, and retains existing digests and cache
 semantics. This is identity computation, not source attestation, profile/Dataset
 validation, row-level cash admission or replay authorization. A result's own
 unverified metadata is not an independent expected identity.
+
+Opt-in `run_shared_portfolio_replay(capture_ledger_evidence=True,
+capture_exposure_evidence=True)` emits a v2 portfolio ledger. It retains the
+ordered symbol roster and the actual pre-execution BookState marks and contract
+multipliers for every completed interval, including terminal reserve. Without
+the new opt-in, v1 serialization and native execution remain unchanged.
+The source-free exposure reader requires canonical uncompressed ledger bytes,
+their independently admitted SHA-256, Dataset and execution-policy identities,
+ordered symbols and requested index bounds. It rejects malformed/duplicate
+fields, incomplete unterminated intervals, invalid clocks, quantity/roster
+mismatch and pre-equity that fails native projected-position reconciliation.
+It computes the existing reporting convention: per positive-equity interval,
+sum of abs(float(exact quantity)) * mark * multiplier / pre-equity, then
+math.fsum across intervals divided by their count. This is intentionally not
+a bit-identical substitute for the conservatively projected book weights.
+Nonpositive equity is excluded; an empty positive sample is refused. Readers
+compare the independently derived statistic against the reported one. This
+is observer-only identity-bound evidence, not source attestation, full
+economic ledger audit, market I/O, a second book or replay authorization.
 
 The explicit equity-path API samples observed UTC midnight rows from aligned,
 strictly increasing int64 nanosecond timestamps and finite positive equity.

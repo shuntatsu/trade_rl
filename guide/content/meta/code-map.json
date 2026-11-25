@@ -283,7 +283,7 @@
       "id": "shared-portfolio-policy-replay",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "af6fe2808339a7f3732da2f30f5655bcebfc33a3ad57883ef6867f0da8164b3b",
+      "source_sha256": "fed93157237c80880934816f70462ebee9a8785754f92f633ee6ec5ce65c420f",
       "label_ja": "全銘柄portfolio policyの共通replay",
       "description_ja": "1 native barごとにdetached snapshotを一つ渡し、全symbol順のnumeric targetを既存のshared PreTradeRisk・MarketExecutor・BookState loopへ通します。numeric actionには別ledger schemaを使い、legacy intent resultは変更しません。 明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inであり、既存既定値を変えません。 任意のon_native_advanceは実行後・診断前の観測済み進捗をimmutable scalar DTOで通知し、例外は後続実行を停止します。",
       "variables": [],

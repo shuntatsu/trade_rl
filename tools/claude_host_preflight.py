@@ -142,10 +142,35 @@ def _skill_available(root: Path) -> bool:
         end = lines.index("---", 1)
     except ValueError:
         return False
-    header = lines[1:end]
+    # Accept the repository's flat frontmatter, not arbitrary YAML.
+    # Required-looking text inside a scalar is not a field.
+    fields: dict[str, str] = {}
+    for line in lines[1:end]:
+        if not line:
+            continue
+        key, separator, value = line.partition(": ")
+        if (
+            not separator
+            or key in fields
+            or key not in {"name", "disable-model-invocation", "description"}
+            or not line.isprintable()
+        ):
+            return False
+        if key == "description":
+            if not value.startswith('"'):
+                return False
+            try:
+                description = json.loads(value)
+            except ValueError:
+                return False
+            if not isinstance(description, str) or (
+                description and not description.isprintable()
+            ):
+                return False
+        fields[key] = value
     return (
-        "name: research-challenge" in header
-        and "disable-model-invocation: true" in header
+        fields.get("name") == "research-challenge"
+        and fields.get("disable-model-invocation") == "true"
     )
 
 

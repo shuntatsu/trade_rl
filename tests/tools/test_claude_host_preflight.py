@@ -554,3 +554,75 @@ def test_manual_skill_allows_inline_delimiter_in_description(
         encoding="utf-8",
     )
     assert probe._skill_available(root) is True
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "name: research-challenge\nname: unrelated\ndisable-model-invocation: true",
+        "name: research-challenge\ndisable-model-invocation: true\ndisable-model-invocation: false",
+        "name: research-challenge\ndisable-model-invocation: false\ndisable-model-invocation: true",
+        'name: research-challenge\ndisable-model-invocation: true\n"disable-model-invocation": false',
+        'description: "a\nname: research-challenge\ndisable-model-invocation: true\nb"',
+        'name: research-challenge\ndisable-model-invocation: true\n"name": other',
+        'name: research-challenge\ndisable-model-invocation: true\ndescription: "a',
+        "name: research-challenge\ndisable-model-invocation: true\ndescription: "
+        + '["x"]',
+        "name: research-challenge\ndisable-model-invocation: true\ndescription: "
+        + r'"line\n"',
+        "name: research-challenge\ndisable-model-invocation: true\ndescription: "
+        + r'"\uD800"',
+    ],
+)
+def test_manual_skill_rejects_ambiguous_fields(tmp_path: Path, header: str) -> None:
+    path = tmp_path / ".claude/skills/research-challenge/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"---\n{header}\n---\n", encoding="utf-8")
+    assert probe._skill_available(tmp_path) is False
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "name: research-challenge\ndisable-model-invocation: true",
+        'description: "A --- B"\ndisable-model-invocation: true\nname: research-challenge',
+        'name: research-challenge\n\ndisable-model-invocation: true\ndescription: "valid"',
+    ],
+)
+def test_manual_skill_accepts_flat_literal_fields(tmp_path: Path, header: str) -> None:
+    path = tmp_path / ".claude/skills/research-challenge/SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"---\n{header}\n---\n", encoding="utf-8")
+    assert probe._skill_available(tmp_path) is True
+
+
+def test_ambiguous_skill_prevents_subprocess_probes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = _fixture(tmp_path, monkeypatch)
+    path = root / ".claude/skills/research-challenge/SKILL.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "disable-model-invocation: true",
+            "disable-model-invocation: true\ndisable-model-invocation: false",
+        ),
+        encoding="utf-8",
+    )
+    _git(root, "add", ".")
+    _git(
+        root,
+        "-c",
+        "user.name=Test Agent",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "ambiguous skill fixture",
+        "--quiet",
+    )
+    report = probe.preflight(root, required_merge=_git(root, "rev-parse", "HEAD"))
+    assert report["working_tree_clean"] is True
+    assert report["manual_research_skill"] is False
+    assert report["claude_cli_present"] is False
+    assert report["hook_direct_exec_passed"] is False
+    assert report["preflight_ok"] is False

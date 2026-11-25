@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import (
@@ -1902,10 +1903,12 @@ def _persist_incomplete_pair_attempt(
     only then (3) claim the destination. Only environmental I/O failures after
     step 2 remain; they happen before any result is published.
 
-    Prepare a canonical receipt off to the side, then atomically claim the
-    destination with mkdir(exist_ok=False) before installing that receipt. A
-    concurrent writer must never be silently overwritten, including an empty
-    destination created between preliminary checks and publication.
+    Prepare the complete receipt in a private sibling directory, then publish
+    it using the OS-enforced no-replace directory rename. The destination
+    never exposes an empty claim before the receipt is installed. An occupied
+    destination, including an empty directory, must not be replaced. This is
+    an atomic visibility guarantee, not crash durability or protection against
+    arbitrary mutation of the staging directory or its parent.
     """
     for name, value in (
         ("dataset_id", dataset_id),
@@ -1940,28 +1943,13 @@ def _persist_incomplete_pair_attempt(
     stage = Path(tempfile.mkdtemp(prefix=".td8-incomplete-", dir=destination.parent))
     try:
         (stage / _INCOMPLETE_RECEIPT_FILE).write_bytes(encoded)
-        # Directory rename would silently replace a concurrently created EMPTY
-        # directory on POSIX. Atomic mkdir is the write-once ownership gate.
-        destination.mkdir(exist_ok=False)
-        try:
-            # Hard-link creation is O_EXCL-like for the destination file:
-            # even a writer racing *inside* our claimed directory cannot have
-            # their pre-existing evidence replaced by a file rename.
-            os.link(
-                stage / _INCOMPLETE_RECEIPT_FILE,
-                destination / _INCOMPLETE_RECEIPT_FILE,
-            )
-        except OSError:
-            # Best effort cleanup of our empty reservation. A failed receipt
-            # may never be interpreted as a successful research result.
-            try:
-                destination.rmdir()
-            except OSError:
-                pass
-            raise
-    finally:
+        # The shared primitive uses an exclusive OS rename, never the
+        # ordinary POSIX rename that can replace an empty directory.
+        atomic_rename_directory(stage, destination)
+    except BaseException:
         if stage.exists():
             shutil.rmtree(stage)
+        raise
     return receipt_digest
 
 

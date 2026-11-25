@@ -7,6 +7,7 @@ import io
 import zipfile
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Final
 
 from trade_rl.integrations.binance.types import (
     BinanceMarket,
@@ -28,6 +29,21 @@ _INTERVAL_MILLISECONDS = {
 }
 
 _VISION_ROOT = "https://data.binance.vision/data"
+
+_KLINE_HEADER: Final = (
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time",
+    "quote_volume",
+    "count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "ignore",
+)
 
 
 def _epoch_ms(value: datetime) -> int:

@@ -226,6 +226,18 @@ paper運用、training/inferenceの共有部品は初期移行から除外する
   CAGR、独立増分、providerの真正性または取引可能性の主張ではない。
   既存ReturnSeries / PerformanceMetrics / Datasetのschema・identity・既定値は不変。
   Dataset/replayからの接続、source provenance、execution/carryは別の受入条件である。
+- Opt-in `RollingPortfolioRiskInputsProvider(native_clock=...)` は、観測した
+  close-to-close log returnのnative intervalと公開時刻を検証し、消費する価格窓は
+  native binary64-compatibleな配列に限定する（より広い浮動小数点型、絶対値が2**53を
+  超える64bit整数は変換前に拒否し、未来rowの値は検査しない）。ACT/365Fで
+  年率共分散を算出する。等間隔では既存sample covarianceの整数丸め前の年率換算と
+  一致する。不等間隔では総経過時間T、各区間t_iについて、総log returnの
+  t_i/Tを差し引いた残差の外積和を、実効観測時間 T - sum(t_i²)/T で割る
+  （一定の共分散と独立増分を仮定した線形drift推定の補正）。これは統計モデルの
+  選択であり、独立性や定常性を実証するものではない。非年率共分散とstress quantile
+  は観測バー単位のまま、固定時間のshockとはみなさない。clock、anchor、設定を
+  別のprovider identityにbindし、旧providerのidentityと計算を変更しない。
+  新しいDatasetのadmissionや実行時計、経済実験の認可を意味しない。
 - 長い履歴（複数年・細かい足）を固定した件数上限や特定年に依存せず扱えること。
   必要なwarmupの実時間はnative intervalから求める。先読み防止と同じ結果を
   保ったまま計算量・peak memoryを測定し、期間延長で再計算量が過度に増えない

@@ -25,7 +25,7 @@ from trade_rl.evaluation.replay import (
     run_shared_portfolio_replay,
 )
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot, PortfolioPolicy, PortfolioTargetProposal,
@@ -57,6 +57,7 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         risk=PreTradeRisk(PreTradeRiskConfig()), capture_ledger_evidence=True,
     ), SharedCashPortfolioReplayResult)
     assert_type(result.ledger_evidence, SharedCashPortfolioReplayLedgerEvidence | None)
+    assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
 """
 )
 _NEGATIVE = (
@@ -71,6 +72,8 @@ parse_quantity(1.5)  # expect: arg-type
 PortfolioTargetProposal(("wrong",))  # expect: arg-type
 FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
 ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
+runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present="unknown")  # expect: arg-type
+runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg
 PreTradeRiskConfig(max_gross="wrong")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type

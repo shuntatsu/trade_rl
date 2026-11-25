@@ -124,7 +124,7 @@ def _mask_block_code(markdown: str) -> str:
     html_comment = False
     html_raw_tag: str | None = None
     quote_level = 0
-    for raw in markdown.splitlines(keepends=True):
+    for raw in re.findall(r"[^\n]*\n|[^\n]+$", markdown):
         value = raw.rstrip("\r\n")
         quote = _QUOTE.match(value)
         current_quote_level = quote.group().count(">") if quote else 0
@@ -456,15 +456,17 @@ def _inline_targets(
 
 def destinations(markdown: str) -> list[tuple[int, str]]:
     """Find local-link candidates outside literal code and HTML comments."""
+    # CommonMark physical lines end only at CR, LF, or CRLF.
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
     text = _mask_comments(_mask_inline_code(_mask_block_code(markdown)))
     _, reference_text = _inline_targets(markdown, text, None)
     references = frozenset(
         " ".join(reference.group(1).split()).casefold()
-        for line in reference_text.splitlines()
+        for line in reference_text.split("\n")
         if (reference := _REFERENCE.match(line)) is not None
     )
     targets, reference_text = _inline_targets(markdown, text, references)
-    for number, line in enumerate(reference_text.splitlines(), start=1):
+    for number, line in enumerate(reference_text.split("\n"), start=1):
         reference = _REFERENCE.match(line)
         if reference is not None:
             targets.append((number, reference.group(2).strip("<>")))

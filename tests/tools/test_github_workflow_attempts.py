@@ -304,3 +304,20 @@ def test_full_final_attempt_page_rejects_changed_total() -> None:
     api.pages.append({"total_count": 101, "jobs": [_job(101)]})
     with pytest.raises(ValueError, match="total_count changed"):
         observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_matching_null_run_and_job_heads_are_not_exact_commits() -> None:
+    api = FakeReader()
+    for run in api.runs:
+        run["head_sha"] = "0" * 40
+    for job in api.pages[0]["jobs"]:
+        job["head_sha"] = "0" * 40
+    with pytest.raises(ValueError, match="SHA"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_null_job_head_is_rejected_even_with_valid_run_head() -> None:
+    api = FakeReader()
+    api.pages[0]["jobs"][0]["head_sha"] = "0" * 40
+    with pytest.raises(ValueError, match="job head SHA must not be a null SHA"):
+        observe_workflow_attempt(api, run_id=RUN_ID)

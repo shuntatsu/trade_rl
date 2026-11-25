@@ -87,6 +87,30 @@ def test_load_eval_suite_rejects_invalid_contract(
         load_eval_suite(_write(tmp_path / "suite.json", payload))
 
 
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        ('"schema_version":', '"schema_version": "unsupported", "schema_version":'),
+        (
+            '"max_score_per_dimension":',
+            '"max_score_per_dimension": 1, "max_score_per_dimension":',
+        ),
+        ('"task_id":', '"task_id": "other", "task_id":'),
+        ('"prompt":', '"prompt": "", "pr\\u006fmpt":'),
+        ('"task_id":', '"task_id": "example", "task_id":'),
+    ],
+)
+def test_load_eval_suite_rejects_duplicate_json_members(
+    tmp_path: Path, original: str, replacement: str
+) -> None:
+    text = json.dumps(_payload())
+    assert text.count(original) == 1
+    path = tmp_path / "suite.json"
+    path.write_text(text.replace(original, replacement, 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON"):
+        load_eval_suite(path)
+
+
 def test_checked_in_suite_does_not_expose_task_specific_evaluator_answer_key() -> None:
     raw = json.loads(DEFAULT_SUITE.read_text(encoding="utf-8"))
 

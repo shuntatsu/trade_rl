@@ -175,7 +175,8 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
             seen.add(item["id"])
             seen_nodes.add(item["node_id"])
             artifacts.append(item)
-        if len(artifacts) == count:
+        # A full final page does not establish exhaustion.
+        if len(artifacts) == count and len(rows) < _PAGE_SIZE:
             return sorted(artifacts, key=lambda item: item["id"])
         page += 1
 

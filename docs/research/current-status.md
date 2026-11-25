@@ -2308,7 +2308,7 @@ PPO Observation v2確定前に生成されたeconomics-only baselineもdiagnosti
 
 ## 現在の次アクション
 
-現行の経済研究は[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810)を親計画とする。M34は`FAILED_SCREEN`、Phase 2の事前ルールによる判定は`NO_WINNER`、Phase 3の改善はpost hocの開発観察であり採用・未使用期間の証拠ではない。残差PPOの固定合成比較は`SYNTHETIC_FAIL`であり、real-data RLの適格性は別途確認を要する。
+現行の経済研究の追跡先は[研究 #19](https://github.com/shuntatsu/trade_rl_research/issues/19)、Tier D R3・歴史的回復は[研究 #20](https://github.com/shuntatsu/trade_rl_research/issues/20)とする。旧[Issue #810](https://github.com/shuntatsu/trade_rl/issues/810)は原設計・履歴・sourceが固定するowner認可コメントの参照先として保持し、Issue移管だけで実行/データ消費のauthorityや認可URL契約を変更しない。M34は`FAILED_SCREEN`、Phase 2の事前ルールによる判定は`NO_WINNER`、Phase 3の改善はpost hocの開発観察であり採用・未使用期間の証拠ではない。残差PPOの固定合成比較は`SYNTHETIC_FAIL`であり、real-data RLの適格性は別途確認を要する。
 
 優先するのは既存失敗の原因・費用・因果性・共有口座の会計を検証し、必要なG0–G2、独立oracle、データ消費記録と結果前の選択条件を閉じること。FS1の設計/取得能力やprospective paperの準備を、未使用評価の成功や実運用承認と混同しない。個別の進捗とブロッカーはIssue、active [carry plan](../plans/funding-carry-paper.md)と[exit plan](../plans/reduce-only-exits.md)から確認し、ここに作業日誌を複製しない。
 

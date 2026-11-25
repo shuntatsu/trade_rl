@@ -1848,11 +1848,17 @@ def _encode_incomplete_receipt(
                 "observed_view_digest": observed_view_digest,
                 "ineligible_pairs": len(pairs),
                 "pairs": pairs,
-                "pairs_digest": content_digest(pairs),
+                "pairs_digest": _receipt_content_digest(pairs),
             }
-            receipt_digest = content_digest(body)
-            encoded = canonical_json_bytes({**body, "receipt_digest": receipt_digest})
-            _decode_incomplete_receipt(encoded, expected_receipt_digest=receipt_digest)
+            receipt_digest = _receipt_content_digest(body)
+            encoded = b"".join(
+                _receipt_canonical_parts({**body, "receipt_digest": receipt_digest})
+            )
+            _decode_incomplete_receipt(
+                encoded,
+                expected_receipt_digest=receipt_digest,
+                expected_max_ineligible_pairs=len(pairs) or None,
+            )
         except Exception as error:  # fall back to the all-quarantine encoding
             last_error = error
             continue
@@ -2238,9 +2244,16 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 raise ValueError("failure receipt JSON is malformed")
 
 
+@dataclass(frozen=True, slots=True)
+class _ReceiptPairLayout:
+    array_start: int
+    array_end: int
+    pair_spans: tuple[tuple[int, int], ...]
+
+
 def _preflight_receipt_pair_objects(
     raw: bytes, *, expected_max_ineligible_pairs: int | None = None
-) -> None:
+) -> _ReceiptPairLayout | None:
     """Inspect top-level pairs, ignoring nested or quoted key lookalikes.
 
     The canonical v2/v3 writer emits only fixed ASCII root field names. Refuse
@@ -2254,7 +2267,9 @@ def _preflight_receipt_pair_objects(
     impose a new pair-count cap on historical v2/v3 receipts. If the caller
     supplies a limit from a separately verified frozen block specification,
     reject excess direct pairs before allocating the decoded JSON array.
-    The existing parser, canonicalizer, and validators remain authoritative.
+    When a pair ceiling is supplied, retain at most that many direct pair
+    byte spans for partitioned UTF-8 decoding. The existing JSON parser,
+    canonicalizer, and validators remain authoritative.
     """
     allowed_root_keys = tuple(name.encode("ascii") for name in _INCOMPLETE_RECEIPT_KEYS)
     max_root_key_bytes = max(map(len, _INCOMPLETE_RECEIPT_KEYS))
@@ -2304,6 +2319,10 @@ def _preflight_receipt_pair_objects(
     pair_value_state: str | None = None
     pair_value_kind: str | None = None
     flat_pair_array_depth: int | None = None
+    array_start: int | None = None
+    array_end: int | None = None
+    pair_start: int | None = None
+    pair_spans: list[tuple[int, int]] = []
 
     for offset in range(1, len(raw)):
         char = raw[offset]
@@ -2404,7 +2423,7 @@ def _preflight_receipt_pair_objects(
         if len(stack) == 1:
             if want_colon:
                 if char != 0x3A:  # Invalid syntax belongs to the JSON parser.
-                    return
+                    return None
                 want_colon = False
                 want_value = True
                 continue
@@ -2419,6 +2438,8 @@ def _preflight_receipt_pair_objects(
                     if char != 0x5B:  # [
                         raise ValueError("failure receipt pairs must be a JSON array")
                     pairs_depth = len(stack) + 1
+                    if expected_max_ineligible_pairs is not None:
+                        array_start = offset
                     want_pair = True
                 elif char in (0x7B, 0x5B):
                     raise ValueError(
@@ -2438,6 +2459,8 @@ def _preflight_receipt_pair_objects(
                     raise ValueError(
                         "failure receipt exceeds externally verified pair limit"
                     )
+                if expected_max_ineligible_pairs is not None:
+                    pair_start = offset
                 direct_pair_fields.clear()
                 want_pair = False
                 want_pair_key = True
@@ -2466,6 +2489,17 @@ def _preflight_receipt_pair_objects(
                 and not required_pair_keys.issubset(direct_pair_fields)
             ):
                 raise ValueError("failure receipt pair fields are malformed")
+            if pairs_depth is not None and expected_max_ineligible_pairs is not None:
+                if (
+                    char == 0x7D
+                    and len(stack) == pairs_depth + 1
+                    and stack[-1] == 0x7B
+                    and pair_start is not None
+                ):
+                    pair_spans.append((pair_start, offset + 1))
+                    pair_start = None
+                elif char == 0x5D and len(stack) == pairs_depth and stack[-1] == 0x5B:
+                    array_end = offset + 1
             if stack:
                 stack.pop()
             if flat_pair_array_depth is not None and len(stack) < flat_pair_array_depth:
@@ -2490,6 +2524,95 @@ def _preflight_receipt_pair_objects(
         expected = str(actual_pair_count).encode("ascii")
         if end - start != len(expected) or not raw.startswith(expected, start):
             raise ValueError("failure receipt pair count mismatch")
+    if (
+        array_start is not None
+        and array_end is not None
+        and len(pair_spans) == actual_pair_count
+    ):
+        return _ReceiptPairLayout(array_start, array_end, tuple(pair_spans))
+    return None
+
+
+def _decode_partitioned_receipt_json(raw: bytes, layout: _ReceiptPairLayout) -> object:
+    """Decode the root and complete pairs without one receipt-wide Unicode copy.
+
+    Only exact canonical array separators are accepted. Each fragment is
+    parsed as UTF-8 JSON by stdlib, then the reconstructed document must pass
+    the same complete byte-for-byte canonical and digest checks as before.
+    A single large pair or root scalar and the full decoded tree remain
+    resource costs; the externally supplied count is not a byte/node cap.
+    """
+    start, end = layout.array_start, layout.array_end
+    root = json.loads((raw[:start] + b"[]" + raw[end:]).decode("utf-8"))
+    if not isinstance(root, dict) or root.get("pairs") != []:
+        raise ValueError("failure receipt JSON is malformed")
+    pairs: list[object] = []
+    cursor = start + 1
+    for index, (pair_start, pair_end) in enumerate(layout.pair_spans):
+        if index:
+            if raw[cursor : cursor + 1] != b",":
+                raise ValueError("failure receipt must use canonical JSON bytes")
+            cursor += 1
+        if pair_start != cursor or not pair_start < pair_end < end:
+            raise ValueError("failure receipt must use canonical JSON bytes")
+        pairs.append(json.loads(raw[pair_start:pair_end].decode("utf-8")))
+        cursor = pair_end
+    if cursor != end - 1:
+        raise ValueError("failure receipt must use canonical JSON bytes")
+    root["pairs"] = pairs
+    return root
+
+
+def _receipt_canonical_parts(
+    value: dict[str, object] | Sequence[object],
+) -> Iterator[bytes]:
+    """Canonical receipt JSON in pair-sized pieces, using the existing encoder.
+
+    Only the outer object and its pairs array are partitioned. Each complete
+    pair and other value retains the canonical encoder's exact representation.
+    This avoids another full receipt byte buffer, not the decoded tree or an
+    independent resource bound on a single pair.
+    """
+    if not isinstance(value, dict):
+        yield b"["
+        for index, pair in enumerate(value):
+            if index:
+                yield b","
+            yield canonical_json_bytes(pair)
+        yield b"]"
+        return
+    yield b"{"
+    for index, key in enumerate(sorted(value)):
+        if index:
+            yield b","
+        yield canonical_json_bytes(key)
+        yield b":"
+        item = value[key]
+        if key == "pairs" and isinstance(item, list):
+            yield from _receipt_canonical_parts(item)
+        else:
+            yield canonical_json_bytes(item)
+    yield b"}"
+
+
+def _receipt_content_digest(value: dict[str, object] | Sequence[object]) -> str:
+    digest = hashlib.sha256()
+    for part in _receipt_canonical_parts(value):
+        digest.update(part)
+    return digest.hexdigest()
+
+
+def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
+    offset = 0
+    try:
+        for part in _receipt_canonical_parts(loaded):
+            if not raw.startswith(part, offset):
+                raise ValueError("failure receipt must use canonical JSON bytes")
+            offset += len(part)
+    except RecursionError as error:
+        raise ValueError("failure receipt JSON is malformed") from error
+    if offset != len(raw):
+        raise ValueError("failure receipt must use canonical JSON bytes")
 
 
 def _decode_incomplete_receipt(
@@ -2504,21 +2627,24 @@ def _decode_incomplete_receipt(
     # and other non-objects before the JSON decoder can allocate their elements.
     if not raw.startswith(b"{"):
         raise ValueError("failure receipt must contain a JSON object")
-    _preflight_receipt_pair_objects(
+    layout = _preflight_receipt_pair_objects(
         raw, expected_max_ineligible_pairs=expected_max_ineligible_pairs
     )
     try:
-        loaded = json.loads(raw.decode("utf-8"))
+        if layout is not None:
+            loaded = _decode_partitioned_receipt_json(raw, layout)
+        elif (
+            expected_max_ineligible_pairs is not None
+            and len(raw) > _DEFAULT_INCOMPLETE_RECEIPT_BYTES
+        ):
+            raise ValueError("failure receipt JSON is malformed")
+        else:
+            loaded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("failure receipt JSON is malformed") from error
     if not isinstance(loaded, dict) or any(not isinstance(k, str) for k in loaded):
         raise ValueError("failure receipt must contain a JSON object")
-    try:
-        canonical = canonical_json_bytes(loaded)
-    except RecursionError as error:
-        raise ValueError("failure receipt JSON is malformed") from error
-    if raw != canonical:
-        raise ValueError("failure receipt must use canonical JSON bytes")
+    _require_canonical_receipt(raw, loaded)
     if set(loaded) != _INCOMPLETE_RECEIPT_KEYS:
         raise ValueError("failure receipt fields are malformed")
     if (
@@ -2562,11 +2688,13 @@ def _decode_incomplete_receipt(
         raise ValueError("failure receipt exceeds externally verified pair limit")
     for pair in pairs:
         _validate_incomplete_pair_record(pair, allow_sentinel=allow_sentinel)
-    if loaded["pairs_digest"] != content_digest(pairs):
+    if loaded["pairs_digest"] != _receipt_content_digest(pairs):
         raise ValueError("failure receipt pairs digest mismatch")
     body = {k: v for k, v in loaded.items() if k != "receipt_digest"}
     receipt_digest = loaded["receipt_digest"]
-    if not isinstance(receipt_digest, str) or receipt_digest != content_digest(body):
+    if not isinstance(receipt_digest, str) or receipt_digest != _receipt_content_digest(
+        body
+    ):
         raise ValueError("failure receipt digest mismatch")
     if (
         expected_receipt_digest is not None
@@ -2654,8 +2782,11 @@ def load_incomplete_pair_attempt(
 
     A caller may additionally supply a positive native integer ceiling derived
     from an independently verified frozen block and action roster. When given,
-    excess direct pair objects are rejected before json.loads. The default None
-    retains historical v2/v3 acceptance; the ceiling is not self-authenticating
+    excess direct pair objects are rejected before json.loads. With this
+    ceiling, complete pair spans are decoded separately instead of creating
+    one receipt-wide Unicode string. Canonical bytes and all digests are
+    still checked across the whole reconstructed document. The default None
+    retains the historical decode path; the ceiling is not self-authenticating
     and does not prove an aggregate memory bound or research authorization.
     """
     if (

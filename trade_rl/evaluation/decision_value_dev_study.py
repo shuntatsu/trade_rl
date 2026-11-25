@@ -2195,18 +2195,29 @@ def _validate_incomplete_pair_record(
     _require_canonical_round_trip(pair, field="pair record")
 
 
-def _preflight_receipt_json_depth(raw: bytes) -> None:
-    """Reject deep JSON before decoding; quoted and escaped delimiters are inert.
+def _preflight_receipt_json_depth(
+    raw: bytes, *, expected_max_json_nodes: int | None = None
+) -> None:
+    """Bound nesting and optional aggregate value slots before decoding.
 
     A backslash escapes only the immediately following byte, not the next
-    regex-matched delimiter (notably after a JSON Unicode escape). This is a
-    bounded-memory lexical scan; stdlib still validates syntax and the
-    existing schema/digests validate meaning.
+    regex-matched delimiter (notably after a JSON Unicode escape). In the
+    opt-in node envelope (v1), count the root once, every object member
+    value occurrence, and every array element, including container values.
+    Member names and characters inside strings are not nodes. Syntax and
+    canonical/schema validation still belong to the strict decoder.
     """
+    if expected_max_json_nodes is not None and (
+        type(expected_max_json_nodes) is not int or expected_max_json_nodes <= 0
+    ):
+        raise ValueError("expected_max_json_nodes must be a positive native integer")
     depth = 0
     in_string = False
     escape_at: int | None = None
-    for token in re.finditer(rb'[\[\]{}"\\]', raw):
+    containers: list[int] = []
+    value_nodes = 1
+    pattern = rb'[\[\]{}"\\]' if expected_max_json_nodes is None else rb'[\[\]{}"\\:,]'
+    for token in re.finditer(pattern, raw):
         offset = token.start()
         char = raw[offset]
         if in_string:
@@ -2218,7 +2229,8 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 escape_at = offset
             elif char == 0x22:
                 in_string = False
-        elif char == 0x22:
+            continue
+        if char == 0x22:
             in_string = True
         elif char in (0x5B, 0x7B):
             depth += 1
@@ -2226,10 +2238,36 @@ def _preflight_receipt_json_depth(raw: bytes) -> None:
                 raise ValueError(
                     "failure receipt JSON nesting exceeds configured limit"
                 )
+            if expected_max_json_nodes is not None:
+                containers.append(char)
+                if char == 0x5B:
+                    # Every nonempty array contributes its first element;
+                    # following elements are counted at the direct commas.
+                    first = offset + 1
+                    while first < len(raw) and raw[first] in b" \t\r\n":
+                        first += 1
+                    if first < len(raw) and raw[first] != 0x5D:
+                        value_nodes += 1
         elif char in (0x5D, 0x7D):
             depth -= 1
             if depth < 0:
                 raise ValueError("failure receipt JSON is malformed")
+            if expected_max_json_nodes is not None:
+                if containers.pop() != (0x5B if char == 0x5D else 0x7B):
+                    raise ValueError("failure receipt JSON is malformed")
+        elif expected_max_json_nodes is not None and (
+            char == 0x3A or (char == 0x2C and containers and containers[-1] == 0x5B)
+        ):
+            # Count object values at their colon, even for duplicate names.
+            # Commas in objects only separate already-counted values.
+            value_nodes += 1
+        if (
+            expected_max_json_nodes is not None
+            and value_nodes > expected_max_json_nodes
+        ):
+            raise ValueError(
+                "failure receipt exceeds externally verified JSON node limit"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2603,14 +2641,45 @@ def _require_canonical_receipt(raw: bytes, loaded: dict[str, object]) -> None:
         raise ValueError("failure receipt must use canonical JSON bytes")
 
 
+def _require_raw_receipt_pin(raw: bytes, expected_digest: str) -> None:
+    """Reject unrelated canonical bytes before allocating decoded JSON objects.
+
+    Both historical schemas sort their root keys. The receipt_digest member
+    follows pairs and all later root values are scalars. Thus the last literal
+    member marker in a valid canonical receipt belongs to the root, even if
+    a nested record contains a same-named key. Quoted lookalikes are escaped.
+    This is only a necessary byte-level admission check: malformed documents
+    with a matching raw hash must still pass every strict decoder check.
+    """
+    require_sha256(expected_digest, field="expected_receipt_digest")
+    marker = b',"receipt_digest":"'
+    start = raw.rfind(marker)
+    if start < 0:
+        raise ValueError("failure receipt differs from the pinned digest")
+    value_start = start + len(marker)
+    member_end = value_start + 65  # 64 lowercase hex bytes and closing quote
+    if not raw.startswith(expected_digest.encode("ascii") + b'",', value_start):
+        raise ValueError("failure receipt differs from the pinned digest")
+    # Hash the canonical body without copying the potentially large receipt.
+    digest = hashlib.sha256()
+    with memoryview(raw) as view:
+        digest.update(view[:start])
+        digest.update(view[member_end:])
+    if digest.hexdigest() != expected_digest:
+        raise ValueError("failure receipt differs from the pinned digest")
+
+
 def _decode_incomplete_receipt(
     raw: bytes,
     *,
     expected_receipt_digest: str | None = None,
     expected_max_ineligible_pairs: int | None = None,
+    expected_max_json_nodes: int | None = None,
 ) -> dict[str, object]:
     """Strictly validate receipt bytes (shared by the reader and the writer)."""
-    _preflight_receipt_json_depth(raw)
+    if expected_receipt_digest is not None:
+        _require_raw_receipt_pin(raw, expected_receipt_digest)
+    _preflight_receipt_json_depth(raw, expected_max_json_nodes=expected_max_json_nodes)
     # A canonical failure receipt is always a root object. Reject broad arrays
     # and other non-objects before the JSON decoder can allocate their elements.
     if not raw.startswith(b"{"):
@@ -2750,6 +2819,7 @@ def load_incomplete_pair_attempt(
     expected_receipt_digest: str | None = None,
     max_receipt_bytes: int = _DEFAULT_INCOMPLETE_RECEIPT_BYTES,
     expected_max_ineligible_pairs: int | None = None,
+    expected_max_json_nodes: int | None = None,
 ) -> dict[str, object]:
     """Strictly reload a TD8 failure receipt; reject any tampering.
 
@@ -2767,6 +2837,8 @@ def load_incomplete_pair_attempt(
     An explicitly pinned trusted digest is required to request a larger finite
     budget, up to 512 MiB. Reading a larger file never falls back to an
     unbounded allocation, and changed regular-file metadata fails closed.
+    A supplied trusted digest is also checked against the canonical body bytes
+    before JSON preflight or decoding; the full strict validation still runs.
 
     A caller may additionally supply a positive native integer ceiling derived
     from an independently verified frozen block and action roster. When given,
@@ -2776,6 +2848,14 @@ def load_incomplete_pair_attempt(
     still checked across the whole reconstructed document. The default None
     retains the historical decode path; the ceiling is not self-authenticating
     and does not prove an aggregate memory bound or research authorization.
+
+    The optional positive native integer expected_max_json_nodes uses the
+    v1 value-node counting contract: root, each object member value (including
+    duplicate occurrences), and each array item, including containers;
+    member names are excluded. Excess nodes fail before JSON decoding.
+    Derive the ceiling externally from the verified receipt profile, not
+    from the untrusted receipt. None preserves historical v2/v3 admission.
+    This reader-side budget does not impose a producer cap or an RSS/CPU bound.
     """
     if (
         type(max_receipt_bytes) is not int
@@ -2796,6 +2876,10 @@ def load_incomplete_pair_attempt(
         raise ValueError(
             "expected_max_ineligible_pairs must be a positive native integer"
         )
+    if expected_max_json_nodes is not None and (
+        type(expected_max_json_nodes) is not int or expected_max_json_nodes <= 0
+    ):
+        raise ValueError("expected_max_json_nodes must be a positive native integer")
     directory = Path(root)
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
@@ -2851,6 +2935,7 @@ def load_incomplete_pair_attempt(
         raw,
         expected_receipt_digest=expected_receipt_digest,
         expected_max_ineligible_pairs=expected_max_ineligible_pairs,
+        expected_max_json_nodes=expected_max_json_nodes,
     )
 
 

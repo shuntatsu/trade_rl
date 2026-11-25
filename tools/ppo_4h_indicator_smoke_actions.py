@@ -228,6 +228,7 @@ def _require_bootstrap_authority_provenance(
     history = get(f"compare/{review_head}...{TRUSTED_REVIEWER_AUTHORITY_COMMIT}")
     if (
         history.get("status") not in {"ahead", "identical"}
+        or type(history.get("behind_by")) is not int
         or history.get("behind_by") != 0
     ):
         raise ValueError("trusted authority seal bootstrap PR is not in anchor history")
@@ -406,6 +407,7 @@ def _require_frozen_reviewer_authority(
     )
     if (
         comparison.get("status") not in {"ahead", "identical"}
+        or type(comparison.get("behind_by")) is not int
         or comparison.get("behind_by") != 0
     ):
         raise ValueError("trusted reviewer run is not a descendant of frozen authority")
@@ -486,11 +488,13 @@ def validate_trusted_reviewer_attestation(
     if not isinstance(run, dict):
         raise ValueError("trusted reviewer workflow run is malformed")
     if (
-        run.get("id") != expected_run_id
+        type(run.get("id")) is not int
+        or run.get("id") != expected_run_id
         or run.get("name") != TRUSTED_REVIEWER_WORKFLOW_NAME
         or run.get("event") != "issue_comment"
         or run.get("status") != "completed"
         or run.get("conclusion") != "success"
+        or type(run.get("run_attempt")) is not int
         or run.get("run_attempt") != expected_attempt
         or run.get("head_branch") != EXECUTION_BASE_BRANCH
         or run.get("path") != TRUSTED_REVIEWER_WORKFLOW_PATH
@@ -550,8 +554,11 @@ def validate_trusted_reviewer_attestation(
         or attestation.get("trusted_workflow_file_sha256")
         != TRUSTED_REVIEWER_WORKFLOW_SHA256
         or attestation.get("trusted_runner_sha256") != TRUSTED_REVIEWER_RUNNER_SHA256
+        or type(attestation.get("reviewer_run_id")) is not int
         or attestation.get("reviewer_run_id") != expected_run_id
+        or type(attestation.get("reviewer_run_attempt")) is not int
         or attestation.get("reviewer_run_attempt") != expected_attempt
+        or type(attestation.get("request_pull_number")) is not int
         or attestation.get("request_pull_number") != pull_number
         or attestation.get("requester_permission") not in {"write", "admin"}
         or attestation.get("result_blind") is not True
@@ -1137,6 +1144,65 @@ def _review_inventory(
         page += 1
 
 
+def _latest_review_transports(
+    inventory: list[object], *, relevant_heads: set[str]
+) -> dict[int, dict[str, Any]]:
+    """Find the latest formal review ID per transport principal before validation.
+
+    A newer non-authorizing review must not be discarded in favor of an older
+    approval. This is a transport veto, not a new trusted semantic decision.
+    """
+    latest: dict[int, dict[str, Any]] = {}
+    seen: set[int] = set()
+    for record in inventory:
+        if not isinstance(record, dict):
+            raise ValueError("source review inventory is malformed")
+        commit = transport._require_commit_sha(
+            record.get("commit_id"), field="source review inventory commit SHA"
+        )
+        review_id = transport._strict_positive_int(
+            record.get("id"), field="source review inventory id"
+        )
+        if review_id in seen:
+            raise ValueError("source review inventory has duplicate review ids")
+        seen.add(review_id)
+        if commit not in relevant_heads:
+            continue
+        principal = _github_principal_id(record, field="source review inventory")
+        previous = latest.get(principal)
+        # The API lists reviews chronologically. Refuse inconsistent ID order
+        # instead of choosing an older approval when chronology is ambiguous.
+        if previous is not None and review_id <= previous["id"]:
+            raise ValueError("source review inventory has ambiguous review order")
+        latest[principal] = record
+    return latest
+
+
+def _require_latest_review_transport(
+    record: dict[str, Any],
+    *,
+    relevant_heads: set[str],
+    repository: str,
+    pull_number: int,
+    token: str,
+    deadline: float,
+) -> None:
+    latest = _latest_review_transports(
+        _review_inventory(
+            repository=repository,
+            pull_number=pull_number,
+            token=token,
+            deadline=deadline,
+        ),
+        relevant_heads=relevant_heads,
+    ).get(_github_principal_id(record, field="source review"))
+    if latest is None or any(
+        latest.get(field) != record.get(field)
+        for field in ("id", "html_url", "commit_id", "state", "body", "user")
+    ):
+        raise ValueError("source review is no longer the latest exact transport")
+
+
 def _require_current_main_contained(
     *,
     repository: str,
@@ -1182,7 +1248,7 @@ def _validate_execution_pull(
 ) -> int:
     if not isinstance(pull, dict):
         raise ValueError("source review pull request record is malformed")
-    if pull.get("number") != pull_number:
+    if type(pull.get("number")) is not int or pull.get("number") != pull_number:
         raise ValueError("source review pull request number differs")
     if pull.get("state") != "open":
         raise ValueError("source review pull request must remain open")
@@ -1383,7 +1449,8 @@ def find_authorizing_source_review(
         deadline=deadline,
     )
 
-    for record in reversed(inventory):
+    latest = _latest_review_transports(inventory, relevant_heads={reviewed})
+    for record in sorted(latest.values(), key=lambda item: item["id"], reverse=True):
         try:
             source = validate_independent_review_status(
                 record,
@@ -1415,8 +1482,15 @@ def find_authorizing_source_review(
             )
         except ValueError:
             continue
-        if isinstance(record, dict):
-            return record
+        _require_latest_review_transport(
+            record,
+            relevant_heads={reviewed},
+            repository=repository,
+            pull_number=pull_number,
+            token=token,
+            deadline=deadline,
+        )
+        return record
     raise ValueError("independent research review is pending")
 
 
@@ -1622,6 +1696,14 @@ def validate_review_gate(
             raise ValueError(
                 "trigger review evidence differs from the authenticated source review"
             )
+    _require_latest_review_transport(
+        record,
+        relevant_heads={reviewed, head},
+        repository=repository,
+        pull_number=pull_number,
+        token=token,
+        deadline=deadline,
+    )
 
 
 def _download_source(

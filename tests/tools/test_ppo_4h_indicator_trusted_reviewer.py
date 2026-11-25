@@ -419,6 +419,7 @@ def test_frozen_authority_rejects_unlinked_bootstrap_review_metadata(
         ("wrong_pr_repo", "PR identity"),
         ("unmerged_pr", "PR identity"),
         ("unrelated_review_head", "anchor history"),
+        ("boolean_behind_by", "anchor history"),
         ("wrong_ci_head", "Full CI"),
         ("failed_ci", "Full CI"),
         ("wrong_ci_repo", "Full CI"),
@@ -444,6 +445,8 @@ def test_frozen_authority_rejects_unbound_bootstrap_reference(
             value["merged_at"] = None
         if case == "unrelated_review_head" and "/compare/" in url:
             value["behind_by"] = 1
+        if case == "boolean_behind_by" and "/compare/" in url:
+            value["behind_by"] = False
         if case == "wrong_ci_head" and "/actions/runs/" in url:
             value["head_sha"] = "0" * 40
         if case == "failed_ci" and "/actions/runs/" in url:
@@ -1251,6 +1254,14 @@ def test_require_trusted_attestation_rejects_duplicate_terminal_result_artifact(
         "foreign_lineage",
         "bad_attestation",
         "skipped_job",
+        "later_transport_block",
+        "later_transport_comment",
+        "later_transport_dismissed",
+        "late_transport_block",
+        "missing_transport",
+        "changed_transport",
+        "duplicate_transport",
+        "ambiguous_transport_order",
     ],
 )
 def test_complete_public_review_gate_checks_real_authority_chain(
@@ -1343,9 +1354,39 @@ def test_complete_public_review_gate_checks_real_authority_chain(
             )
         return evidence_api(url, **kwargs)
 
+    inventory_reads = 0
+
     def inventory(url: str, **_kwargs: object) -> list[object]:
-        assert surface == "status", "trigger must refetch exact review, not inventory"
+        nonlocal inventory_reads
         assert url.endswith("/pulls/767/reviews?per_page=100&page=1")
+        inventory_reads += 1
+        if fault == "duplicate_transport":
+            return [record, record]
+        if surface == "trigger" or inventory_reads > 1:
+            if fault == "missing_transport":
+                return []
+            if fault == "changed_transport":
+                return [{**record, "body": body + " edited"}]
+            if fault == "late_transport_block":
+                return [record, {**record, "id": 12346, "state": "CHANGES_REQUESTED"}]
+        if fault == "ambiguous_transport_order":
+            return [record, {**record, "id": 12344, "state": "CHANGES_REQUESTED"}]
+        states = {
+            "later_transport_block": "CHANGES_REQUESTED",
+            "later_transport_comment": "COMMENTED",
+            "later_transport_dismissed": "DISMISSED",
+        }
+        if fault in states:
+            return [
+                record,
+                {
+                    **record,
+                    "id": 12346,
+                    "html_url": REVIEW_URL.replace("12345", "12346"),
+                    "state": states[fault],
+                    "body": "No longer authorize this transport.",
+                },
+            ]
         return [record]
 
     def git(*args: str) -> str:
@@ -1410,6 +1451,37 @@ def test_complete_public_review_gate_checks_real_authority_chain(
         # The missing/unavailable seal must produce a bounded HOLD refusal,
         # not escape as a transport exception or allow the synthetic trigger.
         with pytest.raises(
-            ValueError, match="pending" if surface == "status" else None
+            ValueError,
+            match="pending|latest exact transport|duplicate review ids|ambiguous review order"
+            if surface == "status"
+            else None,
         ):
             invoke()
+
+
+@pytest.mark.parametrize(
+    "run_updates,attestation_updates",
+    [
+        ({"run_attempt": True}, {}),
+        ({}, {"reviewer_run_attempt": True}),
+        ({"id": float(RUN_ID)}, {}),
+        ({}, {"request_pull_number": 767.0}),
+    ],
+)
+def test_trusted_attestation_rejects_noninteger_identity_fields(
+    run_updates, attestation_updates
+):
+    run = _run(run_attempt=1)
+    run.update(run_updates)
+    attestation = _attestation(reviewer_run_attempt=1)
+    attestation.update(attestation_updates)
+    with pytest.raises(ValueError, match="identity|authorize execution"):
+        actions.validate_trusted_reviewer_attestation(
+            attestation,
+            _source(trusted_reviewer_run_attempt=1),
+            repository="shuntatsu/trade_rl",
+            pull_number=767,
+            reviewed_code_sha=REVIEWED_SHA,
+            run=run,
+            jobs=_jobs(),
+        )

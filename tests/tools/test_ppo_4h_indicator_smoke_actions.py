@@ -46,6 +46,17 @@ def _trusted_reviewer_authority(monkeypatch: pytest.MonkeyPatch) -> None:
         },
     )
 
+    def review_inventory(url: str, **kwargs: object) -> list[object]:
+        assert url.endswith("/pulls/900/reviews?per_page=100&page=1")
+        return [
+            actions.transport._api_json(
+                "https://api.github.com/repos/owner/repo/pulls/900/reviews/12345",
+                **kwargs,
+            )
+        ]
+
+    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
+
 
 def _source_review_payload(**updates: object) -> dict[str, object]:
     payload: dict[str, object] = {
@@ -644,22 +655,26 @@ def test_review_gate_accepts_write_authorized_bot_principal(
     )
 
 
-def test_review_gate_ignores_later_transport_review_after_trusted_authorization(
+def test_review_gate_refuses_later_same_principal_transport_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(actions, "_git", _fake_git)
-    monkeypatch.setattr(actions.transport, "_api_json", _github_api())
-
-    def review_inventory(url: str, **_kwargs: object) -> list[object]:
-        raise AssertionError(f"transport review inventory must not be authority: {url}")
-
-    monkeypatch.setattr(actions.transport, "_api_json_array", review_inventory)
-    actions.validate_review_gate(
-        _review(),
-        repository="owner/repo",
-        token="token",
-        deadline=999999999.0,
+    api = _github_api()
+    monkeypatch.setattr(actions.transport, "_api_json", api)
+    valid = api("https://api.github.com/repos/owner/repo/pulls/900/reviews/12345")
+    later = {
+        **valid,
+        "id": 12346,
+        "state": "CHANGES_REQUESTED",
+        "commit_id": TRIGGER_SHA,
+    }
+    monkeypatch.setattr(
+        actions.transport, "_api_json_array", lambda *_a, **_kw: [valid, later]
     )
+    with pytest.raises(ValueError, match="latest exact transport"):
+        actions.validate_review_gate(
+            _review(), repository="owner/repo", token="token", deadline=999999999.0
+        )
 
 
 def test_review_gate_keeps_authorization_when_other_reviewer_changes(
@@ -1262,7 +1277,7 @@ def test_independent_review_status_keeps_valid_review_when_later_review_is_inval
     assert record["id"] == 12345
 
 
-def test_independent_review_status_keeps_trusted_authorization_after_transport_block(
+def test_independent_review_status_refuses_older_transport_after_transport_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     valid = _status_review(review_id=12345)
@@ -1274,18 +1289,17 @@ def test_independent_review_status_keeps_trusted_authorization_after_transport_b
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
     monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 
-    record = actions.find_authorizing_source_review(
-        repository="owner/repo",
-        pull_number=900,
-        reviewed_code_sha=REVIEWED_SHA,
-        token="token",
-        deadline=999999999.0,
-    )
+    with pytest.raises(ValueError, match="pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
 
-    assert record["id"] == 12345
 
-
-def test_independent_review_status_keeps_trusted_authorization_after_forged_payload(
+def test_independent_review_status_refuses_older_transport_after_forged_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     valid = _status_review(review_id=12345)
@@ -1300,15 +1314,14 @@ def test_independent_review_status_keeps_trusted_authorization_after_forged_payl
     monkeypatch.setattr(actions.transport, "_api_json", object_api)
     monkeypatch.setattr(actions.transport, "_api_json_array", array_api)
 
-    record = actions.find_authorizing_source_review(
-        repository="owner/repo",
-        pull_number=900,
-        reviewed_code_sha=REVIEWED_SHA,
-        token="token",
-        deadline=999999999.0,
-    )
-
-    assert record["id"] == 12345
+    with pytest.raises(ValueError, match="pending"):
+        actions.find_authorizing_source_review(
+            repository="owner/repo",
+            pull_number=900,
+            reviewed_code_sha=REVIEWED_SHA,
+            token="token",
+            deadline=999999999.0,
+        )
 
 
 def test_independent_review_status_keeps_other_reviewers_authorization(

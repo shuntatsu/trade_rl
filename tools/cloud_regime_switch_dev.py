@@ -647,6 +647,9 @@ def summarize_recorded_cells(admission: dict) -> dict:
             scenario=scenario,
             expected_start=start,
             expected_stop=stop,
+            expected_start_timestamp_ns=int(
+                np.datetime64(f"{year}-01-01", "ns").astype(np.int64)
+            ),
         )
     return decide_comparison(p, cells)
 

@@ -175,6 +175,9 @@ def test_all_strategy_modes_use_canonical_replay_on_synthetic_warmup(
                 arm=arm,
                 scenario=scenario,
                 expected_start=n - 48,
+                expected_start_timestamp_ns=int(
+                    ds.timestamps[n - 48].astype("datetime64[ns]").astype(np.int64)
+                ),
                 expected_stop=n - 1,
                 expected_symbol=ds.symbols[0],
                 expected_execution_policy_digest=_expected_policy(ds, scenario),
@@ -286,6 +289,9 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
         == metrics
@@ -301,6 +307,9 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
     (path / "ledger.json.gz").write_bytes(z)
@@ -316,6 +325,9 @@ def test_result_readback_rejects_changed_ledger_or_metadata(tmp_path):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -639,6 +651,9 @@ def test_readback_rejects_contradictory_drawdown(tmp_path, mutation):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -680,6 +695,9 @@ def test_readback_rejects_tampered_diagnostic_scalar(tmp_path, field):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -738,6 +756,9 @@ def test_readback_rejects_rehashed_final_flow(tmp_path, final_field, metric_fiel
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -795,6 +816,9 @@ def test_readback_rejects_contradictory_terminal_evidence(tmp_path, mutation):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -861,6 +885,9 @@ def test_readback_rejects_contradictory_control_identity(tmp_path, mutation):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 
@@ -926,6 +953,9 @@ def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation)
             arm="S2",
             scenario="normal",
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
@@ -971,6 +1001,9 @@ def test_readback_rejects_noncontrol_decision_contradictions(tmp_path, mutation)
         "sequence_duplicate",
         "sequence_gap",
         "sequence_reordered",
+        "timestamp_shift",
+        "exposure_clock_shift",
+        "whole_clock_shift",
     ],
 )
 def test_readback_rejects_order_event_identity(tmp_path, mutation):
@@ -1008,6 +1041,9 @@ def test_readback_rejects_order_event_identity(tmp_path, mutation):
             arm="BH25",
             scenario="normal",
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
@@ -1024,6 +1060,16 @@ def test_readback_rejects_order_event_identity(tmp_path, mutation):
         event["execution_policy_digest"] = "f" * 64
     elif mutation == "processing":
         event["processing_index"] = row["next_index"] + 1
+    elif mutation == "timestamp_shift":
+        event["timestamp_ns"] += 1
+    elif mutation == "exposure_clock_shift":
+        ledger["pre_interval_exposure"]["rows"][1]["timestamp_ns"] += 1
+    elif mutation == "whole_clock_shift":
+        for exposure_row in ledger["pre_interval_exposure"]["rows"]:
+            exposure_row["timestamp_ns"] += 3_600_000_000_000
+        for interval in ledger["intervals"]:
+            for order_event in interval["order_events"]:
+                order_event["timestamp_ns"] += 3_600_000_000_000
     elif mutation == "sequence_duplicate":
         event["sequence"] = row["order_events"][0]["sequence"]
     elif mutation == "sequence_gap":
@@ -1077,6 +1123,9 @@ def test_readback_rejects_impossible_native_bounds(tmp_path, mutation):
             arm="BH25",
             scenario="normal",
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
@@ -1131,6 +1180,9 @@ def test_readback_rejects_relabelled_double_cost_as_normal(tmp_path, arm):
             expected_symbol=ds.symbols[0],
             expected_execution_policy_digest=_expected_policy(ds, "normal"),
             expected_start=0,
+            expected_start_timestamp_ns=int(
+                ds.timestamps[0].astype("datetime64[ns]").astype(np.int64)
+            ),
             expected_stop=ds.n_bars - 1,
         )
 

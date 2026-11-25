@@ -139,10 +139,26 @@ def _verify_native_terminal_trace(ledger: dict, intervals: list[dict]) -> None:
         raise ValueError("native terminal reason mismatch")
 
 
-def _verify_order_events(ledger: dict, intervals: list[dict]) -> None:
+def _verify_order_events(
+    ledger: dict, intervals: list[dict], expected_start_timestamp_ns: int
+) -> None:
     # Use the native event schema, then bind each observed event to this
     # single-symbol book and its decision/processing interval.
-    for row in intervals:
+    # The protocol uses consecutive completed UTC hours; the independently
+    # supplied calendar start binds the sidecar and every native event.
+    hour_ns = 3_600_000_000_000
+    if type(expected_start_timestamp_ns) is not int:
+        raise ValueError("native order event clock start must be integer nanoseconds")
+    exposure_rows = ledger["pre_interval_exposure"]["rows"]
+    for offset, (row, exposure_row) in enumerate(
+        zip(intervals, exposure_rows, strict=True)
+    ):
+        start_time = expected_start_timestamp_ns + offset * hour_ns
+        if (
+            type(exposure_row["timestamp_ns"]) is not int
+            or exposure_row["timestamp_ns"] != start_time
+        ):
+            raise ValueError("native order event exposure clock mismatch")
         events = row["order_events"]
         if not isinstance(events, list):
             raise ValueError("native order event roster mismatch")
@@ -160,6 +176,8 @@ def _verify_order_events(ledger: dict, intervals: list[dict]) -> None:
                 or event.execution_policy_digest != ledger["execution_policy_digest"]
                 or event.symbol_index != 0
                 or not row["start_index"] <= event.processing_index <= row["next_index"]
+                or event.timestamp_ns
+                != start_time + (event.processing_index - row["start_index"]) * hour_ns
             ):
                 raise ValueError("native order event identity mismatch")
 
@@ -253,6 +271,7 @@ def read_cell(
     expected_execution_policy_digest: str,
     expected_start: int,
     expected_stop: int,
+    expected_start_timestamp_ns: int,
 ) -> dict:
     """Check identity, ledger bytes and decisive scalars, without a shadow replay.
 
@@ -363,7 +382,6 @@ def read_cell(
     _verify_native_flows(ledger, intervals)
     _verify_native_terminal_trace(ledger, intervals)
     _verify_decision_trace(ledger, intervals, arm, scenario)
-    _verify_order_events(ledger, intervals)
     exposure = mean_pre_interval_gross_from_ledger(
         raw,
         expected_ledger_digest=m["ledger_sha256"],
@@ -373,6 +391,7 @@ def read_cell(
         expected_start_index=expected_start,
         expected_stop_index=expected_stop,
     )
+    _verify_order_events(ledger, intervals, expected_start_timestamp_ns)
     if _finite(m.get("mean_pre_interval_gross"), "mean_pre_interval_gross") != exposure:
         raise ValueError("native scalar mismatch: mean_pre_interval_gross")
     expected = {

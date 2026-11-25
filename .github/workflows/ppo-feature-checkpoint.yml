@@ -82,8 +82,8 @@ jobs:
             echo "checkout workflow does not contain 3.12.16; previous lineage is not resumable"
             exit 1
           fi
-          if ! grep -Fxq '          version: "0.13.9"' .github/workflows/ppo-feature-checkpoint.yml; then
-            echo "checkout workflow does not contain pinned uv 0.13.9; previous lineage is not resumable"
+          if ! grep -Fxq '          version: "0.13.10"' .github/workflows/ppo-feature-checkpoint.yml; then
+            echo "checkout workflow does not contain pinned uv 0.13.10; previous lineage is not resumable"
             exit 1
           fi
 
@@ -105,13 +105,13 @@ jobs:
       - name: Install pinned uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: false
 
       - name: Verify exact checkpoint Python/uv environment
         run: |
           python -c 'import sys; assert sys.version_info[:3] == (3, 12, 16)'
-          uv --version | grep -Eq '^uv 0\.13\.9([[:space:]]|$)'
+          uv --version | grep -Eq '^uv 0\.13\.10([[:space:]]|$)'
 
       - name: Install frozen PPO runtime
         run: uv sync --locked --extra train-sb3

@@ -48,7 +48,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install
@@ -161,7 +161,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install locked test runtime
@@ -216,7 +216,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install
@@ -356,7 +356,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install PPO runtime
@@ -472,7 +472,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install store runtime
@@ -531,7 +531,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
 
       - name: Fetch pull request review evidence
         env:
@@ -619,7 +619,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
         with:
-          version: "0.13.9"
+          version: "0.13.10"
           enable-cache: true
 
       - name: Install review-status runtime

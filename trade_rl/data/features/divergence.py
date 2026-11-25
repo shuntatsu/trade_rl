@@ -14,6 +14,31 @@ from typing import Literal
 
 import numpy as np
 
+
+def _require_plain_native_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    """Reject masks, subclasses and opaque owners before reading numeric values.
+
+    Exact ndarray/memoryview owner links can be inspected without invoking
+    arbitrary user attributes. Owned arrays, native views, and exact raw-byte
+    buffers remain supported. Missingness already erased by the caller cannot
+    be recovered.
+    """
+    error = f"{field_name} must be a native array without opaque or masked ownership"
+    if type(value) is not np.ndarray:
+        raise ValueError(error)
+    owner: object = value
+    while True:
+        if type(owner) is np.ndarray:
+            owner = np.ndarray.base.__get__(owner)
+        elif type(owner) is memoryview:
+            owner = owner.obj
+        else:
+            break
+    if owner is not None and type(owner) is not bytes and type(owner) is not bytearray:
+        raise ValueError(error)
+    return value
+
+
 DivergenceKind = Literal["bull_regular", "bear_regular", "bull_hidden", "bear_hidden"]
 _KINDS: tuple[DivergenceKind, ...] = (
     "bull_regular",
@@ -164,7 +189,10 @@ def detect_divergences(
     if config is not None and not isinstance(config, DivergenceConfig):
         raise TypeError("config must be DivergenceConfig or None")
     cfg = DivergenceConfig() if config is None else config
-    raw_prices = tuple(np.asarray(a) for a in (close, high, low))
+    raw_prices = tuple(
+        _require_plain_native_array(a, field_name=name)
+        for name, a in (("close", close), ("high", high), ("low", low))
+    )
     if any(a.ndim != 1 or a.dtype.kind not in "iuf" for a in raw_prices):
         raise ValueError("prices must be one-dimensional real numeric arrays")
     c, h, low_price = (np.asarray(a, dtype=np.float64) for a in raw_prices)
@@ -188,7 +216,7 @@ def detect_divergences(
     for name, value in indicators.items():
         if not isinstance(name, str) or not name or name in src:
             raise ValueError("invalid indicator name")
-        raw = np.asarray(value)
+        raw = _require_plain_native_array(value, field_name=name)
         if raw.dtype.kind not in "iuf":
             raise ValueError("indicator values must be real numeric arrays")
         arr = np.asarray(raw, dtype=np.float64)

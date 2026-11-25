@@ -1150,6 +1150,30 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation.quantities` | `parse_quantity`（canonical rational string） |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+| `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
+| `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+The explicit equity-path API samples observed UTC midnight rows from aligned,
+strictly increasing int64 nanosecond timestamps and finite positive equity.
+It does not interpolate missing days or authenticate scoring-window coverage.
+CAGR uses elapsed time and caller-specified days/year; daily Sharpe uses sample
+standard deviation and the caller-specified annualization. Calendar-segment
+returns retain the original inclusive next-year-boundary convention.
+The overlapping-block API generates a common seeded non-circular resample
+matrix for paired excess paths, then simple annualized mean percentile and
+Bonferroni intervals. It is distinct from the existing circular
+`moving_block_mean_test`; neither changes the other's semantics.
+The new equity, bootstrap and divergence array boundaries require exact native
+ndarrays with ordinary ndarray/memoryview ownership ending in owned storage or
+exact raw bytes/bytearray; reject retained masks, subclasses and opaque owners
+before conversion. Missingness erased by a caller cannot be reconstructed.
+Nonfinite/bad inputs fail closed; the historical `ci95` mapping is available
+only for alpha=0.05. Both APIs match the historical method for valid inputs,
+are observer-only and own no dataset I/O, result selection, risk or accounting.
+Existing source-bound historical modules are deliberately unchanged until
+accepted migration/cutover; remove their legacy copies after consumer closure,
+not by silently changing frozen study source bytes now.
+
 
 The explicit divergence detector and visible cloud are native-row arithmetic,
 not strategy, replay or economic authorization. A confirmed divergence is

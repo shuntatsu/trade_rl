@@ -422,3 +422,24 @@ def test_detector_rejects_nonreal_oscillator_and_invalid_config():
         )
     with pytest.raises(TypeError, match="DivergenceConfig"):
         detect_divergences(high=c, low=c, close=c, indicators={"RSI": c}, config=False)
+
+
+@pytest.mark.parametrize("kind", ["masked", "buffer", "opaque"])
+@pytest.mark.parametrize("field", ["price", "oscillator"])
+def test_public_divergence_refuses_unverifiable_array_owners(kind, field):
+    values = np.arange(1.0, 11.0)
+    masked = np.ma.array(values, mask=[True] + [False] * 9)
+    if kind == "masked":
+        damaged = masked
+    elif kind == "buffer":
+        damaged = np.frombuffer(memoryview(masked), dtype=values.dtype)
+    else:
+        damaged = np.lib.stride_tricks.as_strided(
+            masked, shape=values.shape, strides=values.strides
+        )
+    price = damaged if field == "price" else values
+    oscillator = damaged if field == "oscillator" else values
+    with pytest.raises(ValueError, match="native array"):
+        detect_divergences(
+            high=price, low=price, close=price, indicators={"RSI": oscillator}
+        )

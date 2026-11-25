@@ -248,7 +248,8 @@ Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbin
 
 - 現行の良い責務境界を優先し、将来使うかもしれない抽象化を追加しない。
 - private old pathを残すだけのcompatibility shimは、明示的public contractの証拠がない限り作らない。
-- 変更前にTest Oracleとfailure modeを決める。
+- 新規の個別研究（仮説、戦略、比較条件、固有runner、判定）は [trade_rl_research](https://github.com/shuntatsu/trade_rl_research) の責務とする。このrepoは共通データ・時間軸・指標・学習・risk・執行・会計・評価契約を所有する。研究側からの不足機能やbugは、再現条件と期待契約を示す短いIssueから着手できる。基盤は研究packageに依存しない。既存のsource-bound実行経路は移行と承認が完了するまで維持する。
+- 小規模なdocs/test/意味保存refactor・fabricated-input検証は、変更の目的と影響範囲に応じたoracleを短く記録すればよい。独立planや新しい経済研究packetを作る必要はない。挙動や共通契約を変える場合は事前にTest Oracleとfailure modeを決める。経済mechanism変更、実データ権限、Full CI、独立reviewの要件は変更しない。
 - 研究・経済mechanismを変更する場合は、経済結果を確認する前に `architecture/research-assurance.md` のG0-G2、falsifier、semantic invariant、Known limitationsを定義する。P&Lやwinner判定でG0-G2の不備を救済しない。
 - **AI semantic review is mandatory**。上記変更ではeconomic result valuesを生成・閲覧する前にAIへresult-blind G0-G2 adversarial reviewを実施させる。既定はWorkerと異なるconfiguredモデルのfresh read-only AI reviewerであり、G0/G1のpremise・causal story・Mechanism ContractをAIが反証する。独立review surfaceがない場合もAI review自体は省略せず独立性を`NOT ESTABLISHED`とするが、新しいG4 economic result生成へは進まない。AIの肯定だけでmachine oracleやsource-bound testを代替しない。
 - refactor/bugfixはTDDでREDを観測してからproductionを変える。

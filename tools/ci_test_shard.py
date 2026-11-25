@@ -18,13 +18,15 @@ import pytest
 
 _SCHEMA = "ci_test_shard_v1"
 _MAX_SHARDS = 16
-# Candidate four-way placement from measured #1416 run 45542520830:
+# Four-way placement from #1416 run 45542520830 and #1420 run 45553392392:
 # keep the costly module-scoped fixtures together, without changing the
 # assignment or execution contract of other test modules or shard counts.
+# The first affinity run concentrated three expensive modules on shard 3;
+# move study and FS1 to shards 0 and 2 to reduce its observed critical path.
 _MEASURED_MODULE_AFFINITY = {
     "tests/evaluation/test_dev_realdata_phase3.py": 1,
-    "tests/evaluation/test_dev_realdata_study.py": 3,
-    "tests/evaluation/test_forward_study_fs1.py": 3,
+    "tests/evaluation/test_dev_realdata_study.py": 0,
+    "tests/evaluation/test_forward_study_fs1.py": 2,
     "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 0,
     "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 3,
 }

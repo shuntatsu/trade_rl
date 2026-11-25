@@ -1,0 +1,64 @@
+name: Locked Python dependency advisory inventory
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ci-uv-advisory-audit.yml
+      - pyproject.toml
+      - uv.lock
+      - uv.toml
+      - tools/uv_advisory_audit.py
+      - tests/tools/test_uv_advisory_audit.py
+      - tests/architecture/test_dependabot_policy.py
+  schedule:
+    - cron: "30 19 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
+
+jobs:
+  inventory:
+    name: Locked dependency advisory inventory (not security clearance)
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          check-latest: false
+
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.10"
+          enable-cache: false
+
+      - name: Scan committed lock without installing dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            python -m tools.uv_advisory_audit --report-only | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            python -m tools.uv_advisory_audit | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Verify manifest and lock were not modified
+        if: always()
+        run: git diff --exit-code HEAD -- pyproject.toml uv.lock

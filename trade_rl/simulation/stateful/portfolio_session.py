@@ -14,6 +14,7 @@ from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     ExecutionResult,
@@ -99,6 +100,7 @@ class SharedPortfolioSession:
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
+        fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
@@ -163,6 +165,7 @@ class SharedPortfolioSession:
             strict_spot_cash=strict_spot_cash,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
+            fill_cash_observer=fill_cash_observer,
         )
         risk_controller = (
             PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)

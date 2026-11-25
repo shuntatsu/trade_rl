@@ -162,6 +162,7 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/config.py",
         "runs/execute.py",
         "runs/provenance.py",
+        "runs/external_provenance.py",
         "runs/artifact.py",
         "runs/portfolio_family_comparison.py",
         "runs/portfolio_family_scenario_replay_v2.py",

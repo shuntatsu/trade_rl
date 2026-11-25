@@ -15,6 +15,10 @@ def checked_repo_path(repository: Path, path: Path) -> Path:
     except ValueError as error:
         raise ValueError(f"path escapes repository: {path}") from error
 
+    # Reject lexical parent traversal before inspecting any path components.
+    if ".." in relative.parts:
+        raise ValueError(f"path escapes repository: {path}")
+
     current = root
     for part in relative.parts:
         current = current / part

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 import tomllib
@@ -53,6 +54,14 @@ def _git(
     )
 
 
+def _git_paths(repository: Path, *args: str) -> tuple[str, ...]:
+    # Read Git pathnames as bytes, preserving CR/LF and non-ASCII names.
+    output = subprocess.run(
+        ["git", *args], cwd=repository, check=True, capture_output=True
+    ).stdout
+    return tuple(path for path in os.fsdecode(output).split(chr(0)) if path)
+
+
 def _module_from_path(path: str) -> str:
     parts = PurePosixPath(path).with_suffix("").parts
     if not parts or parts[0] != "trade_rl":
@@ -63,18 +72,17 @@ def _module_from_path(path: str) -> str:
 
 
 def _git_modules(repository: Path, ref: str) -> frozenset[str]:
-    result = _git(
+    result = _git_paths(
         repository,
         "ls-tree",
         "-r",
         "--name-only",
+        "-z",
         ref,
         "--",
         "trade_rl",
-    ).stdout
-    return frozenset(
-        _module_from_path(path) for path in result.splitlines() if path.endswith(".py")
     )
+    return frozenset(_module_from_path(path) for path in result if path.endswith(".py"))
 
 
 def _worktree_modules(repository: Path) -> frozenset[str]:
@@ -87,21 +95,12 @@ def _worktree_modules(repository: Path) -> frozenset[str]:
 
 def _changed_paths(repository: Path, merge_base: str) -> tuple[str, ...]:
     changed = set(
-        line
-        for line in _git(
-            repository, "diff", "--name-only", merge_base, "--"
-        ).stdout.splitlines()
-        if line
+        _git_paths(
+            repository, "diff", "--no-renames", "--name-only", "-z", merge_base, "--"
+        )
     )
     changed.update(
-        line
-        for line in _git(
-            repository,
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-        ).stdout.splitlines()
-        if line
+        _git_paths(repository, "ls-files", "--others", "--exclude-standard", "-z")
     )
     return tuple(sorted(changed))
 

@@ -57,7 +57,7 @@ def test_permanent_ci_lints_formats_and_types_repository_tooling() -> None:
     for command in repo_commands:
         arguments = command.split()
         assert arguments[:3] == ["uv", "run", "mypy"]
-        assert "tools/issue810_joint_fee_only_fixture.py" in arguments
+        assert "tools/issue810_joint_fee_only_fixture.py" not in arguments
         assert "tools/issue810_portfolio_probability_probe.py" not in arguments
     for command in ppo_commands:
         arguments = command.split()
@@ -108,5 +108,21 @@ def test_migrated_portfolio_probability_probe_is_absent_from_core() -> None:
     )
     assert (
         "https://github.com/shuntatsu/trade_rl_research/blob/main/migration/portfolio_probability_probe_sources.json"
+        in boundaries
+    )
+
+
+def test_migrated_joint_fee_fixture_is_absent_from_core() -> None:
+    for relative in (
+        "tools/issue810_joint_fee_only_fixture.py",
+        "tests/tools/test_issue810_joint_fee_only_fixture.py",
+    ):
+        assert not (ROOT / relative).exists(), relative
+    assert "issue810_joint_fee_only_fixture" not in CI.read_text(encoding="utf-8")
+    boundaries = (ROOT / "docs/architecture/package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "https://github.com/shuntatsu/trade_rl_research/blob/main/migration/calibration_and_generated_fixtures.json"
         in boundaries
     )

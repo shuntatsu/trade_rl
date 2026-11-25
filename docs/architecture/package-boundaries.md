@@ -1265,7 +1265,12 @@ remain NaN; no existing Dataset feature profile is changed. Visible Ichimoku
 uses the span from the displaced past source row, not the existing unshifted
 cloud-position feature. All periods are counts of native bars; its readiness
 requires the entire longest dependency window through the visible row to be
-tradable. Midpoints retain normal arithmetic and avoid sum overflow. These
+tradable. Midpoints retain normal arithmetic and avoid sum overflow. The
+visible cloud computes each distinct trailing window once with monotonic
+extrema queues and checks the full tradable window using prefix counts.
+The runtime is O(N) for the three configured periods, independent of their
+length and displacement; auxiliary storage is O(N). This is a batch
+calculation, not a persistent incremental cache. These
 primitives consume caller-supplied completed native observations: readiness
 is not publication-time availability. The caller must use the canonical
 native-clock and as-of alignment contracts, including missing-bar detection

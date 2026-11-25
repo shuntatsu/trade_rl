@@ -161,6 +161,27 @@ def test_initial_creation_uses_zero_oid_absence_precondition() -> None:
     assert api.oid == B
 
 
+def test_missing_ref_is_not_explicit_absence_before_creation() -> None:
+    class MissingRefApi(FakeGraphQL):
+        def execute(
+            self, document: str, variables: dict[str, object]
+        ) -> dict[str, object]:
+            response = super().execute(document, variables)
+            if "query CoordinationRefState" in document and self.reads == 1:
+                data = response["data"]
+                assert isinstance(data, dict)
+                repo = data["repository"]
+                assert isinstance(repo, dict)
+                del repo["ref"]
+            return response
+
+    api = MissingRefApi(oid=None)
+    with pytest.raises(ValueError, match="repository ref is missing"):
+        _cas(api, expected_oid=ZERO_OID)
+    assert len(api.calls) == 1
+    assert api.oid is None
+
+
 def test_stale_expected_oid_is_rejected_before_mutation() -> None:
     api = _api(oid=A)
     with pytest.raises(ValueError, match="expected OID"):

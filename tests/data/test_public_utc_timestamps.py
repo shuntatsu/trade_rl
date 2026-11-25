@@ -81,3 +81,60 @@ def test_datetime_subclass_cannot_discard_finer_precision():
 
     with pytest.raises(TypeError):
         utc_timestamp_ns(Extended(2024, 1, 1, tzinfo=UTC))
+
+
+@pytest.mark.parametrize("host_tz", ["UTC", "Asia/Tokyo"])
+def test_stateful_offset_is_sampled_once(host_tz, monkeypatch):
+    import os
+    import time
+
+    if not hasattr(time, "tzset"):
+        pytest.skip("host timezone switching unavailable")
+
+    class OffsetOnce(tzinfo):
+        calls = 0
+
+        def utcoffset(self, dt):
+            self.calls += 1
+            return timedelta(hours=2) if self.calls == 1 else None
+
+    old = os.environ.get("TZ")
+    try:
+        monkeypatch.setenv("TZ", host_tz)
+        time.tzset()
+        offset = OffsetOnce()
+        actual = utc_timestamp_ns(datetime(2024, 1, 1, 12, tzinfo=offset))
+        assert (actual, offset.calls) == (1704103200000000000, 1)
+    finally:
+        if old is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", old)
+        time.tzset()
+
+
+def test_fold_and_fractional_offset_preserved():
+    class FoldOffset(tzinfo):
+        def utcoffset(self, dt):
+            return timedelta(hours=dt.fold, microseconds=1)
+
+    assert utc_timestamp_ns(datetime(1970, 1, 1, tzinfo=FoldOffset(), fold=0)) == -1000
+    assert (
+        utc_timestamp_ns(datetime(1970, 1, 1, tzinfo=FoldOffset(), fold=1))
+        == -3600000001000
+    )
+
+
+def test_mutable_offset_sampled_once_without_host_timezone_switch():
+    class OffsetChanges(tzinfo):
+        calls = 0
+
+        def utcoffset(self, dt):
+            self.calls += 1
+            return timedelta(hours=2 if self.calls == 1 else 5)
+
+    offset = OffsetChanges()
+    assert utc_timestamp_ns(datetime(2024, 1, 1, 12, tzinfo=offset)) == (
+        1704103200000000000
+    )
+    assert offset.calls == 1

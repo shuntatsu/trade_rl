@@ -26,25 +26,35 @@ _WEEK_NS = 7 * _NANOSECONDS_PER_DAY
 _MONDAY_ANCHOR_NS = 4 * _NANOSECONDS_PER_DAY
 
 
-def _native_unmasked_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
-    """Inspect native owner links before a conversion can erase missingness.
-
-    The public clock/resampling APIs require NumPy arrays. A caller who has
-    already materialized a plain array without mask provenance cannot be
-    distinguished from an ordinary array at this boundary.
-    """
-    if not isinstance(value, np.ndarray):
-        raise ValueError(f"{field_name} must be a NumPy ndarray")
+def _require_unmasked_array_owners(
+    value: np.ndarray | memoryview, *, field_name: str
+) -> None:
+    """Verify only closed native owner chains, before reading numeric values."""
     owner: object = value
     while True:
-        if np.ma.isMaskedArray(owner):
-            raise ValueError(f"{field_name} must not contain a masked array")
-        if isinstance(owner, np.ndarray):
+        if type(owner) is np.ndarray:
             owner = np.ndarray.base.__get__(owner)
-        elif isinstance(owner, memoryview):
+        elif type(owner) is memoryview:
             owner = owner.obj
+        elif owner is None or type(owner) is bytes or type(owner) is bytearray:
+            return
+        elif issubclass(type(owner), np.ma.MaskedArray):
+            raise ValueError(f"{field_name} must not contain a masked array")
         else:
-            break
+            # Never invoke foreign base or __class__ getters. A subclass or
+            # opaque array-interface wrapper may retain missingness we cannot
+            # authenticate through native owner links.
+            raise ValueError(f"{field_name} has opaque or subclass array ownership")
+
+
+def _native_unmasked_array(value: np.ndarray, *, field_name: str) -> np.ndarray:
+    """Require native arrays before a conversion can erase missingness.
+
+    Already discarded mask provenance cannot be recovered at this boundary.
+    """
+    if not issubclass(type(value), np.ndarray):
+        raise ValueError(f"{field_name} must be a NumPy ndarray")
+    _require_unmasked_array_owners(value, field_name=field_name)
     return np.asarray(value)
 
 

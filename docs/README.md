@@ -49,7 +49,7 @@ python -m tools.markdown_links --check
 
 ### 親計画・実験管理
 
-- [Issue #810](https://github.com/shuntatsu/trade_rl/issues/810) — 非LLM売買研究の親計画。進捗・依存はIssue/PR、現行判断はresearch/current-status.mdを正本とする。
+- [研究 #19](https://github.com/shuntatsu/trade_rl_research/issues/19) — 非LLM売買研究の親計画。[研究 #20](https://github.com/shuntatsu/trade_rl_research/issues/20) はTier D R3・歴史的回復、[研究 #2](https://github.com/shuntatsu/trade_rl_research/issues/2) は移行・cleanup。旧 [#810](https://github.com/shuntatsu/trade_rl/issues/810) は原設計・研究証拠・sourceが固定するowner認可コメントの参照先として保持する。Issue移管はrunner/consumption authorityのcutoverではなく、現行判断はresearch/current-status.mdを正本とする。
 
 ### キャリー・資金調達・クロスセクション
 

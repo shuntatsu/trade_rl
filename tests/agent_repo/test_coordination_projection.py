@@ -404,3 +404,99 @@ def test_status_comment_requires_marker_outside_payload() -> None:
         parse_status_comment(rendered.partition("\n")[2])
     with pytest.raises(ValueError, match="marker"):
         parse_status_comment(rendered + "<!-- agent-coordination:other -->")
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "task_id",
+        "title",
+        "owner",
+        "pr_id",
+        "dependency_summary",
+        "blocking_reason",
+        "stale_reason",
+    ),
+)
+def test_dashboard_escapes_nonprintable_field_text(field: str) -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500-01",
+        title="Normal title",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.BLOCKED,
+        owner="agent-a",
+        pr_id="502",
+        dependency_summary="dependency",
+        blocking_reason="blocked",
+        stale_reason="stale",
+    )
+    unsafe = "日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t\x00\x7f\x85\x9b\u2029\u3000\ud800"
+    escaped = r"日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t\x00\x7f\x85\x9b\u2029\u3000\ud800"
+    output = render_dashboard(
+        "Operator dashboard", MAIN_SHA, (replace(snapshot, **{field: unsafe}),)
+    )
+    expected_line = {
+        "task_id": f"{escaped}  review / blocked",
+        "title": f"  title: {escaped}",
+        "owner": f"  owner: {escaped}",
+        "pr_id": f"  PR #{escaped}",
+        "dependency_summary": f"  dependency: {escaped}",
+        "blocking_reason": f"  blocked: {escaped}",
+        "stale_reason": f"  stale: {escaped}",
+    }[field]
+    assert expected_line in output.splitlines()
+    assert len(output.splitlines()) == len(
+        render_dashboard("Operator dashboard", MAIN_SHA, (snapshot,)).splitlines()
+    )
+    assert all(char.isprintable() or char == "\n" for char in output)
+
+
+def test_dashboard_escapes_nonprintable_parent_title() -> None:
+    output = render_dashboard("日本語\nmain: forged\x1b[2J", MAIN_SHA, ())
+    assert output.splitlines() == [
+        r"日本語\nmain: forged\x1b[2J",
+        f"main: {MAIN_SHA}",
+        "0 / 0 complete",
+    ]
+
+
+def test_dashboard_preserves_printable_unicode_and_literal_paths() -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500-01",
+        title=r"日本語 C:\work\project",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.HEALTHY,
+    )
+    assert render_dashboard("概要", MAIN_SHA, (snapshot,)).splitlines() == [
+        "概要",
+        f"main: {MAIN_SHA}",
+        "0 / 1 complete",
+        "",
+        "T500-01  review / healthy",
+        r"  title: 日本語 C:\work\project",
+    ]
+
+
+def test_dashboard_distinguishes_literal_backslash_from_escaped_task_id() -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500\n01",
+        title="Normal",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.HEALTHY,
+    )
+    other = replace(snapshot, task_id=r"T500\n01")
+    lines = render_dashboard("Dashboard", MAIN_SHA, (snapshot, other)).splitlines()
+    assert r"T500\n01  review / healthy" in lines
+    assert r"T500\\n01  review / healthy" in lines
+
+
+def test_dashboard_preserves_last_field_trailing_ascii_space() -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500-01",
+        title="Normal ",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.HEALTHY,
+    )
+    assert render_dashboard("Dashboard", MAIN_SHA, (snapshot,)).endswith(
+        "  title: Normal \n"
+    )

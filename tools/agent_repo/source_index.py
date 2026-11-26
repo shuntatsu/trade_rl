@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tokenize
 import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -102,9 +103,7 @@ class ImportCollector:
     def _tree(self, path: Path) -> ast.Module:
         source = checked_repo_file(self.repository, path)
         if source not in self._trees:
-            self._trees[source] = ast.parse(
-                source.read_text(encoding="utf-8"), filename=str(source)
-            )
+            self._trees[source] = _parse_module(source)
         return self._trees[source]
 
     def _base(self, path: Path, node: ast.ImportFrom) -> str:
@@ -233,7 +232,7 @@ class PathContext:
 
 
 def _parse_module(path: Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return ast.parse(path.read_bytes(), filename=str(path))
 
 
 def _literal_public_exports(path: Path) -> tuple[str, ...] | None:
@@ -515,7 +514,8 @@ class SourceIndex:
         result: list[str] = []
         for path in sorted(root.rglob("test_*.py")):
             path = checked_repo_file(self.repository, path)
-            text = path.read_text(encoding="utf-8")
+            with tokenize.open(path) as source:
+                text = source.read()
             if any(term in text for term in terms):
                 result.append(path.relative_to(self.repository).as_posix())
         return tuple(result)

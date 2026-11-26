@@ -270,7 +270,7 @@ def test_real_setup_skip_call_skip_and_xfail_keep_valid_completion(
 # These are the five module placements derived from the ordinary CI trace;
 # include parameterized and class-based node IDs, and avoid prefix matching.
 _AFFINITY_CASES = (
-    ("tests/evaluation/test_dev_realdata_phase3.py", 1),
+    ("tests/evaluation/test_dev_realdata_phase3.py", 3),
     ("tests/evaluation/test_dev_realdata_study.py", 0),
     ("tests/evaluation/test_forward_study_fs1.py", 2),
     ("tests/evaluation/test_signal_diagnosis_run_scenarios.py", 0),

@@ -7,7 +7,6 @@
 - [AGENTS.md](AGENTS.md) — Agentの読み順序、更新matrix、検証・保持規則。`tools.agent_docs_context` で必要節を抽出可能
 - [architecture/lean-core.md](architecture/lean-core.md) — causal data、strategy/risk、execution、会計、artifact不変条件
 - [architecture/package-boundaries.md](architecture/package-boundaries.md) — package責務、public API、依存方向
-- [architecture/external-research-admission.md](architecture/external-research-admission.md) — 外部研究のロード元観測・認可証拠境界
 - [architecture/controlled-experiment-loop.md](architecture/controlled-experiment-loop.md) — Study/Experiment/EvidenceSet、lineage、freeze
 - [architecture/final-evaluation-authorization.md](architecture/final-evaluation-authorization.md) — sealed unused-future認可境界
 - [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性

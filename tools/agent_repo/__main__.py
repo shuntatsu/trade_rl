@@ -130,8 +130,19 @@ def _input_path(repository: Path, raw: object) -> Path:
 
 def _json_input(repository: Path, raw: object) -> object:
     path = _input_path(repository, raw)
+
+    def no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key in task input")
+            value[key] = item
+        return value
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("task input must be valid JSON") from error
 

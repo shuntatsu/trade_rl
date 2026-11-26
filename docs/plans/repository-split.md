@@ -145,7 +145,7 @@ resource、CI、外部consumerの完全なclosureを証明しない。各移行�
 | `evaluation/decision_value_*.py`, `strategies/decision_value*.py` | decision_value | evaluation facade、paired action/label、Run Coreの5 consumer。汎用fitはcore側に残す可能性。 |
 | `evaluation/directional*.py` | directional | 共通のsignal/decision契約と研究固有rosterを分ける。 |
 | `evaluation/dev_realdata_study/` | historical_development | forward_study/fs1とregistryが依存。旧registryはcoreに固定維持。 |
-| `evaluation/residual_rl/` | rl/residual | synthetic-only、独自ledgerの比較限定契約を維持。 |
+| `evaluation/residual_rl/` | [固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/residual_rl_archive.json) | 終了済み。独自ledger・実行コード・結果のcurrent-tree複製を削除。元Git履歴は不変。 |
 | `evaluation/ppo_*study.py`, `ppo_*checkpoint.py`, `ppo_*normalization*.py`, `ppo_4h_indicator_smoke.py` | rl/ppo | 固定activation JSON、PPO関連CI、optional extras、checkpoint互換性。 |
 | `evaluation/rl_family_comparison/` | [研究側](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rl_family_comparison_sources.json) | 移管済みの個別比較契約・oracleの旧実装を削除。共通fitterは維持。 |
 

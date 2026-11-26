@@ -39,15 +39,20 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> Path:
     temporary = output.with_name(
         f".{output.name}.tmp-{os.getpid()}-{_temporary_name_suffix()}"
     )
+    # An exclusive-open failure does not give us ownership of the name.
+    handle = temporary.open("xb")
     try:
-        with temporary.open("xb") as handle:
+        with handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, output)
-        _fsync_directory(output.parent)
-    finally:
+    except BaseException:
         temporary.unlink(missing_ok=True)
+        raise
+    # The successful rename consumed our staging name. Do not unlink a name
+    # another writer may now have acquired, even if directory fsync fails.
+    _fsync_directory(output.parent)
     return output
 
 

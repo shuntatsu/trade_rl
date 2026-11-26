@@ -326,3 +326,54 @@ def test_semantic_diff_unicode_module_dependency_does_not_appear_added(
     signals = semantic_diff(tmp_path, base_ref="main")
     assert not any(item.kind == "DEPENDENCY" for item in signals)
     assert any(item.kind == "SCHEMA" and item.change == "added" for item in signals)
+
+
+@pytest.mark.parametrize(
+    "encoding, cookie, comment",
+    [
+        ("utf-8-sig", "", "# café\n"),
+        ("latin-1", "# coding: latin-1\n", "# café\n"),
+        ("cp932", "# coding: cp932\n", "# 日本語\n"),
+    ],
+)
+def test_semantic_diff_respects_python_encoding(
+    tmp_path: Path, encoding: str, cookie: str, comment: str
+) -> None:
+    _baseline(tmp_path)
+    path = tmp_path / "trade_rl/example.py"
+    label = comment[2:].strip()
+    before = f"OLD_SCHEMA = {label + '_v1'!r}\n"
+    after = f"OLD_SCHEMA = {label + '_v2'!r}\n"
+    path.write_text(before, encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "utf8 baseline")
+    path.write_text(after, encoding="utf-8")
+    expected = semantic_diff(tmp_path, base_ref="main")
+    assert any(s.kind == "SCHEMA" and s.change == "changed" for s in expected)
+    path.write_bytes((cookie + comment + after).encode(encoding))
+    compile(path.read_bytes(), str(path), "exec")
+    assert semantic_diff(tmp_path, base_ref="main") == expected
+    path.write_bytes((cookie + comment + before).encode(encoding))
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "encoded baseline")
+    path.write_text(after, encoding="utf-8")
+    assert semantic_diff(tmp_path, base_ref="main") == expected
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [b"# coding: nonexistent\n", b"\xef\xbb\xbf# coding: latin-1\n", b"# \xff\n"],
+)
+@pytest.mark.parametrize("invalid_in_base", [False, True])
+def test_semantic_diff_rejects_invalid_python_encoding(
+    tmp_path: Path, invalid: bytes, invalid_in_base: bool
+) -> None:
+    _baseline(tmp_path)
+    path = tmp_path / "trade_rl/example.py"
+    path.write_bytes(invalid + b"OLD_SCHEMA = 'v2'\n")
+    if invalid_in_base:
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "invalid source")
+        path.write_text("OLD_SCHEMA = 'v3'\n", encoding="utf-8")
+    with pytest.raises(SyntaxError):
+        semantic_diff(tmp_path, base_ref="main")

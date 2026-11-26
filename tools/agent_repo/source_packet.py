@@ -118,6 +118,18 @@ def _git_text(
     )
 
 
+def _git_path(repository: Path, *args: str) -> str:
+    raw = _git(repository, *args)
+    if not raw.endswith(b"\n"):
+        raise ValueError("Git returned an unterminated filesystem path")
+    value = raw.removesuffix(b"\n")
+    if os.name == "nt":
+        value = value.removesuffix(b"\r")
+    if not value or 0 in value:
+        raise ValueError("Git returned an invalid filesystem path")
+    return os.fsdecode(value)
+
+
 def _outside_repository_and_worktrees(
     path: Path,
     repository: Path,
@@ -145,11 +157,15 @@ def _canonical_renderer(
     ):
         raise ValueError("temporary renderer parent must be outside every worktree")
 
-    object_directory_value = _git_text(repository, "rev-parse", "--git-path", "objects")
-    object_directory = Path(object_directory_value)
+    # Linked worktrees can return an absolute, non-ASCII object-store path.
+    object_directory = Path(_git_path(repository, "rev-parse", "--git-path", "objects"))
     if not object_directory.is_absolute():
         object_directory = repository / object_directory
     object_directory = object_directory.resolve(strict=True)
+    # The alternates file is line-delimited, not a general path encoding.
+    object_directory_bytes = os.fsencode(object_directory)
+    if b"\n" in object_directory_bytes or object_directory_bytes.endswith(b"\r"):
+        raise ValueError("object directory contains a line separator")
 
     with tempfile.TemporaryDirectory(
         prefix="agent-repo-source-packet-", dir=temporary_parent
@@ -171,7 +187,7 @@ def _canonical_renderer(
         )
         alternates = renderer_repository / "objects" / "info" / "alternates"
         (renderer_repository / "info").mkdir(exist_ok=True)
-        alternates.write_bytes(os.fsencode(object_directory) + b"\n")
+        alternates.write_bytes(object_directory_bytes + b"\n")
         (renderer_repository / "info" / "attributes").write_bytes(b"")
         global_attributes = temporary_root / "global-attributes"
         global_attributes.write_bytes(b"")
@@ -202,8 +218,9 @@ def _renderer_config(renderer: _PatchRenderer) -> tuple[str, ...]:
 
 
 def _repository_root(repository: Path) -> Path:
-    raw = _git(repository, "rev-parse", "--show-toplevel").rstrip(b"\r\n")
-    return Path(os.fsdecode(raw)).resolve(strict=True)
+    return Path(_git_path(repository, "rev-parse", "--show-toplevel")).resolve(
+        strict=True
+    )
 
 
 def _resolve_commit(repository: Path, value: str, object_format: str) -> str:

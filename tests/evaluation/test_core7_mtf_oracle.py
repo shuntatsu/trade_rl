@@ -109,10 +109,25 @@ PACKET_V48_TD8_OPERATIONAL_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v48-td8-operational-failure.json"
 )
-PACKET_PATH = (
+PACKET_ATOMIC_STAGE_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v47-atomic-file-stage-ownership.json"
+)
+PACKET_ATOMIC_TARGET_UNION_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v48-atomic-target-union.json"
+)
+PACKET_TD8_INVENTORY_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v49-td8-root-inventory.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v50-atomic-target-td8-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -164,7 +179,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "cc811d418197916237f93366881073822dd26704c8a6684a38d7ad4f84c22764"
+    "d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3733,7 +3748,7 @@ def test_td8_root_inventory_source_successor() -> None:
         assurance_digest(prior)
         == "f772250793db124fb0d79baa57beefcbf0719cdcab13e463d1a92b9616b6fdb6"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_TD8_INVENTORY_PATH.read_bytes())
     old_head = "4aa28612d2f522682afc8e4be07f505e777b4f25"
     head = "72b4d7e1945fbcfc9666380bd5e7c07e14a93b78"
     expected = json.loads(raw)
@@ -3760,5 +3775,202 @@ def test_td8_root_inventory_source_successor() -> None:
     ]
     for item in (prior, current):
         verdict = evaluate_assurance(item)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_atomic_file_stage_ownership_successor_preserves_predecessor() -> None:
+    raw = PACKET_V46_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "b496809462ffe3477e3ab5b23a04d1f96e75fe1328fa34b7b60fd8e3044680ad"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
+    )
+    current = json.loads(PACKET_ATOMIC_STAGE_PATH.read_bytes())
+    old_head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
+    head = "3063948681ca930ded73824f790575ed172461d7"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " Source-only M1 atomic file-write successor: exclusive-stage creation failure and successful replacement never unlink a staging name owned by another writer. Post-replace directory sync failure remains an error that can follow publication. Trusted-parent assumption remains; no general protection against adversarial path substitution, crash durability, economic protocol, result or authorization change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3063948681ca930ded73824f790575ed172461d7: four deterministic real-filesystem failure cases RED before the fix, all six focused cases and 75 artifact/evidence tests PASS afterward. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(_bound_code_paths(old_head))
+    new_paths = set(_bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 192
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/artifacts/atomic_write.py"]
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False
+
+
+def test_atomic_target_union_preserves_both_predecessors() -> None:
+    a_raw = PACKET_ATOMIC_STAGE_PATH.read_bytes()
+    b_raw = PACKET_V47_M1_TARGET_PATH.read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "23003b273536b8956f97e70729005ea6e3935658d68ada7da5ec70e601cf7252"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "40763f20860ab78c77b2ecbf1d6e79346cbb011cfad3130c14db3af4be30d433"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "db0f2233e6d5ce4a3a1bbc871f534b9669b93b55386d6d6f4634f005168d245a"
+    )
+    assert (
+        assurance_digest(b)
+        == "c80cc448828422e2b3c14dc2442fcb1cf766d30d824ab2cc58c7adca71e38641"
+    )
+    common = json.loads(PACKET_V46_PATH.read_bytes())
+    current = json.loads(PACKET_ATOMIC_TARGET_UNION_PATH.read_bytes())
+    head = "faf353eaa1951980b6fa0072e5dc4809db1452e7"
+    expected = json.loads(a_raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of the two immutable atomic-stage and M1 target-missingness successors. Both earlier evidence and authorization limits are preserved. No change to the frozen economic protocol, claims, or execution authority.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Exact integration source faf353eaa1951980b6fa0072e5dc4809db1452e7: both static closures are the set union of predecessor closures; compared with the accepted M1 target-missingness source only atomic_write.py differs, and compared with atomic-stage source only the seven M1 target/risk snapshot paths differ. No market data or economic execution.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert a[section][key].startswith(prefix)
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+        b[section][key] = a[section][key]
+    ah, bh = a["identity"]["implementation_head"], b["identity"]["implementation_head"]
+    ch = common["identity"]["implementation_head"]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = common[section][key].replace(ch, head)
+        assert a[section][key].replace(ah, head) == wanted
+        assert b[section][key].replace(bh, head) == wanted
+        expected[section][key] = wanted
+        b[section][key] = a[section][key]
+    b["identity"] = a["identity"]
+    assert a == b and current == expected
+    ap, bp, union = (set(_bound_code_paths(x)) for x in (ah, bh, head))
+    assert len(ap) == 192 and len(bp) == 193
+    assert len(union) == 193 and union == ap | bp
+    for previous, paths in (
+        (
+            ah,
+            [
+                "trade_rl/_array_snapshot.py",
+                "trade_rl/risk/pretrade.py",
+                "trade_rl/simulation/accounting.py",
+                "trade_rl/simulation/execution.py",
+                "trade_rl/simulation/native_transition.py",
+                "trade_rl/simulation/orders/reconciliation.py",
+                "trade_rl/simulation/targets/execution.py",
+            ],
+        ),
+        (bh, ["trade_rl/artifacts/atomic_write.py"]),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (a, json.loads(b_raw), common, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_atomic_target_td8_union_preserves_both_predecessors() -> None:
+    a_raw = PACKET_ATOMIC_TARGET_UNION_PATH.read_bytes()
+    b_raw = PACKET_TD8_INVENTORY_PATH.read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "aa9fb4b06c49ee9efbe3e3f229f3d9cbdc3a382bea074a0e7bccebb654cc2509"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "0a447beca2f27c6f2a3846d29780c236a88766047db14b7072f49063d80f38fd"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "5c6a83bdf425781374fae50ce6d5176b759614c2df56870cf35ea304fb6bb26a"
+    )
+    assert (
+        assurance_digest(b)
+        == "cc811d418197916237f93366881073822dd26704c8a6684a38d7ad4f84c22764"
+    )
+    common = json.loads(PACKET_V47_M1_TARGET_PATH.read_bytes())
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "3b3a0c65ccdf981e44ae075561d97e00e457b039"
+    expected = json.loads(a_raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of immutable atomic-target v48 and TD8 root-inventory v49 lineages. Both predecessor evidence limits, economic protocol, claims and authorizations are unchanged.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Exact integrated source 3b3a0c65ccdf981e44ae075561d97e00e457b039: static closure is the unchanged predecessor set union. Compared with the atomic-target union only decision_value_dev_study.py differs; compared with the accepted TD8 root-inventory source only atomic_write.py differs. No market data or economic execution.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+        b[section][key] = a[section][key]
+    ah, bh = a["identity"]["implementation_head"], b["identity"]["implementation_head"]
+    ch = common["identity"]["implementation_head"]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = common[section][key].replace(ch, head)
+        assert a[section][key].replace(ah, head) == wanted
+        assert b[section][key].replace(bh, head) == wanted
+        expected[section][key] = wanted
+        b[section][key] = a[section][key]
+    b["identity"] = a["identity"]
+    assert a == b and current == expected
+    ap, bp, union = (set(_bound_code_paths(x)) for x in (ah, bh, head))
+    assert len(ap) == 193 and len(bp) == 193
+    assert len(union) == 193 and union == ap == bp
+    for previous, paths in (
+        (ah, ["trade_rl/evaluation/decision_value_dev_study.py"]),
+        (bh, ["trade_rl/artifacts/atomic_write.py"]),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (a, json.loads(b_raw), common, current):
+        verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

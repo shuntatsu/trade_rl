@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import UserString
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -526,3 +527,34 @@ def test_enrollment_valid_issue_node_id_round_trips(node_id: str) -> None:
     parsed = parse_registry_bytes(encoded)
     assert parsed == registry
     assert parsed.entries[0].issue_node_id == node_id
+
+
+class _TextID(str):
+    pass
+
+
+@pytest.mark.parametrize(
+    "roster",
+    [
+        {},
+        {"another-task": False},
+        set(),
+        iter(()),
+        bytearray(),
+        memoryview(b""),
+        _TextID("another-task"),
+        UserString("another-task"),
+        UserString(""),
+        [_TextID("another-task")],
+        None,
+    ],
+)
+def test_enrollment_rejects_malformed_roster_before_membership(roster: object) -> None:
+    with pytest.raises(ValueError, match="malformed or duplicated"):
+        require_local_registry_preflight(
+            None,
+            _enrollment(),
+            expected_registry_oid=OID,
+            observed_registry_oid=OID,
+            enumerated_task_ids=roster,
+        )

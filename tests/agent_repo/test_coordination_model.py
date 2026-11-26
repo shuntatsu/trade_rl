@@ -711,3 +711,115 @@ def test_peer_integration_cannot_disguise_same_task() -> None:
     assert not evidence_is_current_after_peer_integration(
         evidence, packet, peer, head_sha=HEAD_SHA
     )
+
+
+@pytest.mark.parametrize("method", ["contract_digest", "canonical_payload"])
+def test_evidence_rejects_subclass_forging_native_contract(method: str) -> None:
+    previous = _packet()
+    changed = _packet(objective="Changed objective")
+    assert changed.contract_digest() != previous.contract_digest()
+
+    class ForgedDigestPacket(TaskPacket):
+        def contract_digest(self) -> str:
+            if method == "contract_digest":
+                return previous.contract_digest()
+            return super().contract_digest()
+
+        def canonical_payload(self):
+            if method == "canonical_payload":
+                return previous.canonical_payload()
+            return super().canonical_payload()
+
+    packet = ForgedDigestPacket(**vars(changed))
+    assert not evidence_is_current(_evidence(previous), packet, head_sha=HEAD_SHA)
+
+
+class _AlwaysEqualRevision(int):
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+@pytest.mark.parametrize("side", ["packet", "evidence"])
+def test_evidence_rejects_revision_override(side: str) -> None:
+    previous = _packet()
+    evidence = _evidence(previous)
+
+    class ForgedRevisionPacket(TaskPacket):
+        def __getattribute__(self, name: str):
+            if name == "task_revision" and vars(self).get("_armed", False):
+                return _AlwaysEqualRevision(2)
+            return super().__getattribute__(name)
+
+    class ForgedRevisionEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            if name == "task_revision" and vars(self).get("_armed", False):
+                return _AlwaysEqualRevision(2)
+            return super().__getattribute__(name)
+
+    packet = previous
+    if side == "packet":
+        packet = ForgedRevisionPacket(**vars(previous))
+        object.__setattr__(packet, "_armed", True)
+    else:
+        evidence = ForgedRevisionEvidence(**vars(evidence))
+        object.__setattr__(evidence, "_armed", True)
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
+def test_evidence_rejects_kind_override(kind: EvidenceKind) -> None:
+    packet = _packet()
+    original = _evidence(packet, kind=kind, main_sha=MAIN_SHA)
+
+    class ForgedKindEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            if name == "evidence_kind" and vars(self).get("_armed", False):
+                return EvidenceKind.REVIEW
+            return super().__getattribute__(name)
+
+    evidence = ForgedKindEvidence(**vars(original))
+    object.__setattr__(evidence, "_armed", True)
+    assert not evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=OTHER_MAIN_SHA
+    )
+
+
+@pytest.mark.parametrize("side", ["packet", "evidence", "peer"])
+def test_freshness_rejects_subclass_before_attribute_access(side: str) -> None:
+    class TrapPacket(TaskPacket):
+        def __getattribute__(self, name: str):
+            raise AssertionError(f"unvalidated packet attribute: {name}")
+
+    class TrapEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            raise AssertionError(f"unvalidated evidence attribute: {name}")
+
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    if side == "packet":
+        packet = object.__new__(TrapPacket)
+    elif side == "evidence":
+        evidence = object.__new__(TrapEvidence)
+    else:
+        peer = object.__new__(TrapPacket)
+    if side != "peer":
+        assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+
+
+def test_peer_freshness_rejects_even_nonconflicting_packet_subclass() -> None:
+    class PeerSubclass(TaskPacket):
+        pass
+
+    packet = _packet()
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    evidence = _evidence(packet)
+    assert evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, PeerSubclass(**vars(peer)), head_sha=HEAD_SHA
+    )

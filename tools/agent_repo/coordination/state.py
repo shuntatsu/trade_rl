@@ -50,7 +50,13 @@ def evidence_is_current(
     head_sha: str,
     current_main_sha: str | None = None,
 ) -> bool:
-    """Return whether evidence is bound to the current exact task snapshot."""
+    """Return freshness for native EvidenceRecord and TaskPacket snapshots.
+
+    Subclasses and duck-typed objects are not snapshots: overridden fields or
+    digest methods can detach the comparison from the original contract.
+    """
+    if type(evidence) is not EvidenceRecord or type(packet) is not TaskPacket:
+        return False
 
     # Direct Python construction can preserve str subclasses whose equality
     # overrides do not reflect their stored identity.
@@ -98,7 +104,14 @@ def evidence_is_current_after_peer_integration(
     head_sha: str,
     current_main_sha: str | None = None,
 ) -> bool:
-    """Reject evidence made stale by a semantically conflicting peer integration."""
+    """Reject stale evidence and non-native current/peer task snapshots."""
+
+    if (
+        type(evidence) is not EvidenceRecord
+        or type(packet) is not TaskPacket
+        or type(integrated_packet) is not TaskPacket
+    ):
+        return False
 
     if type(packet.task_id) is not str or type(integrated_packet.task_id) is not str:
         return False

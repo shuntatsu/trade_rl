@@ -92,3 +92,22 @@ def test_status_parser_accepts_escaped_valid_surrogate_pair(field: str) -> None:
     )
     assert r"\ud83d\ude00" in text
     assert getattr(parse_status_comment(text), field) == "😀"
+
+
+class _SpoofedEncoding(str):
+    def encode(self, *args: object, **kwargs: object) -> bytes:
+        return b"valid"
+
+
+class _ChangingCopy(str):
+    def __deepcopy__(self, memo: dict[int, object]) -> str:
+        return "changed"
+
+
+@pytest.mark.parametrize("field", _FREE_TEXT_FIELDS)
+@pytest.mark.parametrize(
+    "value", [_SpoofedEncoding("bad\ud800"), _ChangingCopy("original")]
+)
+def test_status_record_rejects_non_native_free_text(field: str, value: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        replace(_record(), **{field: value})

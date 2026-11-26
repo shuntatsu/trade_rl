@@ -377,3 +377,62 @@ def test_semantic_diff_rejects_invalid_python_encoding(
         path.write_text("OLD_SCHEMA = 'v3'\n", encoding="utf-8")
     with pytest.raises(SyntaxError):
         semantic_diff(tmp_path, base_ref="main")
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["trade_rl/evaluation/__init__.py", ".github/workflows/verify.yml"],
+)
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_semantic_diff_rejects_symlinked_parent(
+    tmp_path: Path, relative: str, target_exists: bool
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _baseline(root)
+    _write(root, relative, "SCHEMA = 'baseline'\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "tracked source")
+    source = root / relative
+    parent = source.parent
+    source.unlink()
+    parent.rmdir()
+    outside = tmp_path / "outside"
+    if target_exists:
+        outside.mkdir()
+        _write(outside, source.name, "SCHEMA = 'outside'\n")
+    try:
+        parent.symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="symlink"):
+        semantic_diff(root, base_ref="main")
+
+
+def test_semantic_diff_accepts_removed_parent_directory(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    source = tmp_path / "trade_rl/evaluation/__init__.py"
+    source.write_text("SCHEMA = 'baseline'\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "tracked schema")
+    source.unlink()
+    source.parent.rmdir()
+    assert any(
+        signal.kind == "SCHEMA" and signal.change == "removed"
+        for signal in semantic_diff(tmp_path, base_ref="main")
+    )
+
+
+def test_semantic_diff_rejects_symlinked_package_root(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _baseline(root)
+    package = root / "trade_rl"
+    outside = tmp_path / "outside"
+    package.rename(outside)
+    try:
+        package.symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="symlink"):
+        semantic_diff(root, base_ref="main")

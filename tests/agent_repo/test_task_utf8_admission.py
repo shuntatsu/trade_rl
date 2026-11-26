@@ -138,3 +138,35 @@ def test_resource_admission_diagnostic_does_not_render_untrusted_key(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == diagnostic + "\n"
+
+
+@pytest.mark.parametrize(
+    ("field", "diagnostic"),
+    [
+        ("statuses", "status references unknown task"),
+        ("leased_task_ids", "lease references unknown task"),
+    ],
+)
+@pytest.mark.parametrize("control", [chr(27), chr(10), chr(0x202E)])
+def test_ready_unknown_id_diagnostic_omits_untrusted_id(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    field: str,
+    diagnostic: str,
+    control: str,
+) -> None:
+    packet = _packet()
+    payload = {"title": packet.title, **packet.canonical_payload()}
+    status = {"phase": "ready", "condition": "healthy", "reason": None}
+    data = {"packets": [payload], "statuses": {"T1": status}, "leased_task_ids": []}
+    key = "unknown" + control + "spoofed"
+    if field == "statuses":
+        data["statuses"][key] = status
+    else:
+        data["leased_task_ids"] = [key]
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(data, ensure_ascii=True), encoding="ascii")
+    assert main(["task", "ready", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == diagnostic + "\n"

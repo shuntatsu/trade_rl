@@ -37,10 +37,10 @@ def ready_tasks(
 
     unknown_status = set(statuses) - set(packet_by_id)
     if unknown_status:
-        raise ValueError(f"status references unknown task: {sorted(unknown_status)[0]}")
+        raise ValueError("status references unknown task")
     unknown_leases = leased - set(packet_by_id)
     if unknown_leases:
-        raise ValueError(f"lease references unknown task: {sorted(unknown_leases)[0]}")
+        raise ValueError("lease references unknown task")
 
     # A lease reserves its hard resources even before execution or while
     # blocked/stale. A condition change alone is not proof execution ended.

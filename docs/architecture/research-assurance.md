@@ -1343,7 +1343,7 @@ Status: **revision 2 development run completed once (`NO_WINNER`, stop rule trig
 
 ### Generic software PR review receipt
 
-`Generic Independent Research Review` はhistorical job名を維持するが、Generic software PRではexact-HEADの**model source review**を要求する。`software_source_review_v2`ではconfigured AIモデルの分離を要求せず、同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
+`Generic Independent Research Review` はhistorical job名を維持するが、Generic software PRではexact-HEADの**model source review**を要求する。旧4h PPO専用review/triggerの実装は固定履歴へ退役し、現行Generic gateは `research/ppo-4h-indicator-smoke` をBLOCKED、欠落・不正なPR head refをPENDINGとする。旧専用gateの研究認可は移管せず、再開には別途承認済みの研究gateが必要である。`software_source_review_v2`ではconfigured AIモデルの分離を要求せず、同一accountからの正式PR review API投稿を `state=COMMENTED` でも受理し、別accountの `state=APPROVED` にも同じreceiptを必須とする。Issue/PRの通常commentをreview API evidenceとして扱わない。
 
 software-onlyのreview inputは、対象のexact HEADと完全なchanged-file patch、影響するcurrent source/tests/authoritative contracts、目的・受入条件・重要なfailure mode・既知の限界を含める。影響しない歴史的な親plan全文や過去のWorker Task IDは必須としない。ただし、検証が必要な境界は省略せず、結論を裏付けるsource・test evidenceを確認する。歴史的なresult-bearing software auditは、fresh result-blind G0–G2 reviewとは別の範囲である。
 

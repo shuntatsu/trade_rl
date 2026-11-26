@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path, PurePosixPath
 
+from tools.agent_repo.path_safety import checked_repo_directory, checked_repo_path
 from tools.agent_repo.source_index import (
     FILESYSTEM_EFFECTS,
     NETWORK_EFFECTS,
@@ -88,9 +89,13 @@ def _git_modules(repository: Path, ref: str) -> frozenset[str]:
 
 
 def _worktree_modules(repository: Path) -> frozenset[str]:
+    package = repository / "trade_rl"
+    if not package.exists() and not package.is_symlink():
+        return frozenset()
+    package = checked_repo_directory(repository, package)
     return frozenset(
         _module_from_path(path.relative_to(repository).as_posix())
-        for path in sorted((repository / "trade_rl").rglob("*.py"))
+        for path in sorted(package.rglob("*.py"))
         if path.is_file() and not path.is_symlink()
     )
 
@@ -128,10 +133,13 @@ def _base_python(repository: Path, ref: str, path: str) -> bytes | None:
 
 
 def _current_file(repository: Path, path: str) -> Path | None:
-    candidate = repository / path
-    if not candidate.exists() and not candidate.is_symlink():
+    try:
+        candidate = checked_repo_path(repository, Path(path))
+    except (FileNotFoundError, NotADirectoryError):
+        # A genuinely removed path has no current surface. Symlinks, including
+        # dangling parent symlinks, are rejected before this missing-path check.
         return None
-    if candidate.is_symlink() or not candidate.is_file():
+    if not candidate.is_file():
         raise ValueError(f"semantic diff source must be a regular file: {path}")
     return candidate
 

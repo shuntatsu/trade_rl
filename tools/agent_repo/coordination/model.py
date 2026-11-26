@@ -260,7 +260,14 @@ class TaskPacket:
             "capabilities",
             tuple(Capability(value) for value in self.capabilities),
         )
-        object.__setattr__(self, "dependencies", tuple(self.dependencies))
+        if type(self.write_scope) is not WriteScope:
+            raise ValueError("write_scope must be a WriteScope")
+        if type(self.dependencies) not in (list, tuple):
+            raise ValueError("dependencies must be an ordered list or tuple")
+        dependencies = tuple(self.dependencies)
+        if any(type(value) is not TaskDependency for value in dependencies):
+            raise ValueError("dependencies must contain TaskDependency values")
+        object.__setattr__(self, "dependencies", dependencies)
 
         dependency_ids = [value.task_id for value in self.dependencies]
         if len(set(dependency_ids)) != len(dependency_ids):

@@ -421,3 +421,23 @@ def test_scheduler_allows_conflict_after_lease_and_execution_end() -> None:
         },
         leased_task_ids=(),
     ) == ("CONFLICT",)
+
+
+@pytest.mark.parametrize("mode", [ExecutionMode.READ_ONLY, ExecutionMode.WRITE])
+def test_single_ready_task_rejects_unknown_resource_namespace(
+    mode: ExecutionMode,
+) -> None:
+    with pytest.raises(ValueError, match="resource namespace"):
+        _packet("ONE", mode=mode, resource_keys=("mystery:resource",))
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    ["file", "authority", "identity", "schema", "workflow", "artifact", "side-effect"],
+)
+def test_single_ready_task_accepts_supported_resource_namespace(namespace: str) -> None:
+    packet = _packet("ONE", resource_keys=(f"{namespace}:resource",))
+    assert ready_tasks(
+        (packet,), {"ONE": _healthy(TaskPhase.READY)}, leased_task_ids=()
+    ) == ("ONE",)
+    assert packet.canonical_payload()["resource_keys"] == [f"{namespace}:resource"]

@@ -29,16 +29,21 @@ def ready_tasks(
 ) -> tuple[str, ...]:
     """Return a deterministic concurrently execution-ready set of task ids."""
 
+    # Keep dependency validation, conflict checks and selection on one
+    # caller-owned roster/status observation. This is not an atomic
+    # external registry read, only a local snapshot for this decision.
+    packets = tuple(packets)
+    statuses = dict(statuses)
     graph = DependencyGraph(packets)
     packet_by_id = {packet.task_id: packet for packet in packets}
     leased = set(leased_task_ids)
 
     unknown_status = set(statuses) - set(packet_by_id)
     if unknown_status:
-        raise ValueError(f"status references unknown task: {sorted(unknown_status)[0]}")
+        raise ValueError("status references unknown task")
     unknown_leases = leased - set(packet_by_id)
     if unknown_leases:
-        raise ValueError(f"lease references unknown task: {sorted(unknown_leases)[0]}")
+        raise ValueError("lease references unknown task")
 
     # A lease reserves its hard resources even before execution or while
     # blocked/stale. A condition change alone is not proof execution ended.

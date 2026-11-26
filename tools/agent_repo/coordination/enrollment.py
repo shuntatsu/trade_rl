@@ -48,6 +48,10 @@ class EnrollmentProjection:
             raise ValueError(
                 "issue reference must have an immutable node ID and number"
             )
+        try:
+            self.issue_node_id.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError("issue_node_id must contain valid Unicode text") from error
         if not isinstance(self.status, TaskStatusRecord):
             raise ValueError("status must be a TaskStatusRecord")
         if type(self.status.task_revision) is not int:

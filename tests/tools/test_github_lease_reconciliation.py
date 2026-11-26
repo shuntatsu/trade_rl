@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -674,3 +675,14 @@ def test_valid_registry_ref_is_still_hold(suffix: str) -> None:
     result = _inspect(e)
     assert result["decision"] == "HOLD"
     assert result["cleanup_authorized"] is False
+
+
+def test_expiry_preflight_distinguishes_repeated_wall_clock_hour() -> None:
+    zone = ZoneInfo("America/New_York")
+    e = _evidence()
+    e["lease"].expires_at = datetime(2026, 11, 1, 1, 5, tzinfo=zone, fold=1)  # type: ignore[attr-defined]
+    e["now"] = datetime(2026, 11, 1, 1, 50, tzinfo=zone, fold=0)
+    with pytest.raises(ValueError, match="not expired"):
+        _inspect(e)
+    e["now"] = datetime(2026, 11, 1, 1, 5, tzinfo=zone, fold=1)
+    assert _inspect(e)["decision"] == "HOLD"

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from tools.github_coordination_registry_snapshot import validate_coordination_ref
@@ -87,7 +87,7 @@ def inspect_expired_lease_evidence(
     _sha(expected_main_sha, "expected_main_sha")
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
-    if now < lease.expires_at:
+    if now.astimezone(UTC) < lease.expires_at.astimezone(UTC):
         raise ValueError("write lease is not expired")
     if lease.head_sha is None:
         raise ValueError("lease has no exact branch tip")

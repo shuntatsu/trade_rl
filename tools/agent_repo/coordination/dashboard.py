@@ -64,7 +64,7 @@ def render_dashboard(
     main_sha: str,
     snapshots: Sequence[DashboardSnapshot],
 ) -> str:
-    """Render a deterministic non-authoritative operator summary."""
+    """Render native DashboardSnapshot records as a non-authoritative summary."""
 
     if type(parent_title) is not str or not parent_title.strip():
         raise ValueError("parent_title must be non-empty")
@@ -74,7 +74,10 @@ def render_dashboard(
         or main_sha == "0" * 40
     ):
         raise ValueError("main_sha must be a nonzero lowercase 40-hex Git SHA")
-    ordered = sorted(snapshots, key=lambda snapshot: snapshot.task_id)
+    snapshot_roster = tuple(snapshots)
+    if any(type(snapshot) is not DashboardSnapshot for snapshot in snapshot_roster):
+        raise ValueError("dashboard requires native DashboardSnapshot records")
+    ordered = sorted(snapshot_roster, key=lambda snapshot: snapshot.task_id)
     if len({snapshot.task_id for snapshot in ordered}) != len(ordered):
         raise ValueError("dashboard contains duplicate task_id")
 

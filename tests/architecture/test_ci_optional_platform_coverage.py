@@ -20,7 +20,7 @@ def test_optional_platform_workflow_is_read_only_and_narrowly_triggered() -> Non
     assert source.count("    paths:") == 2
     assert "m1-optional-platform-coverage.yml" in source
     assert "test_process_containment.py" in source
-    assert "test_dev_realdata_phase2_trials.py" in source
+    assert "test_lightgbm_forecast.py" in source
     assert "permissions:\n  contents: read\n" in source
     assert "persist-credentials: false" in source
     assert "continue-on-error:" not in source
@@ -54,11 +54,11 @@ def test_forecast_extra_checks_pin_lightgbm_and_execute_both_skipped_cases() -> 
     assert "uv sync --locked --extra dev --extra forecast-gbm" in job
     assert "import lightgbm" in job
     assert (
-        "tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_signal_ignores_the_future"
+        "tests/strategies/test_lightgbm_forecast.py::test_fit_uses_shared_causal_rows_and_one_shallow_configuration"
         in job
     )
     assert (
-        "tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_trial_fits_with_the_fixed_parameters"
+        "tests/strategies/test_lightgbm_forecast.py::test_lightgbm_strategy_uses_shared_forecast_controller"
         in job
     )
 
@@ -68,7 +68,7 @@ def test_optional_jobs_retrigger_when_dependency_implementation_changes() -> Non
     source = WORKFLOW.read_text(encoding="utf-8")
     # Both the PR and main-push path filters must cover these actual imports.
     for implementation_path in (
-        "trade_rl/evaluation/dev_realdata_study/**",
+        "trade_rl/strategies/forecasts/**",
         "trade_rl/data/market.py",
         "tools/tier_d_nonrl/tier_d_process_tree.py",
     ):
@@ -79,7 +79,7 @@ def test_full_history_dependencies_retrigger_on_source_or_packet_changes() -> No
     """History provenance cannot go green once and then silently miss source-only changes."""
     source = WORKFLOW.read_text(encoding="utf-8")
     for dependency in (
-        "trade_rl/evaluation/forward_study/**",
+        "trade_rl/evaluation/paper/code_identity.py",
         "trade_rl/evaluation/paper/**",
         "tools/agent_repo/research_assurance.py",
         "report/issue810-carry-attempt2-research-assurance-20261105.json",
@@ -97,7 +97,7 @@ def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
     assert "git rev-parse --is-shallow-repository" in job
     assert "uv sync --locked --extra dev" in job
     assert (
-        "test_forward_study_seal.py::test_the_real_checkout_identity_matches_git_when_history_is_available"
+        "test_paper_code_identity.py::test_the_real_checkout_identity_matches_git_when_history_is_available"
         in job
     )
     for name in (
@@ -115,7 +115,7 @@ def test_full_history_ci_runs_provenance_tests_without_skipping() -> None:
     # declared tests=4 but zero actual testcase elements.
     assert 'next(t.iter("testsuite"))' not in job
     for path in (
-        "tests/evaluation/test_forward_study_seal.py",
+        "tests/evaluation/test_paper_code_identity.py",
         "tests/evaluation/test_paper_attempt2_assurance_packet.py",
     ):
         assert source.count("      - " + path + "\n") == 2
@@ -251,12 +251,10 @@ def test_windows_rl_runtime_uses_locked_extras_and_exact_cases() -> None:
         "tests/integrations/test_ppo_sb3_runtime.py::test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract",
         "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_records_effective_steps_and_scope",
         "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_bundle_load_roundtrip",
-        "tests/evaluation/test_learning_lab_runner.py::test_native_agent_checkpoint_roundtrip_without_registry",
-        "tests/evaluation/test_learning_lab_runner.py::test_registry_refuses_missing_native_lock_without_mutation",
     ):
         assert case in job
     assert "m1-windows-rl.xml" in job
-    assert "python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 9" in job
+    assert "python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 4" in job
     assert (
         "test_every_agent_trains_checkpoints_and_evaluates_on_a_tiny_dataset" not in job
     )
@@ -264,11 +262,8 @@ def test_windows_rl_runtime_uses_locked_extras_and_exact_cases() -> None:
         "pyproject.toml",
         "uv.lock",
         "trade_rl/strategies/rl/**",
-        "trade_rl/evaluation/learning_lab/**",
         "tests/integrations/test_ppo_sb3_runtime.py",
         "tests/integrations/test_a2c_sb3_runtime.py",
-        "tests/evaluation/test_learning_lab_runner.py",
-        "tests/evaluation/learning_lab_support.py",
         "tests/strategies/test_ppo_interleaved_training.py",
     ):
         assert source.count("      - " + path + "\n") == 2

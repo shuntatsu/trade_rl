@@ -214,18 +214,8 @@ def test_nothing_outside_the_store_imports_it_and_fs1_never_does() -> None:
     """FS1 scoring and acquisition re-acquire their own data; the store never feeds them."""
 
     collector = ImportCollector(PACKAGE)
-    fs1_roots = (
-        PACKAGE / "evaluation" / "forward_study",
-        PACKAGE / "evaluation" / "forward_acquisition",
-    )
-    for root in fs1_roots:
-        assert root.is_dir()
-        for path in sorted(root.rglob("*.py")):
-            assert not any(
-                within_module(name, "trade_rl.integrations.market_store")
-                for name in collector.collect(path)
-            ), path.relative_to(ROOT)
-            assert "market_store" not in path.read_text(encoding="utf-8"), path.name
+    for retired in ("forward_study", "forward_acquisition"):
+        assert not (PACKAGE / "evaluation" / retired).exists()
     for path in sorted(PACKAGE.rglob("*.py")):
         if STORE in path.parents:
             continue

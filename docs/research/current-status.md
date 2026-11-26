@@ -1,5 +1,8 @@
 # Current research status
 
+> **旧個別研究の退役:** この文書の歴史的な研究契約・結果・旧CLI記述は原本の意味を保持する。退役対象は[一括退役記録](../plans/repository-split.md#一括退役記録)に従い、現行の実行可能APIではない。旧認可は継承しない。
+
+
 更新基準: 2026-10-31 (JST)
 
 ## 結論
@@ -171,7 +174,7 @@ That historical result and its digest/receipts are **unchanged**, and the claim 
 **not verified cash-safe or profitable**. The previous 2018–2020 BACKCAST is consumed,
 not a fresh unseen holdout for any successor.
 
-The [v2 cash-account proposal](../specs/trend-long-spot-oos-v2.md) keeps the existing
+The [v2 cash-account proposal — historical](../plans/repository-split.md#一括退役記録) keeps the existing
 lowturn intent, scenarios and shared replay, but reserves maximum configured fill costs
 at the decision mark, checks unpaid fee credit per interval, and rejects any real
 negative cash (including fee-only overdraft). Synthetic source regressions do not

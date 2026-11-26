@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -11,18 +10,11 @@ import pytest
 from tests.evaluation.test_paired_portfolio_action import (
     _CAPITAL,
     _COST,
-    _RISK,
     _dataset,
-    _EnterThenHold,
     _paired,
 )
-from trade_rl.evaluation import decision_value_reachable_labels as labels
 from trade_rl.evaluation.decision_value_ledger_oracle import (
     verify_paired_economic_ledger,
-)
-from trade_rl.strategies.portfolio_policy_codec import (
-    ACTION_FLAT,
-    ACTION_HOLD,
 )
 
 
@@ -68,63 +60,6 @@ def test_td8_source_oracle_detects_forged_interior_cost_even_if_book_agrees() ->
         initial_capital=_CAPITAL,
         expected_start_index=0,
     )
-
-    # This is the production evaluation path, not merely the standalone oracle.
-    from trade_rl.evaluation.decision_value_dev_study import (
-        _verify_ledger_reconciliation,
-    )
-
-    assert not _verify_ledger_reconciliation(
-        fake,
-        dataset=dataset,
-        expected_intervals=7,
-        expected_start_index=0,
-        initial_capital=_CAPITAL,
-    )
-
-
-def test_td8_teacher_rejects_corrupted_economic_ledger_before_label_admission() -> None:
-    dataset = _dataset()
-    pair = _paired(market=dataset)
-    ledger = pair.candidate_result.ledger_evidence
-    assert ledger is not None
-    iv = ledger.intervals.intervals[2]
-    changed_arm = replace(
-        pair.candidate_result,
-        ledger_evidence=replace(
-            ledger,
-            intervals=replace(
-                ledger.intervals,
-                intervals=(
-                    *ledger.intervals.intervals[:2],
-                    replace(iv, interval_cost=iv.interval_cost + 12.0),
-                    *ledger.intervals.intervals[3:],
-                ),
-            ),
-        ),
-    )
-    fake_pair = replace(pair, candidate_result=changed_arm)
-    with patch.object(labels, "run_paired_portfolio_action", return_value=fake_pair):
-        with pytest.raises(ValueError, match="independent|ledger|accounting"):
-            labels.collect_reachable_state_labels(
-                dataset,
-                reference_policy_provider=lambda _t, _start: _EnterThenHold,
-                reference_policy_digest="d" * 64,
-                branch_indices=(1,),
-                train_start_index=0,
-                prefix_bars=1,
-                horizon_bars=6,
-                candidate_actions=(
-                    (ACTION_HOLD, ACTION_HOLD),
-                    (ACTION_FLAT, ACTION_HOLD),
-                ),
-                target_abs_weights=(0.4, 0.4),
-                initial_capital=_CAPITAL,
-                execution_cost=_COST,
-                risk_config=_RISK.config,
-                fit_cutoff=np.datetime64("2026-02-01T00:00:00", "ns"),
-                source_scope="synthetic_only",
-            )
 
 
 def test_td8_evaluation_oracle_rejects_price_and_market_identity_tamper() -> None:

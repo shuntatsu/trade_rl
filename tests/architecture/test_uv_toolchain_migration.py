@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from tests.architecture.workflow_action_refs import setup_uv_action_matches
-from tools import ppo_checkpoint_actions as checkpoint
 
 ROOT = Path(__file__).resolve().parents[2]
 CURRENT_UV = "0.13.10"
 # Immutable reviewed/execution sources may require a historical uv version.
-SOURCE_BOUND_WORKFLOWS = {
-    "ci-original-runtime-probe.yml": 1,
-    "ppo-normalization-execution.yml": 3,
-    "ppo-4h-gemini-review.yml": 2,
-}
+SOURCE_BOUND_WORKFLOWS: dict[str, int] = {}
 
 
 def test_repository_requires_the_current_compatible_uv() -> None:
@@ -78,7 +71,7 @@ def test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source() -> No
                 ), path
             total += 1
     assert source_bound_counts == SOURCE_BOUND_WORKFLOWS
-    assert total == 20  # same inventory as the exact Action SHA contract
+    assert total == 11  # same inventory as the exact Action SHA contract
 
 
 def test_setup_uv_version_cannot_be_borrowed_from_an_unnamed_following_step(
@@ -179,44 +172,6 @@ def test_setup_uv_check_covers_yaml_suffix_as_well_as_yml(
     monkeypatch.setattr(Path, "read_text", fake_read_text)
     with pytest.raises(AssertionError):
         test_setup_uv_pins_current_source_or_obeys_immutable_reviewed_source()
-
-
-@pytest.mark.parametrize(
-    ("reported", "allowed"),
-    [
-        ("0.13.10", True),
-        ("0.13.10 (x86_64-unknown-linux-gnu)", True),
-        ("0.10.0", False),
-        ("0.13.7", False),
-        ("0.13.9", False),
-        ("0.13.100", False),
-    ],
-)
-def test_checkpoint_runtime_provenance_preserves_exact_version_lineage(
-    reported: str, allowed: bool
-) -> None:
-    completed = subprocess.CompletedProcess(
-        args=["uv", "--version"], returncode=0, stdout=f"uv {reported}\n", stderr=""
-    )
-    with patch.object(checkpoint.subprocess, "run", return_value=completed) as call:
-        if allowed:
-            assert checkpoint._runtime_provenance()["uv_version"] == CURRENT_UV
-        else:
-            with pytest.raises(ValueError, match="actual uv executable"):
-                checkpoint._runtime_provenance()
-        assert call.call_args.args[0] == ["uv", "--version"]
-
-
-@pytest.mark.parametrize(
-    "workflow",
-    ["ppo-feature-checkpoint.yml", "ppo-checkpoint-runtime-preflight.yml"],
-)
-def test_manual_checkpoint_version_guard_accepts_platform_suffix(
-    workflow: str,
-) -> None:
-    source = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
-    assert "grep -Eq '^uv 0\\.13\\.10([[:space:]]|$)'" in source
-    assert "grep -Fx 'uv 0.10.0'" not in source
 
 
 @pytest.mark.parametrize("guard", ["version", "action"])

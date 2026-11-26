@@ -144,9 +144,11 @@ resource、CI、外部consumerの完全なclosureを証明しない。各移行�
 | `evaluation/lowturn_screen/` | lowturn | 他研究8 module、凍結candidate roster。 |
 | `evaluation/decision_value_*.py`, `strategies/decision_value*.py` | decision_value | evaluation facade、paired action/label、Run Coreの5 consumer。汎用fitはcore側に残す可能性。 |
 | `evaluation/directional*.py` | directional | 共通のsignal/decision契約と研究固有rosterを分ける。 |
-| `evaluation/dev_realdata_study/` | historical_development | forward_study/fs1とregistryが依存。旧registryはcoreに固定維持。 |
+| `evaluation/dev_realdata_study/` | [研究側の固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/dev_realdata_archive.json) | P2/Phase 2/Phase 3旧CLI4件・Phase 2/3専用ランナー2件・旧Dataset builder1件・Phase 2固有ラベル判定1件を退役。Dataset identityとpolicyの証跡は固定receiptを保持。元の専用テストはarchive commit `97c80a2120b82b7f9bc93c789482be15ea18f5e2` に保持。forward_study/fs1・registry・共通consumerが依存する残存実装は維持。 |
 | `evaluation/residual_rl/` | [固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/residual_rl_archive.json) | 終了済み。独自ledger・実行コード・結果のcurrent-tree複製を削除。元Git履歴は不変。 |
 | `evaluation/ppo_*study.py`, `ppo_*checkpoint.py`, `ppo_*normalization*.py`, `ppo_4h_indicator_smoke.py` | rl/ppo | 固定activation JSON、PPO関連CI、optional extras、checkpoint互換性。 |
+| `tools/issue1146_significance_calibration.py` | [研究側SD0校正](https://github.com/shuntatsu/trade_rl_research/blob/12fe121d0caa720031be71da9394584120b37bf9/migration/calibration_and_generated_fixtures.json) | 研究側に移管済みの合成校正と重複テストを退役。[旧実装と履歴](https://github.com/shuntatsu/trade_rl/blob/fb126a9a9b1a7f337041548ee92a27e8230e02f3/tools/issue1146_significance_calibration.py)を固定保持。共通測定関数と独立oracleは維持。 |
+| `tools/issue810_p3_rollout_boundary_{fixture,diagnostic}.py` | [研究側の合成fixture](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/calibration_and_generated_fixtures.json) / [診断port](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rollout_boundary_diagnostic_sources.json) | 終了済みP3 synthetic診断 (`NOT_ESTABLISHED`) の原本と専用テストは固定Git履歴に保持。現行基盤から退役。研究側診断は部分portで、旧training・receipt実行権限は移管しない。共通PPO runtimeと凍結protocol/result文書は維持。 |
 | `evaluation/rl_family_comparison/` | [研究側](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rl_family_comparison_sources.json) | 移管済みの個別比較契約・oracleの旧実装を削除。共通fitterは維持。 |
 | `evaluation/experiments/bootstrap/capacity_robustness_prereg.py` | [固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/capacity_robustness_archive.json) | #541 終了済み個別研究。固定protocolと専用テストをGit履歴に保持し、共通bootstrap/materializationは維持。新規実行・結果再分類なし。 |
 
@@ -359,3 +361,7 @@ mergeしない。途中で失敗すればcutoverを止め、旧repo/旧runner/�
 未承認runの拒否、coreが研究をimportしないこと、両repoの責務・配布・docs/CI・
 再現性・source provenanceが独立して検証できることを分離完了条件とする。
 本計画の完了は実市場での経済優位性、G4/G5、production/live認可を意味しない。
+
+## 一括退役記録
+
+旧研究の実行入口を基盤から退役させる。原本のGit commit・blob・SHA-256は[退役台帳](../../report/legacy-research-retirement-20261126.json)に固定する。経済結果・既存の封印済み証跡は変更しない。旧研究用CLI、専用テスト、ワークフロー、specは現在の基盤の所有対象ではない。部分的な合成移行を実データ・実行認可の互換性とみなさず、新規研究は研究リポジトリで別途承認する。共通会計・執行・証跡保存は維持する。

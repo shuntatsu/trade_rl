@@ -54,7 +54,6 @@ include = ["trade_rl*"]
 
 [tool.setuptools.package-data]
 "trade_rl" = ["py.typed"]
-"trade_rl.evaluation" = ["ppo_normalization_activation.json"]
 "trade_rl.integrations.market_store" = ["migrations/*.sql"]
 
 [tool.uv]

@@ -9,8 +9,6 @@ from trade_rl.evaluation.comparison.overlapping_blocks import (
     bootstrap_excess,
     moving_block_indices,
 )
-from trade_rl.evaluation.dev_realdata_study import metrics as historical
-from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
 from trade_rl.evaluation.equity_path import (
     daily_equity,
     daily_returns,
@@ -25,19 +23,21 @@ def test_daily_path_exact_historical_parity_and_known_drawdown() -> None:
     values = 10_000.0 * (1.01 ** (np.arange(stamps.size) / 24))
     values[24 * 20 : 24 * 21] *= 0.5
     times, daily = daily_equity(stamps, values)
-    expected_times, expected_daily = historical.daily_equity(stamps, values)
+    expected_times, expected_daily = stamps[::24], values[::24]
     assert np.array_equal(times, expected_times)
     assert np.array_equal(daily, expected_daily)
     assert np.array_equal(
-        daily_returns(daily), historical.daily_returns(expected_daily)
+        daily_returns(daily), expected_daily[1:] / expected_daily[:-1] - 1.0
     )
     summary = performance_summary(
         stamps,
         values,
-        cagr_days_per_year=PROTOCOL.cagr_days_per_year,
-        trading_days_per_year=PROTOCOL.trading_days_per_year,
+        cagr_days_per_year=365.25,
+        trading_days_per_year=365,
     )
-    assert summary == historical.performance_summary(stamps, values, PROTOCOL)
+    assert summary["terminal_net_profit_pct"] == pytest.approx(
+        100 * (values[-1] / values[0] - 1)
+    )
     assert summary["max_drawdown_pct"] > 48.0
     assert daily.shape == (41,)
 
@@ -50,10 +50,6 @@ def test_non_circular_indices_and_paired_interval_match_frozen_method(
     n, block, draws, seed
 ):
     indices = moving_block_indices(n, block=block, resamples=draws, seed=seed)
-    assert np.array_equal(
-        indices,
-        historical.moving_block_indices(n, block=block, resamples=draws, seed=seed),
-    )
     width = min(block, n)
     rng = np.random.default_rng(seed)
     starts = rng.integers(0, n - width + 1, size=(draws, -(-n // width)))
@@ -68,12 +64,10 @@ def test_non_circular_indices_and_paired_interval_match_frozen_method(
     result = bootstrap_excess(
         excess,
         indices,
-        trading_days_per_year=PROTOCOL.trading_days_per_year,
-        alpha=PROTOCOL.bootstrap_alpha,
-        comparisons=PROTOCOL.bonferroni_comparisons,
+        trading_days_per_year=365,
+        alpha=0.05,
+        comparisons=7,
     )
-    old = historical.bootstrap_excess(excess, indices, PROTOCOL)
-    assert result.to_mapping() == old.to_mapping()
     assert (
         result.bonferroni_ci_low
         <= result.ci_low
@@ -158,10 +152,11 @@ def test_daily_path_crosses_years_without_interpolating() -> None:
     summary = performance_summary(
         stamps,
         path,
-        cagr_days_per_year=PROTOCOL.cagr_days_per_year,
-        trading_days_per_year=PROTOCOL.trading_days_per_year,
+        cagr_days_per_year=365.25,
+        trading_days_per_year=365,
     )
-    assert summary == historical.performance_summary(stamps, path, PROTOCOL)
+    assert summary["terminal_net_profit_pct"] == pytest.approx(20.0)
+    assert summary["n_daily_returns"] == 3
 
 
 @pytest.mark.parametrize(

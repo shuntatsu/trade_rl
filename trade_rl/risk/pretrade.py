@@ -7,11 +7,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl._array_snapshot import checked_array_input
+
 _TOLERANCE = 1e-12
 
 
 def _copied_weight_vector(value: np.ndarray, *, field_name: str) -> np.ndarray:
-    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
+    vector = (
+        np.asarray(checked_array_input(value, field_name=field_name), dtype=np.float64)
+        .reshape(-1)
+        .copy()
+    )
     if vector.size == 0 or not np.isfinite(vector).all():
         raise ValueError(f"{field_name} must be a non-empty finite vector")
     return np.frombuffer(vector.tobytes(), dtype=np.float64)
@@ -264,8 +270,12 @@ class PreTradeRisk:
         emergency_flatten_mask: np.ndarray | None = None,
         reduce_only_mask: np.ndarray | None = None,
     ) -> RiskConstrainedTarget:
-        requested = np.asarray(target, dtype=np.float64).reshape(-1)
-        existing = np.asarray(current, dtype=np.float64).reshape(-1)
+        requested = np.asarray(
+            checked_array_input(target, field_name="target"), dtype=np.float64
+        ).reshape(-1)
+        existing = np.asarray(
+            checked_array_input(current, field_name="current"), dtype=np.float64
+        ).reshape(-1)
         if requested.size == 0 or requested.shape != existing.shape:
             raise ValueError("target and current weights must have the same shape")
         if not np.isfinite(requested).all() or not np.isfinite(existing).all():
@@ -275,7 +285,13 @@ class PreTradeRisk:
         if reduce_only_mask is None:
             reduce_mask = np.zeros(requested.shape, dtype=np.bool_)
         else:
-            raw_reduce_mask = np.asarray(reduce_only_mask)
+            raw_reduce_mask = np.asarray(
+                checked_array_input(
+                    reduce_only_mask,
+                    field_name="reduce_only_mask",
+                    allow_object_arrays=False,
+                )
+            )
             if raw_reduce_mask.dtype != np.dtype(np.bool_):
                 raise TypeError("reduce_only_mask must contain booleans")
             reduce_mask = raw_reduce_mask.reshape(-1).copy()
@@ -285,7 +301,13 @@ class PreTradeRisk:
         if emergency_flatten_mask is None:
             emergency_mask = np.zeros(requested.shape, dtype=np.bool_)
         else:
-            raw_emergency_mask = np.asarray(emergency_flatten_mask)
+            raw_emergency_mask = np.asarray(
+                checked_array_input(
+                    emergency_flatten_mask,
+                    field_name="emergency_flatten_mask",
+                    allow_object_arrays=False,
+                )
+            )
             if raw_emergency_mask.dtype != np.dtype(np.bool_):
                 raise TypeError("emergency_flatten_mask must contain booleans")
             emergency_mask = raw_emergency_mask.reshape(-1).copy()

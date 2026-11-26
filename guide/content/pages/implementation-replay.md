@@ -92,7 +92,7 @@ proposal_weight
 
 ## 4. hard riskを適用する
 
-`PreTradeRisk`はproposalへ、turnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-onlyなどの制約を適用します。turnoverや最終投影距離が有限値に収まらない入力は結果を発行せず拒否し、緊急マスクは真偽値配列だけを受理します。
+`PreTradeRisk`はproposalへ、turnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-onlyなどの制約を適用します。turnoverや最終投影距離が有限値に収まらない入力は結果を発行せず拒否し、緊急マスクは真偽値配列だけを受理します。 目標値や制御マスクが欠損元を保持する配列の場合も、risk結果や注文を作る前に拒否します。
 
 minimum-holdによる抑制の後にもhard riskを適用するため、drawdown stopやemergency flattenは保有期間中でも縮小・全決済できます。保有期間は決められた日数まで必ず持つ保証ではありません。
 

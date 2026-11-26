@@ -135,7 +135,7 @@ def _json_input(repository: Path, raw: object) -> object:
         value: dict[str, object] = {}
         for key, item in pairs:
             if key in value:
-                raise ValueError(f"duplicate JSON key in task input: {key}")
+                raise ValueError("duplicate JSON key in task input")
             value[key] = item
         return value
 

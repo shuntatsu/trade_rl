@@ -267,3 +267,22 @@ def test_task_cli_rejects_duplicate_json_members(tmp_path: Path) -> None:
         ):
             failures.append((command, result.returncode, result.stderr))
     assert failures == []
+
+
+def test_task_cli_duplicate_key_error_does_not_render_untrusted_text(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "input.json"
+    keys = (
+        chr(27) + "[2Jspoofed",
+        "line" + chr(10) + "spoofed",
+        chr(0xD800),
+        chr(0x202E) + "spoofed",
+    )
+    for key in keys:
+        quoted = json.dumps(key)
+        path.write_text(f"{{{quoted}: 1, {quoted}: 2}}", encoding="utf-8")
+        result = _run(tmp_path, "task", "digest", str(path))
+        assert result.returncode == 2
+        assert result.stdout == ""
+        assert result.stderr == "duplicate JSON key in task input\n"

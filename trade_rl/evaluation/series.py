@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from fractions import Fraction
 from numbers import Integral
 
 
@@ -17,11 +18,15 @@ class ReturnKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ReturnSeries:
-    """Immutable finite portfolio-return series with annualization metadata."""
+    """Immutable returns with legacy integer or explicit nonintegral fixed frequency.
+
+    Native fixed return payloads bind the Fraction to the Dataset interval.
+    Existing elapsed-year and persisted legacy result contracts are unchanged.
+    """
 
     values: tuple[float, ...]
     kind: ReturnKind
-    periods_per_year: int
+    periods_per_year: int | Fraction
     elapsed_years: float | None = None
 
     def __post_init__(self) -> None:
@@ -29,13 +34,28 @@ class ReturnSeries:
         if not normalized:
             raise ValueError("return series must not be empty")
         periods_per_year: object = self.periods_per_year
-        if (
-            isinstance(periods_per_year, bool)
-            or not isinstance(periods_per_year, Integral)
-            or periods_per_year <= 0
-        ):
-            raise ValueError("periods_per_year must be a positive integer")
-        object.__setattr__(self, "periods_per_year", int(periods_per_year))
+        if type(periods_per_year) is Fraction:
+            try:
+                frequency = float(periods_per_year)
+            except OverflowError as exc:
+                raise ValueError("exact annual frequency is not representable") from exc
+            if (
+                not math.isfinite(frequency)
+                or frequency <= 0
+                or periods_per_year.denominator == 1
+                or self.elapsed_years is not None
+            ):
+                raise ValueError(
+                    "exact fixed annual frequency cannot be combined with elapsed_years"
+                )
+        else:
+            if (
+                isinstance(periods_per_year, bool)
+                or not isinstance(periods_per_year, Integral)
+                or periods_per_year <= 0
+            ):
+                raise ValueError("periods_per_year must be a positive integer")
+            object.__setattr__(self, "periods_per_year", int(periods_per_year))
         if self.elapsed_years is not None and (
             not math.isfinite(self.elapsed_years) or self.elapsed_years <= 0.0
         ):

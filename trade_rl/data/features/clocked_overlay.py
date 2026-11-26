@@ -26,7 +26,7 @@ from trade_rl.data.features.multitimeframe import align_clocked_native_feature
 from trade_rl.data.identity import content_and_arrays_digest, parse_identity_json
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_clock import NativeBarClock
-from trade_rl.data.source import RawMarketSeries
+from trade_rl.data.source import NativeRawMarketSeries, RawMarketSeries
 
 _OVERLAY_SCHEMA = "clocked_native_feature_overlay_v1"
 _UNSUPPORTED_KINDS = CROSS_ASSET_FEATURE_KINDS | {
@@ -61,7 +61,10 @@ def clocked_native_source_digest(
     The source must consist of complete, tradable rows on its declared clock.
     This digest is not proof of venue authenticity or publication history.
     """
-    if type(raw) is not RawMarketSeries or type(contract) is not InstrumentContract:
+    if (
+        type(raw) not in (RawMarketSeries, NativeRawMarketSeries)
+        or type(contract) is not InstrumentContract
+    ):
         raise ValueError("expected a RawMarketSeries and InstrumentContract")
     clock_payload = _clock_payload(clock)
     clock.interval_bounds(raw.timestamps)
@@ -92,9 +95,9 @@ class ClockedNativeSource:
     expected_source_digest: str
 
     def __post_init__(self) -> None:
-        if (
-            type(self.contract) is not InstrumentContract
-            or type(self.raw) is not RawMarketSeries
+        if type(self.contract) is not InstrumentContract or type(self.raw) not in (
+            RawMarketSeries,
+            NativeRawMarketSeries,
         ):
             raise ValueError("expected a native source and instrument contract")
         if type(self.expected_source_digest) is not str:

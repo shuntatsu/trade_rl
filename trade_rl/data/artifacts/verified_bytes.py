@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import io
 import json
-from dataclasses import fields
-from typing import Any
 
 import numpy as np
 
@@ -20,8 +18,10 @@ from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME,
     DATASET_ARTIFACT_SCHEMA,
     DATASET_ARTIFACT_SCHEMA_V4,
+    DATASET_ARTIFACT_SCHEMA_V5,
     _artifact_schema_for_identity,
     _mapping,
+    _restore_dataset,
     _sha256_bytes,
     _string,
 )
@@ -50,7 +50,11 @@ def load_dataset_from_verified_bytes(
     if content_digest(manifest) != artifact_digest:
         raise ValueError("dataset manifest digest mismatch")
     artifact_schema = manifest.get("schema_version")
-    if artifact_schema not in {DATASET_ARTIFACT_SCHEMA, DATASET_ARTIFACT_SCHEMA_V4}:
+    if artifact_schema not in {
+        DATASET_ARTIFACT_SCHEMA,
+        DATASET_ARTIFACT_SCHEMA_V4,
+        DATASET_ARTIFACT_SCHEMA_V5,
+    }:
         raise ValueError("unsupported dataset artifact schema")
     scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
     identity_payload_json = _string(
@@ -69,8 +73,13 @@ def load_dataset_from_verified_bytes(
             f"dataset artifact scalar/array field overlap: {overlapping_fields}"
         )
     has_funding_price_rate = "funding_price_rate" in metadata
-    if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 and not has_funding_price_rate:
-        raise ValueError("v4 artifact is missing funding_price_rate")
+    if (
+        artifact_schema in (DATASET_ARTIFACT_SCHEMA_V4, DATASET_ARTIFACT_SCHEMA_V5)
+        and not has_funding_price_rate
+    ):
+        raise ValueError(
+            f"{'v4' if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 else 'v5'} artifact is missing funding_price_rate"
+        )
     if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
         raise ValueError("v3 artifact must not contain funding_price_rate")
     if _sha256_bytes(arrays_bytes) != _string(
@@ -105,14 +114,4 @@ def load_dataset_from_verified_bytes(
     top_level_dataset_id = _string(manifest.get("dataset_id"), field="dataset_id")
     if scalar_meta.get("dataset_id") != top_level_dataset_id:
         raise ValueError("dataset_id does not match canonical dataset metadata")
-    kwargs: dict[str, Any] = {**scalar_meta, **arrays}
-    allowed = {item.name for item in fields(MarketDataset) if item.init}
-    if artifact_schema == DATASET_ARTIFACT_SCHEMA:
-        allowed.remove("funding_price_rate")
-    if set(kwargs) != allowed:
-        missing = sorted(allowed - set(kwargs))
-        extra = sorted(set(kwargs) - allowed)
-        raise ValueError(
-            f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
-        )
-    return MarketDataset(**kwargs), artifact_digest
+    return _restore_dataset(scalar_meta, arrays, artifact_schema), artifact_digest

@@ -73,7 +73,7 @@ before any real-data result; see ``DEVIATIONS``):
     protocol; it is a runner validity rule, not a preregistered parameter.
 
 Dataset build policy (recorded AFTER the first run, not part of the protocol
-digest): the study Dataset was reproduced offline by the now archived
+digest): the study Dataset is reproduced offline by
 ``dev_realdata_study.dataset_build`` under ``DATASET_BUILD_POLICY`` (missing 1h
 bars are non-tradable rows with forward-filled marks and no funding accrual;
 4h/1d bars are aggregated from complete 1h windows and a window touching a gap

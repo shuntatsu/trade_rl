@@ -664,32 +664,6 @@ def test_committed_result_and_provenance_are_consistent() -> None:
     assert ids >= {"L1", "L2", "L3"}
 
 
-def test_both_labels_are_computed_by_code_from_committed_evidence() -> None:
-    from trade_rl.evaluation.dev_realdata_study import trial_labels
-
-    result = _report("issue810-phase2-trial-results-20261029.json")
-    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
-    both = trial_labels.labels_under_both_rules(result, execution1)
-    primary = both["label_pr_c_probe_rule"]
-    amended = both["label_amended_rule"]
-    assert result["label_pr_c_probe_rule"] == primary["label"] == LABEL_NO_WINNER
-    assert result["label_amended_rule"] == amended["label"] == LABEL_PROMISING
-    assert amended["selected_arm"] == result["selected_arm_amended_rule"] == "t1_tsmom"
-    assert primary["selected_arm"] is None
-    # The PR-C-rule recomputation reproduces execution 1's own recorded outcome.
-    assert execution1["label"] == primary["label"]
-    for arm in CANDIDATE_POOL:
-        assert execution1["validity"][arm] == primary["validity"][arm]
-        assert (
-            execution1["selection"]["arms"][arm]["eligible"]
-            == primary["arms"][arm]["eligible"]
-        )
-    assert primary["arms"]["t1_tsmom"]["valid"] is False
-    assert amended["arms"]["t1_tsmom"]["eligible"] is True
-    assert result["selection_amended_rule"]["selected_arm"] == "t1_tsmom"
-    assert result["post_hoc_annotation"]["replay_metrics_changed"] is False
-
-
 def test_execution_one_replay_metrics_match_the_committed_result() -> None:
     result = _report("issue810-phase2-trial-results-20261029.json")
     execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
@@ -705,41 +679,3 @@ def test_execution_one_replay_metrics_match_the_committed_result() -> None:
                 assert first[name] == final[name], (arm, scenario, name)
                 compared += 1
     assert compared >= 18 * len(ALL_ARMS) * len(SCENARIOS)
-
-
-def test_validity_sets_under_the_two_rules_differ_only_in_t1() -> None:
-    from trade_rl.evaluation.dev_realdata_study import trial_labels
-
-    result = _report("issue810-phase2-trial-results-20261029.json")
-    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
-    for evidence in (execution1, None):
-        both = trial_labels.labels_under_both_rules(result, evidence)
-        primary = both["label_pr_c_probe_rule"]["validity"]
-        amended = both["label_amended_rule"]["validity"]
-        assert {arm for arm in primary if primary[arm] != amended[arm]} == {"t1_tsmom"}
-        assert primary["t1_tsmom"] is False and amended["t1_tsmom"] is True
-    # Probe outcomes taken from execution 1 or from the result itself agree.
-    assert json.dumps(
-        trial_labels.labels_under_both_rules(result, execution1), sort_keys=True
-    ) == json.dumps(trial_labels.labels_under_both_rules(result, None), sort_keys=True)
-
-
-def test_label_flips_only_through_the_probe_trade_requirement() -> None:
-    from trade_rl.evaluation.dev_realdata_study import trial_labels
-
-    result = _report("issue810-phase2-trial-results-20261029.json")
-    execution1 = _report("issue810-phase2-trial-execution1-summary-20261029.json")
-    patched = json.loads(json.dumps(execution1))
-    # A change in the original primitive trade evidence, not only in its
-    # derived `passed` flag, is what changes the PR-C selection.
-    patched["causality_probes"]["t1_tsmom"]["pre_cut_trace_has_trades"] = True
-    # Deliberately contradict the legacy aggregate flag to prove that the
-    # primitive trade evidence, not `passed`, controls PR-C selection.
-    patched["causality_probes"]["t1_tsmom"]["passed"] = False
-    both = trial_labels.labels_under_both_rules(result, patched)
-    assert both["label_pr_c_probe_rule"]["label"] == LABEL_PROMISING
-    assert both["label_pr_c_probe_rule"]["selected_arm"] == "t1_tsmom"
-    patched["causality_probes"]["t1_tsmom"]["pre_cut_trace_has_trades"] = False
-    patched["causality_probes"]["t1_tsmom"]["passed"] = True
-    untraded = trial_labels.labels_under_both_rules(result, patched)
-    assert untraded["label_pr_c_probe_rule"]["selected_arm"] is None

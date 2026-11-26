@@ -20,6 +20,7 @@ ARCHIVED = {
     "trade_rl/evaluation/dev_realdata_study/trial_study.py": "01eafac8d5feb98ae039c3f2b781e73400363e670f400ff0baf3114a8f8120ba",
     "trade_rl/evaluation/dev_realdata_study/phase3_study.py": "420aa9133ca37b68880c445c82b950d1e2ca5b920c13a8c1a418d28289b855d7",
     "trade_rl/evaluation/dev_realdata_study/dataset_build.py": "7d75dc8f68ec080f1c3a09a4684af8d9a51da4eef85836588542e18a1aacd927",
+    "trade_rl/evaluation/dev_realdata_study/trial_labels.py": "4e18fd10daa13980ef1743ee820db17d1c0b2178be59fb2420ed83bc22c5117d",
     "tests/evaluation/test_dev_realdata_dataset_build.py": "c87ffe8fca0c069eb186399bf127572e3072d436fb0a78d019b44a90736150fc",
     "tests/evaluation/test_dev_realdata_study.py": "69d983b86a76399c1b7f992bfe95b15356cd811d4561688705ad714a8c3032bf",
     "tests/evaluation/test_dev_realdata_phase2_trials.py": "315807d57982d684a8054359e2837b124e224904a0fc9fc9c1ced67c22212f78",
@@ -36,6 +37,7 @@ RETIRED = tuple(
         "trial_study",
         "phase3_study",
         "dataset_build",
+        "trial_labels",
     )
 )
 
@@ -78,8 +80,15 @@ def test_shared_consumers_keep_existing_development_contracts() -> None:
         assert importlib.util.find_spec(f"{PACKAGE}.{module}") is not None
 
 
-def test_frozen_development_dataset_receipt_is_unchanged() -> None:
-    receipt = ROOT / "report/dev-realdata-study-p2-20261029-provenance.json"
-    assert hashlib.sha256(receipt.read_bytes()).hexdigest() == (
-        "bb51892dc7be20d2c52f8d171df0f011651b2c06bd1322d705d89cdf386a8e5c"
-    )
+def test_frozen_development_receipts_are_unchanged() -> None:
+    digests = {
+        "dev-realdata-study-p2-20261029-provenance.json": "bb51892dc7be20d2c52f8d171df0f011651b2c06bd1322d705d89cdf386a8e5c",
+        "issue810-phase2-trial-results-20261029.json": "840faffb1e6b047e45ee8d4eb899dca61ae77c50f921bb62ae2efe59d052c86b",
+        "issue810-phase2-trial-execution1-summary-20261029.json": "51b55ce911231d0b771fb70d702acc7fd87d87fbeee930eeaa6aac39831482d0",
+        "issue810-phase2-trial-provenance-20261029.json": "e3d9666b21ba4d78377dfa38d6357402eedb530271d11b12f880a09d913de53c",
+    }
+    for name, expected in digests.items():
+        assert (
+            hashlib.sha256((ROOT / "report" / name).read_bytes()).hexdigest()
+            == expected
+        ), name

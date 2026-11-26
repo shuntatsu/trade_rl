@@ -99,7 +99,7 @@
       "id": "market-dataset",
       "symbol": "trade_rl.data.market.MarketDataset",
       "kind": "class",
-      "source_sha256": "118af3ce6059ffe9e6ef82760419faadaedc9c4adfc5e2a5d655bcb0e3eea25b",
+      "source_sha256": "8c9695e60294302828a16cd2523854d54f4e917ac2b3de520e7668462a8da0a7",
       "label_ja": "市場データの共通契約",
       "description_ja": "causalな市場配列、利用可能性、staleness、execution economics、dataset identityを一つの不変データ契約として保持し、timestampsと明示available_atのns範囲・精度をlosslessに検証します。constructor配列の欠損マスクと不明な所有元も正規化前に拒否します。経過時間の履歴・将来検索でも符号付きnsの範囲外を安全に扱います。",
       "variables": [],

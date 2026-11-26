@@ -1688,6 +1688,8 @@ def _safe_text(text: str) -> str:
 def _describe_error(error: BaseException) -> str:
     try:
         text = f"{type(error).__name__}: {error}"
+    except (MemoryError, OSError):
+        raise
     except Exception:
         text = type(error).__name__
     return _safe_text(text)[:_QUARANTINE_ERROR_LIMIT]
@@ -1700,10 +1702,14 @@ def _quarantine_source(evidence: object, error: BaseException) -> dict[str, obje
         text = canonical_json_bytes(
             _nonfinite_free(evidence.to_mapping())  # type: ignore[attr-defined]
         ).decode("utf-8")
+    except (MemoryError, OSError):
+        raise
     except Exception:
         encoding = "repr"
         try:
             text = repr(evidence)
+        except (MemoryError, OSError):
+            raise
         except Exception:
             text = "<unrepresentable source record>"
     text = _safe_text(text)
@@ -1784,12 +1790,13 @@ def _quarantined_pair(evidence: object, error: BaseException) -> dict[str, objec
 
 
 def _receipt_pair(evidence: object) -> dict[str, object]:
-    """Encode one source record as the reloaded form of a v3 pair, never raising.
+    """Encode one source record as the reloaded form of a v3 pair.
 
     The record is normalised (non-finite values to ``nonfinite:<kind>``),
     round-tripped through canonical JSON and then run through the *same*
     validator the strict reader uses. A record that still cannot be validated
     is quarantined instead of aborting the write: the root must be claimed.
+    Resource and storage errors propagate without reclassifying the record.
     """
     try:
         normalised = _normalise_pair_mapping(
@@ -1797,7 +1804,9 @@ def _receipt_pair(evidence: object) -> dict[str, object]:
         )
         pair = json.loads(canonical_json_bytes(normalised).decode("utf-8"))
         _validate_incomplete_pair_record(pair, allow_sentinel=True)
-    except Exception as error:  # every failure must still yield a receipt
+    except (MemoryError, OSError):
+        raise
+    except Exception as error:  # malformed evidence must still yield a receipt
         return _quarantined_pair(evidence, error)
     return dict(pair)
 
@@ -1829,7 +1838,8 @@ def _encode_incomplete_receipt(
     receipt file. This avoids the receipt-wide heap bytes join; per-pair
     encoding, the decoded tree and file-backed pages still consume resources.
     A semantic self-check failure uses the existing all-quarantine fallback.
-    I/O errors must not be reclassified as evidence-validation failures.
+    Storage, mapping and memory failures must propagate without reclassifying
+    evidence; short spool writes are operational errors, not semantic rejection.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
@@ -1856,24 +1866,35 @@ def _encode_incomplete_receipt(
                 }
                 receipt_digest = _receipt_content_digest(body)
                 pair_count = len(pairs)
-                for part in _receipt_canonical_parts(
-                    {**body, "receipt_digest": receipt_digest}
-                ):
-                    spool.write(part)
-                spool.flush()
-                # The strict decoder need not coexist with the producer's tree.
-                del body, pairs, part
-                with mmap.mmap(spool.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+            except (MemoryError, OSError):
+                raise
+            except Exception as error:  # malformed source encoding only
+                last_error = error
+                continue
+
+            # Keep storage and mapping outside the semantic fallback. Even a
+            # ValueError from a closed file or mmap is an operational failure,
+            # not grounds to quarantine otherwise valid financial records.
+            for part in _receipt_canonical_parts(
+                {**body, "receipt_digest": receipt_digest}
+            ):
+                if spool.write(part) != len(part):
+                    raise OSError("short write to failure receipt spool")
+            spool.flush()
+            # The strict decoder need not coexist with the producer's tree.
+            del body, pairs, part
+            with mmap.mmap(spool.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+                try:
                     _decode_incomplete_receipt(
                         raw,
                         expected_receipt_digest=receipt_digest,
                         expected_max_ineligible_pairs=pair_count or None,
                     )
-            except OSError:
-                raise
-            except Exception as error:  # fall back to the all-quarantine encoding
-                last_error = error
-                continue
+                except (MemoryError, OSError):
+                    raise
+                except ValueError as error:  # strict semantic rejection
+                    last_error = error
+                    continue
             spool.seek(0)
             with receipt_path.open("xb") as destination:
                 shutil.copyfileobj(spool, destination, length=1024 * 1024)
@@ -2817,6 +2838,34 @@ def _pinned_receipt_directory(directory: Path) -> Iterator[int | None]:
         os.close(descriptor)
 
 
+def _receipt_root_snapshot(
+    directory: Path, directory_fd: int | None
+) -> tuple[int, int, int, int]:
+    """Observe the directory identity and inventory change timestamps.
+
+    atime is deliberately excluded: ordinary enumeration may update it.
+    This is a metadata fence, not an atomic filesystem snapshot.
+    """
+
+    def identity(status: os.stat_result) -> tuple[int, int, int, int]:
+        if not stat.S_ISDIR(status.st_mode):
+            raise ValueError("failure receipt root changed during read")
+        return (
+            status.st_dev,
+            status.st_ino,
+            status.st_mtime_ns,
+            status.st_ctime_ns,
+        )
+
+    try:
+        current = identity(os.stat(directory, follow_symlinks=False))
+        if directory_fd is not None and current != identity(os.fstat(directory_fd)):
+            raise ValueError("failure receipt root changed during read")
+    except OSError as error:
+        raise ValueError("failure receipt root changed during read") from error
+    return current
+
+
 def _require_receipt_path_identity(
     directory: Path, directory_fd: int, file_fd: int
 ) -> None:
@@ -2867,6 +2916,10 @@ def load_incomplete_pair_attempt(
     An explicitly pinned trusted digest is required to request a larger finite
     budget, up to 512 MiB. Reading a larger file never falls back to an
     unbounded allocation, and changed regular-file metadata fails closed.
+    Directory identity and mtime/ctime are checked across inventory and read
+    as well: an observed inventory change is rejected before decoding. This
+    cannot establish an atomic snapshot or detect every concurrent mutation,
+    particularly on platforms without descriptor-relative path checks.
     A supplied trusted digest is also checked against the canonical body bytes
     before JSON preflight or decoding; the full strict validation still runs.
 
@@ -2914,6 +2967,7 @@ def load_incomplete_pair_attempt(
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
     with _pinned_receipt_directory(directory) as directory_fd:
+        root_before = _receipt_root_snapshot(directory, directory_fd)
         # Verify the single-file root without Path.iterdir()'s eager full scan.
         with os.scandir(
             directory_fd if directory_fd is not None else directory
@@ -2925,6 +2979,8 @@ def load_incomplete_pair_attempt(
                 or next(entries, None) is not None
             ):
                 raise ValueError("failure receipt root contents are malformed")
+        if _receipt_root_snapshot(directory, directory_fd) != root_before:
+            raise ValueError("failure receipt root changed during read")
         with open_regular_binary(
             directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
         ) as handle:
@@ -2961,6 +3017,8 @@ def load_incomplete_pair_attempt(
                 raise ValueError("failure receipt changed during read")
             if directory_fd is not None:
                 _require_receipt_path_identity(directory, directory_fd, handle.fileno())
+        if _receipt_root_snapshot(directory, directory_fd) != root_before:
+            raise ValueError("failure receipt root changed during read")
     return _decode_incomplete_receipt(
         raw,
         expected_receipt_digest=expected_receipt_digest,

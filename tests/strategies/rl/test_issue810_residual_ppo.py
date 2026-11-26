@@ -47,7 +47,7 @@ def _tiny_protocol() -> ResidualProtocol:
 def test_runtime_versions_match_the_pinned_extra() -> None:
     versions = runtime_versions()
     assert versions["stable_baselines3"] == "2.3.2"
-    assert versions["torch"].startswith("2.4.1")
+    assert versions["torch"].split("+", 1)[0] == "2.13.0"
 
 
 def test_short_fit_is_deterministic_under_a_fixed_seed() -> None:

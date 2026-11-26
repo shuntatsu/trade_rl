@@ -37,7 +37,6 @@ CITED_TESTS = (
     "tests/evaluation/test_signal_diagnosis_protocol.py",
     "tests/evaluation/test_signal_diagnosis_verdict.py",
     "tests/evaluation/test_signal_measurement_significance.py",
-    "tests/evaluation/test_signal_measurement_calibration.py",
     "tests/integrations/market_store/test_embargo.py",
 )
 
@@ -442,7 +441,9 @@ def build_author_packet(head: str) -> dict[str, object]:
                         "(the test against a slow reference written from the "
                         "definition, closed-form and numerically integrated Student-t "
                         "tails, the exact integer term rule, every fail-closed case) "
-                        "and tests/evaluation/test_signal_measurement_calibration.py "
+                        "and the migrated SD0 protocol-scale calibration regression "
+                        "(research main 12fe121d0caa720031be71da9394584120b37bf9, "
+                        "documented in the SD0 calibration section; not core-local) "
                         "(size, family error and power of the SD1 function on seeded "
                         "null series at 1460 days, with the superseded bootstrap at 60 "
                         "days as the failing control)"

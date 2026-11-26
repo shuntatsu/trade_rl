@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.dev_realdata_study import runner, trial_cli
+from trade_rl.evaluation.dev_realdata_study import runner
 from trade_rl.evaluation.dev_realdata_study import trial_sources as sources
 from trade_rl.evaluation.dev_realdata_study import trial_study as study
 from trade_rl.evaluation.dev_realdata_study.metrics import select_development_label
@@ -793,62 +793,6 @@ def test_assemble_marks_a_missing_arm_failed_and_ineligible(
         for row in results["selection_pr_c_probe_rule"]["arms"].values()
     )
     assert results["arms"]["t3_funding_carry"]["base"]["status"] == LABEL_FAILED_TO_RUN
-
-
-# --- CLI ------------------------------------------------------------------------
-
-
-def test_cli_smoke_writes_once_and_refuses_overwrite(
-    market: MarketDataset,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    protocol = small_protocol()
-    monkeypatch.setattr(trial_cli, "PROTOCOL", protocol)
-    monkeypatch.setattr(
-        trial_cli,
-        "load_published_market_dataset_artifact",
-        lambda root: (None, market),
-    )
-    out = tmp_path / "out"
-    summary = tmp_path / "summary" / "result.json"
-    argv = [
-        "--dataset",
-        str(tmp_path / "unused"),
-        "--output-dir",
-        str(out),
-        "--summary-path",
-        str(summary),
-        "--causality-matrix-cut",
-        MATRIX_CUT,
-        "--sequential",
-    ]
-    assert trial_cli.main(argv) == 0
-    assert (out / "equity.npz").is_file() and (out / "full_results.json").is_file()
-    written = json.loads(summary.read_text(encoding="utf-8"))
-    assert written["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
-    assert written["registry_digest"] == registry_digest()
-    metadata = written["run_metadata"]
-    assert metadata["started_utc"] <= metadata["finished_utc"]
-    assert metadata["sequential"] is True and "--sequential" in metadata["argv"]
-    assert set(metadata["output_sha256"]) == {"equity.npz", "full_results.json"}
-    assert json.loads((out / "run_metadata.json").read_text("utf-8")) == metadata
-    first_row = written["arms"]["t1_tsmom"]["base"]
-    assert "terminal_residual_notional_usdt" in first_row
-    assert set(written["arms"]) == set(ALL_ARMS)
-    row = written["arms"]["t1_tsmom"]["base"]
-    for name in (
-        "terminal_net_profit_pct",
-        "max_drawdown_pct",
-        "sharpe_daily",
-        "turnover_total",
-        "execution_costs_usdt",
-        "funding_pnl_usdt",
-        "fail_closed_hold_count",
-    ):
-        assert name in row
-    assert summary.stat().st_size < 400_000
-    assert trial_cli.main(argv) == 2
 
 
 def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:

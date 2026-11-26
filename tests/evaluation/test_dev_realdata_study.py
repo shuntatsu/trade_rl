@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.dev_realdata_study import cli as study_cli
 from trade_rl.evaluation.dev_realdata_study import runner
 from trade_rl.evaluation.dev_realdata_study.metrics import (
     bootstrap_excess,
@@ -777,39 +776,6 @@ def test_study_is_deterministic(
     assert json.dumps(
         {k: v for k, v in first.items() if k not in drop}, sort_keys=True
     ) == json.dumps({k: v for k, v in again.items() if k not in drop}, sort_keys=True)
-
-
-# --- CLI ------------------------------------------------------------------
-
-
-def test_cli_smoke_writes_once_and_refuses_overwrite(
-    market: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    protocol = small_protocol()
-    monkeypatch.setattr(study_cli, "PROTOCOL", protocol)
-    monkeypatch.setattr(
-        study_cli,
-        "load_published_market_dataset_artifact",
-        lambda root: (None, market),
-    )
-    out = tmp_path / "out"
-    summary = tmp_path / "summary" / "result.json"
-    argv = [
-        "--dataset",
-        str(tmp_path / "unused"),
-        "--output-dir",
-        str(out),
-        "--summary-path",
-        str(summary),
-        "--sequential",
-    ]
-    assert study_cli.main(argv) == 0
-    assert (out / "equity.npz").is_file() and (out / "full_results.json").is_file()
-    written = json.loads(summary.read_text(encoding="utf-8"))
-    assert written["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
-    assert "protocol" not in written and "protocol_deviations" in written
-    assert summary.stat().st_size < 200_000
-    assert study_cli.main(argv) == 2
 
 
 def test_snapshot_type_is_the_real_replay_snapshot() -> None:

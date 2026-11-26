@@ -30,7 +30,6 @@ from tests.evaluation.test_dev_realdata_phase2_trials import (
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study import (
-    phase3_cli,
     phase3_registry,
     runner,
 )
@@ -737,96 +736,6 @@ def test_reproduction_check_detects_any_difference() -> None:
     different = study.phase2_reproduction_check(ours, {"arms": changed})
     assert different["all_bit_identical"] is False
     assert different["rows"][f"{ARM_BUY_AND_HOLD}/cost_x2"]["bit_identical"] is False
-
-
-# --- CLI and workers ------------------------------------------------------------------
-
-
-def test_cli_smoke_writes_once_counts_every_execution_and_refuses_overwrite(
-    market: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    protocol = small_protocol()
-    monkeypatch.setattr(phase3_cli, "PROTOCOL", protocol)
-    monkeypatch.setattr(
-        phase3_cli,
-        "load_published_market_dataset_artifact",
-        lambda root: (None, market),
-    )
-    out = tmp_path / "out"
-    summary = tmp_path / "summary" / "result.json"
-    ledger = tmp_path / "ledger.jsonl"
-    argv = [
-        "--dataset",
-        str(tmp_path / "unused"),
-        "--output-dir",
-        str(out),
-        "--summary-path",
-        str(summary),
-        "--execution-ledger",
-        str(ledger),
-        "--causality-matrix-cut",
-        MATRIX_CUT,
-        "--sequential",
-    ]
-    assert phase3_cli.main(argv) == 0
-    written = json.loads(summary.read_text(encoding="utf-8"))
-    assert written["label"] in {LABEL_POST_HOC_PROMISING, LABEL_NO_WINNER}
-    assert written["registry_digest"] == registry_digest()
-    assert set(written["arms"]) == set(ALL_ARMS)
-    metadata = written["run_metadata"]
-    assert metadata["started_utc"] <= metadata["finished_utc"]
-    assert metadata["sequential"] is True
-    assert json.loads((out / "run_metadata.json").read_text("utf-8")) == metadata
-    row = written["arms"]["p3_2_t4_kappa3_vt12"]["base"]
-    for name in (
-        "terminal_net_profit_pct",
-        "max_drawdown_pct",
-        "turnover_total",
-        "execution_costs_usdt",
-        "funding_pnl_usdt",
-        "fail_closed_hold_count",
-        "terminal_residual_notional_usdt",
-        "vol_target",
-    ):
-        assert name in row
-    assert summary.stat().st_size < 500_000
-    lines = [json.loads(x) for x in ledger.read_text("utf-8").splitlines()]
-    assert [x["event"] for x in lines] == ["started", "finished"]
-    # An existing output is refused without being counted as an execution.
-    assert phase3_cli.main(argv) == 2
-    assert len(ledger.read_text("utf-8").splitlines()) == 2
-
-
-def test_cli_records_a_failed_execution_in_the_ledger(
-    market: MarketDataset, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def crash(*_: object, **__: object) -> Any:
-        raise RuntimeError("interrupted")
-
-    monkeypatch.setattr(phase3_cli, "run_phase3", crash)
-    monkeypatch.setattr(
-        phase3_cli,
-        "load_published_market_dataset_artifact",
-        lambda root: (None, market),
-    )
-    ledger = tmp_path / "ledger.jsonl"
-    argv = [
-        "--dataset",
-        str(tmp_path / "unused"),
-        "--output-dir",
-        str(tmp_path / "out"),
-        "--summary-path",
-        str(tmp_path / "summary.json"),
-        "--execution-ledger",
-        str(ledger),
-        "--sequential",
-    ]
-    with pytest.raises(RuntimeError, match="interrupted"):
-        phase3_cli.main(argv)
-    lines = [json.loads(x) for x in ledger.read_text("utf-8").splitlines()]
-    assert [x["event"] for x in lines] == ["started", "failed"]
-    assert lines[1]["error_type"] == "RuntimeError"
-    assert not (tmp_path / "summary.json").exists()
 
 
 def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:

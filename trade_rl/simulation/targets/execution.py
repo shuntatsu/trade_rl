@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from trade_rl._array_snapshot import checked_array_input
 from trade_rl.data.market import _require_available_marks_at_row
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import OrderBookState, OrderType, TimeInForce
@@ -52,7 +53,9 @@ def execute_target_statefully(
     if not np.isfinite(book.portfolio_value) or book.portfolio_value <= 0.0:
         raise ValueError("stateful execution requires positive starting equity")
 
-    target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+    target_vector = np.asarray(
+        checked_array_input(target, field_name="target weights"), dtype=np.float64
+    ).reshape(-1)
     # Let reconciliation keep its established errors for malformed targets.
     if (
         target_vector.shape == (executor.dataset.n_symbols,)

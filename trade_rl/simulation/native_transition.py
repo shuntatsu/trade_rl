@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import numpy as np
 
+from trade_rl._array_snapshot import checked_array_input
 from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionResult, MarketExecutor
 
 
 def _target_weights(value: object, *, n_symbols: int) -> np.ndarray:
+    checked = checked_array_input(
+        value, field_name="target weights", allow_object_arrays=False
+    )
     try:
-        raw = np.asarray(value)
+        raw = np.asarray(checked)
     except (TypeError, ValueError) as error:
         raise ValueError("target weights must be a numeric vector") from error
     if raw.ndim != 1 or raw.shape != (n_symbols,):
@@ -29,7 +33,9 @@ def _boolean_mask(
 ) -> np.ndarray | None:
     if value is None:
         return None
-    mask = np.asarray(value)
+    mask = np.asarray(
+        checked_array_input(value, field_name=field_name, allow_object_arrays=False)
+    )
     if mask.dtype != np.dtype(np.bool_):
         raise TypeError(f"{field_name} must contain booleans")
     if mask.shape != (n_symbols,):

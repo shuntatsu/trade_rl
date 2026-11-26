@@ -9,6 +9,7 @@ from typing import Literal, Sequence
 
 import numpy as np
 
+from trade_rl._array_snapshot import checked_array_input
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
@@ -1396,7 +1397,9 @@ class MarketExecutor:
         previous_terminal_orders = state.terminal_orders
         if not isinstance(previous_terminal_orders, TerminalOrderArchive):
             raise RuntimeError("terminal order archive was not normalized")
-        target_vector = np.asarray(target, dtype=np.float64).reshape(-1)
+        target_vector = np.asarray(
+            checked_array_input(target, field_name="target weights"), dtype=np.float64
+        ).reshape(-1)
         target_identity = content_digest(
             {
                 "bars": bars,

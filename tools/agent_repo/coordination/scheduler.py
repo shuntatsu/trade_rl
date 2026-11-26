@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import UserString
 from collections.abc import Collection, Mapping, Sequence
 
 from tools.agent_repo.coordination.conflicts import ConflictLevel, classify_conflict
@@ -36,7 +37,14 @@ def ready_tasks(
     statuses = dict(statuses)
     graph = DependencyGraph(packets)
     packet_by_id = {packet.task_id: packet for packet in packets}
-    leased = set(leased_task_ids)
+    if not isinstance(leased_task_ids, Collection) or isinstance(
+        leased_task_ids, (str, UserString, bytes, bytearray, memoryview, Mapping)
+    ):
+        raise ValueError("lease task IDs must be a non-text collection")
+    lease_ids = tuple(leased_task_ids)
+    if any(type(task_id) is not str for task_id in lease_ids):
+        raise ValueError("lease task IDs must contain native strings")
+    leased = set(lease_ids)
 
     unknown_status = set(statuses) - set(packet_by_id)
     if unknown_status:

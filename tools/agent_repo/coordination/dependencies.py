@@ -85,7 +85,14 @@ class DependencyGraph:
     ) -> bool:
         """Return whether evidence dependencies permit verification/completion."""
 
-        evidence_ids = set(evidence_task_ids)
+        if not isinstance(evidence_task_ids, Collection) or isinstance(
+            evidence_task_ids, (str, bytes, bytearray, memoryview, Mapping)
+        ):
+            raise ValueError("evidence_task_ids must be a collection of explicit IDs")
+        snapshot = tuple(evidence_task_ids)
+        if any(type(value) is not str for value in snapshot):
+            raise ValueError("evidence_task_ids must contain native strings")
+        evidence_ids = set(snapshot)
         return all(
             dependency.task_id in evidence_ids
             for dependency in self._packets[task_id].dependencies

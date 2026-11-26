@@ -129,8 +129,11 @@ PACKET_V50_ATOMIC_TARGET_TD8_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v50-atomic-target-td8-union.json"
 )
-PACKET_PATH = (
+PACKET_EXACT_CADENCE_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json"
+)
+PACKET_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v52-native-fixed.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -182,7 +185,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
+    "1d1e6ee0d24ad75e851152d19e451f9e1ce3dbb6bba1e51db070b7d5ea32e0c7"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3990,7 +3993,7 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
         assurance_digest(previous)
         == "d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_EXACT_CADENCE_PATH.read_bytes())
     head = "c4075b46c9c560550a23fa1839a7d362ba5995fa"
     expected = json.loads(raw)
     old = expected["identity"]["implementation_head"]
@@ -4014,5 +4017,59 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
     for packet_record in (previous, current):
         result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
+    raw = PACKET_EXACT_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "74dab589743375092db3042c353acb292858bf2c63a6bfa64eff88a46e348418"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
+    )
+    head = "89bd4cd318b9a1d1d0ba86c88439120c8ecd1923"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opt-in fixed native Dataset v8 and artifact v5 support exact rational 3d/7d/UTC-week clocks and bounded deterministic long-only spot replay. Legacy schemas/protocols and historical authority remain unchanged. Funding events, short/borrow, delayed mark use, intrabar ordering and unsupported calendars are rejected. No economic authority or result."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 89bd4cd318b9a1d1d0ba86c88439120c8ecd1923: opt-in native fixed execution leaves the study protocol unchanged. Static closure grows by one clock helper (193 to 194); changed shared paths: trade_rl/data/artifacts/__init__.py, trade_rl/data/artifacts/codec.py, trade_rl/data/identity.py, trade_rl/data/market.py, trade_rl/data/native_execution_clock.py, trade_rl/evaluation/metrics.py, trade_rl/evaluation/series.py, trade_rl/risk/inputs.py, trade_rl/simulation/execution.py, trade_rl/simulation/stateful/execution.py. 33 new synthetic cases and 617 related regression cases passed on the byte-identical source tree; no real market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = set(_bound_code_paths(old)), set(_bound_code_paths(head))
+    assert len(before) == 193 and len(after) == 194
+    assert (
+        after - before == {"trade_rl/data/native_execution_clock.py"}
+        and not before - after
+    )
+    diff = _git("diff", "--name-only", old, head, "--", *sorted(after))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/data/artifacts/__init__.py",
+        "trade_rl/data/artifacts/codec.py",
+        "trade_rl/data/identity.py",
+        "trade_rl/data/market.py",
+        "trade_rl/data/native_execution_clock.py",
+        "trade_rl/evaluation/metrics.py",
+        "trade_rl/evaluation/series.py",
+        "trade_rl/risk/inputs.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+    ]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors
         assert not result.economic_execution_authorized

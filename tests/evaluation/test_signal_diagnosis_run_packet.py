@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-exact-cadence.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-native-fixed.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -61,15 +61,20 @@ PACKET_ATOMIC_TARGET_TD8_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-atomic-target-td8-union.json"
 )
-PACKET_PATH = (
+PACKET_EXACT_CADENCE_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-exact-cadence.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-native-fixed.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "2e2e87fc88c217bc3e2570dc75fe8050c9653a3e4bf3725738c7fc486a488635"
+PINNED_DIGEST = "89c0178d0b8434c06633f29135d75cce62eb1c6fd746d0ec594c18b41087ca8c"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2856,7 +2861,7 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
         assurance_digest(previous)
         == "488d1e9c809ae711c7e7eaaafc96b12b640225fc98b3772fea136446645851c0"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_EXACT_CADENCE_PATH.read_bytes())
     head = "c4075b46c9c560550a23fa1839a7d362ba5995fa"
     expected = json.loads(raw)
     old = expected["identity"]["implementation_head"]
@@ -2880,5 +2885,60 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
     for packet_record in (previous, current):
         result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
+    raw = PACKET_EXACT_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "bda491463c83fa3e2aab654507d51ae0f000b1cacf9784f920acacbbcb823b67"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "2e2e87fc88c217bc3e2570dc75fe8050c9653a3e4bf3725738c7fc486a488635"
+    )
+    head = "89bd4cd318b9a1d1d0ba86c88439120c8ecd1923"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opt-in fixed native Dataset v8 and artifact v5 support exact rational 3d/7d/UTC-week clocks and bounded deterministic long-only spot replay. Legacy schemas/protocols and historical authority remain unchanged. Funding events, short/borrow, delayed mark use, intrabar ordering and unsupported calendars are rejected. No economic authority or result."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 89bd4cd318b9a1d1d0ba86c88439120c8ecd1923: opt-in native fixed execution leaves the study protocol unchanged. Static closure grows by one clock helper (179 to 180); changed shared paths: trade_rl/data/artifacts/__init__.py, trade_rl/data/artifacts/codec.py, trade_rl/data/artifacts/verified_bytes.py, trade_rl/data/identity.py, trade_rl/data/market.py, trade_rl/data/native_execution_clock.py, trade_rl/evaluation/metrics.py, trade_rl/evaluation/series.py, trade_rl/risk/inputs.py, trade_rl/simulation/execution.py, trade_rl/simulation/stateful/execution.py. 33 new synthetic cases and 617 related regression cases passed on the byte-identical source tree; no real market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = set(bound_code_paths(old)), set(bound_code_paths(head))
+    assert len(before) == 179 and len(after) == 180
+    assert (
+        after - before == {"trade_rl/data/native_execution_clock.py"}
+        and not before - after
+    )
+    diff = _git("diff", "--name-only", old, head, "--", *sorted(after))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/data/artifacts/__init__.py",
+        "trade_rl/data/artifacts/codec.py",
+        "trade_rl/data/artifacts/verified_bytes.py",
+        "trade_rl/data/identity.py",
+        "trade_rl/data/market.py",
+        "trade_rl/data/native_execution_clock.py",
+        "trade_rl/evaluation/metrics.py",
+        "trade_rl/evaluation/series.py",
+        "trade_rl/risk/inputs.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+    ]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors
         assert not result.economic_execution_authorized

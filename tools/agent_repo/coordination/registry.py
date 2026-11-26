@@ -89,6 +89,8 @@ class CoordinatorRegistry:
         ):
             raise ValueError("registry repository must use owner/name form")
 
+        if type(self.entries) not in (list, tuple):
+            raise ValueError("registry entries must be an ordered list or tuple")
         entries = tuple(self.entries)
         if any(not isinstance(entry, EnrollmentProjection) for entry in entries):
             raise ValueError("registry entries must be EnrollmentProjection values")

@@ -63,6 +63,8 @@ def test_only_main_ancestors_without_current_owners_are_eligible() -> None:
         "fix/m1-bookstate-strict-underflow-atomicity-20261106",
         "fix/m1-carry-cashflow-underflow-20261106",
         "fix/windows-job-child-pid-marker-20261105",
+        "fix/issue1112-m1-audit-20261123",
+        "fix/issue1112-junit-nested-counts-20261124",
     ),
 )
 def test_m1_merged_source_refs_are_preserved(branch_name: str) -> None:
@@ -599,3 +601,16 @@ def test_paginated_api_duplicate_is_refused_before_any_deletion(
             reachable_from_main=frozenset({A, B}),
         )
     assert pages == [1, 2]
+
+
+def test_audit_ref_is_preserved_even_with_exact_merged_source() -> None:
+    branch = BranchInfo("audit/m1-retained", B, False)
+    decisions = plan_merged_retirement(
+        (BranchInfo("main", A, False), branch),
+        default_branch="main",
+        open_pull_request_refs=(),
+        active_workflow_branches=frozenset(),
+        reachable_from_main=frozenset({A, B}),
+        merged_pr_sources=(MergedPullRequestSource(branch.name, B),),
+    )
+    assert next(item for item in decisions if item.branch == branch).action == "keep"

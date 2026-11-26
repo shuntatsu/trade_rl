@@ -54,3 +54,21 @@ def test_retirement_has_no_expired_owner_command_surface() -> None:
     assert "--retire-merged --apply --max-deletes 100" in jobs
     assert not list((ROOT / "tools").glob("archived_*retirement*.py"))
     assert not (ROOT / "tools/archived_obsolete_20261121.py").exists()
+
+
+def test_automatic_retirement_is_independent_of_optional_consolidated_proof() -> None:
+    content = (WORKFLOWS / "retire-merged-pr-branches.yml").read_text(encoding="utf-8")
+    # A failed optional history/closed-PR proof must not block ordinary
+    # exact merged-source retirement. No automatic step may invoke it.
+    assert "--include-consolidated" not in content
+    assert "--consolidated-ref" not in content
+    steps = [
+        step
+        for step in content.split("\n      - name:")
+        if "python3 -m tools.branch_hygiene" in step
+    ]
+    assert len(steps) == 2
+    assert all(
+        'test "$GITHUB_REPOSITORY" = "shuntatsu/trade_rl"' in step for step in steps
+    )
+    assert sum("--apply" in step for step in steps) == 1

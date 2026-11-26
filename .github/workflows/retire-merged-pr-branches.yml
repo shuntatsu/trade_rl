@@ -51,6 +51,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "shuntatsu/trade_rl"
           python3 -m tools.branch_hygiene \
             --repository "$GITHUB_REPOSITORY" \
             --retire-merged --apply --max-deletes 100 \

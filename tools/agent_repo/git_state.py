@@ -46,12 +46,29 @@ def _nul_paths(value: str) -> tuple[str, ...]:
 
 
 def _dirty_paths(repository: Path) -> tuple[str, ...]:
-    # Report both the removed and added path of a rename, regardless of Git config.
+    # Report both rename paths and submodule changes regardless of Git config.
     unstaged = _nul_paths(
-        _git(repository, "diff", "--no-renames", "--name-only", "-z", "--")
+        _git(
+            repository,
+            "diff",
+            "--no-renames",
+            "--ignore-submodules=none",
+            "--name-only",
+            "-z",
+            "--",
+        )
     )
     staged = _nul_paths(
-        _git(repository, "diff", "--cached", "--no-renames", "--name-only", "-z", "--")
+        _git(
+            repository,
+            "diff",
+            "--cached",
+            "--no-renames",
+            "--ignore-submodules=none",
+            "--name-only",
+            "-z",
+            "--",
+        )
     )
     return tuple(sorted(set(unstaged) | set(staged)))
 
@@ -115,6 +132,7 @@ def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState
                 root,
                 "diff",
                 "--no-renames",
+                "--ignore-submodules=none",
                 "--name-only",
                 "-z",
                 f"{merge_base}...HEAD",

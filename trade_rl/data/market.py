@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
+from fractions import Fraction
 from numbers import Integral
 
 import numpy as np
@@ -15,11 +16,17 @@ from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     MARKET_DATASET_IDENTITY_SCHEMA_V7,
+    MARKET_DATASET_IDENTITY_SCHEMA_V8,
     canonical_identity_json,
     compute_market_dataset_id,
     parse_identity_json,
 )
-from trade_rl.data.native_clock import _require_unmasked_array_owners
+from trade_rl.data.native_clock import NativeBarClock, _require_unmasked_array_owners
+from trade_rl.data.native_execution_clock import (
+    execution_clock_payload,
+    fixed_execution_frequency,
+    frequency_payload,
+)
 
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
@@ -172,7 +179,9 @@ class MarketDataset:
     Timestamps represent bar close times. A decision made from row ``t`` may first
     execute at the open stored in row ``t + 1``. Continuous datasets require an
     exactly regular cadence. Session datasets may contain overnight, weekend and
-    holiday gaps while preserving strictly increasing timestamps.
+    holiday gaps while preserving strictly increasing timestamps. An explicit
+    native_clock selects the distinct v8 fixed-grid contract and exact rational
+    annual frequency; no legacy calendar or integer cadence is reinterpreted.
     """
 
     dataset_id: str
@@ -190,7 +199,7 @@ class MarketDataset:
     feature_available: np.ndarray
     feature_names: tuple[str, ...]
     global_feature_names: tuple[str, ...]
-    periods_per_year: int
+    periods_per_year: int | Fraction
     calendar_kind: MarketCalendarKind | str = MarketCalendarKind.CONTINUOUS
     nominal_bar_hours: float | None = None
     funding_event_count: np.ndarray | None = None
@@ -234,6 +243,7 @@ class MarketDataset:
     # Present only for identity v7 datasets that bind event-price funding
     # economics separately from the legacy rate-at-bar-mark calculation.
     funding_price_rate: np.ndarray | None = None
+    native_clock: NativeBarClock | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
     _nominal_bar_hours: float = field(init=False, repr=False)
@@ -267,13 +277,62 @@ class MarketDataset:
             field="global_feature_names",
         )
         periods_per_year: object = self.periods_per_year
-        if (
-            isinstance(periods_per_year, bool)
-            or not isinstance(periods_per_year, Integral)
-            or periods_per_year <= 0
-        ):
-            raise ValueError("periods_per_year must be a positive integer")
-        object.__setattr__(self, "periods_per_year", int(periods_per_year))
+        if self.native_clock is None:
+            if (
+                isinstance(periods_per_year, bool)
+                or not isinstance(periods_per_year, Integral)
+                or periods_per_year <= 0
+            ):
+                raise ValueError("periods_per_year must be a positive integer")
+            object.__setattr__(self, "periods_per_year", int(periods_per_year))
+        else:
+            expected_frequency = fixed_execution_frequency(self.native_clock)
+            if (
+                type(periods_per_year) is not Fraction
+                or periods_per_year != expected_frequency
+            ):
+                raise ValueError(
+                    "native clock requires its exact rational annual frequency"
+                )
+            # A missing/unknown flag must not become true via NumPy's
+            # numeric-to-boolean coercion (including NaN). Preserve legacy
+            # constructor behavior outside the opt-in native contract.
+            for name in (
+                "tradable",
+                "feature_available",
+                "global_feature_available",
+                "borrow_available",
+                "asset_active",
+                "symbol_active",
+                "buy_allowed",
+                "sell_allowed",
+                "information_available",
+            ):
+                mask = getattr(self, name)
+                if mask is None and name not in ("tradable", "feature_available"):
+                    continue
+                if type(mask) is not np.ndarray or mask.dtype != np.dtype(np.bool_):
+                    raise ValueError(f"native clock requires boolean {name} evidence")
+            if (
+                self.available_at is None
+                or self.funding_price_rate is None
+                or self.funding_due is None
+                or self.funding_event_count is None
+            ):
+                raise ValueError(
+                    "native clock requires explicit availability and funding evidence"
+                )
+            if (
+                type(self.funding_event_count) is not np.ndarray
+                or self.funding_event_count.dtype.kind not in "iu"
+                or np.any(self.funding_event_count < 0)
+                or np.any(self.funding_event_count > np.iinfo(np.int32).max)
+                or type(self.funding_due) is not np.ndarray
+                or self.funding_due.dtype != np.dtype(np.bool_)
+            ):
+                raise ValueError(
+                    "native clock requires exact integer funding counts and boolean due flags"
+                )
         try:
             calendar_kind = MarketCalendarKind(self.calendar_kind)
         except ValueError as error:
@@ -322,7 +381,20 @@ class MarketDataset:
             )
 
         bar_duration_ns: int | None
-        if calendar_kind is MarketCalendarKind.CONTINUOUS:
+        if self.native_clock is not None:
+            if calendar_kind is not MarketCalendarKind.CONTINUOUS:
+                raise ValueError("native fixed execution requires a continuous market")
+            starts, ends = self.native_clock.interval_bounds(normalized_timestamps)
+            bar_duration_ns = int(ends[0].astype(np.int64)) - int(
+                starts[0].astype(np.int64)
+            )
+            nominal_bar_hours = bar_duration_ns / _NS_PER_HOUR
+            if (
+                self.nominal_bar_hours is not None
+                and self.nominal_bar_hours != nominal_bar_hours
+            ):
+                raise ValueError("nominal_bar_hours differs from explicit native clock")
+        elif calendar_kind is MarketCalendarKind.CONTINUOUS:
             if not np.all(deltas == deltas[0]):
                 raise ValueError(
                     "continuous timestamps must use an exactly regular cadence"
@@ -729,6 +801,15 @@ class MarketDataset:
             raise ValueError("cash_rate must be finite")
         if funding_price_rate is not None and not np.isfinite(funding_price_rate).all():
             raise ValueError("funding_price_rate must be finite")
+        if self.native_clock is not None:
+            assert funding_price_rate is not None
+            if np.any(funding_due != (funding_event_count > 0)) or np.any(
+                (funding_event_count == 0)
+                & ((funding != 0.0) | (funding_price_rate != 0.0))
+            ):
+                raise ValueError(
+                    "native funding count, rate and event price evidence disagree"
+                )
 
         information_is_immediate = bool(np.array_equal(available_at, event_times))
         eligibility_invalid_prefix = _readonly_array(
@@ -835,6 +916,10 @@ class MarketDataset:
             _validate_cross_asset_global_provenance(global_names, payload)
             canonical_payload_json = canonical_identity_json(payload)
             identity_schema = payload.get("schema")
+            if (self.native_clock is not None) != (
+                identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8
+            ):
+                raise ValueError("native clock and identity schema do not match")
             if (
                 identity_schema == MARKET_DATASET_IDENTITY_SCHEMA
                 and funding_price_rate is not None
@@ -847,7 +932,10 @@ class MarketDataset:
                 and funding_price_rate is None
             ):
                 raise ValueError("identity v7 requires funding_price_rate")
-            if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7:
+            if identity_schema in (
+                MARKET_DATASET_IDENTITY_SCHEMA_V7,
+                MARKET_DATASET_IDENTITY_SCHEMA_V8,
+            ):
                 stored_contract = payload.get("dataset_contract")
                 if not isinstance(stored_contract, dict) or canonical_identity_json(
                     stored_contract
@@ -890,6 +978,10 @@ class MarketDataset:
             "symbols": self.symbols,
             "volume_units": tuple(value.value for value in self.volume_units),
         }
+        if self.native_clock is not None:
+            assert isinstance(self.periods_per_year, Fraction)
+            arrays["periods_per_year"] = frequency_payload(self.periods_per_year)
+            arrays["native_clock"] = execution_clock_payload(self.native_clock)
         return arrays
 
     def identity_arrays(self) -> dict[str, np.ndarray]:
@@ -963,11 +1055,14 @@ class MarketDataset:
                 "cross-asset source provenance cannot be rebound through generic identity"
             )
         _validate_cross_asset_global_provenance(self.global_feature_names, payload)
-        payload["schema"] = (
-            MARKET_DATASET_IDENTITY_SCHEMA_V7
-            if self.funding_price_rate is not None
-            else MARKET_DATASET_IDENTITY_SCHEMA
-        )
+        if self.native_clock is not None:
+            payload["schema"] = MARKET_DATASET_IDENTITY_SCHEMA_V8
+        else:
+            payload["schema"] = (
+                MARKET_DATASET_IDENTITY_SCHEMA_V7
+                if self.funding_price_rate is not None
+                else MARKET_DATASET_IDENTITY_SCHEMA
+            )
         payload["dataset_contract"] = self.identity_contract_payload()
         dataset_id = compute_market_dataset_id(payload, self.identity_arrays())
         return replace(
@@ -1331,3 +1426,16 @@ def _require_available_marks_at_row(
             f"available_at={available_at[row_index, late_symbols[0]]}, "
             f"timestamp={timestamp}"
         )
+
+    if dataset.native_clock is not None:
+        information = dataset.resolved_array("information_available")
+        unavailable_symbols = sorted(
+            symbol_index
+            for symbol_index in relevant_symbols
+            if not information[row_index, symbol_index]
+        )
+        if unavailable_symbols:
+            names = ", ".join(dataset.symbols[index] for index in unavailable_symbols)
+            raise ValueError(
+                f"native decision-time mark unavailable for {names} at row {row_index}"
+            )

@@ -7,6 +7,7 @@ from array import array
 from collections import deque
 from decimal import Decimal
 from fractions import Fraction
+from mmap import mmap
 from typing import Protocol, TypeGuard
 
 import numpy as np
@@ -29,10 +30,17 @@ def _is_indexable_container(value: object) -> TypeGuard[_IndexableContainer]:
     )
 
 
+def _is_exact_type(value: object, *allowed: type) -> bool:
+    # Foreign metaclasses may override equality; admission requires identity.
+    actual = type(value)
+    return any(actual is candidate for candidate in allowed)
+
+
 def _has_opaque_numpy_protocol(value: object) -> bool:
     # Exact builtin values/containers cannot attach arbitrary NumPy descriptors.
     # Preserve their low-overhead admission in frequent replay/accounting calls.
-    if type(value) in (
+    if _is_exact_type(
+        value,
         bool,
         int,
         float,
@@ -70,19 +78,24 @@ def _has_opaque_numpy_protocol(value: object) -> bool:
         raise ValueError("opaque array-like protocol cannot be inspected") from exc
 
 
-def _has_masked_origin(value: object) -> bool:
-    # A view can expose plain numbers while retaining a masked original:
-    # follow only native ndarray and memoryview owner links before casting.
+def _require_unmasked_origin(value: object, *, field_name: str) -> None:
+    # Scalars and sequences are checked separately. Every array owner must
+    # be inspectable through native links before reading numeric values.
+    if not (issubclass(type(value), np.ndarray) or type(value) is memoryview):
+        return
     while True:
-        if np.ma.isMaskedArray(value):
-            return True
-        if isinstance(value, memoryview):
+        if issubclass(type(value), np.ma.MaskedArray):
+            raise ValueError(f"{field_name} must not contain a masked array")
+        if type(value) is memoryview:
             value = value.obj
-        elif isinstance(value, np.ndarray):
-            # Read the native descriptor rather than subclass attributes.
+        elif issubclass(type(value), np.ndarray):
             value = np.ndarray.base.__get__(value)
+        elif value is None or _is_exact_type(value, bytes, bytearray, array, mmap):
+            return
         else:
-            return False
+            # Do not inspect arbitrary attributes of opaque owners, including
+            # the mutable wrapper used by NumPy stride views.
+            raise ValueError(f"{field_name} has opaque array ownership")
 
 
 def _checked_vector_snapshot(
@@ -98,8 +111,7 @@ def _checked_vector_snapshot(
         if parent is None:
             active.pop(id(item), None)
             continue
-        if _has_masked_origin(item):
-            raise ValueError(f"{field_name} must not contain a masked array")
+        _require_unmasked_origin(item, field_name=field_name)
         if isinstance(item, np.ndarray):
             # Strip the ndarray subclass without converting its native dtype.
             # Overridden dtype/tolist must not bypass object admission.
@@ -142,7 +154,8 @@ def _checked_vector_snapshot(
             continue
         # NumPy must not invoke an untrusted scalar __float__ or __index__
         # after validation. Native number/text atoms retain casting.
-        if type(item) not in (
+        if not _is_exact_type(
+            item,
             bool,
             int,
             float,
@@ -168,8 +181,7 @@ def checked_array_input(
     Dtype-sensitive callers must refuse object arrays rather than infer a new
     dtype from their validated contents.
     """
-    if _has_masked_origin(value):
-        raise ValueError(f"{field_name} must not be a masked array")
+    _require_unmasked_origin(value, field_name=field_name)
     return (
         value
         if isinstance(value, np.ndarray)

@@ -10,6 +10,7 @@ import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import Enum
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Final
 
@@ -20,14 +21,22 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     MARKET_DATASET_IDENTITY_SCHEMA_V7,
+    MARKET_DATASET_IDENTITY_SCHEMA_V8,
     parse_identity_json,
 )
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.native_execution_clock import (
+    execution_clock_from_payload,
+    execution_clock_payload,
+    frequency_from_payload,
+    frequency_payload,
+)
 
 DATASET_MANIFEST_NAME: Final = "manifest.json"
 DATASET_ARRAYS_NAME: Final = "arrays.npz"
 DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
 DATASET_ARTIFACT_SCHEMA_V4: Final = "market_dataset_artifact_v4"
+DATASET_ARTIFACT_SCHEMA_V5: Final = "market_dataset_artifact_v5"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 
 
@@ -101,6 +110,7 @@ def _dataset_parts(
     if identity_schema not in {
         MARKET_DATASET_IDENTITY_SCHEMA,
         MARKET_DATASET_IDENTITY_SCHEMA_V7,
+        MARKET_DATASET_IDENTITY_SCHEMA_V8,
     }:
         raise ValueError("unsupported market dataset identity schema")
     arrays: dict[str, np.ndarray] = {}
@@ -110,18 +120,33 @@ def _dataset_parts(
             continue
         if (
             item.name == "funding_price_rate"
-            and identity_schema != MARKET_DATASET_IDENTITY_SCHEMA_V7
+            and identity_schema == MARKET_DATASET_IDENTITY_SCHEMA
         ):
+            continue
+        if item.name == "native_clock":
+            if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8:
+                if dataset.native_clock is None:
+                    raise ValueError("identity v8 requires a native clock")
+                scalars[item.name] = execution_clock_payload(dataset.native_clock)
+            continue
+        if (
+            item.name == "periods_per_year"
+            and identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8
+        ):
+            if not isinstance(dataset.periods_per_year, Fraction):
+                raise ValueError("identity v8 requires exact frequency")
+            scalars[item.name] = frequency_payload(dataset.periods_per_year)
             continue
         value = getattr(dataset, item.name)
         if isinstance(value, np.ndarray):
             arrays[item.name] = np.asarray(value)
         else:
             scalars[item.name] = _encode_scalar(value)
-    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7 and (
-        dataset.funding_price_rate is None
-    ):
-        raise ValueError("identity v7 requires funding_price_rate")
+    if identity_schema in (
+        MARKET_DATASET_IDENTITY_SCHEMA_V7,
+        MARKET_DATASET_IDENTITY_SCHEMA_V8,
+    ) and (dataset.funding_price_rate is None):
+        raise ValueError("identity v7/v8 requires funding_price_rate")
     return arrays, scalars
 
 
@@ -130,6 +155,8 @@ def _artifact_schema_for_identity(identity_schema: object) -> str:
         return DATASET_ARTIFACT_SCHEMA
     if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V7:
         return DATASET_ARTIFACT_SCHEMA_V4
+    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8:
+        return DATASET_ARTIFACT_SCHEMA_V5
     raise ValueError("unsupported market dataset identity schema")
 
 
@@ -228,6 +255,7 @@ def _load_dataset_files_with_digest(
     if artifact_schema not in {
         DATASET_ARTIFACT_SCHEMA,
         DATASET_ARTIFACT_SCHEMA_V4,
+        DATASET_ARTIFACT_SCHEMA_V5,
     }:
         raise ValueError("unsupported dataset artifact schema")
     scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
@@ -247,8 +275,13 @@ def _load_dataset_files_with_digest(
             f"dataset artifact scalar/array field overlap: {overlapping_fields}"
         )
     has_funding_price_rate = "funding_price_rate" in metadata
-    if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 and not has_funding_price_rate:
-        raise ValueError("v4 artifact is missing funding_price_rate")
+    if (
+        artifact_schema in (DATASET_ARTIFACT_SCHEMA_V4, DATASET_ARTIFACT_SCHEMA_V5)
+        and not has_funding_price_rate
+    ):
+        raise ValueError(
+            f"{'v4' if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 else 'v5'} artifact is missing funding_price_rate"
+        )
     if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
         raise ValueError("v3 artifact must not contain funding_price_rate")
     payload = arrays_path.read_bytes()
@@ -284,17 +317,38 @@ def _load_dataset_files_with_digest(
     top_level_dataset_id = _string(manifest.get("dataset_id"), field="dataset_id")
     if scalar_meta.get("dataset_id") != top_level_dataset_id:
         raise ValueError("dataset_id does not match canonical dataset metadata")
+    return (
+        _restore_dataset(scalar_meta, arrays, artifact_schema),
+        artifact_digest,
+        artifact_schema,
+    )
+
+
+def _restore_dataset(
+    scalar_meta: Mapping[str, object],
+    arrays: Mapping[str, np.ndarray],
+    artifact_schema: object,
+) -> MarketDataset:
     kwargs: dict[str, Any] = {**scalar_meta, **arrays}
     allowed = {item.name for item in fields(MarketDataset) if item.init}
     if artifact_schema == DATASET_ARTIFACT_SCHEMA:
         allowed.remove("funding_price_rate")
+    if artifact_schema != DATASET_ARTIFACT_SCHEMA_V5:
+        allowed.remove("native_clock")
     if set(kwargs) != allowed:
         missing = sorted(allowed - set(kwargs))
         extra = sorted(set(kwargs) - allowed)
         raise ValueError(
             f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
         )
-    return MarketDataset(**kwargs), artifact_digest, artifact_schema
+    if artifact_schema == DATASET_ARTIFACT_SCHEMA_V5:
+        kwargs["native_clock"] = execution_clock_from_payload(
+            scalar_meta.get("native_clock")
+        )
+        kwargs["periods_per_year"] = frequency_from_payload(
+            scalar_meta.get("periods_per_year")
+        )
+    return MarketDataset(**kwargs)
 
 
 def load_dataset_files(root: Path) -> MarketDataset:

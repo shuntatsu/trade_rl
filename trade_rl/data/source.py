@@ -171,6 +171,51 @@ class RawMarketSeries:
             object.__setattr__(self, field_name, array)
 
 
+@dataclass(frozen=True, slots=True)
+class NativeRawMarketSeries(RawMarketSeries):
+    """Opt-in exact native-bar admission before legacy array normalization.
+
+    The inherited normalized fields (and their content digest) are unchanged.
+    This type proves only constructor-side representation checks, not original
+    provider authenticity or the history of caller-supplied arrays.
+    """
+
+    def __post_init__(self) -> None:
+        for name in ("timestamps", "available_at"):
+            value = getattr(self, name)
+            if type(value) is not np.ndarray or value.dtype.kind != "M":
+                raise ValueError(f"native raw requires explicit datetime64 {name}")
+        for name in ("tradable", "funding_available"):
+            value = getattr(self, name)
+            if type(value) is not np.ndarray or value.dtype != np.dtype(np.bool_):
+                raise ValueError(f"native raw requires boolean {name}")
+        count = self.funding_event_count
+        if (
+            type(count) is not np.ndarray
+            or count.dtype.kind not in "iu"
+            or np.any(count < 0)
+            or np.any(count > np.iinfo(np.int32).max)
+        ):
+            raise ValueError(
+                "native raw requires exact nonnegative int32 funding counts"
+            )
+        for name in ("open", "high", "low", "close", "volume", "funding_rate"):
+            value = getattr(self, name)
+            if type(value) is not np.ndarray or value.dtype.kind not in "iuf":
+                raise ValueError(f"native raw requires real numeric {name}")
+            if value.dtype.kind == "f" and value.dtype.itemsize > 8:
+                raise ValueError(f"native raw {name} exceeds float64 precision")
+            if value.dtype.kind in "iu" and (
+                np.any(value > 2**53) or np.any(value < -(2**53))
+            ):
+                raise ValueError(
+                    f"native raw {name} exceeds exact float64 integer range"
+                )
+        # The inherited owner-chain, exact timestamp, shape and numerical
+        # checks remain the single implementation of normalized raw storage.
+        RawMarketSeries.__post_init__(self)
+
+
 class MarketDataSource(Protocol):
     def load(self, symbol: str) -> RawMarketSeries: ...
 

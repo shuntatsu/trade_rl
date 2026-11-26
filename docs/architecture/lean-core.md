@@ -612,7 +612,11 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 目標/current、公開risk evidenceの各weight vector、緊急・reduce-only maskと
 native/compatibility/stateful/reconciliationのtarget admissionは会計と同じ
 private array snapshot guardを使い、mask付き配列や保持されたmasked owner、
-入れ子のmasked値を変換前に拒否する。callerが既に失ったmaskは復元しない。
+入れ子のmasked値を変換前に拒否する。ndarray/memoryviewのnative owner chainを
+検査し、終端はNoneまたは既知のnative buffer (bytes/bytearray/array/mmap) に限る。
+NumPyのstride-view wrapper等の不透明なownerは属性を呼ばず拒否する。
+既知型の判定には型identityを使い、metaclassの等価比較で認可しない。
+callerが既に失ったmaskは復元しない。
 不正なactor targetはSharedPortfolioSessionを進めず、口座・order・observerを変更しない。
 正常域の投影・閾値・理由と、既存研究結果は変更しない。
 
@@ -1185,3 +1189,16 @@ Lean coreが保証しないもの:
 - DB/UI/teacher pipelineが研究成立に必須であること
 
 利益やlive suitabilityはarchitectureではなく、凍結した研究条件とunused-data evidenceで別途判断する。
+
+
+### Opt-in fixed native execution Dataset (3d / 7d / UTC week)
+
+The legacy continuous integer cadence, session calendar, v6/v7 Dataset and v3/v4 artifact identities retain their existing contract. Native fixed execution uses an explicit NativeBarClock (3d, fixed 7d, or Monday UTC week), a nonintegral exact Fraction frequency (365/3 or 365/7), a complete consecutive grid, and explicit availability and funding count/due/event-price arrays. Calendar months remain outside execution admission. Dataset identity v8 binds the clock and reduced rational annual frequency, and artifact v5 writes both without float/nominal rounding. Both file-backed and verified-byte readers reconstruct the same contract; old artifacts must not contain native fields. Native fixed return payload v1 independently binds Dataset identity, base-bar interval, clock, exact elapsed ACT/365F years, rational frequency and values. Legacy candidate/research result artifact schemas are not extended to accept these native payloads.
+
+First-stage execution admits only identity-verified deterministic unlevered long-only MARKET IOC/GTC orders using completed previous-bar liquidity, a fresh executor, and nonnegative spot cash/inventory. Explicit order latency counts native bars; no DAY or intra-bar trigger model is admitted. The actual processing and preceding bar must be complete and available at their close (including an affirmative information_available mask; required and explicitly supplied native availability, lifecycle and execution-permission masks must be native boolean arrays, never coerced from unknown/numeric values), with no unsupported gaps, corporate actions, negative carry or funding events. Fees, nonnegative cash interest and next-open stateful terminal settlement reuse the existing engine. Funding aggregates can be stored but economic funding replay, delayed actual publication-to-decision/next-open scheduling, short/borrow and intrabar order ordering need separate verified source and accounting contracts. A complete coarse OHLC record is not evidence of a finer execution path or venue liquidity. Current coarse execution is a synthetic-model capability, not research authorization or provider authenticity.
+
+### Building the opt-in native fixed Spot Dataset from pinned bars
+
+`trade_rl.data.build.native_spot.build_native_fixed_spot_dataset` is a separate, explicit native-fixed v8 builder, not an extension of the legacy timeframe string contract. It accepts an explicit requested 3d/fixed7d/UTC-week close grid, ordered independently pinned normalized Spot execution sources with a complete optional warm-up prefix, ordered `ClockedNativeFeatureGroup` sources/specs, and an explicit as-of timestamp. Every execution and feature source must use the opt-in NativeRawMarketSeries constructor, which checks actual boolean masks, explicit publication, exact integer funding counts and losslessly representable real numeric inputs before the inherited normalized storage conversion. Legacy RawMarketSeries retains its existing normalization contract and is not admitted into this builder even with identical normalized bytes. The native source type does not authenticate prior caller-side conversion or provider evidence. Execution sources must end exactly at the requested grid; all source clocks, lifetimes, complete normalized rows, publication cutoffs and pins are checked before calculating features. A group using the identical execution clock must use the execution source pins. The existing clocked native alignment owns feature windows, normalization, dependency availability and staleness; separate feature clocks can be finer or coarser without inventing prices or future events. The canonical four global channels reuse existing causal one-bar return and portable population-moment arithmetic. The native build configuration, source digest roster, as-of and normalized values are bound by the content identity. No legacy identities are changed.
+
+`spot_raw_from_resampled` converts complete `NativeResampledBars` into the existing Spot raw contract, using the shared resampler to validate aggregate rows and preserving the chosen base/quote volume and actual publication timestamps. It does not authenticate original captures or prove original member counts; callers must retain their independent source and receipt evidence. These APIs reject unsupported funding/derivative multipliers, dynamic execution rules and incomplete ranges rather than silently inventing economic inputs. Static instrument rules are bound; the caller still supplies execution cost assumptions. Delayed publications remain delayed: unavailable close marks and their decision features are masked, and the current native replay boundary refuses them. This enables synthetic complete-grid artifact/replay testing, not delayed execution scheduling, real-data permission or economic authorization.

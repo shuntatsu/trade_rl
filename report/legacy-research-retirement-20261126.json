@@ -1,7 +1,7 @@
 {
   "schema": "legacy_research_bulk_retirement_v1",
   "source_commit": "c7e4b9580188746fccbe70984ff62694a4924c0a",
-  "previous_aggregate": "fd385333fd9d6e3d0404a0523afce9ad50ba736d",
+  "previous_aggregate": "14432c4f78247d7c2ef3438eacae262f3551a9a0",
   "scope": "Retire current legacy study execution, preserve immutable history, shared core, and historical reports. No economic execution or authority transfer.",
   "newly_shared": {
     "trade_rl/evaluation/directional_contract.py": "Reusable directional and PPO cost contract consumed by core and runtime tests",
@@ -75,9 +75,9 @@
     },
     {
       "path": "docs/specs/core7-mtf-shadow-anchor-ppo.md",
-      "source_commit": "c7e4b9580188746fccbe70984ff62694a4924c0a",
-      "git_blob": "b693df5bdf584e71f1ba8f73299d932de1735071",
-      "sha256": "203a8b26a4433da17b6f5eab69a2cff6ce95558c0261680f7e505a85d8513cea",
+      "source_commit": "c9347f52b62ac8107db06c65675f1708423349e1",
+      "git_blob": "2942ec176c92ae29462af22d43ec7e67eba89186",
+      "sha256": "f074b56275562297644f2467a79644ce2fa18eea13a0e77ca79fa2ce50823c40",
       "kind": "historical_doc"
     },
     {
@@ -369,9 +369,9 @@
     },
     {
       "path": "tests/evaluation/test_core7_mtf_oracle.py",
-      "source_commit": "c7e4b9580188746fccbe70984ff62694a4924c0a",
-      "git_blob": "581e27012cb28a8d49df13f85d27bb6a48231e18",
-      "sha256": "f5620a89102773cdcbe4ac5c58cefe6c34ae68272aa5304d693b1346dcf42a08",
+      "source_commit": "c9347f52b62ac8107db06c65675f1708423349e1",
+      "git_blob": "07b445ff5175c5002ebc432b253df3a47f138315",
+      "sha256": "67210a540c5af2f94a60a02e8b17a8ae1abf01bf019fd039cd605f6d89f33b1a",
       "kind": "study_test"
     },
     {
@@ -768,9 +768,9 @@
     },
     {
       "path": "tests/evaluation/test_signal_diagnosis_run_packet.py",
-      "source_commit": "c7e4b9580188746fccbe70984ff62694a4924c0a",
-      "git_blob": "0918210e75eb2f9b114b6a22ce3216cfc275530a",
-      "sha256": "9b61b1af71d7d629eac13c01f6a962526e450b09aa31a815e1a6cc592e3564e8",
+      "source_commit": "c9347f52b62ac8107db06c65675f1708423349e1",
+      "git_blob": "0a362145adb21547cef6485efb22d90db272a291",
+      "sha256": "1f98c81b3b964aca6bcc14f2d78cef51dd2cf81091db1d1ca86ae8c59a93e556",
       "kind": "study_test"
     },
     {
@@ -1573,9 +1573,9 @@
     },
     {
       "path": "trade_rl/evaluation/learning_lab/runner.py",
-      "source_commit": "c7e4b9580188746fccbe70984ff62694a4924c0a",
-      "git_blob": "c2a531ad5a06c67009f87382de77a5deda6ad72f",
-      "sha256": "90f552d88064072356efc97eabb17c6ee9f7c678017401fd64581eca0bdcb43f",
+      "source_commit": "c9347f52b62ac8107db06c65675f1708423349e1",
+      "git_blob": "119d3180306c5848c31903e9a0416cff17e8d1cd",
+      "sha256": "9d378e24797c61c2d1214fabe0fa595df3dd0f760e9ad7499f835f40f92bb160",
       "kind": "inventory"
     },
     {
@@ -3286,5 +3286,7 @@
       "original_blob": "4194695e895923920c891e1f335082f465b1b61e",
       "original_sha256": "457fe8b663ea3027d00b51c884e583682e9bafe84f272c1aa8f7ce79d04ad999"
     }
-  ]
+  ],
+  "retirement_main": "c9347f52b62ac8107db06c65675f1708423349e1",
+  "previous_manifest_commit": "1db92680cfe20f872073e71bd9df427411eb8f77"
 }

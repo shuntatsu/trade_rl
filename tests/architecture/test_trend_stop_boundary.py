@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import trade_rl.strategies as strategies
+from tests.evaluation.trend_stop_archive_support import SPEC_SOURCE, archived_text
 from tools.agent_repo.source_index import ImportCollector, within_module
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,10 +50,17 @@ def test_the_rule_is_strategy_layer_only() -> None:
 
 
 def test_closed_study_archive_owns_evidence_not_execution() -> None:
-    text = (ROOT / "docs/specs/trend-following-stops.md").read_text(encoding="utf-8")
-    assert "Status: Archived" in text
-    assert "NO_WINNER" in text
+    assert not (ROOT / "docs/specs/trend-following-stops.md").exists()
+    text = (ROOT / "docs/research/current-status.md").read_text(encoding="utf-8")
+    section = text.split("## Trend following with fast stops (", 1)[1].split(
+        "\n## ", 1
+    )[0]
+    assert "NO_WINNER" in section and "stop_rule_triggered=true" in section
     assert (
         "https://github.com/shuntatsu/trade_rl_research/blob/main/migration/trend_stop_archive.json"
-        in text
+        in section
     )
+    # The current navigation link is not the historical source identity.
+    # Verify the exact pre-retirement spec using its immutable Git blob and SHA-256.
+    historical_spec = archived_text(SPEC_SOURCE)
+    assert "Status: Active" in historical_spec and "NO_WINNER" in historical_spec

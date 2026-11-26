@@ -71,8 +71,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json`（M1 v1〜v31、TD8/M2 v15〜v17、Task18 v15〜v18、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
-- Pinned Implementation Head: `4c6432d10de6cea273e57660d76a0487fabc8488`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v46-m2-bootstrap-duplicate-json.json`（M1 v1〜v31、TD8/M2 v15〜v17、Task18 v15〜v18、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
+- Pinned Implementation Head: `2a5785d454e7100f87a20d917af2dcdb975b9f0a`
 - Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。
 - v11 source-only lineage: v10のM1・TD8保護とそのimmutable packet digest `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede` は変更しない。本v11はIssue #1134と#1131のPOSIX receipt root/leafおよびStudy JSON読取中のFD/inode/time identityを固定した公開source commit `a5224b86253e90a12bf23cbb7e8be732f82d4475` を新規ピンする。historical v2/v3 receipt、Study証拠・過去decision・Core7 v4経済protocol、費用／リスク閾値、数値resultには変更を加えない。UNREVIEWED / economic_execution_authorized=false / production_eligible=falseを維持し、G0–G2の別独立レビューとowner G4がない限りTier D実測、FS1/unused/final閲覧、利益の主張やlive注文を認可しない。
 - v12 source-only lineage: v11の既公開read-identity保護と immutable packet digest `390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b` を変更せず保存する。Geminiの２指摘（TD8の一時的なA→B→A差替えがsingle-entryチェックをすり抜ける問題と、M2のread中unlink時に生のOSErrorが出る問題）を、固定した可読directory FDでの`os.scandir(fd)`と型付き`ArtifactIntegrityError`で拒否した公開ソース `553f8828cfe00627edc721e1e5195e37dcdcddcc` を新たにピンする。v2/v3 receipt・既存Study・旧経済結果・Core7 v4プロトコルは不変。別G0–G2、owner G4承認前は **UNREVIEWED / economic_execution_authorized=false / production_eligible=false** を維持し、実データ・FS1/unused/final・live注文は引き続き認可しない。
@@ -128,4 +128,6 @@ Status: Active
 - v44 source-only union: `25e7f8998d296a07526cb7ed07fd0d488c0bea49` binds the 192-path union with TD8 v43. No economic authority or historical evidence changes.
 - Immutable parallel v44 TD8 spooled-writer packet: `report/issue810-core7-mtf-ppo-research-assurance-v44-td8-spooled-writer.json`, digest `727f00c55e53bab71afb4a32a56b7a162b7d6c3b08c21f3286e5fe9cc3e848a6`; source `4939478a1b9746ed654c7ddc2ed11e417a9c4b42`, 191-path closure; remains UNREVIEWED, no economic authority.
 - v45 source-only union: `4c6432d10de6cea273e57660d76a0487fabc8488` combines immutable `report/issue810-core7-mtf-ppo-research-assurance-v44-fill-td8-node-union.json` (digest `52485e632694ea43a030ff1ca3a4f37073d68e0d8784c0f7a19ad5b2f85ebbb7`) and the parallel v44 TD8 spooled-writer packet within the 192-path source union. No economic authority or historical evidence changes.
-- Pinned Packet Digest: `b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27`
+- v45 immutable predecessor: `report/issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json` (digest `b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27`).
+- v46 source-only successor: `2a5785d454e7100f87a20d917af2dcdb975b9f0a` rejects duplicate bootstrap JSON member names; existing evidence and economic authorization are unchanged.
+- Pinned Packet Digest: `25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91`

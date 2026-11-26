@@ -28,7 +28,7 @@ raw returns / summary / provenanceをevidenceとして固定する
 
 新規final-eligible M2研究は、データ同期前に条件を固定します。一般はconfig v4、独立口座PPOはv5、共有資金PPOはv6を使い、protocol・baseline/risk・final window・`StudyResearchContext`を別identityへbindします。bootstrapはDatasetとStudyPlanまでを作り、学習・replayはG0-G2 review後に別実行します。
 
-bootstrap設定、Vision計画・解決情報、manifestのJSONを読み込む際は、検証済みの通常ファイルを開き、読み取り前後のファイル識別情報とbyte数を照合します。読み取り中に検出した差し替え、消失、変更はJSONを解釈する前に拒否します。ファイルシステム全体の原子性や入力総量の上限を保証するものではありません。
+bootstrap設定、Vision計画・解決情報、manifestのJSONを読み込む際は、検証済みの通常ファイルを開き、読み取り前後のファイル識別情報とbyte数を照合します。読み取り中に検出した差し替え、消失、変更はJSONを解釈する前に拒否します。 JSONの同じobject内で同名キーが重複している場合も、後から現れた値で上書きせず拒否します。ファイルシステム全体の原子性や入力総量の上限を保証するものではありません。
 
 現行のStudy CLIは外部reviewの完了を認証しないため、この順序は運用上のrelease prerequisiteとして扱います。
 

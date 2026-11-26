@@ -89,10 +89,15 @@ PACKET_V32_STRICT_SPOT_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v32-strict-spot-cash.json"
 )
-PACKET_PATH = (
+PACKET_V45_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v46-m2-bootstrap-duplicate-json.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -144,7 +149,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27"
+    "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3506,7 +3511,7 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         assurance_digest(b)
         == "727f00c55e53bab71afb4a32a56b7a162b7d6c3b08c21f3286e5fe9cc3e848a6"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V45_PATH.read_bytes())
     head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     assert current["identity"] == {"implementation_head": head, "protocol_head": head}
     expected = json.loads(a_raw)
@@ -3565,3 +3570,46 @@ def test_fill_td8_spooled_writer_union_preserves_both_predecessors() -> None:
         checked = evaluate_assurance(record)
         assert checked.status == "UNREVIEWED" and not checked.errors
         assert not checked.economic_execution_authorized
+
+
+def test_m2_bootstrap_duplicate_json_successor_preserves_v45() -> None:
+    raw = PACKET_V45_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "25e62be817ce035e314bfedda4267a00ef0cf58308b6fc3ea7b60c4709849576"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
+    head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " M2 source-only successor rejects duplicate decoded JSON object member names in bootstrap config, vision plan/resolution and manifest before semantic validation. No new resource bound, economic protocol, evidence or authorization."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 2a5785d454e7100f87a20d917af2dcdb975b9f0a: seven synthetic duplicate-member regressions RED before the fix and all 192 bootstrap tests GREEN afterward. Existing canonical packet history retained; no market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(_bound_code_paths(old_head))
+    new_paths = set(_bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 192
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/experiments/bootstrap/_json_reader.py"
+    ]
+    for packet in (prior, current):
+        verdict = evaluate_assurance(packet)
+        assert verdict.status == "UNREVIEWED"
+        assert verdict.errors == ()
+        assert verdict.economic_execution_authorized is False

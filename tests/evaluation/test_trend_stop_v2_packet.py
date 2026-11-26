@@ -424,7 +424,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
     spec = " ".join(archived_text(SPEC_SOURCE).split())
     status = _flat(STATUS)
     architecture = _flat(ARCHITECTURE)
-    assert "Status: Archived" in SPEC.read_text(encoding="utf-8")
+    assert not SPEC.exists()
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
         assert (

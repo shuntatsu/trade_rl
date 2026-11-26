@@ -88,7 +88,7 @@ def test_packet_names_the_g0_to_g3_elements_and_the_stop_rule() -> None:
 
 def test_spec_is_active_links_the_packet_and_states_the_boundary() -> None:
     text = archived_text(SPEC_SOURCE)
-    assert "Status: Archived" in SPEC.read_text(encoding="utf-8")
+    assert not SPEC.exists()
     assert "Status: Active" in text
     assert "report/trend-stop-research-assurance-20261110.json" in text
     assert "2026-07-31" in text

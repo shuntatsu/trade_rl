@@ -510,3 +510,23 @@ def test_heartbeat_accepts_later_instant_with_earlier_wall_clock() -> None:
     assert renewed.expires_at.astimezone(UTC) == later.astimezone(UTC) + TTL
     with pytest.raises(ValueError, match="monotonic"):
         heartbeat(renewed, head_sha=HEAD_SHA, observed_at=first)
+
+
+class _ForgedFenceText(str):
+    def __format__(self, format_spec: str) -> str:
+        return "unexpected/branch"
+
+    def strip(self, chars: str | None = None) -> str:
+        return "unexpected/owner"
+
+
+@pytest.mark.parametrize(
+    ("task_id", "owner"),
+    [
+        (_ForgedFenceText("T500-03"), "agent-a"),
+        ("T500-03", _ForgedFenceText("agent-a")),
+    ],
+)
+def test_lease_branch_rejects_non_native_fence_text(task_id: str, owner: str) -> None:
+    with pytest.raises(ValueError, match="task_id|owner"):
+        lease_branch_name(task_id, 3, owner)

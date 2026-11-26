@@ -48,7 +48,7 @@ def _require_digest(value: str, *, field_name: str) -> None:
 
 
 def _owner_slug(owner: str) -> str:
-    if not isinstance(owner, str) or not _OWNER_RE.fullmatch(owner) or ".." in owner:
+    if type(owner) is not str or not _OWNER_RE.fullmatch(owner) or ".." in owner:
         raise ValueError("owner must contain only safe branch-name characters")
     slug = re.sub(r"[ ._]+", "-", owner.strip().lower())
     slug = re.sub(r"-+", "-", slug).strip("-")
@@ -60,7 +60,7 @@ def _owner_slug(owner: str) -> str:
 def lease_branch_name(task_id: str, epoch: int, owner: str) -> str:
     """Return the branch fence for one concrete lease epoch."""
 
-    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+    if type(task_id) is not str or not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task_id is invalid for a lease branch")
     if ".." in task_id or task_id.endswith(".lock"):
         raise ValueError("task_id is invalid for a lease branch")

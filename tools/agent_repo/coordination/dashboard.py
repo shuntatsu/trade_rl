@@ -44,6 +44,21 @@ class DashboardSnapshot:
                 raise ValueError(f"{field_name} must be non-empty when provided")
 
 
+def _display_text(value: str) -> str:
+    """Keep untrusted display text on one line without terminal controls."""
+
+    return "".join(
+        char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
+        for char in value
+    )
+
+
+def _display_identifier(value: str) -> str:
+    """Disambiguate literal backslashes from escaped identifier characters."""
+
+    return _display_text(value.replace("\\", "\\\\"))
+
+
 def render_dashboard(
     parent_title: str,
     main_sha: str,
@@ -61,28 +76,28 @@ def render_dashboard(
 
     completed = sum(snapshot.phase is TaskPhase.COMPLETE for snapshot in ordered)
     lines = [
-        parent_title,
+        _display_text(parent_title),
         f"main: {main_sha}",
         f"{completed} / {len(ordered)} complete",
         "",
     ]
     for snapshot in ordered:
         lines.append(
-            f"{snapshot.task_id}  {snapshot.phase.value} / {snapshot.condition.value}"
+            f"{_display_identifier(snapshot.task_id)}  {snapshot.phase.value} / {snapshot.condition.value}"
         )
-        lines.append(f"  title: {snapshot.title}")
+        lines.append(f"  title: {_display_text(snapshot.title)}")
         if snapshot.owner is not None:
-            lines.append(f"  owner: {snapshot.owner}")
+            lines.append(f"  owner: {_display_text(snapshot.owner)}")
         if snapshot.pr_id is not None:
-            lines.append(f"  PR #{snapshot.pr_id}")
+            lines.append(f"  PR #{_display_identifier(snapshot.pr_id)}")
         if snapshot.dependency_summary is not None:
-            lines.append(f"  dependency: {snapshot.dependency_summary}")
+            lines.append(f"  dependency: {_display_text(snapshot.dependency_summary)}")
         if snapshot.blocking_reason is not None:
-            lines.append(f"  blocked: {snapshot.blocking_reason}")
+            lines.append(f"  blocked: {_display_text(snapshot.blocking_reason)}")
         if snapshot.stale_reason is not None:
-            lines.append(f"  stale: {snapshot.stale_reason}")
+            lines.append(f"  stale: {_display_text(snapshot.stale_reason)}")
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 __all__ = ["DashboardSnapshot", "render_dashboard"]

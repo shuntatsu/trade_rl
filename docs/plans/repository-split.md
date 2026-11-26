@@ -149,6 +149,7 @@ resource、CI、外部consumerの完全なclosureを証明しない。各移行�
 | `evaluation/ppo_*study.py`, `ppo_*checkpoint.py`, `ppo_*normalization*.py`, `ppo_4h_indicator_smoke.py` | rl/ppo | 固定activation JSON、PPO関連CI、optional extras、checkpoint互換性。 |
 | `tools/issue1146_significance_calibration.py` | [研究側SD0校正](https://github.com/shuntatsu/trade_rl_research/blob/12fe121d0caa720031be71da9394584120b37bf9/migration/calibration_and_generated_fixtures.json) | 研究側に移管済みの合成校正と重複テストを退役。[旧実装と履歴](https://github.com/shuntatsu/trade_rl/blob/fb126a9a9b1a7f337041548ee92a27e8230e02f3/tools/issue1146_significance_calibration.py)を固定保持。共通測定関数と独立oracleは維持。 |
 | `evaluation/rl_family_comparison/` | [研究側](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/rl_family_comparison_sources.json) | 移管済みの個別比較契約・oracleの旧実装を削除。共通fitterは維持。 |
+| `evaluation/experiments/bootstrap/capacity_robustness_prereg.py` | [固定履歴](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/capacity_robustness_archive.json) | #541 終了済み個別研究。固定protocolと専用テストをGit履歴に保持し、共通bootstrap/materializationは維持。新規実行・結果再分類なし。 |
 
 `tools/trend_breadth.py`、`trend_exit_arms_forward.py`、`mtf_combo_forward.py`、
 `btc_trend_ensemble.py`、`agy_clean_all_forward.py`、`carry_multisymbol_screen.py` 等の

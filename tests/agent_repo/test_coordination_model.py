@@ -19,7 +19,11 @@ from tools.agent_repo.coordination.model import (
     TaskStatus,
     WriteScope,
 )
-from tools.agent_repo.coordination.state import evidence_is_current, validate_transition
+from tools.agent_repo.coordination.state import (
+    evidence_is_current,
+    evidence_is_current_after_peer_integration,
+    validate_transition,
+)
 
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
@@ -598,4 +602,112 @@ def test_evidence_kind_freshness_matrix(kind: EvidenceKind) -> None:
             current_main_sha=_ComparisonTrapSha(OTHER_MAIN_SHA),
         )
         is not requires_main
+    )
+
+
+class _ForgedDigestPacket(TaskPacket):
+    def contract_digest(self) -> str:
+        return _ForgedRecordedSha("f" * 64)
+
+
+class _TrapDigestPacket(TaskPacket):
+    def contract_digest(self) -> str:
+        return _ComparisonTrapSha("f" * 64)
+
+
+@pytest.mark.parametrize("packet_type", [_ForgedDigestPacket, _TrapDigestPacket])
+def test_evidence_rejects_non_native_expected_digest(
+    packet_type: type[TaskPacket],
+) -> None:
+    native = _packet()
+    packet = packet_type(**vars(native))
+    assert not evidence_is_current(_evidence(native), packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize("side", ["current", "peer"])
+def test_peer_integration_rejects_non_native_task_id(
+    sha_type: type[str], side: str
+) -> None:
+    native = replace(_packet(), dependencies=())
+    peer = replace(native, task_id="T500-02", resource_keys=())
+    evidence = _evidence(native)
+    packet = native
+    if side == "current":
+        packet = replace(native, task_id=sha_type(native.task_id))
+    else:
+        peer = replace(peer, task_id=sha_type(peer.task_id))
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+
+
+class _RevisionSubclass(int):
+    pass
+
+
+@pytest.mark.parametrize("revision", [True, 1.0, _RevisionSubclass(1)])
+def test_evidence_revision_requires_native_int(revision: int) -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    with pytest.raises(ValueError, match="task_revision"):
+        replace(packet, task_revision=revision)
+    with pytest.raises(ValueError, match="task_revision"):
+        replace(evidence, task_revision=revision)
+
+
+@pytest.mark.parametrize("kind", list(EvidenceKind))
+def test_evidence_kind_constructor_normalizes_native_string(kind: EvidenceKind) -> None:
+    packet = _packet()
+    requires_main = kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}
+    evidence = replace(
+        _evidence(packet, kind=kind, main_sha=MAIN_SHA if requires_main else None),
+        evidence_kind=kind.value,
+    )
+    assert evidence.evidence_kind is kind
+    assert evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    with pytest.raises(ValueError):
+        replace(evidence, evidence_kind="not-a-kind")
+
+
+def test_peer_integration_native_task_id_controls() -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    assert evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence,
+        packet,
+        replace(peer, resource_keys=packet.resource_keys),
+        head_sha=HEAD_SHA,
+    )
+    with pytest.raises(ValueError, match="distinct task"):
+        evidence_is_current_after_peer_integration(
+            evidence, packet, packet, head_sha=HEAD_SHA
+        )
+
+
+class _NeverEqualTaskId(str):
+    def __eq__(self, other: object) -> bool:
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        return True
+
+
+def test_peer_integration_cannot_disguise_same_task() -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(
+        packet,
+        task_id=_NeverEqualTaskId(packet.task_id),
+        dependencies=(),
+        resource_keys=(),
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
     )

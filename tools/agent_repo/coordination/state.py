@@ -69,7 +69,11 @@ def evidence_is_current(
         return False
     if evidence.task_revision != packet.task_revision:
         return False
-    if evidence.task_contract_digest != packet.contract_digest():
+    expected_digest = packet.contract_digest()
+    if (
+        type(expected_digest) is not str
+        or evidence.task_contract_digest != expected_digest
+    ):
         return False
     if evidence.base_sha != packet.base_sha:
         return False
@@ -96,6 +100,8 @@ def evidence_is_current_after_peer_integration(
 ) -> bool:
     """Reject evidence made stale by a semantically conflicting peer integration."""
 
+    if type(packet.task_id) is not str or type(integrated_packet.task_id) is not str:
+        return False
     if packet.task_id == integrated_packet.task_id:
         raise ValueError("peer integration requires a distinct task")
     if classify_conflict(packet, integrated_packet) is not ConflictLevel.NONE:

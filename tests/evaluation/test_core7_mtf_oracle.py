@@ -135,10 +135,13 @@ PACKET_EXACT_CADENCE_PATH = (
 PACKET_NATIVE_FIXED_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v52-native-fixed.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_AVAILABILITY_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v53-native-availability.json"
+)
+PACKET_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v54-native-masks.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -190,7 +193,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "aca106cd44273d963a76808b163ab96f1e4e52e2774777176e1efae08103c7c6"
+    "3ef2c409bf923b05253a00fabda0af19082abe61637abb79ec38ccdc78149e53"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -4105,6 +4108,45 @@ def test_native_availability_successor_preserves_fixed_packet() -> None:
     )
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 3080562dce4437ef1ad2c50278dbf927c020955f: native mark admission is corrected in trade_rl/data/market.py only within the unchanged 194-path static closure. Seven synthetic regressions failed on the predecessor; 187 related tests passed after correction, including initial, intermediate, final unavailable marks and invalid mask dtypes. No market data or economic execution."
+    )
+    current = json.loads(PACKET_NATIVE_AVAILABILITY_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_masks_successor_preserves_availability_packet() -> None:
+    raw = PACKET_NATIVE_AVAILABILITY_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "f3cde2969f2571f07271135071029f0d5121c7e73991c5e64889066b9238144e"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "aca106cd44273d963a76808b163ab96f1e4e52e2774777176e1efae08103c7c6"
+    )
+    head = "4aa078c299237277b1c21730bbff7ebc78308fd0"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed Dataset requires actual boolean ndarrays for all explicit information, feature, lifecycle and execution-permission masks, not numeric/NaN coercions. Existing funding due validation, legacy identities, and economic authority are unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 4aa078c299237277b1c21730bbff7ebc78308fd0: within the unchanged 194-path static closure only trade_rl/data/market.py changes. 34 of 38 new synthetic mask cases failed on the predecessor; all 243 targeted related tests passed after the correction, including NaN/numeric mask and required-mask rejection. No market data or economic execution."
     )
     current = json.loads(PACKET_PATH.read_bytes())
     assert current == expected

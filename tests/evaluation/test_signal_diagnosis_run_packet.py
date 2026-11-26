@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-native-availability.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-native-masks.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -71,15 +71,20 @@ PACKET_NATIVE_FIXED_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-fixed.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_AVAILABILITY_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-availability.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-native-masks.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "4e95fd62754d973bd6806fe011ae653d68d95c60c2ecfd96fc8b6679d61a210a"
+PINNED_DIGEST = "cd635391b8673260719f652ed2d98e1c7c3fff42125104a533c34311c141ed93"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2974,6 +2979,45 @@ def test_native_availability_successor_preserves_fixed_packet() -> None:
     )
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 3080562dce4437ef1ad2c50278dbf927c020955f: native mark admission is corrected in trade_rl/data/market.py only within the unchanged 180-path static closure. Seven synthetic regressions failed on the predecessor; 187 related tests passed after correction, including initial, intermediate, final unavailable marks and invalid mask dtypes. No market data or economic execution."
+    )
+    current = json.loads(PACKET_NATIVE_AVAILABILITY_PATH.read_bytes())
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 180
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_masks_successor_preserves_availability_packet() -> None:
+    raw = PACKET_NATIVE_AVAILABILITY_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "05c87ab7a107f2c0b4fddb96929f67158958af0f21f4a6e97f09d2887aef9734"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "4e95fd62754d973bd6806fe011ae653d68d95c60c2ecfd96fc8b6679d61a210a"
+    )
+    head = "4aa078c299237277b1c21730bbff7ebc78308fd0"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed Dataset requires actual boolean ndarrays for all explicit information, feature, lifecycle and execution-permission masks, not numeric/NaN coercions. Existing funding due validation, legacy identities, and economic authority are unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 4aa078c299237277b1c21730bbff7ebc78308fd0: within the unchanged 180-path static closure only trade_rl/data/market.py changes. 34 of 38 new synthetic mask cases failed on the predecessor; all 243 targeted related tests passed after the correction, including NaN/numeric mask and required-mask rejection. No market data or economic execution."
     )
     current = json.loads(PACKET_PATH.read_bytes())
     assert current == expected

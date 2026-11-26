@@ -372,3 +372,40 @@ def test_native_dataset_rejects_nonboolean_explicit_information_mask(dtype):
     values["information_available"] = np.ones((6, 1), dtype=dtype)
     with pytest.raises(ValueError, match="native.*boolean.*information"):
         MarketDataset(**values)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "tradable",
+        "feature_available",
+        "global_feature_available",
+        "borrow_available",
+        "asset_active",
+        "symbol_active",
+        "buy_allowed",
+        "sell_allowed",
+        "information_available",
+    ],
+)
+@pytest.mark.parametrize("value", [np.nan, 2, 0.0, 1])
+def test_native_dataset_rejects_numeric_availability_masks(field, value):
+    values = native_values()
+    shape = (
+        values["feature_available"].shape
+        if field == "feature_available"
+        else (6, len(values["global_feature_names"]))
+        if field == "global_feature_available"
+        else (6, 1)
+    )
+    values[field] = np.full(shape, value)
+    with pytest.raises(ValueError, match="native.*boolean"):
+        MarketDataset(**values)
+
+
+@pytest.mark.parametrize("field", ["tradable", "feature_available"])
+def test_native_dataset_requires_explicit_required_masks(field):
+    values = native_values()
+    values[field] = None
+    with pytest.raises(ValueError, match="native.*boolean"):
+        MarketDataset(**values)

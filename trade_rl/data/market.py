@@ -294,13 +294,25 @@ class MarketDataset:
                 raise ValueError(
                     "native clock requires its exact rational annual frequency"
                 )
-            if self.information_available is not None and (
-                type(self.information_available) is not np.ndarray
-                or self.information_available.dtype != np.dtype(np.bool_)
+            # A missing/unknown flag must not become true via NumPy's
+            # numeric-to-boolean coercion (including NaN). Preserve legacy
+            # constructor behavior outside the opt-in native contract.
+            for name in (
+                "tradable",
+                "feature_available",
+                "global_feature_available",
+                "borrow_available",
+                "asset_active",
+                "symbol_active",
+                "buy_allowed",
+                "sell_allowed",
+                "information_available",
             ):
-                raise ValueError(
-                    "native clock requires boolean information availability evidence"
-                )
+                mask = getattr(self, name)
+                if mask is None and name not in ("tradable", "feature_available"):
+                    continue
+                if type(mask) is not np.ndarray or mask.dtype != np.dtype(np.bool_):
+                    raise ValueError(f"native clock requires boolean {name} evidence")
             if (
                 self.available_at is None
                 or self.funding_price_rate is None

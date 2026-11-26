@@ -140,8 +140,13 @@ PACKET_NATIVE_AVAILABILITY_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v53-native-availability.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_MASKS_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v54-native-masks.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v55-strict-native-raw.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -193,7 +198,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "3ef2c409bf923b05253a00fabda0af19082abe61637abb79ec38ccdc78149e53"
+    "c54159e4aea0b4dc530000cb7f49ff9fbdc26861eabcbe7920f6af2e7ff4977f"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -4148,13 +4153,52 @@ def test_native_masks_successor_preserves_availability_packet() -> None:
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 4aa078c299237277b1c21730bbff7ebc78308fd0: within the unchanged 194-path static closure only trade_rl/data/market.py changes. 34 of 38 new synthetic mask cases failed on the predecessor; all 243 targeted related tests passed after the correction, including NaN/numeric mask and required-mask rejection. No market data or economic execution."
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_NATIVE_MASKS_PATH.read_bytes())
     assert current == expected
     before, after = _bound_code_paths(old), _bound_code_paths(head)
     assert before == after and len(after) == 194
     diff = _git("diff", "--name-only", old, head, "--", *after)
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_strict_native_raw_successor_preserves_native_masks_packet() -> None:
+    raw = PACKET_NATIVE_MASKS_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "85d842e3899085950ab6a7c1f64c4e35db0796ddb881a1a0432bf8f72b34af51"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "3ef2c409bf923b05253a00fabda0af19082abe61637abb79ec38ccdc78149e53"
+    )
+    head = "efd9a32e53ec8251f8d5a4a8e37344baafdf281a"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " The opt-in native fixed spot builder requires NativeRawMarketSeries before normalization, with explicit datetime64 publication, native boolean masks, exact bounded integer counts and losslessly representable numeric arrays. Existing legacy RawMarketSeries field layout, normalizer, canonical normalized source digest and economic authority are unchanged; this is not authentication of prior caller conversions or provider receipts."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source efd9a32e53ec8251f8d5a4a8e37344baafdf281a: within the unchanged 194-path static closure only trade_rl/data/source.py changes, by adding the strict native raw subtype. Twelve new synthetic tests failed on the predecessor and pass after the correction; 984 related tests pass, including rejected legacy-coerced sources even when the normalized content digest matches. Legacy normalized source identity remains unchanged. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/source.py"]
     for record in (previous, current):
         result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors

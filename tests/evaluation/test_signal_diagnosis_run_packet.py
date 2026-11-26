@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-native-masks.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-strict-native-raw.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -76,15 +76,20 @@ PACKET_NATIVE_AVAILABILITY_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-availability.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_MASKS_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-masks.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-strict-native-raw.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "cd635391b8673260719f652ed2d98e1c7c3fff42125104a533c34311c141ed93"
+PINNED_DIGEST = "586a7113cdad52d8c73a0e74b0a92ec6dc3bf2898720e556f33e2d5af05da0ba"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -3019,13 +3024,52 @@ def test_native_masks_successor_preserves_availability_packet() -> None:
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 4aa078c299237277b1c21730bbff7ebc78308fd0: within the unchanged 180-path static closure only trade_rl/data/market.py changes. 34 of 38 new synthetic mask cases failed on the predecessor; all 243 targeted related tests passed after the correction, including NaN/numeric mask and required-mask rejection. No market data or economic execution."
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_NATIVE_MASKS_PATH.read_bytes())
     assert current == expected
     before, after = bound_code_paths(old), bound_code_paths(head)
     assert before == after and len(after) == 180
     diff = _git("diff", "--name-only", old, head, "--", *after)
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_strict_native_raw_successor_preserves_native_masks_packet() -> None:
+    raw = PACKET_NATIVE_MASKS_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "bb19f96c544db072fa08b1d2ea3fb664b7f97c50b9b58a1970e52f3b2ed9254a"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "cd635391b8673260719f652ed2d98e1c7c3fff42125104a533c34311c141ed93"
+    )
+    head = "efd9a32e53ec8251f8d5a4a8e37344baafdf281a"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " The opt-in native fixed spot builder requires NativeRawMarketSeries before normalization, with explicit datetime64 publication, native boolean masks, exact bounded integer counts and losslessly representable numeric arrays. Existing legacy RawMarketSeries field layout, normalizer, canonical normalized source digest and economic authority are unchanged; this is not authentication of prior caller conversions or provider receipts."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source efd9a32e53ec8251f8d5a4a8e37344baafdf281a: within the unchanged 180-path static closure only trade_rl/data/source.py changes, by adding the strict native raw subtype. Twelve new synthetic tests failed on the predecessor and pass after the correction; 984 related tests pass, including rejected legacy-coerced sources even when the normalized content digest matches. Legacy normalized source identity remains unchanged. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 180
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/source.py"]
     for record in (previous, current):
         result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors

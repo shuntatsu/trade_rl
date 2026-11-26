@@ -34,6 +34,21 @@ _MEASURED_MODULE_AFFINITY = {
 }
 
 
+# Eight-way placement fitted to the 200 slow-duration entries in runs
+# 45744299892 and 45744743567, cross-checked against 45746974291. Keep
+# expensive shared fixtures together; preserve the established four-way map.
+_MEASURED_EIGHT_WAY_AFFINITY = {
+    "tests/evaluation/test_dev_realdata_phase3.py": 7,
+    "tests/evaluation/test_dev_realdata_phase2_trials.py": 3,
+    "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 4,
+    "tests/evaluation/test_forward_study_fs1.py": 0,
+    "tests/tools/tier_d_nonrl/test_task18_native_recovery.py": 2,
+    "tests/evaluation/test_dev_realdata_study.py": 5,
+    "tests/evaluation/test_lowturn_screen.py": 6,
+    "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 1,
+}
+
+
 def _validate_count(count: int) -> None:
     if type(count) is not int or not 1 <= count <= _MAX_SHARDS:
         raise ValueError("invalid shard count")
@@ -68,9 +83,12 @@ def shard_index(item: str, count: int) -> int:
     _validate_count(count)
     if type(item) is not str or not item:
         raise ValueError("invalid pytest node ID")
-    if count == 4:
+    if count in (4, 8):
         module, _, _ = item.partition("::")
-        affinity = _MEASURED_MODULE_AFFINITY.get(module)
+        placement = (
+            _MEASURED_MODULE_AFFINITY if count == 4 else _MEASURED_EIGHT_WAY_AFFINITY
+        )
+        affinity = placement.get(module)
         if affinity is not None:
             return affinity
     return (

@@ -136,14 +136,14 @@ jobs:
           fi
 
   core-tests:
-    name: Lean Core tests (${{ matrix.shard }}/4)
+    name: Lean Core tests (${{ matrix.shard }}/8)
     if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -177,7 +177,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
           uv run --no-sync python -m pytest -q -p tools.ci_test_shard tests \
-            --ci-shard-index "$SHARD_INDEX" --ci-shard-count 4 \
+            --ci-shard-index "$SHARD_INDEX" --ci-shard-count 8 \
             --ci-shard-head "$HEAD_SHA" --ci-shard-report "$RUNNER_TEMP/core-shard.json" \
             --durations=25
 
@@ -264,7 +264,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
           uv run --no-sync python -m tools.ci_test_shard \
-            --directory "$RUNNER_TEMP/core-shards" --count 4 --head "$HEAD_SHA"
+            --directory "$RUNNER_TEMP/core-shards" --count 8 --head "$HEAD_SHA"
 
       - name: Build
         run: uv build

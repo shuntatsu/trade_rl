@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl._array_snapshot import checked_array_input
 from trade_rl._validation import require_sha256
 from trade_rl.simulation.accounting import BookState, target_quantity_from_weight
 from trade_rl.simulation.orders.admission import snap_price_to_tick
@@ -137,7 +138,13 @@ def reconcile_target(
     if expiry_index is not None and expiry_index < eligible_index:
         raise OrderReconciliationError("expiry index must not precede eligibility")
 
-    weights = np.asarray(target_weights, dtype=np.float64).reshape(-1)
+    try:
+        checked_weights = checked_array_input(
+            target_weights, field_name="target weights"
+        )
+    except ValueError as error:
+        raise OrderReconciliationError(str(error)) from error
+    weights = np.asarray(checked_weights, dtype=np.float64).reshape(-1)
     prices = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
     sizing_prices = (
         prices

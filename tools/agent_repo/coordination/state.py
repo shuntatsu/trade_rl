@@ -103,8 +103,8 @@ def parent_completion_allowed(
     )
     return (
         children_complete
-        and parent_acceptance_satisfied
-        and parent_invariants_satisfied
+        and parent_acceptance_satisfied is True
+        and parent_invariants_satisfied is True
     )
 
 

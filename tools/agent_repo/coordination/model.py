@@ -79,7 +79,18 @@ class Capability(str, Enum):
     MERGE_WRITE = "merge_write"
 
 
-def _tuple_strings(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+def _require_utf8_text(value: object, *, field_name: str) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    try:
+        str.encode(value, "utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError(f"{field_name} must contain valid Unicode text") from error
+
+
+def _tuple_strings(
+    values: tuple[str, ...] | list[str], *, field_name: str
+) -> tuple[str, ...]:
     # Snapshot caller-owned lists before validating, without coercing unknown
     # Python objects into apparently legitimate durable evidence text.
     if type(values) not in (tuple, list):
@@ -87,6 +98,8 @@ def _tuple_strings(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     snapshot = tuple(values)
     if any(type(value) is not str for value in snapshot):
         raise ValueError("text fields require ordered native string entries")
+    for value in snapshot:
+        _require_utf8_text(value, field_name=field_name)
     return snapshot
 
 
@@ -142,8 +155,12 @@ class WriteScope:
     deny: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "allow", _tuple_strings(self.allow))
-        object.__setattr__(self, "deny", _tuple_strings(self.deny))
+        object.__setattr__(
+            self, "allow", _tuple_strings(self.allow, field_name="write_scope.allow")
+        )
+        object.__setattr__(
+            self, "deny", _tuple_strings(self.deny, field_name="write_scope.deny")
+        )
         if len(set(self.allow)) != len(self.allow):
             raise ValueError("duplicate write allow path")
         if len(set(self.deny)) != len(self.deny):
@@ -210,16 +227,34 @@ class TaskPacket:
             raise ValueError("objective must be non-empty")
         if not isinstance(self.title, str) or not self.title.strip():
             raise ValueError("title must be non-empty")
+        for name, value in (
+            ("title", self.title),
+            ("objective", self.objective),
+            ("deliverable", self.deliverable),
+        ):
+            _require_utf8_text(value, field_name=name)
         _require_full_sha(self.base_sha, field_name="base_sha")
 
         object.__setattr__(self, "execution_mode", ExecutionMode(self.execution_mode))
         object.__setattr__(self, "risk", RiskLevel(self.risk))
-        object.__setattr__(self, "non_goals", _tuple_strings(self.non_goals))
-        object.__setattr__(self, "resource_keys", _tuple_strings(self.resource_keys))
         object.__setattr__(
-            self, "acceptance_criteria", _tuple_strings(self.acceptance_criteria)
+            self, "non_goals", _tuple_strings(self.non_goals, field_name="non_goals")
         )
-        object.__setattr__(self, "test_oracle", _tuple_strings(self.test_oracle))
+        object.__setattr__(
+            self,
+            "resource_keys",
+            _tuple_strings(self.resource_keys, field_name="resource_keys"),
+        )
+        object.__setattr__(
+            self,
+            "acceptance_criteria",
+            _tuple_strings(self.acceptance_criteria, field_name="acceptance_criteria"),
+        )
+        object.__setattr__(
+            self,
+            "test_oracle",
+            _tuple_strings(self.test_oracle, field_name="test_oracle"),
+        )
         object.__setattr__(
             self,
             "capabilities",

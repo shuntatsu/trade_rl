@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-strict-native-raw.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-native-opaque-owner-union.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -81,15 +81,25 @@ PACKET_NATIVE_MASKS_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-masks.json"
 )
-PACKET_PATH = (
+PACKET_STRICT_NATIVE_RAW_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-strict-native-raw.json"
 )
+PACKET_OPAQUE_OWNER_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-opaque-array-owner.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-native-opaque-owner-union.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "586a7113cdad52d8c73a0e74b0a92ec6dc3bf2898720e556f33e2d5af05da0ba"
+PINNED_DIGEST = "c4f22acb68c91af0d63c651b62f9220d83719385692d944fce2a8f54bc37b245"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -3063,7 +3073,7 @@ def test_strict_native_raw_successor_preserves_native_masks_packet() -> None:
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source efd9a32e53ec8251f8d5a4a8e37344baafdf281a: within the unchanged 180-path static closure only trade_rl/data/source.py changes, by adding the strict native raw subtype. Twelve new synthetic tests failed on the predecessor and pass after the correction; 984 related tests pass, including rejected legacy-coerced sources even when the normalized content digest matches. Legacy normalized source identity remains unchanged. No market data or economic execution."
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_STRICT_NATIVE_RAW_PATH.read_bytes())
     assert current == expected
     before, after = bound_code_paths(old), bound_code_paths(head)
     assert before == after and len(after) == 180
@@ -3072,5 +3082,106 @@ def test_strict_native_raw_successor_preserves_native_masks_packet() -> None:
     assert diff.stdout.splitlines() == ["trade_rl/data/source.py"]
     for record in (previous, current):
         result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_opaque_array_owner_successor_preserves_prior_packet() -> None:
+    raw = PACKET_EXACT_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "bda491463c83fa3e2aab654507d51ae0f000b1cacf9784f920acacbbcb823b67"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "2e2e87fc88c217bc3e2570dc75fe8050c9653a3e4bf3725738c7fc486a488635"
+    )
+    current = json.loads(PACKET_OPAQUE_OWNER_PATH.read_bytes())
+    head = "ef263bd111ad421200fbb398588dc7f1fca413d0"
+    expected = json.loads(raw)
+    old = expected["identity"]["implementation_head"]
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opaque array-owner chains and spoofed type equality fail closed before risk, order or settlement effects; only known native buffer ownership is admitted. No recovery of caller-discarded mask provenance and no economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source ef263bd111ad421200fbb398588dc7f1fca413d0: unchanged static closure with changes limited to trade_rl/_array_snapshot.py and trade_rl/simulation/accounting.py. Synthetic regression and controls cover opaque stride-backed masked arrays, settlement selectors and metaclass equality spoofing; 1302 risk and simulation tests passed. No market data or economic execution."
+    )
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 179
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/_array_snapshot.py",
+        "trade_rl/simulation/accounting.py",
+    ]
+    for packet_record in (previous, current):
+        result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_opaque_owner_union_preserves_both_packet_lineages() -> None:
+    raw = PACKET_STRICT_NATIVE_RAW_PATH.read_bytes()
+    opaque_raw = PACKET_OPAQUE_OWNER_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "1a8d92381380fa1cd6754fd275b4487af64c42633e57a13a5bcec0196f726f38"
+    )
+    assert (
+        hashlib.sha256(opaque_raw).hexdigest()
+        == "b6ab147de4e0bb652ede4882e8eb625853b0805d8a669bfc476a2749c2fc13d8"
+    )
+    native = json.loads(raw)
+    opaque = json.loads(opaque_raw)
+    assert (
+        assurance_digest(native)
+        == "586a7113cdad52d8c73a0e74b0a92ec6dc3bf2898720e556f33e2d5af05da0ba"
+    )
+    assert (
+        assurance_digest(opaque)
+        == "091d98c909581fc7e40de99249dafac9a49f85e49efcc67f189f98df5f09f48d"
+    )
+    head = "55bf08ee131155d7a774d94db4838991cbdcdaff"
+    old = native["identity"]["implementation_head"]
+    parallel = opaque["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opaque array-owner chains and spoofed type equality fail closed before risk, order or settlement effects; only known native buffer ownership is admitted. No recovery of caller-discarded mask provenance and no economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact union source 55bf08ee131155d7a774d94db4838991cbdcdaff: strict native raw admission and parallel opaque-owner correction (immutable packet digest 091d98c909581fc7e40de99249dafac9a49f85e49efcc67f189f98df5f09f48d) are preserved. Within the unchanged 180-path native closure only trade_rl/_array_snapshot.py and trade_rl/simulation/accounting.py change. 1414 simulation, risk, native execution dataset and native spot builder tests passed on the union source; both previous pin tests correctly rejected the stale source binding. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 180
+    parallel_paths = bound_code_paths(parallel)
+    assert len(parallel_paths) == 179
+    assert set(parallel_paths) < set(after)
+    changed = ["trade_rl/_array_snapshot.py", "trade_rl/simulation/accounting.py"]
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == changed
+    diff = _git("diff", "--name-only", parallel, head, "--", *changed)
+    assert diff.returncode == 0, diff.stderr
+    assert not diff.stdout
+    for predecessor in (old, parallel):
+        assert _git("merge-base", "--is-ancestor", predecessor, head).returncode == 0
+    for packet_record in (native, opaque, current):
+        result = evaluate_assurance(packet_record)
         assert result.status == "UNREVIEWED" and not result.errors
         assert not result.economic_execution_authorized

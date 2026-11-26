@@ -475,3 +475,23 @@ def test_shared_terminal_settlement_uses_native_ledger_and_preserves_input(
         ledger.final_portfolio_value
         - sum(float(item["exit_cost_usdt"]) for item in dust)
     )
+
+
+@pytest.mark.parametrize("capital", (True, 0.0, -1.0, float("inf"), float("nan")))
+def test_shared_ledger_reconciliation_rejects_invalid_capital(capital):
+    dataset = _dataset(drop=False)
+    with pytest.raises(ValueError, match="initial_capital"):
+        reconcile_ledger(_replay(dataset), dataset, capital, execution_cost=COST)
+
+
+@pytest.mark.parametrize("tolerance", (True, -1.0, float("inf"), float("nan")))
+def test_shared_ledger_reconciliation_rejects_invalid_tolerance(tolerance):
+    dataset = _dataset(drop=False)
+    with pytest.raises(ValueError, match="reconciliation_tolerance"):
+        reconcile_ledger(
+            _replay(dataset),
+            dataset,
+            CAPITAL,
+            execution_cost=COST,
+            reconciliation_tolerance=tolerance,
+        )

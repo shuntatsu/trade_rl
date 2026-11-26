@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from fractions import Fraction
+from numbers import Real
 from typing import cast
 
 from trade_rl.data.market import MarketDataset
@@ -36,11 +38,34 @@ def reconcile_ledger(
     ``execution_cost`` no residual can be valued as dust.
     """
 
+    # The extracted shared contract no longer receives a validated study protocol.
+    # An infinite tolerance would make a corrupted ledger appear reconciled.
+    amounts: tuple[tuple[str, object, bool], ...] = (
+        ("initial_capital", initial_capital, True),
+        ("reconciliation_tolerance", reconciliation_tolerance, False),
+    )
+    for field, value, positive in amounts:
+        try:
+            valid = (
+                not isinstance(value, bool)
+                and isinstance(value, Real)
+                and math.isfinite(float(value))
+                and (float(value) > 0 if positive else float(value) >= 0)
+            )
+        except (OverflowError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise ValueError(
+                f"{field} must be finite and {'positive' if positive else 'nonnegative'}"
+            )
+
     wrapper = result.ledger_evidence
     if wrapper is None:
         raise ValueError("replay result carries no ledger evidence")
     ledger = wrapper.intervals
     intervals = ledger.intervals
+    if not intervals:
+        raise ValueError("replay result carries no ledger intervals")
     multipliers = dataset.resolved_array("contract_multipliers")
     initial = Fraction(str(initial_capital))
     signed_fill_cash = Fraction(0)

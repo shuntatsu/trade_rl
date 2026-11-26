@@ -71,8 +71,8 @@ Status: Active
 
 ## 5. Packet Pin
 
-- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v52-opaque-array-owner.json`（M1 v1〜v31、TD8/M2 v15〜v17、Task18 v15〜v18、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
-- Pinned Implementation Head: `ef263bd111ad421200fbb398588dc7f1fca413d0`
+- Open Author Packet: `report/issue810-core7-mtf-ppo-research-assurance-v55-strict-native-raw.json`（M1 v1〜v31、TD8/M2 v15〜v17、Task18 v15〜v18、main正式v14とM1並行v14は不変のUNREVIEWED履歴。経済認可への再利用禁止）。
+- Pinned Implementation Head: `efd9a32e53ec8251f8d5a4a8e37344baafdf281a`
 - Pin lineage: v9のTD8失敗レシートreader保護（[PR #1322](https://github.com/shuntatsu/trade_rl/pull/1322)、digest `1a57f5b478dec5ad90fa844700730db092e14095b281421c2558c30372a0a57d`、実装HEAD `97cd1fd4e79a1398b25402b4283d773143b1fc6a`）は変更せず歴史として保持する。v10は最新mainのTD8変更とM1監査のPreTradeRisk数値・緊急マスク境界、失敗時stateful乱数復元を含む公開統合ソース `aa9282c74ffdf866831d0f0b423401a7e7e3ca29` を実装・プロトコルの両HEADへ固定する新しいsource-onlyパケット。現行ソースによる旧v9の実行・証拠再分類は認めない。G0–G2の独立レビュー前は **UNREVIEWED / economic_execution_authorized=false**、Core7 v4の経済ルール・費用・リスク閾値・過去研究結果・プロトコルdigestは変更しない。別のG4認可、Pre-FS1/FS1/unused/final禁輸およびno-live-order条件を維持する。
 - v11 source-only lineage: v10のM1・TD8保護とそのimmutable packet digest `8927defcfb0417be50ce6af1a0b5335ccb14fd0d1f7e2367836eee179cb4fede` は変更しない。本v11はIssue #1134と#1131のPOSIX receipt root/leafおよびStudy JSON読取中のFD/inode/time identityを固定した公開source commit `a5224b86253e90a12bf23cbb7e8be732f82d4475` を新規ピンする。historical v2/v3 receipt、Study証拠・過去decision・Core7 v4経済protocol、費用／リスク閾値、数値resultには変更を加えない。UNREVIEWED / economic_execution_authorized=false / production_eligible=falseを維持し、G0–G2の別独立レビューとowner G4がない限りTier D実測、FS1/unused/final閲覧、利益の主張やlive注文を認可しない。
 - v12 source-only lineage: v11の既公開read-identity保護と immutable packet digest `390db3ecc403f61e4f9bc5a30bc1dc0c6f54ab7e3af30dba072fc272e71c2a6b` を変更せず保存する。Geminiの２指摘（TD8の一時的なA→B→A差替えがsingle-entryチェックをすり抜ける問題と、M2のread中unlink時に生のOSErrorが出る問題）を、固定した可読directory FDでの`os.scandir(fd)`と型付き`ArtifactIntegrityError`で拒否した公開ソース `553f8828cfe00627edc721e1e5195e37dcdcddcc` を新たにピンする。v2/v3 receipt・既存Study・旧経済結果・Core7 v4プロトコルは不変。別G0–G2、owner G4承認前は **UNREVIEWED / economic_execution_authorized=false / production_eligible=false** を維持し、実データ・FS1/unused/final・live注文は引き続き認可しない。
@@ -142,6 +142,12 @@ Status: Active
 - v50 source-only union: `3b3a0c65ccdf981e44ae075561d97e00e457b039` binds both immutable predecessors, 193-path closure, unchanged economic protocol and authorization.
 - v50 immutable packet: `report/issue810-core7-mtf-ppo-research-assurance-v50-atomic-target-td8-union.json`, digest `d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d`; UNREVIEWED.
 - v51 exact continuous cadence admission: `c4075b46c9c560550a23fa1839a7d362ba5995fa`, same 193-path closure; no 3d/weekly execution or economic authority.
-- Immutable v51 packet: `report/issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json`, digest `ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d`; UNREVIEWED.
-- v52 opaque array-owner admission: `ef263bd111ad421200fbb398588dc7f1fca413d0`, same 193-path closure; software only, no economic authority.
-- Pinned Packet Digest: `3efa40abc432d6ec54c172f9b37156cf4e507eef9c7f72a50a714b1d18c1b9ca`
+- Immutable v51 packet: `report/issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json`, digest `ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d`.
+- v52 fixed native clock software-only successor: `89bd4cd318b9a1d1d0ba86c88439120c8ecd1923`, 194-path closure, unchanged study protocol and authority.
+- Immutable v52 packet: `report/issue810-core7-mtf-ppo-research-assurance-v52-native-fixed.json`, digest `1d1e6ee0d24ad75e851152d19e451f9e1ce3dbb6bba1e51db070b7d5ea32e0c7`.
+- v53 native availability admission: `3080562dce4437ef1ad2c50278dbf927c020955f`, unchanged 194-path closure and study authority.
+- Immutable v53 packet: `report/issue810-core7-mtf-ppo-research-assurance-v53-native-availability.json`, digest `aca106cd44273d963a76808b163ab96f1e4e52e2774777176e1efae08103c7c6`.
+- v54 native boolean mask admission: `4aa078c299237277b1c21730bbff7ebc78308fd0`, unchanged 194-path closure and study authority.
+- Immutable v54 packet: `report/issue810-core7-mtf-ppo-research-assurance-v54-native-masks.json`, digest `3ef2c409bf923b05253a00fabda0af19082abe61637abb79ec38ccdc78149e53`.
+- v55 strict native raw admission: `efd9a32e53ec8251f8d5a4a8e37344baafdf281a`, unchanged 194-path closure and study authority.
+- Pinned Packet Digest: `c54159e4aea0b4dc530000cb7f49ff9fbdc26861eabcbe7920f6af2e7ff4977f`

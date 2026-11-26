@@ -39,7 +39,7 @@ class PortfolioRiskPriceHistory(Protocol):
 
 class PortfolioRiskDataset(PortfolioRiskPriceHistory, Protocol):
     @property
-    def periods_per_year(self) -> int: ...
+    def periods_per_year(self) -> int | Fraction: ...
 
 
 class PortfolioRiskInputsProvider(Protocol):

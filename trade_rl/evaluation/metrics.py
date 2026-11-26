@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from statistics import fmean
 
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
@@ -26,7 +27,7 @@ class PerformanceMetrics:
     termination_count: int
     n_periods: int
     return_kind: ReturnKind
-    periods_per_year: int
+    periods_per_year: int | Fraction
 
 
 def compound_return(values: tuple[float, ...]) -> float:
@@ -108,5 +109,9 @@ def evaluate_performance(
         termination_count=termination_count,
         n_periods=len(values),
         return_kind=returns.kind,
-        periods_per_year=int(round(returns.annualization_periods_per_year)),
+        periods_per_year=(
+            returns.periods_per_year
+            if isinstance(returns.periods_per_year, Fraction)
+            else int(round(returns.annualization_periods_per_year))
+        ),
     )

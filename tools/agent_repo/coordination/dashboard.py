@@ -53,6 +53,12 @@ def _display_text(value: str) -> str:
     )
 
 
+def _display_identifier(value: str) -> str:
+    """Disambiguate literal backslashes from escaped identifier characters."""
+
+    return _display_text(value.replace("\\", "\\\\"))
+
+
 def render_dashboard(
     parent_title: str,
     main_sha: str,
@@ -77,13 +83,13 @@ def render_dashboard(
     ]
     for snapshot in ordered:
         lines.append(
-            f"{_display_text(snapshot.task_id)}  {snapshot.phase.value} / {snapshot.condition.value}"
+            f"{_display_identifier(snapshot.task_id)}  {snapshot.phase.value} / {snapshot.condition.value}"
         )
         lines.append(f"  title: {_display_text(snapshot.title)}")
         if snapshot.owner is not None:
             lines.append(f"  owner: {_display_text(snapshot.owner)}")
         if snapshot.pr_id is not None:
-            lines.append(f"  PR #{_display_text(snapshot.pr_id)}")
+            lines.append(f"  PR #{_display_identifier(snapshot.pr_id)}")
         if snapshot.dependency_summary is not None:
             lines.append(f"  dependency: {_display_text(snapshot.dependency_summary)}")
         if snapshot.blocking_reason is not None:
@@ -91,7 +97,7 @@ def render_dashboard(
         if snapshot.stale_reason is not None:
             lines.append(f"  stale: {_display_text(snapshot.stale_reason)}")
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 __all__ = ["DashboardSnapshot", "render_dashboard"]

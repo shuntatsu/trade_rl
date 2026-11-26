@@ -430,12 +430,21 @@ def test_dashboard_escapes_nonprintable_field_text(field: str) -> None:
         blocking_reason="blocked",
         stale_reason="stale",
     )
-    unsafe = "日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t"
-    escaped = r"日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t"
+    unsafe = "日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t\x00\x7f\x85\x9b\u2029\u3000\ud800"
+    escaped = r"日本語\nT999 complete / healthy\r\x1b[2J\u2028\u202e\t\x00\x7f\x85\x9b\u2029\u3000\ud800"
     output = render_dashboard(
         "Operator dashboard", MAIN_SHA, (replace(snapshot, **{field: unsafe}),)
     )
-    assert escaped in output
+    expected_line = {
+        "task_id": f"{escaped}  review / blocked",
+        "title": f"  title: {escaped}",
+        "owner": f"  owner: {escaped}",
+        "pr_id": f"  PR #{escaped}",
+        "dependency_summary": f"  dependency: {escaped}",
+        "blocking_reason": f"  blocked: {escaped}",
+        "stale_reason": f"  stale: {escaped}",
+    }[field]
+    assert expected_line in output.splitlines()
     assert len(output.splitlines()) == len(
         render_dashboard("Operator dashboard", MAIN_SHA, (snapshot,)).splitlines()
     )
@@ -466,3 +475,28 @@ def test_dashboard_preserves_printable_unicode_and_literal_paths() -> None:
         "T500-01  review / healthy",
         r"  title: 日本語 C:\work\project",
     ]
+
+
+def test_dashboard_distinguishes_literal_backslash_from_escaped_task_id() -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500\n01",
+        title="Normal",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.HEALTHY,
+    )
+    other = replace(snapshot, task_id=r"T500\n01")
+    lines = render_dashboard("Dashboard", MAIN_SHA, (snapshot, other)).splitlines()
+    assert r"T500\n01  review / healthy" in lines
+    assert r"T500\\n01  review / healthy" in lines
+
+
+def test_dashboard_preserves_last_field_trailing_ascii_space() -> None:
+    snapshot = DashboardSnapshot(
+        task_id="T500-01",
+        title="Normal ",
+        phase=TaskPhase.REVIEW,
+        condition=TaskCondition.HEALTHY,
+    )
+    assert render_dashboard("Dashboard", MAIN_SHA, (snapshot,)).endswith(
+        "  title: Normal \n"
+    )

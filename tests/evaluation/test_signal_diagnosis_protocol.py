@@ -16,10 +16,6 @@ import pytest
 
 import trade_rl.strategies.forecasts.lightgbm as lightgbm_module
 from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
-from trade_rl.evaluation.dev_realdata_study.dataset_build import (
-    STUDY_ARTIFACT_DIGEST,
-    STUDY_DATASET_ID,
-)
 from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL as DEV_PROTOCOL
 from trade_rl.evaluation.forward_study.registry import Fs1Registry
 from trade_rl.evaluation.signal_diagnosis.protocol import (
@@ -171,9 +167,14 @@ def test_status_and_claim_scope_say_known_used_exploratory_and_planned() -> None
 def test_dataset_pins_equal_the_existing_development_dataset_identity() -> None:
     data = default_signal_diagnosis_protocol().data
 
-    assert data.dataset_id == STUDY_DATASET_ID == DEV_PROTOCOL.dataset_id
+    receipt = json.loads(
+        (ROOT / "report/dev-realdata-study-p2-20261029-provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )["dataset_rebuild"]
+    assert data.dataset_id == receipt["dataset_id"] == DEV_PROTOCOL.dataset_id
     assert data.dataset_id.startswith("0b955471") and data.dataset_id.endswith("e174")
-    assert data.artifact_digest == STUDY_ARTIFACT_DIGEST
+    assert data.artifact_digest == receipt["artifact_digest"]
     assert data.symbols == ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
     assert data.base_interval == "1h"
     assert data.feature_timeframes == ("4h", "1d")

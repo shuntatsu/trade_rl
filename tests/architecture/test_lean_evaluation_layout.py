@@ -98,7 +98,6 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "dev_realdata_study/trial_labels.py",
         "dev_realdata_study/phase3_registry.py",
         "dev_realdata_study/phase3_sources.py",
-        "dev_realdata_study/dataset_build.py",
         "forward_study/__init__.py",
         "forward_study/__main__.py",
         "forward_study/registry.py",

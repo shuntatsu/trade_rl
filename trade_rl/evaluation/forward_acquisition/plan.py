@@ -60,8 +60,8 @@ SOURCE_KEY_DATASET_ARTIFACT: Final = "fs1:dataset-artifact-digest"
 SOURCE_KEY_DEV_ROSTER: Final = "fs1:development-source-roster"
 
 # Identity of the verified development Dataset whose archives FS1 reuses read-only
-# (copies of ``dev_realdata_study.dataset_build.STUDY_*``; a test pins the equality
-# without importing the builder here, because that module pulls in a network client).
+# (fixed in the archived P2 rebuild receipt; a test pins both identities against
+# the original evidence without importing the retired development builder).
 DEV_DATASET_ID: Final = (
     "0b95547145a8f35d4deaaea99479ccf93244080bff52ef969203f4fa721de174"
 )

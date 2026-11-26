@@ -947,7 +947,8 @@ anything about other configurations.
   policy (a missing 1h bar is a non-tradable row with a forward-filled mark and no
   funding accrual; a higher-clock window touching a gap is a placeholder with
   `available_at` at the range end, so recursive features stay unavailable), zero baked-in
-  fees and spread, and the `dataset_build` builder. Its digest
+  fees and spread, and the historical `dataset_build` builder policy retained in
+  the P2 archive (not a current executable). Its digest
   (`13d404e9a8b0a87d02cf7a90f9af2bbbad412d439dae42f730e4f416efd03a34`) is part of the
   params digest and must appear in the manifest (`manifest_build_policy_mismatch`
   otherwise). What cannot be pinned today is that a concrete builder run obeyed the
@@ -1040,7 +1041,7 @@ data has been fetched**, and the data-fetch authorization is still pending.
    leaving a partial root; the operator retries with a new root after publication.
 3. **Development reuse by identity (never refetched).** The published development Dataset
    is loaded read-only and must be identity-verified, equal the pinned development
-   `dataset_id` and artifact digest (copies of `dataset_build.STUDY_*`, pinned equal by a
+   `dataset_id` and artifact digest (pinned equal to the original P2 rebuild receipt by a
    test); its identity payload binds `raw_source_roster_digest`; the evidence file's
    roster must hash to it and list exactly the planned development archives; and every
    local archive must equal its roster SHA-256 and size (`dev_*` reasons; a malformed

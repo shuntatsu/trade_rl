@@ -24,7 +24,6 @@ from tests.evaluation.forward_acquisition_support import (
     make_scenario,
 )
 from trade_rl.data.artifacts.publication import load_published_market_dataset_artifact
-from trade_rl.evaluation.dev_realdata_study import dataset_build
 from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
 from trade_rl.evaluation.forward_acquisition import acquire, cli, plan
 from trade_rl.evaluation.forward_acquisition.acquire import AcquisitionRefusal
@@ -58,9 +57,16 @@ def test_implemented_policy_digest_is_the_registry_build_policy_digest() -> None
     )
 
 
-def test_pinned_development_identity_matches_the_dev_builder_and_protocol() -> None:
-    assert plan.DEV_DATASET_ID == dataset_build.STUDY_DATASET_ID == PROTOCOL.dataset_id
-    assert plan.DEV_ARTIFACT_DIGEST == dataset_build.STUDY_ARTIFACT_DIGEST
+def test_pinned_development_identity_matches_the_archived_receipt_and_protocol() -> (
+    None
+):
+    receipt_path = (
+        Path(__file__).resolve().parents[2]
+        / "report/dev-realdata-study-p2-20261029-provenance.json"
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))["dataset_rebuild"]
+    assert plan.DEV_DATASET_ID == receipt["dataset_id"] == PROTOCOL.dataset_id
+    assert plan.DEV_ARTIFACT_DIGEST == receipt["artifact_digest"]
 
 
 # --- planning ----------------------------------------------------------------------

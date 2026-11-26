@@ -446,3 +446,53 @@ def test_multiyear_native_cloud_warmup_and_literal_oracle(days, minutes):
     np.testing.assert_array_equal(
         suffix.feature_available, dataset.feature_available[77:]
     )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("tradable", 2),
+        ("tradable", -1),
+        ("tradable", np.nan),
+        ("funding_available", 0),
+        ("funding_available", np.nan),
+        ("funding_event_count", 0.5),
+        ("funding_event_count", -0.5),
+        ("funding_event_count", 2**32),
+        ("available_at", None),
+        ("close", "101.0"),
+        ("volume", 2**53 + 1),
+    ],
+)
+def test_native_raw_adapter_refuses_coercion_before_pin(field, value):
+    args, _ = _fixture(days=3)
+    source = args["sources"][0]
+    invalid = None if value is None else np.full(source.raw.timestamps.shape, value)
+    with pytest.raises(ValueError, match="native raw"):
+        replace(source.raw, **{field: invalid})
+
+
+def test_native_builder_refuses_legacy_normalized_source_even_with_matching_pin():
+    from dataclasses import fields
+
+    from trade_rl.data.source import RawMarketSeries
+
+    args, _ = _fixture(days=3)
+    source = args["sources"][0]
+    # The legacy constructor remains compatible; its normalized bytes/digest
+    # cannot demonstrate that strict validation preceded conversion.
+    legacy = RawMarketSeries(
+        **{
+            field.name: getattr(source.raw, field.name)
+            for field in fields(RawMarketSeries)
+        }
+    )
+    legacy_pin = _pin(legacy, source.contract, args["clock"])
+    assert legacy_pin.expected_source_digest == source.expected_source_digest
+    with pytest.raises(ValueError, match="strict native raw"):
+        build_native_fixed_spot_dataset(**{**args, "sources": (legacy_pin,)})
+    group = replace(args["feature_groups"][0], sources=(legacy_pin,))
+    with pytest.raises(ValueError, match="strict native raw"):
+        build_native_fixed_spot_dataset(
+            **{**args, "feature_groups": (group, args["feature_groups"][1])}
+        )

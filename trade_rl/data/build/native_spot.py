@@ -33,7 +33,7 @@ from trade_rl.data.native_resampling import (
     NativeResampledBars,
     resample_complete_native_bars,
 )
-from trade_rl.data.source import RawMarketSeries
+from trade_rl.data.source import NativeRawMarketSeries
 
 _SCHEMA = "native_fixed_spot_build_v1"
 _GLOBAL_NAMES = (
@@ -64,7 +64,7 @@ def spot_raw_from_resampled(
     clock: NativeBarClock,
     as_of: np.datetime64,
     volume_unit: VolumeUnit = VolumeUnit.BASE_ASSET,
-) -> RawMarketSeries:
+) -> NativeRawMarketSeries:
     """Convert complete normalized OHLCV into the existing spot raw contract.
 
     Reuse the exact-grid resampler to validate the supplied aggregate rows.
@@ -103,7 +103,7 @@ def spot_raw_from_resampled(
         as_of=_cutoff(as_of),
     )
     v = checked.ohlcv
-    return RawMarketSeries(
+    return NativeRawMarketSeries(
         timestamps=checked.closes,
         available_at=checked.available_at,
         open=v[:, 0],
@@ -128,6 +128,8 @@ def _verify_source(
     if type(source) is not ClockedNativeSource or type(clock) is not NativeBarClock:
         raise ValueError("expected explicit pinned native spot source")
     contract, raw = source.contract, source.raw
+    if type(raw) is not NativeRawMarketSeries:
+        raise ValueError("native spot builder requires strict native raw sources")
     if (
         type(contract.volume_unit) is not VolumeUnit
         or contract.volume_unit
@@ -210,7 +212,8 @@ def build_native_fixed_spot_dataset(
     """Construct a v8 Dataset without changing the legacy MarketBuildConfig.
 
     Execution sources must share the explicit requested suffix grid and may
-    have a complete warm-up prefix. Feature clocks and sources are explicit;
+    have a complete warm-up prefix. Require NativeRawMarketSeries for every
+    source, including feature-only sources. Feature clocks are explicit;
     the base-clock feature group, if supplied, must use the execution pins.
     All sources are validated before feature computation. Preserve receipt
     timestamps; late marks are stored, not made tradable by rewriting time.

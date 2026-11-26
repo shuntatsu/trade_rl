@@ -1357,3 +1357,18 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
 
 CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（各行で宣言された型不一致等の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。
+
+## External research admission boundaries
+
+The maintained typed extension API remains defined by this document.
+These additive interfaces leave existing provenance, protocol digests and receipts unchanged.
+
+### Loaded package observation
+
+After independently verifying both wheel/source closures via verify_external_source_provenance, use a trusted fresh noneditable Python process (-I -B). Import the explicit entry points and call trade_rl.evaluation.runs.external_imports.verify_loaded_package_imports for each package with the reviewed manifest digest and sorted required module names including the root. Each loaded module must map to one pinned source, with regular SourceFileLoader and matching origin, loader path and package search locations. The installed source closure is rechecked and the observed roster must remain stable. LoadedPackageImports contains names and relative paths. Its digest can be compared at the same import boundary. This does not prove executed code objects, dependency bytes, malicious interpreter integrity or absence of transient mutation. It does not import unknown modules or confer authority.
+
+### External GitHub owner-comment observation
+
+tools.external_g4_comment is a read-only repository-side adapter, not an installed engine dependency. Trusted policy independently pins repository name/ID, owner login/ID, exact research PR HEAD/tree, core HEAD/tree/wheel, protocol and source digests, attempt/stage, assurance/review-body digests and both workflow run/attempt/job rosters. The existing authenticated result-blind review verifier is reused. Distinct reviewer, exact review, successful required jobs and unique authenticated PR association are required. An empty run PR roster may use an exact authenticated check-suite association; absent evidence fails closed. The standalone owner comment must equal the canonical binding, be unedited and created strictly after the review and CI. All fetched objects are re-read. Only trusted authenticated GitHub GET responses may establish metadata; the injected callback is also used for fabricated test oracles.
+
+ExternalG4CommentEvidence.economic_execution_authorized is always false. Approved study policy, actual runtime/core pin checks, one-shot ledger, fresh admission and separate authorization remain study obligations. No historical evidence or economic permission changes. Consumer adoption requires reviewed installed and hosted validation.

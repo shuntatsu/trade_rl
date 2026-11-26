@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-td8-root-inventory.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-atomic-target-td8-union.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -51,15 +51,20 @@ PACKET_ATOMIC_TARGET_UNION_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-atomic-target-union.json"
 )
-PACKET_PATH = (
+PACKET_TD8_INVENTORY_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-td8-root-inventory.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-atomic-target-td8-union.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "9edfef1d1b1b4556d226d8241f7e94da084e712ec704d35deac0f258ce990d32"
+PINNED_DIGEST = "488d1e9c809ae711c7e7eaaafc96b12b640225fc98b3772fea136446645851c0"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2607,7 +2612,7 @@ def test_td8_root_inventory_source_successor() -> None:
         assurance_digest(prior)
         == "7c89d7d63240a9129711362dde2600aa1c0baa6677c704971039e9f0c8346ef8"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_TD8_INVENTORY_PATH.read_bytes())
     old_head = "4aa28612d2f522682afc8e4be07f505e777b4f25"
     head = "72b4d7e1945fbcfc9666380bd5e7c07e14a93b78"
     expected = json.loads(raw)
@@ -2752,6 +2757,78 @@ def test_atomic_target_union_preserves_both_predecessors() -> None:
                 "trade_rl/simulation/targets/execution.py",
             ],
         ),
+        (bh, ["trade_rl/artifacts/atomic_write.py"]),
+    ):
+        diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))
+        assert diff.returncode == 0, diff.stderr
+        assert diff.stdout.splitlines() == paths
+    for record in (a, json.loads(b_raw), common, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_atomic_target_td8_union_preserves_both_predecessors() -> None:
+    a_raw = PACKET_ATOMIC_TARGET_UNION_PATH.read_bytes()
+    b_raw = PACKET_TD8_INVENTORY_PATH.read_bytes()
+    assert (
+        hashlib.sha256(a_raw).hexdigest()
+        == "8c7e25968d0e80250254eff102d9fe22fce4b51f907ecf35b26c9fdbb2fadada"
+    )
+    assert (
+        hashlib.sha256(b_raw).hexdigest()
+        == "8ad466510ddddb8f4a1df3ac8480eb61007af4c34952573ba5802c8814164cb6"
+    )
+    a, b = json.loads(a_raw), json.loads(b_raw)
+    assert (
+        assurance_digest(a)
+        == "2c7691e55e5f5f0904309b9f419d99a16a0c485e04f862321d021371e8277024"
+    )
+    assert (
+        assurance_digest(b)
+        == "9edfef1d1b1b4556d226d8241f7e94da084e712ec704d35deac0f258ce990d32"
+    )
+    common = json.loads(PACKET_M1_TARGET_PATH.read_bytes())
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "3b3a0c65ccdf981e44ae075561d97e00e457b039"
+    expected = json.loads(a_raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key, extra in (
+        (
+            "thesis",
+            "limitations",
+            " Source-only union of immutable atomic-target v48 and TD8 root-inventory v49 lineages. Both predecessor evidence limits, economic protocol, claims and authorizations are unchanged.",
+        ),
+        (
+            "evidence",
+            "independent_reconstruction",
+            " Exact integrated source 3b3a0c65ccdf981e44ae075561d97e00e457b039: static closure is the unchanged predecessor set union. Compared with the atomic-target union only decision_value_dev_study.py differs; compared with the accepted TD8 root-inventory source only atomic_write.py differs. No market data or economic execution.",
+        ),
+    ):
+        prefix = common[section][key]
+        assert b[section][key].startswith(prefix)
+        expected[section][key] = (
+            a[section][key] + b[section][key][len(prefix) :] + extra
+        )
+        b[section][key] = a[section][key]
+    ah, bh = a["identity"]["implementation_head"], b["identity"]["implementation_head"]
+    ch = common["identity"]["implementation_head"]
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        wanted = common[section][key].replace(ch, head)
+        assert a[section][key].replace(ah, head) == wanted
+        assert b[section][key].replace(bh, head) == wanted
+        expected[section][key] = wanted
+        b[section][key] = a[section][key]
+    b["identity"] = a["identity"]
+    assert a == b and current == expected
+    ap, bp, union = (set(bound_code_paths(x)) for x in (ah, bh, head))
+    assert len(ap) == 179 and len(bp) == 179
+    assert len(union) == 179 and union == ap == bp
+    for previous, paths in (
+        (ah, ["trade_rl/evaluation/decision_value_dev_study.py"]),
         (bh, ["trade_rl/artifacts/atomic_write.py"]),
     ):
         diff = _git("diff", "--name-only", previous, head, "--", *sorted(union))

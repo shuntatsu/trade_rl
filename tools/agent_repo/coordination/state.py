@@ -60,10 +60,16 @@ def evidence_is_current(
         return False
     if evidence.base_sha != packet.base_sha:
         return False
+    if type(head_sha) is not str or type(evidence.head_sha) is not str:
+        return False
     if evidence.head_sha != head_sha:
         return False
     if evidence.evidence_kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}:
-        return current_main_sha is not None and evidence.main_sha == current_main_sha
+        return (
+            type(current_main_sha) is str
+            and type(evidence.main_sha) is str
+            and evidence.main_sha == current_main_sha
+        )
     return True
 
 

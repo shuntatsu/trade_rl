@@ -455,3 +455,56 @@ def test_direct_text_lists_are_frozen_without_changing_canonical_identity() -> N
         source.append("later")
     assert scope.allow == ("tools/**",)
     assert packet.contract_digest() == original.contract_digest()
+
+
+class _ForgedObservedSha(str):
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+class _ComparisonTrapSha(str):
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("unvalidated observed SHA compared")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("unvalidated observed SHA compared")
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedObservedSha, _ComparisonTrapSha])
+@pytest.mark.parametrize("field", ["head", "main"])
+def test_evidence_rejects_non_native_observed_sha(
+    sha_type: type[str], field: str
+) -> None:
+    packet = _packet()
+    evidence = _evidence(packet, kind=EvidenceKind.INTEGRATION, main_sha=MAIN_SHA)
+    assert not evidence_is_current(
+        evidence,
+        packet,
+        head_sha=sha_type(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
+        current_main_sha=sha_type(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
+    )
+
+
+class _ForgedRecordedSha(str):
+    def __eq__(self, other: object) -> bool:
+        return not (type(other) is str and other == "0" * 40)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
+@pytest.mark.parametrize("field", ["head", "main"])
+def test_evidence_rejects_non_native_recorded_sha(field: str) -> None:
+    packet = _packet()
+    evidence = _evidence(
+        packet,
+        kind=EvidenceKind.INTEGRATION,
+        head_sha=_ForgedRecordedSha(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
+        main_sha=_ForgedRecordedSha(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
+    )
+    assert not evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )

@@ -931,7 +931,7 @@ Botのchannel戦略は`channel_entry_upper/lower`、`channel_exit_upper/lower`�
 
 ## Artifact and evidence rules
 
-- Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
+- Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。 共通の `atomic_write_bytes` は同一parentの排他的stage作成・file flush/fsync・atomic replace・directory sync（Windowsを除く）を行う。stageの排他的作成に失敗した場合やreplace成功後はstage名をunlinkしない。replace後のdirectory sync失敗は公開済みの可能性があるエラーで、元targetの保持を保証しない。信頼されたparentを前提とし、悪意あるparent/stage差替えや電源断に対する完全な保護は別契約。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
 - Candidate Run、Study EvidenceSet、canonical market datasetのdirectory publicationはstagingから**OS側で既存先の置換を禁止するatomic rename**で行う。Linuxは`renameat2(RENAME_NOREPLACE)`、macOSは`renamex_np(RENAME_EXCL)`、Windowsは既存先を拒否するrenameを使う。未対応のOS/ファイルシステムではfail-closedとし、チェック後に空ディレクトリが作られても置き換えない。Windowsで一時的なdirectory lockによるpermission errorが出た場合は有界retryし、sourceの消失やdestinationの出現を検知したら失敗する。部分copyや通常POSIX renameへ切り替えない。

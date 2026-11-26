@@ -195,3 +195,94 @@ def test_task_dashboard_accepts_nonzero_main_oid_with_leading_zeroes(
     result = _run(tmp_path, "task", "dashboard", str(path))
     assert result.returncode == 0, result.stderr
     assert f"main: {main_sha}\n" in json.loads(result.stdout)["dashboard"]
+
+
+def test_task_cli_rejects_duplicate_json_members(tmp_path: Path) -> None:
+    packet = json.dumps(_packet("T1"))
+    dashboard = json.dumps({"parent_title": "#500", "main_sha": BASE_SHA, "tasks": []})
+    status = {
+        "task_id": "T1",
+        "task_revision": 1,
+        "task_contract_digest": DIGEST,
+        "phase": "review",
+        "condition": "healthy",
+        "base_sha": BASE_SHA,
+        "owner": None,
+        "lease_epoch": None,
+        "lease_branch": None,
+        "head_sha": None,
+        "pr_id": None,
+        "checkpoint": None,
+        "blocking_reason": None,
+        "stale_reason": None,
+    }
+    status_text = json.dumps(status)
+    ready = json.dumps(
+        {
+            "packets": [_packet("T1")],
+            "statuses": {
+                "T1": {"phase": "ready", "condition": "healthy", "reason": None}
+            },
+            "leased_task_ids": [],
+        }
+    )
+    examples = (
+        (
+            "digest",
+            packet,
+            packet.replace('"task_id": "T1"', '"task_id": "T2", "task_id": "T1"'),
+        ),
+        (
+            "status-render",
+            status_text,
+            status_text.replace(
+                '"phase": "review"', '"phase": "complete", "phase": "review"'
+            ),
+        ),
+        ("ready", ready, ready.replace('"allow":', '"allow": [], "allow":')),
+        (
+            "dashboard",
+            dashboard,
+            dashboard.replace('"tasks": []', '"tasks": [], "tasks": []'),
+        ),
+        (
+            "digest",
+            packet,
+            packet.replace('"task_id":', r'"task\u005fid": "T1", "task_id":'),
+        ),
+    )
+    path = tmp_path / "input.json"
+    failures = []
+    for command, valid, ambiguous in examples:
+        assert valid != ambiguous
+        path.write_text(valid, encoding="utf-8")
+        control = _run(tmp_path, "task", command, str(path))
+        assert control.returncode == 0, control.stderr
+        path.write_text(ambiguous, encoding="utf-8")
+        result = _run(tmp_path, "task", command, str(path))
+        if (
+            result.returncode != 2
+            or result.stdout
+            or "duplicate JSON key" not in result.stderr
+        ):
+            failures.append((command, result.returncode, result.stderr))
+    assert failures == []
+
+
+def test_task_cli_duplicate_key_error_does_not_render_untrusted_text(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "input.json"
+    keys = (
+        chr(27) + "[2Jspoofed",
+        "line" + chr(10) + "spoofed",
+        chr(0xD800),
+        chr(0x202E) + "spoofed",
+    )
+    for key in keys:
+        quoted = json.dumps(key)
+        path.write_text(f"{{{quoted}: 1, {quoted}: 2}}", encoding="utf-8")
+        result = _run(tmp_path, "task", "digest", str(path))
+        assert result.returncode == 2
+        assert result.stdout == ""
+        assert result.stderr == "duplicate JSON key in task input\n"

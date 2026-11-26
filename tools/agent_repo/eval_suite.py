@@ -113,11 +113,25 @@ def _rubric(value: object) -> EvalRubric:
     )
 
 
+def _reject_duplicate_json_members(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON member in Agent eval suite")
+        result[key] = value
+    return result
+
+
 def load_eval_suite(path: Path) -> EvalSuite:
     """Load one exact versioned eval suite without permissive defaults."""
 
     try:
-        decoded = json.loads(path.read_text(encoding="utf-8"))
+        decoded = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_members,
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Agent eval suite must be valid JSON") from error
     raw = _object(decoded, field="suite")

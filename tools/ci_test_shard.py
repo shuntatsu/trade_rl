@@ -23,12 +23,29 @@ _MAX_SHARDS = 16
 # assignment or execution contract of other test modules or shard counts.
 # The first affinity run concentrated three expensive modules on shard 3;
 # move study and FS1 to shards 0 and 2 to reduce its observed critical path.
+# Run 45744299892 then measured shard 1 at 1309s versus shard 3 at 588s;
+# move the intact phase3 module (at least 378s of reported durations) to 3.
 _MEASURED_MODULE_AFFINITY = {
-    "tests/evaluation/test_dev_realdata_phase3.py": 1,
+    "tests/evaluation/test_dev_realdata_phase3.py": 3,
     "tests/evaluation/test_dev_realdata_study.py": 0,
     "tests/evaluation/test_forward_study_fs1.py": 2,
     "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 0,
     "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 3,
+}
+
+
+# Eight-way placement fitted to the 200 slow-duration entries in runs
+# 45744299892 and 45744743567, cross-checked against 45746974291. Keep
+# expensive shared fixtures together; preserve the established four-way map.
+_MEASURED_EIGHT_WAY_AFFINITY = {
+    "tests/evaluation/test_dev_realdata_phase3.py": 7,
+    "tests/evaluation/test_dev_realdata_phase2_trials.py": 3,
+    "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 4,
+    "tests/evaluation/test_forward_study_fs1.py": 0,
+    "tests/tools/tier_d_nonrl/test_task18_native_recovery.py": 2,
+    "tests/evaluation/test_dev_realdata_study.py": 5,
+    "tests/evaluation/test_lowturn_screen.py": 6,
+    "tests/tools/tier_d_nonrl/test_task18_native_artifact.py": 1,
 }
 
 
@@ -66,9 +83,12 @@ def shard_index(item: str, count: int) -> int:
     _validate_count(count)
     if type(item) is not str or not item:
         raise ValueError("invalid pytest node ID")
-    if count == 4:
+    if count in (4, 8):
         module, _, _ = item.partition("::")
-        affinity = _MEASURED_MODULE_AFFINITY.get(module)
+        placement = (
+            _MEASURED_MODULE_AFFINITY if count == 4 else _MEASURED_EIGHT_WAY_AFFINITY
+        )
+        affinity = placement.get(module)
         if affinity is not None:
             return affinity
     return (

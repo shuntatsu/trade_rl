@@ -581,6 +581,9 @@ def test_settle_positions_rejects_nonzero_proceeds_underflow_atomically(
         np.array([None, True], dtype=object),
         np.array([[True, False]]),
         np.ma.array([True, False], mask=[True, False]),
+        [np.ma.array(True, mask=True), False],
+        np.ma.array([True, False], mask=[True, False]).astype(bool).view(np.ndarray),
+        memoryview(np.ma.array([True, False], mask=[True, False])),
     ],
 )
 def test_settle_positions_refuses_non_boolean_or_non_vector_mask_atomically(
@@ -1497,3 +1500,107 @@ def test_structured_object_dtype_cannot_bypass_scalar_admission() -> None:
         BookState.zero(1, 1_000.0, raw)
     with pytest.raises(ValueError, match="opaque scalar"):
         BookState.zero(1, 1_000.0, [raw[0]])
+
+
+@pytest.mark.parametrize("wrap_memoryview", [False, True])
+@pytest.mark.parametrize("field", ["mask", "prices", "recovery"])
+def test_opaque_stride_masked_owner_refuses_settlement_atomically(
+    field: str, wrap_memoryview: bool
+) -> None:
+    book = BookState(
+        quantities=np.array([1.0, -1.0]),
+        cash=1000.0,
+        mark_prices=np.array([100.0, 50.0]),
+        peak_value=1100.0,
+    )
+    before = book.clone()
+    kwargs = dict(
+        mask=np.array([True, False]),
+        prices=np.array([100.0, 50.0]),
+        recovery=np.ones(2),
+    )
+    owner = (
+        np.ma.array(kwargs[field], mask=[True, False])
+        .astype(kwargs[field].dtype)
+        .view(np.ndarray)
+    )
+    hidden = np.lib.stride_tricks.as_strided(owner)
+    assert np.ma.isMaskedArray(hidden.base.base.base)
+    kwargs[field] = memoryview(hidden) if wrap_memoryview else hidden
+    with pytest.raises(ValueError, match="masked array|opaque array ownership"):
+        book.settle_positions(**kwargs)
+    _assert_cash_and_inventory_unchanged(book, before)
+    assert book.termination_reason == before.termination_reason
+
+
+def test_book_refuses_opaque_stride_owner_even_without_observable_mask() -> None:
+    values = np.lib.stride_tricks.as_strided(np.array([100.0, 50.0]))
+    with pytest.raises(ValueError, match="opaque array ownership"):
+        BookState.zero(2, 1000.0, values)
+    # A caller-owned copy has deliberately discarded the ownership chain.
+    book = BookState.zero(2, 1000.0, values.copy())
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+def test_opaque_array_owner_is_rejected_without_reading_foreign_base() -> None:
+    class Owner:
+        def __init__(self) -> None:
+            self.raw = np.array([100.0, 50.0])
+            self.__array_interface__ = self.raw.__array_interface__
+
+        @property
+        def base(self) -> object:
+            raise AssertionError("foreign base must not be read")
+
+    owner = Owner()
+    values = np.asarray(owner)
+    assert values.base is owner
+    with pytest.raises(ValueError, match="opaque array ownership"):
+        BookState.zero(2, 1000.0, values)
+
+
+@pytest.mark.parametrize("buffer_type", [bytes, bytearray, array])
+def test_book_admits_known_native_buffer_owners(buffer_type: type) -> None:
+    raw = np.array([100.0, 50.0])
+    buffer = array("d", raw) if buffer_type is array else buffer_type(raw.tobytes())
+    values = np.frombuffer(buffer, dtype=np.float64)
+    book = BookState.zero(2, 1000.0, values)
+    np.testing.assert_array_equal(book.mark_prices, raw)
+
+
+def test_book_admits_native_memmap_owner(tmp_path) -> None:
+    path = tmp_path / "prices.bin"
+    values = np.memmap(path, dtype=np.float64, mode="w+", shape=(2,))
+    values[:] = [100.0, 50.0]
+    book = BookState.zero(2, 1000.0, values)
+    np.testing.assert_array_equal(book.mark_prices, [100.0, 50.0])
+
+
+class _SpoofedTypeEquality(type):
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = type.__hash__
+
+
+@pytest.mark.parametrize("path", ["owner", "scalar", "adapter"])
+def test_array_admission_does_not_trust_metaclass_equality(path: str) -> None:
+    class Owner(metaclass=_SpoofedTypeEquality):
+        def __init__(self) -> None:
+            self.raw = np.ma.array([100.0], mask=[True])
+            self.__array_interface__ = self.raw.data.__array_interface__
+
+    class Scalar(metaclass=_SpoofedTypeEquality):
+        def __float__(self) -> float:
+            return 100.0
+
+    owner = Owner()
+    if path == "owner":
+        value = np.asarray(owner)
+        assert value.base is owner
+    elif path == "scalar":
+        value = [Scalar()]
+    else:
+        value = owner
+    with pytest.raises(ValueError, match="opaque"):
+        BookState.zero(1, 1000.0, value)

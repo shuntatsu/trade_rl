@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-native-fixed.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-native-availability.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -66,15 +66,20 @@ PACKET_EXACT_CADENCE_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-exact-cadence.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_FIXED_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-native-fixed.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-native-availability.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "89c0178d0b8434c06633f29135d75cce62eb1c6fd746d0ec594c18b41087ca8c"
+PINNED_DIGEST = "4e95fd62754d973bd6806fe011ae653d68d95c60c2ecfd96fc8b6679d61a210a"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2915,7 +2920,7 @@ def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 89bd4cd318b9a1d1d0ba86c88439120c8ecd1923: opt-in native fixed execution leaves the study protocol unchanged. Static closure grows by one clock helper (179 to 180); changed shared paths: trade_rl/data/artifacts/__init__.py, trade_rl/data/artifacts/codec.py, trade_rl/data/artifacts/verified_bytes.py, trade_rl/data/identity.py, trade_rl/data/market.py, trade_rl/data/native_execution_clock.py, trade_rl/evaluation/metrics.py, trade_rl/evaluation/series.py, trade_rl/risk/inputs.py, trade_rl/simulation/execution.py, trade_rl/simulation/stateful/execution.py. 33 new synthetic cases and 617 related regression cases passed on the byte-identical source tree; no real market data or economic execution."
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_NATIVE_FIXED_PATH.read_bytes())
     assert current == expected
     before, after = set(bound_code_paths(old)), set(bound_code_paths(head))
     assert len(before) == 179 and len(after) == 180
@@ -2938,6 +2943,45 @@ def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
         "trade_rl/simulation/execution.py",
         "trade_rl/simulation/stateful/execution.py",
     ]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_availability_successor_preserves_fixed_packet() -> None:
+    raw = PACKET_NATIVE_FIXED_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "0db878a01c46cec9ae78e0a71e318632553b8dd66a4b903011e53bf2d587b317"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "89c0178d0b8434c06633f29135d75cce62eb1c6fd746d0ec594c18b41087ca8c"
+    )
+    head = "3080562dce4437ef1ad2c50278dbf927c020955f"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed replay additionally rejects explicit unavailable information masks before using relevant marks and refuses nonboolean explicit masks before coercion. Legacy contracts and research authority remain unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3080562dce4437ef1ad2c50278dbf927c020955f: native mark admission is corrected in trade_rl/data/market.py only within the unchanged 180-path static closure. Seven synthetic regressions failed on the predecessor; 187 related tests passed after correction, including initial, intermediate, final unavailable marks and invalid mask dtypes. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 180
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
     for record in (previous, current):
         result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors

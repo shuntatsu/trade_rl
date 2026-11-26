@@ -132,8 +132,13 @@ PACKET_V50_ATOMIC_TARGET_TD8_PATH = (
 PACKET_EXACT_CADENCE_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json"
 )
-PACKET_PATH = (
+PACKET_NATIVE_FIXED_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v52-native-fixed.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v53-native-availability.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -185,7 +190,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "1d1e6ee0d24ad75e851152d19e451f9e1ce3dbb6bba1e51db070b7d5ea32e0c7"
+    "aca106cd44273d963a76808b163ab96f1e4e52e2774777176e1efae08103c7c6"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -4047,7 +4052,7 @@ def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
     expected["evidence"]["independent_reconstruction"] += (
         " Exact source 89bd4cd318b9a1d1d0ba86c88439120c8ecd1923: opt-in native fixed execution leaves the study protocol unchanged. Static closure grows by one clock helper (193 to 194); changed shared paths: trade_rl/data/artifacts/__init__.py, trade_rl/data/artifacts/codec.py, trade_rl/data/identity.py, trade_rl/data/market.py, trade_rl/data/native_execution_clock.py, trade_rl/evaluation/metrics.py, trade_rl/evaluation/series.py, trade_rl/risk/inputs.py, trade_rl/simulation/execution.py, trade_rl/simulation/stateful/execution.py. 33 new synthetic cases and 617 related regression cases passed on the byte-identical source tree; no real market data or economic execution."
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_NATIVE_FIXED_PATH.read_bytes())
     assert current == expected
     before, after = set(_bound_code_paths(old)), set(_bound_code_paths(head))
     assert len(before) == 193 and len(after) == 194
@@ -4069,6 +4074,45 @@ def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
         "trade_rl/simulation/execution.py",
         "trade_rl/simulation/stateful/execution.py",
     ]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_availability_successor_preserves_fixed_packet() -> None:
+    raw = PACKET_NATIVE_FIXED_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "5b02547678f52575e70f70c7c08e5f5a76677978828dae9723753f53862ae342"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "1d1e6ee0d24ad75e851152d19e451f9e1ce3dbb6bba1e51db070b7d5ea32e0c7"
+    )
+    head = "3080562dce4437ef1ad2c50278dbf927c020955f"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed replay additionally rejects explicit unavailable information masks before using relevant marks and refuses nonboolean explicit masks before coercion. Legacy contracts and research authority remain unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3080562dce4437ef1ad2c50278dbf927c020955f: native mark admission is corrected in trade_rl/data/market.py only within the unchanged 194-path static closure. Seven synthetic regressions failed on the predecessor; 187 related tests passed after correction, including initial, intermediate, final unavailable marks and invalid mask dtypes. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
     for record in (previous, current):
         result = evaluate_assurance(record)
         assert result.status == "UNREVIEWED" and not result.errors

@@ -21,12 +21,12 @@ forecast-gbm = [
 ]
 train-sb3 = [
     "stable-baselines3==2.3.2",
-    "torch==2.4.1",
+    "torch==2.13.0",
 ]
 learning-lab = [
     "stable-baselines3==2.3.2",
     "sb3-contrib==2.3.0",
-    "torch==2.4.1",
+    "torch==2.13.0",
     "lightgbm[scikit-learn]==4.7.0",
 ]
 oracle = [

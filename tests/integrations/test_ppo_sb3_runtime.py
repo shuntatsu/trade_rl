@@ -288,7 +288,7 @@ def test_real_sb3_accepts_environment_and_runs_sequential_rollout() -> None:
     torch = pytest.importorskip("torch")
 
     assert stable_baselines3.__version__ == "2.3.2"
-    assert torch.__version__.split("+", 1)[0] == "2.4.1"
+    assert torch.__version__.split("+", 1)[0] == "2.13.0"
     torch.set_num_threads(1)
 
     env_checker.check_env(_env(), warn=True)

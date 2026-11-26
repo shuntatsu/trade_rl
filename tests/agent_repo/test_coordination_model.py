@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tools.agent_repo.coordination.model import (
@@ -467,19 +469,20 @@ class _ForgedObservedSha(str):
 
 class _ComparisonTrapSha(str):
     def __eq__(self, other: object) -> bool:
-        raise AssertionError("unvalidated observed SHA compared")
+        raise AssertionError("unvalidated identity compared")
 
     def __ne__(self, other: object) -> bool:
-        raise AssertionError("unvalidated observed SHA compared")
+        raise AssertionError("unvalidated identity compared")
 
 
 @pytest.mark.parametrize("sha_type", [_ForgedObservedSha, _ComparisonTrapSha])
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
 @pytest.mark.parametrize("field", ["head", "main"])
 def test_evidence_rejects_non_native_observed_sha(
-    sha_type: type[str], field: str
+    sha_type: type[str], field: str, kind: EvidenceKind
 ) -> None:
     packet = _packet()
-    evidence = _evidence(packet, kind=EvidenceKind.INTEGRATION, main_sha=MAIN_SHA)
+    evidence = _evidence(packet, kind=kind, main_sha=MAIN_SHA)
     assert not evidence_is_current(
         evidence,
         packet,
@@ -496,15 +499,103 @@ class _ForgedRecordedSha(str):
         return not self.__eq__(other)
 
 
+class _RecordedComparisonTrapSha(_ComparisonTrapSha):
+    # The legacy constructor checks that an input SHA is not all zeroes.
+    # Allow that check, but fail on any freshness comparison.
+    def __eq__(self, other: object) -> bool:
+        if type(other) is str and other == "0" * 40:
+            return False
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:
+        if type(other) is str and other == "0" * 40:
+            return True
+        return super().__ne__(other)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
 @pytest.mark.parametrize("field", ["head", "main"])
-def test_evidence_rejects_non_native_recorded_sha(field: str) -> None:
+def test_evidence_rejects_non_native_recorded_sha(
+    field: str, kind: EvidenceKind, sha_type: type[str]
+) -> None:
     packet = _packet()
     evidence = _evidence(
         packet,
-        kind=EvidenceKind.INTEGRATION,
-        head_sha=_ForgedRecordedSha(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
-        main_sha=_ForgedRecordedSha(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
+        kind=kind,
+        head_sha=sha_type(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
+        main_sha=sha_type(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
     )
     assert not evidence_is_current(
         evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("task_id", "T500-02"),
+        ("task_contract_digest", "f" * 64),
+        ("base_sha", OTHER_HEAD_SHA),
+    ],
+)
+def test_evidence_rejects_non_native_recorded_identity(
+    field: str, value: str, sha_type: type[str]
+) -> None:
+    packet = _packet()
+    evidence = replace(_evidence(packet), **{field: sha_type(value)})
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize(
+    "field,value", [("task_id", "T500-02"), ("base_sha", OTHER_HEAD_SHA)]
+)
+def test_evidence_rejects_non_native_packet_identity(
+    field: str, value: str, sha_type: type[str]
+) -> None:
+    # Empty dependencies avoid invoking task-id equality in legacy admission.
+    packet = replace(_packet(), dependencies=(), **{field: sha_type(value)})
+    evidence = replace(
+        _evidence(replace(_packet(), dependencies=())),
+        task_contract_digest=packet.contract_digest(),
+    )
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("kind", list(EvidenceKind))
+def test_evidence_kind_freshness_matrix(kind: EvidenceKind) -> None:
+    packet = _packet()
+    requires_main = kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}
+    evidence = _evidence(
+        packet, kind=kind, main_sha=MAIN_SHA if requires_main else None
+    )
+    assert evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    assert not evidence_is_current(
+        evidence, packet, head_sha=OTHER_HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    assert not evidence_is_current(
+        evidence,
+        packet,
+        head_sha=_ComparisonTrapSha(HEAD_SHA),
+        current_main_sha=MAIN_SHA,
+    )
+    assert evidence_is_current(evidence, packet, head_sha=HEAD_SHA) is not requires_main
+    assert (
+        evidence_is_current(
+            evidence, packet, head_sha=HEAD_SHA, current_main_sha=OTHER_MAIN_SHA
+        )
+        is not requires_main
+    )
+    assert (
+        evidence_is_current(
+            evidence,
+            packet,
+            head_sha=HEAD_SHA,
+            current_main_sha=_ComparisonTrapSha(OTHER_MAIN_SHA),
+        )
+        is not requires_main
     )

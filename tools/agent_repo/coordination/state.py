@@ -52,6 +52,19 @@ def evidence_is_current(
 ) -> bool:
     """Return whether evidence is bound to the current exact task snapshot."""
 
+    # Direct Python construction can preserve str subclasses whose equality
+    # overrides do not reflect their stored identity.
+    if any(
+        type(value) is not str
+        for value in (
+            evidence.task_id,
+            packet.task_id,
+            evidence.task_contract_digest,
+            evidence.base_sha,
+            packet.base_sha,
+        )
+    ):
+        return False
     if evidence.task_id != packet.task_id:
         return False
     if evidence.task_revision != packet.task_revision:

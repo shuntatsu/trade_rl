@@ -44,7 +44,7 @@ _DASHBOARD_FIELDS = frozenset(DashboardSnapshot.__dataclass_fields__)
 
 
 def _mapping(value: object, *, field_name: str) -> Mapping[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if type(value) is not dict or any(type(key) is not str for key in value):
         raise ValueError(f"{field_name} must be a JSON object")
     return value
 

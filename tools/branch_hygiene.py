@@ -579,9 +579,15 @@ def _consolidated_source_proofs(
 # stay outside this path. No alternate retention/grace planner is active.
 # M1 merge handoff requires durable source branch refs even when their
 # exact final head is already reachable from main. This exception is scoped
-# to the M1 branch namespace plus its Windows test-only companion.
+# to the M1 branch namespace and explicitly identified M1 handoff refs.
 M1_SOURCE_REF_PREFIX = "fix/m1-"
-M1_ADDITIONAL_SOURCE_REFS = frozenset({"fix/windows-job-child-pid-marker-20261105"})
+M1_ADDITIONAL_SOURCE_REFS = frozenset(
+    {
+        "fix/windows-job-child-pid-marker-20261105",
+        "fix/issue1112-m1-audit-20261123",
+        "fix/issue1112-junit-nested-counts-20261124",
+    }
+)
 
 
 RETIRED_MERGED_PRESERVED_PREFIXES = (
@@ -594,6 +600,7 @@ RETIRED_MERGED_PRESERVED_PREFIXES = (
     "evidence/",
     "study/",
     "archive/",
+    "audit/",
     "release/",
     "artifact/",
     "coordination/",
@@ -722,6 +729,23 @@ def _unique_branch_readback(branches: Sequence[BranchInfo]) -> dict[str, BranchI
     return by_name
 
 
+def _consolidated_scope(refs: Sequence[str]) -> frozenset[tuple[str, str]]:
+    """Exact owner-reviewed selections; history proof alone is not approval."""
+    if isinstance(refs, str):
+        raise ValueError("consolidated refs must be a sequence of exact ref selections")
+    selected: dict[str, str] = {}
+    for item in refs:
+        if not isinstance(item, str):
+            raise ValueError("invalid consolidated ref selection")
+        name, sep, sha = item.rpartition("=")
+        if not sep or not name or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("consolidated ref must be branch=exact SHA")
+        if name in selected:
+            raise ValueError("duplicate consolidated ref selection")
+        selected[name] = sha
+    return frozenset(selected.items())
+
+
 def apply_merged_retirement(
     api: GitHubApi,
     decisions: Sequence[BranchDecision],
@@ -733,6 +757,7 @@ def apply_merged_retirement(
     batch_size: int = 10,
     include_nested_merged_prs: bool = False,
     include_consolidated_prs: bool = False,
+    approved_consolidated_refs: Sequence[str] = (),
 ) -> tuple[str, ...]:
     """Delete only exact, revalidated integrated PR main ancestors using atomic SHA leases.
 
@@ -747,6 +772,11 @@ def apply_merged_retirement(
         raise ValueError("nested PR evidence switch must be boolean")
     if type(include_consolidated_prs) is not bool:
         raise ValueError("consolidated PR evidence switch must be boolean")
+    scope = _consolidated_scope(approved_consolidated_refs)
+    if include_consolidated_prs != bool(scope):
+        raise ValueError(
+            "consolidated apply requires explicit exact ref selections and opt-in"
+        )
     if (
         not re.fullmatch(r"[0-9a-f]{40}", expected_main_sha)
         or type(max_deletes) is not int
@@ -764,7 +794,23 @@ def apply_merged_retirement(
     if main is None or main.sha != expected_main_sha:
         raise ValueError("main changed before retirement")
 
-    queue = [entry.branch for entry in decisions if entry.action == "delete"]
+    if include_consolidated_prs:
+        # A scoped invocation may never retire an unselected ref, including
+        # otherwise eligible ordinary merged sources. All selected refs must
+        # match the exact preview, not a changed ref or a direct merged PR.
+        queue = [
+            entry.branch
+            for entry in decisions
+            if entry.action == "delete"
+            and entry.reason == "exact-closed-pr-consolidated-in-main"
+            and (entry.branch.name, entry.branch.sha) in scope
+        ]
+        if {(branch.name, branch.sha) for branch in queue} != scope:
+            raise ValueError("explicit exact ref selection is not eligible in preview")
+        if len(queue) > max_deletes:
+            raise ValueError("explicit exact ref selection exceeds max-deletes")
+    else:
+        queue = [entry.branch for entry in decisions if entry.action == "delete"]
     if any(entry.sha not in reachable_from_main for entry in queue):
         raise ValueError("unmerged branch in retirement plan")
     queue = queue[:max_deletes]
@@ -802,7 +848,18 @@ def apply_merged_retirement(
             merged_pr_sources=merged_sources,
             consolidated_pr_sources=consolidated,
         )
-        eligible = {entry.branch for entry in fresh if entry.action == "delete"}
+        eligible = {
+            entry.branch
+            for entry in fresh
+            if entry.action == "delete"
+            and (
+                not include_consolidated_prs
+                or (
+                    entry.reason == "exact-closed-pr-consolidated-in-main"
+                    and (entry.branch.name, entry.branch.sha) in scope
+                )
+            )
+        }
         batch = queue[:batch_size]
         if any(branch not in eligible for branch in batch):
             raise RuntimeError("PR/workflow/protection changed before retirement")
@@ -874,6 +931,11 @@ def render_merged_retirement_summary(
             f"- deleted and verified: {len(deleted)}",
             f"- remaining eligible (may require a fresh check): {remaining}",
             "- unmerged, open-PR, active-workflow, protected and research refs are retained",
+            *(
+                f"- consolidated candidate (not approved): {ascii(item.branch.name)}={item.branch.sha}"
+                for item in candidates
+                if not apply and item.reason == "exact-closed-pr-consolidated-in-main"
+            ),
             *(f"- retired: `{name}`" for name in deleted),
             "",
         )
@@ -909,6 +971,13 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="also verify closed constituent sources via exact normal main merge ancestry",
     )
+    parser.add_argument(
+        "--consolidated-ref",
+        action="append",
+        default=[],
+        metavar="BRANCH=SHA",
+        help="apply only this owner-reviewed exact consolidated source (repeatable)",
+    )
     parser.add_argument("--max-deletes", type=int, default=100)
     parser.add_argument("--summary", type=Path)
     return parser.parse_args(argv)
@@ -920,6 +989,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RuntimeError(
             "obsolete retention planner disabled: bulk apply is disabled; use --retire-merged "
             "for a read-only preview or --retire-merged --apply for exact-SHA retirement"
+        )
+    scope = _consolidated_scope(args.consolidated_ref)
+    if (args.apply and args.include_consolidated and not scope) or (
+        scope and not (args.apply and args.include_consolidated)
+    ):
+        raise ValueError(
+            "consolidated apply requires explicit exact ref selections and opt-in"
         )
     if not args.token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
@@ -969,6 +1045,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             reachable_from_main=reachable_from_main,
             max_deletes=args.max_deletes,
             include_consolidated_prs=args.include_consolidated,
+            approved_consolidated_refs=args.consolidated_ref,
         )
         if args.apply
         else ()

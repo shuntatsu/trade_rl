@@ -54,3 +54,11 @@ def test_retirement_has_no_expired_owner_command_surface() -> None:
     assert "--retire-merged --apply --max-deletes 100" in jobs
     assert not list((ROOT / "tools").glob("archived_*retirement*.py"))
     assert not (ROOT / "tools/archived_obsolete_20261121.py").exists()
+
+
+def test_automatic_retirement_cannot_apply_consolidated_sources() -> None:
+    content = (WORKFLOWS / "retire-merged-pr-branches.yml").read_text(encoding="utf-8")
+    preview, apply = content.split("- name: Prune main ancestors", maxsplit=1)
+    assert "--include-consolidated" in preview
+    assert "--include-consolidated" not in apply
+    assert "--consolidated-ref" not in apply

@@ -8,6 +8,7 @@ import pytest
 from tools.branch_hygiene import (
     BranchInfo,
     GitHubApi,
+    MergedPullRequestSource,
     OpenPullRequestRefs,
     plan_merged_retirement,
 )
@@ -189,8 +190,9 @@ def test_consolidated_roster_duplicate_pr_number_fails_closed(
         )
 
 
+@pytest.mark.parametrize("select_both", [False, True])
 def test_apply_requires_fresh_consolidated_proof_before_every_batch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, select_both: bool
 ) -> None:
     from tools.branch_hygiene import apply_merged_retirement, reachable_commits
 
@@ -203,6 +205,7 @@ def test_apply_requires_fresh_consolidated_proof_before_every_batch(
         BranchInfo("main", merged, False),
         BranchInfo("fix/first", source, False),
         BranchInfo("fix/second", source, False),
+        BranchInfo("fix/ordinary", carrier, False),
     ]
     records = [
         _entry(10, "fix/carrier", carrier, merged_sha=merged),
@@ -214,7 +217,8 @@ def test_apply_requires_fresh_consolidated_proof_before_every_batch(
     monkeypatch.setattr(api, "branches", lambda: tuple(branches))
     monkeypatch.setattr(api, "open_pull_request_refs", lambda: ())
     monkeypatch.setattr(api, "active_workflow_branch_names", lambda: frozenset())
-    monkeypatch.setattr(api, "merged_pr_source_refs", lambda: ())
+    ordinary = (MergedPullRequestSource("fix/ordinary", carrier),)
+    monkeypatch.setattr(api, "merged_pr_source_refs", lambda: ordinary)
     proof = api.consolidated_pr_source_refs(branches, main_sha=merged)
     reachable = reachable_commits((merged,))
     decisions = plan_merged_retirement(
@@ -224,6 +228,7 @@ def test_apply_requires_fresh_consolidated_proof_before_every_batch(
         active_workflow_branches=frozenset(),
         reachable_from_main=reachable,
         consolidated_pr_sources=proof,
+        merged_pr_sources=ordinary,
     )
 
     def delete(batch: tuple[BranchInfo, ...]) -> None:
@@ -245,7 +250,7 @@ def test_apply_requires_fresh_consolidated_proof_before_every_batch(
             batch_size=1,
         )
     assert deleted == []
-    with pytest.raises(RuntimeError, match="changed before retirement"):
+    with pytest.raises(ValueError, match="explicit exact ref"):
         apply_merged_retirement(
             api,
             decisions,
@@ -255,8 +260,43 @@ def test_apply_requires_fresh_consolidated_proof_before_every_batch(
             batch_size=1,
             include_consolidated_prs=True,
         )
+    assert deleted == []
+    for invalid in (
+        [f"fix/first={merged}"],
+        [f"fix/unknown={source}"],
+        [f"fix/ordinary={carrier}"],
+        ["fix/first=bad-sha"],
+        [f"fix/first={source}", f"fix/first={source}"],
+    ):
+        with pytest.raises(ValueError):
+            apply_merged_retirement(
+                api,
+                decisions,
+                default_branch="main",
+                expected_main_sha=merged,
+                reachable_from_main=reachable,
+                include_consolidated_prs=True,
+                approved_consolidated_refs=invalid,
+            )
+        assert deleted == []
+    scope = [f"fix/first={source}"]
+    if select_both:
+        scope.append(f"fix/second={source}")
+    kwargs = dict(
+        default_branch="main",
+        expected_main_sha=merged,
+        reachable_from_main=reachable,
+        batch_size=1,
+        include_consolidated_prs=True,
+        approved_consolidated_refs=scope,
+    )
+    if select_both:
+        with pytest.raises(RuntimeError, match="changed before retirement"):
+            apply_merged_retirement(api, decisions, **kwargs)
+    else:
+        assert apply_merged_retirement(api, decisions, **kwargs) == ("fix/first",)
     assert deleted == ["fix/first"]
-    assert [x.name for x in branches] == ["main", "fix/second"]
+    assert [x.name for x in branches] == ["main", "fix/second", "fix/ordinary"]
 
 
 def test_carrier_uses_actual_second_parent_when_multiple_prs_share_merge_sha(
@@ -344,4 +384,20 @@ def test_apply_refuses_main_change_during_consolidated_proof(
             expected_main_sha=merged,
             reachable_from_main=reachable,
             include_consolidated_prs=True,
+            approved_consolidated_refs=[f"fix/constituent={source}"],
+        )
+
+
+def test_unscoped_consolidated_cli_apply_refuses_before_api() -> None:
+    from tools.branch_hygiene import main
+
+    with pytest.raises(ValueError, match="explicit exact ref"):
+        main(
+            [
+                "--repository",
+                "shuntatsu/trade_rl",
+                "--retire-merged",
+                "--apply",
+                "--include-consolidated",
+            ]
         )

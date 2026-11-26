@@ -328,16 +328,17 @@ class MarketDataset:
                     "continuous timestamps must use an exactly regular cadence"
                 )
             bar_duration_ns = int(deltas[0])
-            nominal_bar_hours = bar_duration_ns / _NS_PER_HOUR
-            expected_periods = _HOURS_PER_YEAR / nominal_bar_hours
-            if not math.isclose(
-                expected_periods,
-                round(expected_periods),
-                abs_tol=1e-9,
-            ):
+            # The legacy frequency is an integer contract, not an approximate
+            # annualization of a native calendar clock. Check exact ns before
+            # converting any duration to floating-point hours.
+            expected_periods, remainder = divmod(
+                365 * 24 * _NS_PER_HOUR, bar_duration_ns
+            )
+            if remainder:
                 raise ValueError("timestamp cadence does not resolve to annual periods")
-            if self.periods_per_year != int(round(expected_periods)):
+            if self.periods_per_year != expected_periods:
                 raise ValueError("periods_per_year does not match timestamp cadence")
+            nominal_bar_hours = bar_duration_ns / _NS_PER_HOUR
         else:
             bar_duration_ns = None
             if self.nominal_bar_hours is None:

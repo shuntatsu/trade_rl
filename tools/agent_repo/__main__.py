@@ -102,10 +102,7 @@ def _eval_task(task_id: str) -> EvalTask:
 
 
 def _score_input(path: Path) -> dict[str, tuple[int, str]]:
-    try:
-        decoded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("eval score input must be valid JSON") from error
+    decoded = _read_json_input(path, field_name="eval score input")
     if not isinstance(decoded, dict) or any(
         not isinstance(key, str) for key in decoded
     ):
@@ -128,14 +125,14 @@ def _input_path(repository: Path, raw: object) -> Path:
     return path if path.is_absolute() else repository / path
 
 
-def _json_input(repository: Path, raw: object) -> object:
-    path = _input_path(repository, raw)
+def _read_json_input(path: Path, *, field_name: str) -> object:
+    """Read task/evaluator JSON without silently overwriting decoded keys."""
 
     def no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
         value: dict[str, object] = {}
         for key, item in pairs:
             if key in value:
-                raise ValueError("duplicate JSON key in task input")
+                raise ValueError(f"duplicate JSON key in {field_name}")
             value[key] = item
         return value
 
@@ -144,7 +141,11 @@ def _json_input(repository: Path, raw: object) -> object:
             path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("task input must be valid JSON") from error
+        raise ValueError(f"{field_name} must be valid JSON") from error
+
+
+def _json_input(repository: Path, raw: object) -> object:
+    return _read_json_input(_input_path(repository, raw), field_name="task input")
 
 
 def _assurance_json_input(repository: Path, raw: str) -> Mapping[str, object]:

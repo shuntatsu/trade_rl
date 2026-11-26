@@ -28,6 +28,8 @@ class DependencyGraph:
     """Validated acyclic task dependency graph."""
 
     def __init__(self, packets: Sequence[TaskPacket]) -> None:
+        # Validate the same roster that is retained by the graph.
+        packets = tuple(packets)
         self._packets = {packet.task_id: packet for packet in packets}
         if len(self._packets) != len(packets):
             raise ValueError("duplicate task_id in dependency graph")

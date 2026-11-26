@@ -5,6 +5,7 @@ import subprocess
 from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -440,3 +441,72 @@ def test_grant_rejects_task_without_valid_git_ref(task_id: str) -> None:
     )
     with pytest.raises(ValueError, match="task_id"):
         grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)
+
+
+@pytest.mark.parametrize(
+    "instant",
+    [
+        datetime(2026, 3, 8, 6, 50, tzinfo=UTC),
+        datetime(2026, 11, 1, 5, 50, tzinfo=UTC),
+    ],
+)
+def test_lease_ttl_is_elapsed_time_across_offset_transition(instant: datetime) -> None:
+    local = instant.astimezone(ZoneInfo("America/New_York"))
+    lease = grant_lease(_packet(), "agent-a", epoch=1, now=local, ttl=TTL)
+    assert lease.expires_at.astimezone(UTC) == instant + TTL
+    assert (
+        lease.expires_at.isoformat()
+        == (instant + TTL).astimezone(local.tzinfo).isoformat()
+    )
+    renewed = heartbeat(lease, head_sha=HEAD_SHA, observed_at=local)
+    assert renewed.expires_at.astimezone(UTC) == instant + TTL
+
+
+def test_lease_comparisons_distinguish_repeated_wall_clock_hour() -> None:
+    zone = ZoneInfo("America/New_York")
+    first = datetime(2026, 11, 1, 1, 50, tzinfo=zone, fold=0)
+    second = datetime(2026, 11, 1, 1, 5, tzinfo=zone, fold=1)
+    packet = _packet()
+    old = grant_lease(packet, "agent-a", epoch=1, now=first, ttl=TTL)
+    assert not lease_is_current(packet=packet, lease=old, now=second)
+    with pytest.raises(ValueError, match="active lease"):
+        grant_lease(packet, "agent-b", epoch=2, now=first, ttl=TTL, previous=old)
+    with pytest.raises(ValueError, match="expired lease"):
+        heartbeat(old, head_sha=HEAD_SHA, observed_at=second)
+    reconciliation = LeaseReconciliation(
+        task_id=packet.task_id,
+        expired_epoch=old.epoch,
+        observed_branch=old.lease_branch,
+        observed_head_sha=HEAD_SHA,
+        decision=ReconciliationDecision.REASSIGN,
+    )
+    new = grant_lease(
+        packet,
+        "agent-b",
+        epoch=2,
+        now=second,
+        ttl=TTL,
+        previous=old,
+        reconciliation=reconciliation,
+    )
+    assert new.epoch == 2
+
+
+def test_manual_lease_rejects_wall_clock_ttl_that_extends_elapsed_time() -> None:
+    local = datetime(2026, 11, 1, 1, 50, tzinfo=ZoneInfo("America/New_York"))
+    lease = grant_lease(_packet(), "agent-a", epoch=1, now=NOW, ttl=TTL)
+    with pytest.raises(ValueError, match="plus TTL"):
+        replace(lease, last_heartbeat_at=local, expires_at=local + TTL)
+
+
+def test_heartbeat_accepts_later_instant_with_earlier_wall_clock() -> None:
+    zone = ZoneInfo("America/New_York")
+    first = datetime(2026, 11, 1, 1, 50, tzinfo=zone, fold=0)
+    later = datetime(2026, 11, 1, 1, 1, tzinfo=zone, fold=1)
+    packet = _packet()
+    lease = grant_lease(packet, "agent-a", epoch=1, now=first, ttl=TTL)
+    assert lease_is_current(lease, packet, now=later)
+    renewed = heartbeat(lease, head_sha=HEAD_SHA, observed_at=later)
+    assert renewed.expires_at.astimezone(UTC) == later.astimezone(UTC) + TTL
+    with pytest.raises(ValueError, match="monotonic"):
+        heartbeat(renewed, head_sha=HEAD_SHA, observed_at=first)

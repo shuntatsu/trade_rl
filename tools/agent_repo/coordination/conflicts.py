@@ -7,18 +7,9 @@ from enum import Enum
 from tools.agent_repo.coordination.model import (
     ExecutionMode,
     TaskPacket,
-    file_resource_prefix,
+    resource_key_parts,
 )
 
-_ALLOWED_NAMESPACES = {
-    "file",
-    "authority",
-    "identity",
-    "schema",
-    "workflow",
-    "artifact",
-    "side-effect",
-}
 _HARD_NAMESPACES = {"identity", "schema", "side-effect"}
 _SOFT_NAMESPACES = {"authority", "workflow", "artifact"}
 
@@ -27,13 +18,6 @@ class ConflictLevel(str, Enum):
     NONE = "none"
     SOFT = "soft"
     HARD = "hard"
-
-
-def _split_key(key: str) -> tuple[str, str]:
-    namespace, separator, value = key.partition(":")
-    if not separator or namespace not in _ALLOWED_NAMESPACES or not value:
-        raise ValueError(f"unknown resource namespace: {key}")
-    return namespace, file_resource_prefix(value) if namespace == "file" else value
 
 
 def _file_overlap(left: str, right: str) -> bool:
@@ -51,8 +35,8 @@ def _file_overlap(left: str, right: str) -> bool:
 def classify_conflict(left: TaskPacket, right: TaskPacket) -> ConflictLevel:
     """Classify whether two tasks can safely execute concurrently."""
 
-    left_keys = [_split_key(key) for key in left.resource_keys]
-    right_keys = [_split_key(key) for key in right.resource_keys]
+    left_keys = [resource_key_parts(key) for key in left.resource_keys]
+    right_keys = [resource_key_parts(key) for key in right.resource_keys]
 
     shared_side_effect = any(
         left_namespace == right_namespace == "side-effect" and left_value == right_value

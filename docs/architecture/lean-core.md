@@ -609,6 +609,11 @@ risk予算や診断値へ渡さず失敗とする。公開`RiskConstrainedTarget
 requested / constrained turnover・projection L1の有限非負とrisk scaleの
 [0, 1]を課す。`emergency_flatten_mask`と`reduce_only_mask`は真偽配列だけ
 受理し、整数・実数・文字列のtruthinessを暗黙の緊急指示として扱わない。
+目標/current、公開risk evidenceの各weight vector、緊急・reduce-only maskと
+native/compatibility/stateful/reconciliationのtarget admissionは会計と同じ
+private array snapshot guardを使い、mask付き配列や保持されたmasked owner、
+入れ子のmasked値を変換前に拒否する。callerが既に失ったmaskは復元しない。
+不正なactor targetはSharedPortfolioSessionを進めず、口座・order・observerを変更しない。
 正常域の投影・閾値・理由と、既存研究結果は変更しない。
 
 `BookState.settle_positions` の上場廃止・非アクティブ銘柄の精算maskも、

@@ -94,10 +94,15 @@ PACKET_V45_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v45-fill-td8-spooled-writer-union.json"
 )
-PACKET_PATH = (
+PACKET_V46_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v46-m2-bootstrap-duplicate-json.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v47-m1-target-missingness.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -149,7 +154,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
+    "c80cc448828422e2b3c14dc2442fcb1cf766d30d824ab2cc58c7adca71e38641"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3583,7 +3588,7 @@ def test_m2_bootstrap_duplicate_json_successor_preserves_v45() -> None:
         assurance_digest(prior)
         == "b311dfa8073819bd327bed66dd873d9ba53cb5dcdc151d112b6b57daecfd4f27"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V46_PATH.read_bytes())
     old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
     expected = json.loads(raw)
@@ -3613,3 +3618,53 @@ def test_m2_bootstrap_duplicate_json_successor_preserves_v45() -> None:
         assert verdict.status == "UNREVIEWED"
         assert verdict.errors == ()
         assert verdict.economic_execution_authorized is False
+
+
+def test_m1_target_missingness_source_successor() -> None:
+    raw = PACKET_V46_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "b496809462ffe3477e3ab5b23a04d1f96e75fe1328fa34b7b60fd8e3044680ad"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
+    head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " M1 source-only successor shares the accounting missingness snapshot across pretrade targets/current weights, risk evidence, boolean safety masks and native/compatibility/stateful/reconciliation target admission. Refuses retained masked owners and nested masked values before NumPy conversion and prevents object dtype promotion in strict dtype paths. Already erased mask information, other input boundaries, market validity, economic protocol and authorization are unchanged or outside this scope."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 8bf7caeb4a4da610f910c214f06a94cef48b4a5b: 14 synthetic target/risk missingness regressions RED before implementation; 36 new cases included in 1,267 simulation/risk tests passing after correction. Previous packets preserved. No market data or economic execution."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(_bound_code_paths(old_head))
+    new_paths = set(_bound_code_paths(head))
+    assert len(old_paths) == 192 and new_paths == old_paths | {
+        "trade_rl/_array_snapshot.py"
+    }
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/_array_snapshot.py",
+        "trade_rl/risk/pretrade.py",
+        "trade_rl/simulation/accounting.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/native_transition.py",
+        "trade_rl/simulation/orders/reconciliation.py",
+        "trade_rl/simulation/targets/execution.py",
+    ]
+    for record in (prior, current):
+        verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized

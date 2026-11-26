@@ -13,6 +13,9 @@ _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _FULL_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _RESOURCE_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]*:.+$")
+_RESOURCE_NAMESPACES = frozenset(
+    {"file", "authority", "identity", "schema", "workflow", "artifact", "side-effect"}
+)
 
 
 class ExecutionMode(str, Enum):
@@ -123,6 +126,16 @@ def file_resource_prefix(value: str) -> str:
     return "/".join(parts)
 
 
+def resource_key_parts(key: str) -> tuple[str, str]:
+    """Validate a resource key and return its conflict-comparison parts."""
+    if not _RESOURCE_KEY_RE.fullmatch(key):
+        raise ValueError(f"invalid resource key: {key}")
+    namespace, _, value = key.partition(":")
+    if namespace not in _RESOURCE_NAMESPACES:
+        raise ValueError(f"unknown resource namespace: {key}")
+    return namespace, file_resource_prefix(value) if namespace == "file" else value
+
+
 @dataclass(frozen=True)
 class WriteScope:
     allow: tuple[str, ...] = ()
@@ -224,10 +237,7 @@ class TaskPacket:
         if len(set(self.capabilities)) != len(self.capabilities):
             raise ValueError("duplicate capability")
         for key in self.resource_keys:
-            if not _RESOURCE_KEY_RE.fullmatch(key):
-                raise ValueError(f"invalid resource key: {key}")
-            if key.startswith("file:"):
-                file_resource_prefix(key.removeprefix("file:"))
+            resource_key_parts(key)
 
         if self.execution_mode is ExecutionMode.READ_ONLY:
             if self.write_scope.allow:

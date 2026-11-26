@@ -2838,6 +2838,34 @@ def _pinned_receipt_directory(directory: Path) -> Iterator[int | None]:
         os.close(descriptor)
 
 
+def _receipt_root_snapshot(
+    directory: Path, directory_fd: int | None
+) -> tuple[int, int, int, int]:
+    """Observe the directory identity and inventory change timestamps.
+
+    atime is deliberately excluded: ordinary enumeration may update it.
+    This is a metadata fence, not an atomic filesystem snapshot.
+    """
+
+    def identity(status: os.stat_result) -> tuple[int, int, int, int]:
+        if not stat.S_ISDIR(status.st_mode):
+            raise ValueError("failure receipt root changed during read")
+        return (
+            status.st_dev,
+            status.st_ino,
+            status.st_mtime_ns,
+            status.st_ctime_ns,
+        )
+
+    try:
+        current = identity(os.stat(directory, follow_symlinks=False))
+        if directory_fd is not None and current != identity(os.fstat(directory_fd)):
+            raise ValueError("failure receipt root changed during read")
+    except OSError as error:
+        raise ValueError("failure receipt root changed during read") from error
+    return current
+
+
 def _require_receipt_path_identity(
     directory: Path, directory_fd: int, file_fd: int
 ) -> None:
@@ -2888,6 +2916,10 @@ def load_incomplete_pair_attempt(
     An explicitly pinned trusted digest is required to request a larger finite
     budget, up to 512 MiB. Reading a larger file never falls back to an
     unbounded allocation, and changed regular-file metadata fails closed.
+    Directory identity and mtime/ctime are checked across inventory and read
+    as well: an observed inventory change is rejected before decoding. This
+    cannot establish an atomic snapshot or detect every concurrent mutation,
+    particularly on platforms without descriptor-relative path checks.
     A supplied trusted digest is also checked against the canonical body bytes
     before JSON preflight or decoding; the full strict validation still runs.
 
@@ -2935,6 +2967,7 @@ def load_incomplete_pair_attempt(
     if directory.is_symlink() or not directory.is_dir():
         raise ValueError("failure receipt root must be a real directory")
     with _pinned_receipt_directory(directory) as directory_fd:
+        root_before = _receipt_root_snapshot(directory, directory_fd)
         # Verify the single-file root without Path.iterdir()'s eager full scan.
         with os.scandir(
             directory_fd if directory_fd is not None else directory
@@ -2946,6 +2979,8 @@ def load_incomplete_pair_attempt(
                 or next(entries, None) is not None
             ):
                 raise ValueError("failure receipt root contents are malformed")
+        if _receipt_root_snapshot(directory, directory_fd) != root_before:
+            raise ValueError("failure receipt root changed during read")
         with open_regular_binary(
             directory / _INCOMPLETE_RECEIPT_FILE, field="failure receipt"
         ) as handle:
@@ -2982,6 +3017,8 @@ def load_incomplete_pair_attempt(
                 raise ValueError("failure receipt changed during read")
             if directory_fd is not None:
                 _require_receipt_path_identity(directory, directory_fd, handle.fileno())
+        if _receipt_root_snapshot(directory, directory_fd) != root_before:
+            raise ValueError("failure receipt root changed during read")
     return _decode_incomplete_receipt(
         raw,
         expected_receipt_digest=expected_receipt_digest,

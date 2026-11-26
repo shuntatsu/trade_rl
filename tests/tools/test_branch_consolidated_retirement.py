@@ -60,7 +60,17 @@ def _entry(
 
 
 @pytest.mark.parametrize(
-    "carrier_fault", [None, "wrong_head", "wrong_merge", "nested", "unmerged", "fork"]
+    "carrier_fault",
+    [
+        None,
+        "wrong_head",
+        "wrong_merge",
+        "nested",
+        "unmerged",
+        "speculative",
+        "fork",
+        "foreign_base",
+    ],
 )
 def test_closed_constituents_need_real_main_merge_proof(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carrier_fault: str | None
@@ -91,6 +101,10 @@ def test_closed_constituents_need_real_main_merge_proof(
         base="fix/intermediate" if carrier_fault == "nested" else "main",
         repo="other/repo" if carrier_fault == "fork" else "shuntatsu/trade_rl",
     )
+    if carrier_fault == "speculative":
+        accepted["merged_at"] = None
+    elif carrier_fault == "foreign_base":
+        accepted["base"]["repo"]["full_name"] = "other/repo"
     records = [
         accepted,
         _entry(1, "fix/constituent", source),
@@ -163,6 +177,24 @@ def test_consolidated_proof_cannot_override_live_or_reserved_refs(
     assert [(x.branch.name, x.reason) for x in result if x.action == "delete"] == [
         ("fix/retire", "exact-closed-pr-consolidated-in-main")
     ]
+    from tools.branch_hygiene import apply_merged_retirement
+
+    monkeypatch.setattr(
+        api,
+        "delete_branches_with_leases",
+        lambda *_: pytest.fail("protected ref reached deletion"),
+    )
+    for name in names[1:]:
+        with pytest.raises(ValueError, match="not eligible in preview"):
+            apply_merged_retirement(
+                api,
+                result,
+                default_branch="main",
+                expected_main_sha=merged,
+                reachable_from_main=frozenset({base, source, carrier, merged}),
+                include_consolidated_prs=True,
+                approved_consolidated_refs=[f"{name}={source}"],
+            )
 
 
 def test_consolidated_roster_duplicate_pr_number_fails_closed(
@@ -450,3 +482,77 @@ def test_octopus_first_introduction_is_not_normal_carrier(
         )
         == ()
     )
+
+
+def test_later_authenticated_merge_cannot_relabel_earlier_introduction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base, source, carrier, first, _ = _graph(tmp_path)
+    _git(tmp_path, "switch", "-qc", "later", first)
+    _git(tmp_path, "commit", "--allow-empty", "-qm", "later carrier")
+    later = _git(tmp_path, "rev-parse", "HEAD")
+    _git(tmp_path, "switch", "-q", "main")
+    _git(tmp_path, "merge", "--no-ff", "-qm", "authenticated later merge", later)
+    final = _git(tmp_path, "rev-parse", "HEAD")
+    assert _git(tmp_path, "show", "-s", "--format=%P", final).split() == [first, later]
+    monkeypatch.chdir(tmp_path)
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl", token="fake", api_url="https://github.invalid"
+    )
+    records = [
+        _entry(10, "fix/later", later, merged_sha=final),
+        _entry(1, "fix/constituent", source),
+    ]
+
+    def roster(path, **query):
+        assert path == "pulls" and query == {"state": "closed"}
+        return records
+
+    monkeypatch.setattr(api, "_list_pages", roster)
+    branches = (
+        BranchInfo("main", final, False),
+        BranchInfo("fix/constituent", source, False),
+    )
+    assert api.consolidated_pr_source_refs(branches, main_sha=final) == ()
+    records.append(_entry(20, "fix/first-carrier", carrier, merged_sha=first))
+    proof = api.consolidated_pr_source_refs(branches, main_sha=final)
+    assert len(proof) == 1 and proof[0].carrier_pr_number == 20
+    records[-1]["state"] = "open"
+    with pytest.raises(RuntimeError, match="closed pull request roster"):
+        api.consolidated_pr_source_refs(branches, main_sha=final)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--apply", "--consolidated-ref", "fix/x=" + "a" * 40],
+        ["--include-consolidated", "--consolidated-ref", "fix/x=" + "a" * 40],
+        ["--apply", "--include-consolidated", "--consolidated-ref", "fix/x=bad"],
+        [
+            "--apply",
+            "--include-consolidated",
+            "--consolidated-ref",
+            "fix/x=" + "0" * 40,
+        ],
+    ],
+)
+def test_consolidated_cli_rejects_invalid_scope_before_api(
+    extra: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.branch_hygiene import main
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid scope reached API construction")
+
+    monkeypatch.setattr("tools.branch_hygiene.GitHubApi", forbidden)
+    with pytest.raises(ValueError):
+        main(
+            [
+                "--repository",
+                "shuntatsu/trade_rl",
+                "--retire-merged",
+                "--token",
+                "fake",
+                *extra,
+            ]
+        )

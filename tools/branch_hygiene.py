@@ -738,7 +738,7 @@ def _consolidated_scope(refs: Sequence[str]) -> frozenset[tuple[str, str]]:
         if not isinstance(item, str):
             raise ValueError("invalid consolidated ref selection")
         name, sep, sha = item.rpartition("=")
-        if not sep or not name or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        if not sep or not name or not _is_nonzero_oid(sha):
             raise ValueError("consolidated ref must be branch=exact SHA")
         if name in selected:
             raise ValueError("duplicate consolidated ref selection")

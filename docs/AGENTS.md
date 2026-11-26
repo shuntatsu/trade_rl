@@ -285,6 +285,6 @@ Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを�
 
 ## 作業線の終了と変更の証拠
 
-merged PRのexact final head、または別のmain向けnormal mergeで導入されたことを証明したclosed PRのexact headに一致する不要なmain祖先branchは、`tools.branch_hygiene --retire-merged`のpreviewと、`--apply`の再照合・exact-SHA lease・削除後readbackで定期的に整理する。open PR head/base・未完了workflow・保護ref・研究/封印/provenance・未統合historyは保存する。旧式の個別retention記録を毎回追加する必要はない。GitHub API/認証が不完全な場合は停止する。通常`--apply`と直接`apply_cleanup()`の一括汎用cleanupは禁止のまま。ブランチ整理はCoordinator authority/Task完全登録や研究・live認可を示さない。
+自身のmerged PRのexact final headに一致する不要なmain祖先branchのみ、`tools.branch_hygiene --retire-merged`のpreviewと、`--apply`の再照合・exact-SHA lease・削除後readbackで定期的に整理する。集約済みclosed PR sourceは独立した手動CLIの`--include-consolidated`で導入証明をpreviewし、ownerが保全不要と個別承認したexact branch/SHAの`--apply --include-consolidated --consolidated-ref BRANCH=SHA`指定でのみ退役できる。自動workflowはこの追加経路を呼ばない。open PR head/base・未完了workflow・保護ref・研究/封印/provenance・未統合historyは保存する。旧式の個別retention記録を毎回追加する必要はない。GitHub API/認証が不完全な場合は停止する。通常`--apply`と直接`apply_cleanup()`の一括汎用cleanupは禁止のまま。ブランチ整理はCoordinator authority/Task完全登録や研究・live認可を示さない。
 
 ソース移動やPython docstring変更でも、Runのimplementation manifestは相対パスとraw bytesにbindするため実装digestが変化する。同じStudyの比較途中へ移行を混ぜず、元のsource/runtimeを保持する。計算の意味保存と、期待されるprovenance変化は別々に検証する。

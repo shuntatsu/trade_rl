@@ -12,6 +12,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes
 
 MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 MARKET_DATASET_IDENTITY_SCHEMA_V7 = "market_dataset_identity_v7"
+MARKET_DATASET_IDENTITY_SCHEMA_V8 = "market_dataset_identity_v8"
 
 DATASET_ID_ARRAY_FIELDS = (
     "timestamps",
@@ -127,7 +128,10 @@ def compute_market_dataset_id(
     fields: tuple[str, ...]
     if schema == MARKET_DATASET_IDENTITY_SCHEMA:
         fields = DATASET_ID_ARRAY_FIELDS
-    elif schema == MARKET_DATASET_IDENTITY_SCHEMA_V7:
+    elif schema in (
+        MARKET_DATASET_IDENTITY_SCHEMA_V7,
+        MARKET_DATASET_IDENTITY_SCHEMA_V8,
+    ):
         fields = DATASET_ID_ARRAY_FIELDS_V7
     else:
         raise ValueError("unsupported market dataset identity schema")

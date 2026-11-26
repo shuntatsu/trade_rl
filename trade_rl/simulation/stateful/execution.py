@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
+from trade_rl.data.market import _require_available_marks_at_row
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
@@ -17,8 +18,10 @@ from trade_rl.simulation.orders.model import (
     OrderEvent,
     OrderIntent,
     OrderStatus,
+    OrderType,
     PendingOrder,
     TerminalOrderArchive,
+    TimeInForce,
 )
 from trade_rl.simulation.stateful.bar_lifecycle import StatefulBarLifecycle
 from trade_rl.simulation.stateful.order_transitions import (
@@ -192,6 +195,19 @@ def _execute_stateful_orders_impl(
             "retain_debt execution cannot restart from an already terminated book"
         )
 
+    executor._validate_native_fixed_configuration()
+    native_fixed = dataset.native_clock is not None
+    if native_fixed:
+        book.require_nonnegative_spot_cash()
+        all_intents = (*intents, *(order.intent for order in order_book.active_orders))
+        if any(
+            intent.order_type is not OrderType.MARKET
+            or intent.time_in_force is TimeInForce.DAY
+            for intent in all_intents
+        ):
+            raise ValueError(
+                "native fixed execution admits only MARKET IOC/GTC order intents"
+            )
     if executor.strict_spot_cash:
         executor._validate_strict_spot_configuration()
         book.require_nonnegative_spot_cash()
@@ -236,6 +252,34 @@ def _execute_stateful_orders_impl(
     for offset in range(bars):
         previous_index = start_index + offset
         processing_index = previous_index + 1
+        if native_fixed:
+            # A prior complete bar supplies the decision and capacity. Reject
+            # delayed publications and unsupported intrabar cash-flow ordering.
+            for row in (previous_index, processing_index):
+                _require_available_marks_at_row(
+                    dataset,
+                    row_index=row,
+                    selected_symbol_indices=tuple(range(dataset.n_symbols)),
+                )
+            if (
+                np.any(
+                    dataset.resolved_array("funding_event_count")[processing_index] != 0
+                )
+                or np.any(dataset.resolved_array("dividend")[processing_index] != 0.0)
+                or np.any(
+                    dataset.resolved_array("split_factor")[processing_index] != 1.0
+                )
+                or np.any(
+                    ~dataset.resolved_array("asset_active")[
+                        previous_index : processing_index + 1
+                    ]
+                )
+                or np.any(~dataset.tradable[previous_index : processing_index + 1])
+                or dataset.resolved_array("cash_rate")[processing_index] < 0.0
+            ):
+                raise ValueError(
+                    "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
+                )
         if executor.strict_spot_cash:
             executor._validate_strict_spot_row(processing_index)
         context = lifecycle.begin_bar(
@@ -256,7 +300,7 @@ def _execute_stateful_orders_impl(
                     attempted_order_ids=attempted,
                 )
         lifecycle.finish_bar(runtime, context)
-        if executor.strict_spot_cash:
+        if executor.strict_spot_cash or native_fixed:
             runtime.book.require_nonnegative_spot_cash()
         bars_advanced += 1
         if absorbing and runtime.book.insolvent:

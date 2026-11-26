@@ -47,7 +47,10 @@ def test_risk_receipt_does_not_erase_missingness(field: str) -> None:
 @pytest.mark.parametrize(
     "path", ["native", "compatibility", "stateful", "reconciliation", "session"]
 )
-@pytest.mark.parametrize("wrapper", ["direct", "owner_view", "memoryview", "nested"])
+@pytest.mark.parametrize(
+    "wrapper",
+    ["direct", "owner_view", "memoryview", "nested", "stride", "stride_memoryview"],
+)
 def test_target_paths_refuse_hidden_weight_before_execution(
     path: str, wrapper: str
 ) -> None:
@@ -63,6 +66,12 @@ def test_target_paths_refuse_hidden_weight_before_execution(
     if wrapper == "owner_view":
         hidden = masked.astype(np.float64).view(np.ndarray)
         assert np.ma.isMaskedArray(hidden.base)
+    elif wrapper in {"stride", "stride_memoryview"}:
+        owner_view = masked.astype(np.float64).view(np.ndarray)
+        hidden = np.lib.stride_tricks.as_strided(owner_view)
+        assert np.ma.isMaskedArray(hidden.base.base.base)
+        if wrapper == "stride_memoryview":
+            hidden = memoryview(hidden)
     elif wrapper == "memoryview":
         hidden = memoryview(masked)
     elif wrapper == "nested":
@@ -76,7 +85,7 @@ def test_target_paths_refuse_hidden_weight_before_execution(
         initial_capital=1000.0,
         execution_observer=events.append,
     )
-    with pytest.raises(ValueError, match="masked array"):
+    with pytest.raises(ValueError, match="masked array|opaque array ownership"):
         if path == "native":
             execute_native_target_transition(
                 executor, book, risk, hidden, start_index=0
@@ -187,3 +196,20 @@ def test_snapshot_does_not_promote_object_array_to_valid_dtype(
             risk.constrain(
                 np.array([0.5]), current=np.array([0.0]), drawdown=0.0, **{field: value}
             )
+
+
+@pytest.mark.parametrize(
+    "field", ["target", "current", "emergency_flatten_mask", "reduce_only_mask"]
+)
+@pytest.mark.parametrize("wrap_memoryview", [False, True])
+def test_risk_refuses_opaque_retained_mask_owner(
+    field: str, wrap_memoryview: bool
+) -> None:
+    inputs = {"target": np.array([0.5]), "current": np.array([0.2]), "drawdown": 0.0}
+    dtype = np.bool_ if field.endswith("mask") else np.float64
+    owner = np.ma.array([True], mask=[True]).astype(dtype).view(np.ndarray)
+    hidden = np.lib.stride_tricks.as_strided(owner)
+    assert np.ma.isMaskedArray(hidden.base.base.base)
+    inputs[field] = memoryview(hidden) if wrap_memoryview else hidden
+    with pytest.raises(ValueError, match="masked array|opaque array ownership"):
+        PreTradeRisk.default_for_execution(max_leverage=1.0).constrain(**inputs)

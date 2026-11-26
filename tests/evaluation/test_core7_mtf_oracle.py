@@ -129,8 +129,34 @@ PACKET_V50_ATOMIC_TARGET_TD8_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v50-atomic-target-td8-union.json"
 )
-PACKET_PATH = (
+PACKET_EXACT_CADENCE_PATH = (
     ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json"
+)
+PACKET_NATIVE_FIXED_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v52-native-fixed.json"
+)
+PACKET_NATIVE_AVAILABILITY_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v53-native-availability.json"
+)
+PACKET_NATIVE_MASKS_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v54-native-masks.json"
+)
+PACKET_STRICT_NATIVE_RAW_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v55-strict-native-raw.json"
+)
+PACKET_OPAQUE_OWNER_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v52-opaque-array-owner.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v56-native-opaque-owner-union.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -182,7 +208,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
+    "bf7b220e0cce81ee66331488318a3107d1fd1ed8154ef4bbf4da6aa5ba99d00e"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3990,7 +4016,7 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
         assurance_digest(previous)
         == "d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_EXACT_CADENCE_PATH.read_bytes())
     head = "c4075b46c9c560550a23fa1839a7d362ba5995fa"
     expected = json.loads(raw)
     old = expected["identity"]["implementation_head"]
@@ -4013,6 +4039,278 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
     for packet_record in (previous, current):
+        result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_fixed_successor_preserves_exact_cadence_packet() -> None:
+    raw = PACKET_EXACT_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "74dab589743375092db3042c353acb292858bf2c63a6bfa64eff88a46e348418"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
+    )
+    head = "89bd4cd318b9a1d1d0ba86c88439120c8ecd1923"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opt-in fixed native Dataset v8 and artifact v5 support exact rational 3d/7d/UTC-week clocks and bounded deterministic long-only spot replay. Legacy schemas/protocols and historical authority remain unchanged. Funding events, short/borrow, delayed mark use, intrabar ordering and unsupported calendars are rejected. No economic authority or result."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 89bd4cd318b9a1d1d0ba86c88439120c8ecd1923: opt-in native fixed execution leaves the study protocol unchanged. Static closure grows by one clock helper (193 to 194); changed shared paths: trade_rl/data/artifacts/__init__.py, trade_rl/data/artifacts/codec.py, trade_rl/data/identity.py, trade_rl/data/market.py, trade_rl/data/native_execution_clock.py, trade_rl/evaluation/metrics.py, trade_rl/evaluation/series.py, trade_rl/risk/inputs.py, trade_rl/simulation/execution.py, trade_rl/simulation/stateful/execution.py. 33 new synthetic cases and 617 related regression cases passed on the byte-identical source tree; no real market data or economic execution."
+    )
+    current = json.loads(PACKET_NATIVE_FIXED_PATH.read_bytes())
+    assert current == expected
+    before, after = set(_bound_code_paths(old)), set(_bound_code_paths(head))
+    assert len(before) == 193 and len(after) == 194
+    assert (
+        after - before == {"trade_rl/data/native_execution_clock.py"}
+        and not before - after
+    )
+    diff = _git("diff", "--name-only", old, head, "--", *sorted(after))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/data/artifacts/__init__.py",
+        "trade_rl/data/artifacts/codec.py",
+        "trade_rl/data/identity.py",
+        "trade_rl/data/market.py",
+        "trade_rl/data/native_execution_clock.py",
+        "trade_rl/evaluation/metrics.py",
+        "trade_rl/evaluation/series.py",
+        "trade_rl/risk/inputs.py",
+        "trade_rl/simulation/execution.py",
+        "trade_rl/simulation/stateful/execution.py",
+    ]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_availability_successor_preserves_fixed_packet() -> None:
+    raw = PACKET_NATIVE_FIXED_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "5b02547678f52575e70f70c7c08e5f5a76677978828dae9723753f53862ae342"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "1d1e6ee0d24ad75e851152d19e451f9e1ce3dbb6bba1e51db070b7d5ea32e0c7"
+    )
+    head = "3080562dce4437ef1ad2c50278dbf927c020955f"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed replay additionally rejects explicit unavailable information masks before using relevant marks and refuses nonboolean explicit masks before coercion. Legacy contracts and research authority remain unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 3080562dce4437ef1ad2c50278dbf927c020955f: native mark admission is corrected in trade_rl/data/market.py only within the unchanged 194-path static closure. Seven synthetic regressions failed on the predecessor; 187 related tests passed after correction, including initial, intermediate, final unavailable marks and invalid mask dtypes. No market data or economic execution."
+    )
+    current = json.loads(PACKET_NATIVE_AVAILABILITY_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_masks_successor_preserves_availability_packet() -> None:
+    raw = PACKET_NATIVE_AVAILABILITY_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "f3cde2969f2571f07271135071029f0d5121c7e73991c5e64889066b9238144e"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "aca106cd44273d963a76808b163ab96f1e4e52e2774777176e1efae08103c7c6"
+    )
+    head = "4aa078c299237277b1c21730bbff7ebc78308fd0"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Native fixed Dataset requires actual boolean ndarrays for all explicit information, feature, lifecycle and execution-permission masks, not numeric/NaN coercions. Existing funding due validation, legacy identities, and economic authority are unchanged."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 4aa078c299237277b1c21730bbff7ebc78308fd0: within the unchanged 194-path static closure only trade_rl/data/market.py changes. 34 of 38 new synthetic mask cases failed on the predecessor; all 243 targeted related tests passed after the correction, including NaN/numeric mask and required-mask rejection. No market data or economic execution."
+    )
+    current = json.loads(PACKET_NATIVE_MASKS_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_strict_native_raw_successor_preserves_native_masks_packet() -> None:
+    raw = PACKET_NATIVE_MASKS_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "85d842e3899085950ab6a7c1f64c4e35db0796ddb881a1a0432bf8f72b34af51"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "3ef2c409bf923b05253a00fabda0af19082abe61637abb79ec38ccdc78149e53"
+    )
+    head = "efd9a32e53ec8251f8d5a4a8e37344baafdf281a"
+    old = previous["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " The opt-in native fixed spot builder requires NativeRawMarketSeries before normalization, with explicit datetime64 publication, native boolean masks, exact bounded integer counts and losslessly representable numeric arrays. Existing legacy RawMarketSeries field layout, normalizer, canonical normalized source digest and economic authority are unchanged; this is not authentication of prior caller conversions or provider receipts."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source efd9a32e53ec8251f8d5a4a8e37344baafdf281a: within the unchanged 194-path static closure only trade_rl/data/source.py changes, by adding the strict native raw subtype. Twelve new synthetic tests failed on the predecessor and pass after the correction; 984 related tests pass, including rejected legacy-coerced sources even when the normalized content digest matches. Legacy normalized source identity remains unchanged. No market data or economic execution."
+    )
+    current = json.loads(PACKET_STRICT_NATIVE_RAW_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/source.py"]
+    for record in (previous, current):
+        result = evaluate_assurance(record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_opaque_array_owner_successor_preserves_prior_packet() -> None:
+    raw = PACKET_EXACT_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "74dab589743375092db3042c353acb292858bf2c63a6bfa64eff88a46e348418"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
+    )
+    current = json.loads(PACKET_OPAQUE_OWNER_PATH.read_bytes())
+    head = "ef263bd111ad421200fbb398588dc7f1fca413d0"
+    expected = json.loads(raw)
+    old = expected["identity"]["implementation_head"]
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opaque array-owner chains and spoofed type equality fail closed before risk, order or settlement effects; only known native buffer ownership is admitted. No recovery of caller-discarded mask provenance and no economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source ef263bd111ad421200fbb398588dc7f1fca413d0: unchanged static closure with changes limited to trade_rl/_array_snapshot.py and trade_rl/simulation/accounting.py. Synthetic regression and controls cover opaque stride-backed masked arrays, settlement selectors and metaclass equality spoofing; 1302 risk and simulation tests passed. No market data or economic execution."
+    )
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 193
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/_array_snapshot.py",
+        "trade_rl/simulation/accounting.py",
+    ]
+    for packet_record in (previous, current):
+        result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_native_opaque_owner_union_preserves_both_packet_lineages() -> None:
+    raw = PACKET_STRICT_NATIVE_RAW_PATH.read_bytes()
+    opaque_raw = PACKET_OPAQUE_OWNER_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "835a0266f389c3bf37567d44c188520d04ba5c1717345b77d629c17bab1618ab"
+    )
+    assert (
+        hashlib.sha256(opaque_raw).hexdigest()
+        == "817fae98750fdcf19cdccfa0f0204eafb7ff124e22817c30b8b68970c9cf653f"
+    )
+    native = json.loads(raw)
+    opaque = json.loads(opaque_raw)
+    assert (
+        assurance_digest(native)
+        == "c54159e4aea0b4dc530000cb7f49ff9fbdc26861eabcbe7920f6af2e7ff4977f"
+    )
+    assert (
+        assurance_digest(opaque)
+        == "3efa40abc432d6ec54c172f9b37156cf4e507eef9c7f72a50a714b1d18c1b9ca"
+    )
+    head = "55bf08ee131155d7a774d94db4838991cbdcdaff"
+    old = native["identity"]["implementation_head"]
+    parallel = opaque["identity"]["implementation_head"]
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opaque array-owner chains and spoofed type equality fail closed before risk, order or settlement effects; only known native buffer ownership is admitted. No recovery of caller-discarded mask provenance and no economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact union source 55bf08ee131155d7a774d94db4838991cbdcdaff: strict native raw admission and parallel opaque-owner correction (immutable packet digest 3efa40abc432d6ec54c172f9b37156cf4e507eef9c7f72a50a714b1d18c1b9ca) are preserved. Within the unchanged 194-path native closure only trade_rl/_array_snapshot.py and trade_rl/simulation/accounting.py change. 1414 simulation, risk, native execution dataset and native spot builder tests passed on the union source; both previous pin tests correctly rejected the stale source binding. No market data or economic execution."
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 194
+    parallel_paths = _bound_code_paths(parallel)
+    assert len(parallel_paths) == 193
+    assert set(parallel_paths) < set(after)
+    changed = ["trade_rl/_array_snapshot.py", "trade_rl/simulation/accounting.py"]
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == changed
+    diff = _git("diff", "--name-only", parallel, head, "--", *changed)
+    assert diff.returncode == 0, diff.stderr
+    assert not diff.stdout
+    for predecessor in (old, parallel):
+        assert _git("merge-base", "--is-ancestor", predecessor, head).returncode == 0
+    for packet_record in (native, opaque, current):
         result = evaluate_assurance(packet_record)
         assert result.status == "UNREVIEWED" and not result.errors
         assert not result.economic_execution_authorized

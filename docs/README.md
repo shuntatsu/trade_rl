@@ -11,7 +11,7 @@
 - [architecture/final-evaluation-authorization.md](architecture/final-evaluation-authorization.md) — sealed unused-future認可境界
 - [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性
 - [architecture/portfolio-decision-trace.md](architecture/portfolio-decision-trace.md) — opt-in shared-portfolioでの行動・risk承認・約定と口座変化のtrace
-- [architecture/ppo-rollout-boundary.md](architecture/ppo-rollout-boundary.md) — Issue #810 P3 synthetic PPOのrollout境界診断とソース契約
+- [architecture/ppo-rollout-boundary.md](architecture/ppo-rollout-boundary.md) — 終了済みIssue #810 P3 synthetic PPOのrollout境界診断・固定履歴と研究側参照
 - [architecture/synthetic-ridge-outer-refit.md](architecture/synthetic-ridge-outer-refit.md) — 合成データ限定のRidge再学習・モデル切替・口座継続性の契約
 
 ## 研究判断の正本（移行前）

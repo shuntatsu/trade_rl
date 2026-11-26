@@ -612,7 +612,11 @@ requested / constrained turnover・projection L1の有限非負とrisk scaleの
 目標/current、公開risk evidenceの各weight vector、緊急・reduce-only maskと
 native/compatibility/stateful/reconciliationのtarget admissionは会計と同じ
 private array snapshot guardを使い、mask付き配列や保持されたmasked owner、
-入れ子のmasked値を変換前に拒否する。callerが既に失ったmaskは復元しない。
+入れ子のmasked値を変換前に拒否する。ndarray/memoryviewのnative owner chainを
+検査し、終端はNoneまたは既知のnative buffer (bytes/bytearray/array/mmap) に限る。
+NumPyのstride-view wrapper等の不透明なownerは属性を呼ばず拒否する。
+既知型の判定には型identityを使い、metaclassの等価比較で認可しない。
+callerが既に失ったmaskは復元しない。
 不正なactor targetはSharedPortfolioSessionを進めず、口座・order・observerを変更しない。
 正常域の投影・閾値・理由と、既存研究結果は変更しない。
 

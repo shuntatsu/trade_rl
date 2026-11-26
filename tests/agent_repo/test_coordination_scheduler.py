@@ -428,8 +428,7 @@ def test_single_ready_task_rejects_unknown_resource_namespace(
     mode: ExecutionMode,
 ) -> None:
     with pytest.raises(ValueError, match="resource namespace"):
-        packet = _packet("ONE", mode=mode, resource_keys=("mystery:resource",))
-        ready_tasks((packet,), {"ONE": _healthy(TaskPhase.READY)}, leased_task_ids=())
+        _packet("ONE", mode=mode, resource_keys=("mystery:resource",))
 
 
 @pytest.mark.parametrize(

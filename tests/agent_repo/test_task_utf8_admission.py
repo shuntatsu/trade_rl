@@ -99,3 +99,42 @@ def test_valid_unicode_task_preserves_digest() -> None:
     assert ready_tasks(
         (packet,), {"T1": TaskStatus(TaskPhase.READY)}, leased_task_ids=()
     ) == ("T1",)
+
+
+@pytest.mark.parametrize("command", ["digest", "ready"])
+@pytest.mark.parametrize(
+    ("key", "diagnostic"),
+    [
+        ("mystery:" + chr(27) + "[2Jspoofed", "unknown resource namespace"),
+        ("schema:line" + chr(10) + "spoofed", "invalid resource key"),
+        ("file:../" + chr(0x202E) + "spoofed", "invalid file resource key"),
+        ("file:part?" + chr(27) + "spoofed", "invalid file resource key"),
+    ],
+)
+def test_resource_admission_diagnostic_does_not_render_untrusted_key(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    key: str,
+    diagnostic: str,
+    command: str,
+) -> None:
+    packet = _packet()
+    payload = {"title": packet.title, **packet.canonical_payload()}
+    payload["resource_keys"] = [key]
+    data = (
+        payload
+        if command == "digest"
+        else {
+            "packets": [payload],
+            "statuses": {
+                "T1": {"phase": "ready", "condition": "healthy", "reason": None}
+            },
+            "leased_task_ids": [],
+        }
+    )
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(data, ensure_ascii=True), encoding="ascii")
+    assert main(["task", command, str(path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == diagnostic + "\n"

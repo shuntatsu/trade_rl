@@ -27,9 +27,10 @@ from trade_rl.strategies.portfolio_policy_codec import (
 
 _SCHEMA = "issue810_portfolio_action_probabilities_v1"
 _SB3_VERSION = "2.3.2"
-_TORCH_VERSION = "2.4.1"
-# The pinned package metadata is exactly 2.4.1. Runtime builds may append a
-# valid PEP 440 local label, such as +cpu or +cu121.
+_TORCH_VERSION = "2.13.0"
+# The current locked package metadata must match exactly. Historical
+# reproduction uses its frozen source and lock; runtime builds may append
+# a valid local label such as +cpu or +cu130.
 _TORCH_RUNTIME_VERSION_PATTERN = re.compile(
     rf"{re.escape(_TORCH_VERSION)}(?:\+[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)?",
     re.IGNORECASE,
@@ -88,7 +89,7 @@ def _load_pinned_runtime() -> _Runtime:
     torch_runtime_version = str(torch.__version__)
     if _TORCH_RUNTIME_VERSION_PATTERN.fullmatch(torch_runtime_version) is None:
         raise RuntimeError(
-            "torch runtime build does not match the locked 2.4.1 package: "
+            f"torch runtime build does not match the locked {_TORCH_VERSION} package: "
             f"found {torch_runtime_version!r}"
         )
     return _Runtime(

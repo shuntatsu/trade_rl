@@ -131,21 +131,21 @@ def file_resource_prefix(value: str) -> str:
         or re.match(r"^[A-Za-z]:", parts[0])
         or ".." in parts
     ):
-        raise ValueError(f"invalid file resource key: {value}")
+        raise ValueError("invalid file resource key")
     if parts[-1] in ("*", "**"):
         parts.pop()
     if any(any(char in part for char in "*?[]") for part in parts):
-        raise ValueError(f"invalid file resource key: {value}")
+        raise ValueError("invalid file resource key")
     return "/".join(parts)
 
 
 def resource_key_parts(key: str) -> tuple[str, str]:
     """Validate a resource key and return its conflict-comparison parts."""
     if not _RESOURCE_KEY_RE.fullmatch(key):
-        raise ValueError(f"invalid resource key: {key}")
+        raise ValueError("invalid resource key")
     namespace, _, value = key.partition(":")
     if namespace not in _RESOURCE_NAMESPACES:
-        raise ValueError(f"unknown resource namespace: {key}")
+        raise ValueError("unknown resource namespace")
     return namespace, file_resource_prefix(value) if namespace == "file" else value
 
 

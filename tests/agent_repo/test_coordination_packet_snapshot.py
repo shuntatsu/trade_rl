@@ -1,6 +1,7 @@
-"""Dependency validation and scheduling use a single packet roster snapshot."""
+"""Dependency validation and scheduling use a single local observation."""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from dataclasses import replace
 
 import pytest
 
@@ -67,3 +68,55 @@ def test_stable_roster_remains_valid() -> None:
     }
     assert DependencyGraph(packets).task_ids == ("A", "B")
     assert ready_tasks(packets, statuses, leased_task_ids=()) == ("A", "B")
+
+
+class _ChangingStatuses(Mapping[str, TaskStatus]):
+    def __init__(
+        self, first: dict[str, TaskStatus], later: dict[str, TaskStatus]
+    ) -> None:
+        self.first = first
+        self.later = later
+        self.iterations = 0
+        self.reads: dict[str, int] = {}
+
+    def __iter__(self) -> Iterator[str]:
+        self.iterations += 1
+        return iter(self.first if self.iterations == 1 else self.later)
+
+    def __len__(self) -> int:
+        return len(self.first)
+
+    def __getitem__(self, key: str) -> TaskStatus:
+        count = self.reads.get(key, 0) + 1
+        self.reads[key] = count
+        return self.first[key] if count == 1 else self.later.get(key, self.first[key])
+
+
+def test_ready_tasks_does_not_lose_executing_holder_on_second_status_iteration() -> (
+    None
+):
+    packets = tuple(
+        replace(_packet(name), resource_keys=("side-effect:exclusive",))
+        for name in ("A", "B")
+    )
+    first = {"A": TaskStatus(TaskPhase.EXECUTING), "B": TaskStatus(TaskPhase.READY)}
+    statuses = _ChangingStatuses(first, {"B": first["B"]})
+    # The later key observation omits the holder, though a direct lookup can
+    # still observe A executing. The first coherent roster must govern admission.
+    assert ready_tasks(packets, statuses, leased_task_ids=()) == ()
+    assert statuses.iterations == 1
+    assert statuses.reads == {"A": 1, "B": 1}
+
+
+def test_ready_tasks_does_not_reobserve_dependency_status_after_admission() -> None:
+    packets = (
+        _packet("A"),
+        replace(_packet("B"), dependencies=(TaskDependency("A", DependencyKind.HARD),)),
+    )
+    first = {"A": TaskStatus(TaskPhase.PLANNED), "B": TaskStatus(TaskPhase.READY)}
+    later = {"A": TaskStatus(TaskPhase.COMPLETE), "B": first["B"]}
+    statuses = _ChangingStatuses(first, later)
+    assert ready_tasks(packets, statuses, leased_task_ids=()) == ()
+    assert statuses.iterations == 1
+    assert statuses.reads == {"A": 1, "B": 1}
+    assert ready_tasks(packets, later, leased_task_ids=()) == ("B",)

@@ -23,8 +23,10 @@ _MAX_SHARDS = 16
 # assignment or execution contract of other test modules or shard counts.
 # The first affinity run concentrated three expensive modules on shard 3;
 # move study and FS1 to shards 0 and 2 to reduce its observed critical path.
+# Run 45744299892 then measured shard 1 at 1309s versus shard 3 at 588s;
+# move the intact phase3 module (at least 378s of reported durations) to 3.
 _MEASURED_MODULE_AFFINITY = {
-    "tests/evaluation/test_dev_realdata_phase3.py": 1,
+    "tests/evaluation/test_dev_realdata_phase3.py": 3,
     "tests/evaluation/test_dev_realdata_study.py": 0,
     "tests/evaluation/test_forward_study_fs1.py": 2,
     "tests/evaluation/test_signal_diagnosis_run_scenarios.py": 0,

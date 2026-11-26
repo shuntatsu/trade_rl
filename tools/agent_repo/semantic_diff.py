@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import ast
+import io
 import os
 import subprocess
 import sys
+import tokenize
 import tomllib
 from dataclasses import dataclass
 from importlib.util import resolve_name
@@ -112,13 +114,36 @@ def _base_text(repository: Path, ref: str, path: str) -> str | None:
     return result.stdout
 
 
-def _current_text(repository: Path, path: str) -> str | None:
+def _base_python(repository: Path, ref: str, path: str) -> bytes | None:
+    # Python's parser must see the original bytes, including encoding cookies.
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{path}"],
+        cwd=repository,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _current_file(repository: Path, path: str) -> Path | None:
     candidate = repository / path
     if not candidate.exists() and not candidate.is_symlink():
         return None
     if candidate.is_symlink() or not candidate.is_file():
         raise ValueError(f"semantic diff source must be a regular file: {path}")
-    return candidate.read_text(encoding="utf-8")
+    return candidate
+
+
+def _current_text(repository: Path, path: str) -> str | None:
+    candidate = _current_file(repository, path)
+    return None if candidate is None else candidate.read_text(encoding="utf-8")
+
+
+def _current_python(repository: Path, path: str) -> bytes | None:
+    candidate = _current_file(repository, path)
+    return None if candidate is None else candidate.read_bytes()
 
 
 def _decorator_name(node: ast.expr) -> str | None:
@@ -290,14 +315,16 @@ def _effects(tree: ast.Module) -> tuple[frozenset[str], frozenset[str]]:
 
 
 def _surface(
-    text: str | None,
+    text: bytes | None,
     *,
     path: str,
     known_modules: frozenset[str],
 ) -> _Surface:
     if text is None:
         return _Surface({}, {}, {}, frozenset(), frozenset(), frozenset(), frozenset())
-    tree = ast.parse(text, filename=path)
+    # Validate the entire source, including comments ignored by some Python parsers.
+    encoding, _ = tokenize.detect_encoding(io.BytesIO(text).readline)
+    tree = ast.parse(text.decode(encoding), filename=path)
     module = _module_from_path(path)
     filesystem, network = _effects(tree)
     return _Surface(
@@ -440,12 +467,12 @@ def semantic_diff(
     )
     for path in production_paths:
         before = _surface(
-            _base_text(root, merge_base, path),
+            _base_python(root, merge_base, path),
             path=path,
             known_modules=before_modules,
         )
         after = _surface(
-            _current_text(root, path),
+            _current_python(root, path),
             path=path,
             known_modules=after_modules,
         )

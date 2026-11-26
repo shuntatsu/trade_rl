@@ -124,10 +124,13 @@ PACKET_TD8_INVENTORY_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v49-td8-root-inventory.json"
 )
-PACKET_PATH = (
+PACKET_V50_ATOMIC_TARGET_TD8_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v50-atomic-target-td8-union.json"
+)
+PACKET_PATH = (
+    ROOT / "report" / "issue810-core7-mtf-ppo-research-assurance-v51-exact-cadence.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -179,7 +182,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d"
+    "ad6ecd095126d34b271388c98233c667cbe820a052396c373da81828765ebc7d"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3925,7 +3928,7 @@ def test_atomic_target_td8_union_preserves_both_predecessors() -> None:
         == "cc811d418197916237f93366881073822dd26704c8a6684a38d7ad4f84c22764"
     )
     common = json.loads(PACKET_V47_M1_TARGET_PATH.read_bytes())
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V50_ATOMIC_TARGET_TD8_PATH.read_bytes())
     head = "3b3a0c65ccdf981e44ae075561d97e00e457b039"
     expected = json.loads(a_raw)
     expected["identity"] = {"implementation_head": head, "protocol_head": head}
@@ -3974,3 +3977,42 @@ def test_atomic_target_td8_union_preserves_both_predecessors() -> None:
         verdict = evaluate_assurance(record)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized
+
+
+def test_exact_cadence_successor_preserves_prior_packet() -> None:
+    raw = PACKET_V50_ATOMIC_TARGET_TD8_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "a2d21f6e33649cf70ff9abeae7c67ff4c830ce6c378c5bed9876aa2716cf7c29"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "d4eff04f59731c920419d2d878afd862cb5872710a4c60c7d704b6ed11f1d02d"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "c4075b46c9c560550a23fa1839a7d362ba5995fa"
+    expected = json.loads(raw)
+    old = expected["identity"]["implementation_head"]
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Exact integer ACT/365F cadence admission rejects non-divisor continuous intervals before float conversion; this does not admit 3d/weekly legacy execution or alter valid dataset identities. No economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source c4075b46c9c560550a23fa1839a7d362ba5995fa: only trade_rl/data/market.py changes in the unchanged static closure. Six near-integer cadence cases failed on the predecessor; 202 related synthetic tests passed with the correction, including valid integral controls and rejected 3d/7d legacy rounding. No market data or economic execution."
+    )
+    assert current == expected
+    before, after = _bound_code_paths(old), _bound_code_paths(head)
+    assert before == after and len(after) == 193
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for packet_record in (previous, current):
+        result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized

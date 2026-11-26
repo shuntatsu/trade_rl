@@ -1402,3 +1402,129 @@ def test_raw_pin_match_is_not_a_substitute_for_strict_validation(
     with pytest.raises(ValueError, match="duplicated"):
         study.load_incomplete_pair_attempt(root, expected_receipt_digest=forged_pin)
     assert path.read_bytes() == forged
+
+
+@pytest.mark.parametrize("change", ["add", "add_remove"])
+@pytest.mark.parametrize("when", ["inventory", "read", "close"])
+@pytest.mark.parametrize("portable", [False, True])
+def test_receipt_root_inventory_change_refused_before_decode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    when: str,
+    portable: bool,
+) -> None:
+    """The receipt leaf can stay unchanged while the root inventory changes."""
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row())
+    leaf = root / "incomplete-pairs.json"
+    original = leaf.read_bytes()
+    extra = root / "extra.json"
+    directory_before = root.stat()
+    before_leaf = leaf.stat()
+    real_open = study.open_regular_binary
+    real_scandir = study.os.scandir
+    changed = False
+
+    def mutate() -> None:
+        nonlocal changed
+        if changed:
+            return
+        changed = True
+        extra.write_bytes(b"foreign evidence")
+        if change == "add_remove":
+            extra.unlink()
+        # Make timestamp observations deterministic even on coarse filesystems.
+        # Restoring mtime deliberately would not restore POSIX ctime; the test
+        # only needs a visible directory metadata change, not a sleep.
+        os.utime(
+            root,
+            ns=(
+                directory_before.st_atime_ns,
+                directory_before.st_mtime_ns + 2_000_000_000,
+            ),
+        )
+
+    class ChangingRead:
+        def __init__(self, handle: BinaryIO) -> None:
+            self.handle = handle
+
+        def fileno(self) -> int:
+            return self.handle.fileno()
+
+        def read(self, size: int = -1) -> bytes:
+            data = self.handle.read(size)
+            if when == "read":
+                mutate()
+            return data
+
+    @contextmanager
+    def changing_open(path: Path, *, field: str) -> Iterator[ChangingRead]:
+        with real_open(path, field=field) as handle:
+            yield ChangingRead(handle)
+        if when == "close":
+            mutate()
+
+    @contextmanager
+    def changing_inventory(path: object) -> Iterator[object]:
+        with real_scandir(path) as entries:  # type: ignore[arg-type]
+            yield entries
+        if when == "inventory":
+            mutate()
+
+    def forbidden_decode(*_args: object, **_kwargs: object) -> object:
+        pytest.fail("changed directory inventory reached receipt decoder")
+
+    @contextmanager
+    def portable_root(_directory: Path) -> Iterator[None]:
+        yield None
+
+    if portable:
+        monkeypatch.setattr(study, "_pinned_receipt_directory", portable_root)
+    monkeypatch.setattr(study, "open_regular_binary", changing_open)
+    monkeypatch.setattr(study.os, "scandir", changing_inventory)
+    monkeypatch.setattr(study, "_decode_incomplete_receipt", forbidden_decode)
+    with pytest.raises(ValueError, match="failure receipt root (changed|contents)"):
+        study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+    assert changed
+    assert leaf.read_bytes() == original
+    after_leaf = leaf.stat()
+    assert (before_leaf.st_ino, before_leaf.st_size, before_leaf.st_mtime_ns) == (
+        after_leaf.st_ino,
+        after_leaf.st_size,
+        after_leaf.st_mtime_ns,
+    )
+    if change == "add":
+        assert extra.read_bytes() == b"foreign evidence"
+    else:
+        assert not extra.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ctime tracks metadata changes")
+def test_receipt_root_change_with_restored_mtime_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "attempt"
+    digest = _persist(root, _row())
+    before = root.stat()
+    leaf = root / "incomplete-pairs.json"
+    original = leaf.read_bytes()
+    real_scandir = study.os.scandir
+
+    @contextmanager
+    def mutate_after_inventory(path: object) -> Iterator[object]:
+        with real_scandir(path) as entries:  # type: ignore[arg-type]
+            yield entries
+        extra = root / "temporary"
+        extra.write_bytes(b"x")
+        extra.unlink()
+        os.utime(root, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = root.stat()
+        assert after.st_mtime_ns == before.st_mtime_ns
+        if after.st_ctime_ns == before.st_ctime_ns:
+            pytest.skip("filesystem did not expose a distinct ctime")
+
+    monkeypatch.setattr(study.os, "scandir", mutate_after_inventory)
+    with pytest.raises(ValueError, match="failure receipt root changed"):
+        study.load_incomplete_pair_attempt(root, expected_receipt_digest=digest)
+    assert leaf.read_bytes() == original

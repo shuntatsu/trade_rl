@@ -1688,6 +1688,8 @@ def _safe_text(text: str) -> str:
 def _describe_error(error: BaseException) -> str:
     try:
         text = f"{type(error).__name__}: {error}"
+    except (MemoryError, OSError):
+        raise
     except Exception:
         text = type(error).__name__
     return _safe_text(text)[:_QUARANTINE_ERROR_LIMIT]
@@ -1700,10 +1702,14 @@ def _quarantine_source(evidence: object, error: BaseException) -> dict[str, obje
         text = canonical_json_bytes(
             _nonfinite_free(evidence.to_mapping())  # type: ignore[attr-defined]
         ).decode("utf-8")
+    except (MemoryError, OSError):
+        raise
     except Exception:
         encoding = "repr"
         try:
             text = repr(evidence)
+        except (MemoryError, OSError):
+            raise
         except Exception:
             text = "<unrepresentable source record>"
     text = _safe_text(text)
@@ -1784,12 +1790,13 @@ def _quarantined_pair(evidence: object, error: BaseException) -> dict[str, objec
 
 
 def _receipt_pair(evidence: object) -> dict[str, object]:
-    """Encode one source record as the reloaded form of a v3 pair, never raising.
+    """Encode one source record as the reloaded form of a v3 pair.
 
     The record is normalised (non-finite values to ``nonfinite:<kind>``),
     round-tripped through canonical JSON and then run through the *same*
     validator the strict reader uses. A record that still cannot be validated
     is quarantined instead of aborting the write: the root must be claimed.
+    Resource and storage errors propagate without reclassifying the record.
     """
     try:
         normalised = _normalise_pair_mapping(
@@ -1797,7 +1804,9 @@ def _receipt_pair(evidence: object) -> dict[str, object]:
         )
         pair = json.loads(canonical_json_bytes(normalised).decode("utf-8"))
         _validate_incomplete_pair_record(pair, allow_sentinel=True)
-    except Exception as error:  # every failure must still yield a receipt
+    except (MemoryError, OSError):
+        raise
+    except Exception as error:  # malformed evidence must still yield a receipt
         return _quarantined_pair(evidence, error)
     return dict(pair)
 
@@ -1829,7 +1838,8 @@ def _encode_incomplete_receipt(
     receipt file. This avoids the receipt-wide heap bytes join; per-pair
     encoding, the decoded tree and file-backed pages still consume resources.
     A semantic self-check failure uses the existing all-quarantine fallback.
-    I/O errors must not be reclassified as evidence-validation failures.
+    Storage, mapping and memory failures must propagate without reclassifying
+    evidence; short spool writes are operational errors, not semantic rejection.
     """
     last_error: Exception | None = None
     for build_pairs in (_receipt_pairs, _quarantined_receipt_pairs):
@@ -1856,24 +1866,35 @@ def _encode_incomplete_receipt(
                 }
                 receipt_digest = _receipt_content_digest(body)
                 pair_count = len(pairs)
-                for part in _receipt_canonical_parts(
-                    {**body, "receipt_digest": receipt_digest}
-                ):
-                    spool.write(part)
-                spool.flush()
-                # The strict decoder need not coexist with the producer's tree.
-                del body, pairs, part
-                with mmap.mmap(spool.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+            except (MemoryError, OSError):
+                raise
+            except Exception as error:  # malformed source encoding only
+                last_error = error
+                continue
+
+            # Keep storage and mapping outside the semantic fallback. Even a
+            # ValueError from a closed file or mmap is an operational failure,
+            # not grounds to quarantine otherwise valid financial records.
+            for part in _receipt_canonical_parts(
+                {**body, "receipt_digest": receipt_digest}
+            ):
+                if spool.write(part) != len(part):
+                    raise OSError("short write to failure receipt spool")
+            spool.flush()
+            # The strict decoder need not coexist with the producer's tree.
+            del body, pairs, part
+            with mmap.mmap(spool.fileno(), 0, access=mmap.ACCESS_READ) as raw:
+                try:
                     _decode_incomplete_receipt(
                         raw,
                         expected_receipt_digest=receipt_digest,
                         expected_max_ineligible_pairs=pair_count or None,
                     )
-            except OSError:
-                raise
-            except Exception as error:  # fall back to the all-quarantine encoding
-                last_error = error
-                continue
+                except (MemoryError, OSError):
+                    raise
+                except ValueError as error:  # strict semantic rejection
+                    last_error = error
+                    continue
             spool.seek(0)
             with receipt_path.open("xb") as destination:
                 shutil.copyfileobj(spool, destination, length=1024 * 1024)

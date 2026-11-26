@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 EVAL_DIMENSIONS = (
     "authority_discovery",
@@ -161,3 +163,47 @@ def test_cli_returns_nonzero_for_invalid_context_path(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert result.stdout == ""
     assert result.stderr
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        '"authority_reuse": [2, "pass"]',
+        r'"authority_re\u0075se": [2, "pass"]',
+        '"authority_reuse": [0, "fail"]',
+    ],
+)
+def test_eval_score_rejects_duplicate_critical_dimension(
+    tmp_path: Path, duplicate: str
+) -> None:
+    _repository(tmp_path)
+    scores = {dimension: [2, "pass"] for dimension in EVAL_DIMENSIONS}
+    scores["authority_reuse"] = [0, "fail"]
+    path = tmp_path / "scores.json"
+    baseline = json.dumps(scores)
+    path.write_text(baseline, encoding="utf-8")
+    result = _run(tmp_path, "eval-score", "run-config-extension", str(path))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["critical_failure"] is True
+    assert json.loads(result.stdout)["total"] == 14
+    path.write_text(baseline[:-1] + ", " + duplicate + "}", encoding="utf-8")
+    before = _git(tmp_path, "status", "--porcelain=v1")
+    result = _run(tmp_path, "eval-score", "run-config-extension", str(path))
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == "duplicate JSON key in eval score input\n"
+    assert _git(tmp_path, "status", "--porcelain=v1") == before
+
+
+def test_eval_score_rejects_nested_duplicate_without_echoing_key(
+    tmp_path: Path,
+) -> None:
+    _repository(tmp_path)
+    path = tmp_path / "scores.json"
+    path.write_text(
+        r'{"authority_reuse": [0, {"\u001b[2J": 1, "\u001b[2J": 2}]}', encoding="ascii"
+    )
+    result = _run(tmp_path, "eval-score", "run-config-extension", str(path))
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == "duplicate JSON key in eval score input\n"

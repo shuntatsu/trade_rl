@@ -24,13 +24,12 @@ from tests.evaluation.packet_pin_rule import (
     evaluate_pin,
     git_blob_reader,
 )
-from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
-from trade_rl.evaluation.trend_stop_study.protocol import (
-    OWNER_ROSTER_DECISION_URL,
-    PROTOCOL,
-    SUPERSEDES_PROTOCOL_DIGEST,
-    protocol_digest,
+from tests.evaluation.trend_stop_archive_support import (
+    PROTOCOL_SOURCE,
+    SPEC_SOURCE,
+    archived_text,
 )
+from tools.agent_repo.research_assurance import assurance_digest, evaluate_assurance
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKET_PATH = (
@@ -89,10 +88,6 @@ CLOSED_RUN = ClosedRun(
     # SHA-256 over (path, blob bytes) of the 165 closure files at b433ea8d == at the run
     content_digest="9e4eb9c5116797909cbd0827c5481c3625ddd1a25fc9e81360d458079c17705b",
 )
-
-
-def PROTOCOL_DIGEST_NOW() -> str:
-    return protocol_digest(PROTOCOL)
 
 
 # The bound code is the static import closure of these entry points (module-level and
@@ -315,14 +310,27 @@ def test_packet_is_valid_unreviewed_and_pinned() -> None:
     )
 
 
-def test_the_protocol_digest_is_pinned_and_supersedes_revision_1() -> None:
-    assert protocol_digest() == PINNED_PROTOCOL_DIGEST
-    assert SUPERSEDES_PROTOCOL_DIGEST != PINNED_PROTOCOL_DIGEST
-    assert PROTOCOL.roster_decision_url == OWNER_ROSTER_DECISION_URL
-    assert OWNER_ROSTER_DECISION_URL.endswith(f"#issuecomment-{DECISION_ID}")
-    assert len(PROTOCOL.symbols) == 11
-    text = " ".join(PROTOCOL.deviations)
-    assert "no exclusion path" in text and "every (timeframe, variant)" in text
+def test_archived_protocol_and_spec_are_pinned_and_supersede_revision_1() -> None:
+    source = archived_text(PROTOCOL_SOURCE)
+    spec = archived_text(SPEC_SOURCE)
+    assert PINNED_PROTOCOL_DIGEST in spec
+    assert "f57f2d6dedd9a46b4d4ffc57c70dc495f60e517d8cd14f873c1cdab47d02bb9d" in source
+    assert f"#issuecomment-{DECISION_ID}" in source
+    assert "no exclusion path" in source and "every (timeframe, variant)" in source
+    tree = ast.parse(source)
+    cls = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "TrendStopProtocol"
+    )
+    symbols = next(
+        node
+        for node in cls.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "symbols"
+    )
+    assert symbols.value is not None and len(ast.literal_eval(symbols.value)) == 11
 
 
 def test_packet_claims_nothing_beyond_software_validity() -> None:
@@ -413,10 +421,10 @@ def test_packet_carries_the_prior_exposure_disclosures_and_the_review_route() ->
 
 
 def test_documents_name_the_packet_and_the_protocol_digest() -> None:
-    spec = _flat(SPEC)
+    spec = " ".join(archived_text(SPEC_SOURCE).split())
     status = _flat(STATUS)
     architecture = _flat(ARCHITECTURE)
-    assert "Status: Active" in SPEC.read_text(encoding="utf-8")
+    assert not SPEC.exists()
     for text in (spec, status):
         assert PINNED_PROTOCOL_DIGEST in text
         assert (
@@ -436,7 +444,7 @@ def test_documents_name_the_packet_and_the_protocol_digest() -> None:
 
 
 def test_spec_states_the_registered_rules_of_revision_2() -> None:
-    text = _flat(SPEC)
+    text = " ".join(archived_text(SPEC_SOURCE).split())
     for needle in (
         "no exclusion path, no minimum roster size and no CLI option for either",
         "one probe per (timeframe, variant) pair",
@@ -461,10 +469,7 @@ def test_spec_states_the_registered_rules_of_revision_2() -> None:
         assert needle in text, needle
     assert " k," not in text.split("## 5.")[0]
     assert "docs/research/trend-stop-protocol.md" not in text
-    for path in ("trade_rl/evaluation/trend_stop_study/protocol.py",):
-        assert "docs/research/trend-stop-protocol.md" not in (ROOT / path).read_text(
-            encoding="utf-8"
-        )
+    assert "docs/research/trend-stop-protocol.md" not in archived_text(PROTOCOL_SOURCE)
 
 
 def _packet_head_at(commit: str, path: str) -> str:
@@ -503,7 +508,8 @@ def test_closed_run_record_binds_the_run_commit_and_authorizes_no_further_run() 
         _git("merge-base", "--is-ancestor", CLOSED_RUN.run_commit, "HEAD").returncode
         == 0
     )
-    assert CLOSED_RUN.protocol_digest == PROTOCOL_DIGEST_NOW()
+    assert CLOSED_RUN.protocol_digest == PINNED_PROTOCOL_DIGEST
+    assert PINNED_PROTOCOL_DIGEST in archived_text(SPEC_SOURCE)
     assert CLOSED_RUN.further_runs_authorized is False
     architecture = " ".join(ARCHITECTURE_DOC.read_text(encoding="utf-8").split())
     assert "closed packet" in architecture

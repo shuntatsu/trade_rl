@@ -18,7 +18,7 @@ the bar's favourable extreme applied first (adverse ordering). The exit is then 
 normal order that fills at the next bar's open under the engine's cost model, so a
 gap through the stop is taken in full and no fill is invented at the stop price.
 The runner separately reports any fill that was *better* than the stop level, so a
-stop-price haircut can be applied (see ``trade_rl.evaluation.trend_stop_study``).
+stop-price haircut can be applied (see the frozen trend-stop study archive; no current study runner).
 """
 
 from __future__ import annotations

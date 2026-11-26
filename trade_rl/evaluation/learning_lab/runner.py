@@ -114,6 +114,10 @@ class LabSetup:
             or self.initial_capital <= 0
         ):
             raise RunnerError("initial_capital must be finite and positive")
+        if self.dataset.native_clock is not None:
+            raise RunnerError(
+                "legacy learning-lab protocol does not admit native fixed execution"
+            )
         splits.require_before_cutoff(self.dataset.timestamps)
         splits.validate_split_set(dict(self.splits))
 
@@ -122,7 +126,12 @@ class LabSetup:
 
     @property
     def periods_per_year(self) -> int:
-        return int(self.dataset.periods_per_year)
+        periods = self.dataset.periods_per_year
+        if type(periods) is not int:
+            raise RunnerError(
+                "legacy learning-lab protocol requires integer annual frequency"
+            )
+        return periods
 
 
 def synthetic_splits(

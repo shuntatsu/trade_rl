@@ -469,10 +469,20 @@ class MarketExecutor:
         fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
         self.dataset = dataset
+        self._native_fixed_dataset = (
+            dataset if dataset.native_clock is not None else None
+        )
+        if self._native_fixed_dataset is not None and not dataset.identity_verified:
+            raise ValueError(
+                "native fixed execution requires a verified Dataset identity"
+            )
         self.cost = cost or ExecutionCostConfig()
+        self._validate_native_fixed_configuration()
         if type(strict_spot_cash) is not bool:
             raise ValueError("strict_spot_cash must be boolean")
-        self._strict_spot_cash = strict_spot_cash
+        self._strict_spot_cash = (
+            strict_spot_cash or self._native_fixed_dataset is not None
+        )
         self._validate_strict_spot_configuration()
         self.insolvency_valuation = insolvency_valuation
         if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
@@ -535,6 +545,29 @@ class MarketExecutor:
     def strict_spot_cash(self) -> bool:
         """Opt-in cash-only native order admission (not venue spot attestation)."""
         return self._strict_spot_cash
+
+    def _validate_native_fixed_configuration(self) -> None:
+        if (
+            self._native_fixed_dataset is not None
+            and self.dataset is not self._native_fixed_dataset
+        ) or (
+            self._native_fixed_dataset is None and self.dataset.native_clock is not None
+        ):
+            raise ValueError(
+                "native fixed execution requires a fresh executor for a different Dataset"
+            )
+        if self.dataset.native_clock is not None and (
+            self.cost.order_type != "market"
+            or self.cost.processing_bar_volume_capacity
+            or self.cost.allow_short
+            or self.cost.max_leverage > 1.0
+            or self.cost.collateral_haircut != 1.0
+            or self.cost.slippage_std != 0.0
+            or self.cost.tail_slippage_probability != 0.0
+        ):
+            raise ValueError(
+                "native fixed execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
+            )
 
     def _validate_strict_spot_configuration(self) -> None:
         if self.strict_spot_cash and (
@@ -1501,6 +1534,10 @@ class MarketExecutor:
         return compatibility
 
     def liquidate_at_close(self, book: BookState, *, index: int) -> ExecutionResult:
+        if self.dataset.native_clock is not None:
+            raise ValueError(
+                "native fixed execution requires next-open stateful settlement"
+            )
         if self.strict_spot_cash:
             raise ValueError("strict spot cash requires stateful settlement orders")
         if self.market_order_profile is not None:

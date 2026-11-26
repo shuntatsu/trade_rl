@@ -31,4 +31,4 @@ def test_ppo_runtime_runs_four_family_actual_ppo_integration() -> None:
     assert SCENARIO_ATTEMPT_TEST in selected_tests
     assert SCENARIO_REPLAY_TEST in selected_tests
     assert MANIFEST_TEST in selected_tests
-    assert PROBABILITY_PROBE_TEST in selected_tests
+    assert PROBABILITY_PROBE_TEST not in selected_tests

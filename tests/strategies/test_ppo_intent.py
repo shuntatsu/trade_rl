@@ -11,7 +11,6 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.replay import run_single_symbol_replay
-from trade_rl.evaluation.rl_family_comparison.contract import fixed_comparison_contract
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
@@ -1001,7 +1000,31 @@ def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     fitted = FakePPO.last
     assert fitted is not None
     assert fitted.policy == "MlpPolicy"
-    algorithm = fixed_comparison_contract()["algorithm_settings"]["ppo"]
+    # Assert the core adapter defaults independently of any research protocol.
+    algorithm = {
+        "rollout_steps": 2048,
+        "minibatch_size": 64,
+        "epochs": 10,
+        "learning_rate": 0.0003,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "optimizer": "Adam",
+        "network": [64, 64],
+        "activation": "Tanh",
+        "clip_range": 0.2,
+        "clip_range_vf": None,
+        "normalize_advantage": True,
+        "entropy_coefficient": 0.0,
+        "value_coefficient": 0.5,
+        "max_gradient_norm": 0.5,
+        "use_sde": False,
+        "sde_sample_freq": -1,
+        "target_kl": None,
+        "optimizer_epsilon": 1e-05,
+        "shared_feature_extractor": True,
+        "orthogonal_initialization": True,
+        "feature_extractor": "FlattenExtractor",
+    }
     policy_kwargs = fitted.kwargs["policy_kwargs"]
     assert policy_kwargs["net_arch"] == {
         "pi": algorithm["network"],

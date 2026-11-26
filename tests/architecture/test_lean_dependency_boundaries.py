@@ -56,6 +56,10 @@ def test_no_production_imports_retired_domain() -> None:
     assert _offenders(PACKAGE, ("trade_rl.domain",)) == []
 
 
+def test_core_does_not_import_external_research_package() -> None:
+    assert _offenders(PACKAGE, ("trade_rl_research",)) == []
+
+
 def test_validation_module_is_standard_library_only() -> None:
     path = PACKAGE / "_validation.py"
     assert path.is_file()

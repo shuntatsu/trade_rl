@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from tests.data.test_mtf6_signals import _make_alternating_dataset
-from tests.evaluation.trend_stop_support import synthetic_dataset
+from tests.evaluation.generated_market_fixture import synthetic_dataset
 from trade_rl.data.features.mtf6_signals import (
     Mtf6SignalPack,
     build_mtf6_signal_pack,

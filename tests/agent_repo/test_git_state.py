@@ -214,3 +214,50 @@ def test_read_git_state_reports_literal_branch_with_optional_tag_shadow(
 
     assert state.branch == branch
     assert state.head == _git(tmp_path, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize(
+    "change", ["unstaged", "staged", "committed", "dirty", "untracked", "clean"]
+)
+def test_read_git_state_ignores_submodule_hiding_config(
+    tmp_path: Path, change: str
+) -> None:
+    root = tmp_path / "root"
+    source = tmp_path / "source"
+    root.mkdir()
+    source.mkdir()
+    _init_repository(root)
+    _init_repository(source)
+    _git(
+        root,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(source),
+        "nested",
+    )
+    _git(root, "commit", "-m", "add local submodule")
+    _git(root, "switch", "-c", "feature")
+    nested = root / "nested"
+    _git(nested, "config", "user.name", "Test User")
+    _git(nested, "config", "user.email", "test@example.com")
+    if change in {"unstaged", "staged", "committed", "dirty"}:
+        (nested / "trade_rl" / "a.py").write_text("VALUE = 2\n", encoding="utf-8")
+    if change in {"unstaged", "staged", "committed"}:
+        _git(nested, "commit", "-am", "change local submodule")
+    if change == "untracked":
+        (nested / "scratch.txt").write_text("scratch\n", encoding="utf-8")
+    if change in {"staged", "committed"}:
+        _git(root, "add", "nested")
+    if change == "committed":
+        _git(root, "commit", "-m", "advance gitlink")
+    _git(root, "config", "diff.ignoreSubmodules", "all")
+    _git(root, "config", "submodule.nested.ignore", "all")
+
+    state = read_git_state(root, base_ref="main")
+
+    assert state.dirty_paths == (
+        () if change in {"committed", "clean"} else ("nested",)
+    )
+    assert state.changed_paths == (() if change == "clean" else ("nested",))

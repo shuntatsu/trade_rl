@@ -25,9 +25,9 @@ def test_optional_platform_workflow_is_read_only_and_narrowly_triggered() -> Non
     assert "persist-credentials: false" in source
     assert "continue-on-error:" not in source
     head_ref = chr(36) + "{{ github.event.pull_request.head.sha || github.sha }}"
-    assert source.count("ref: " + head_ref) == 3
-    assert len(re.findall(r"uses: actions/checkout@[0-9a-f]{40}", source)) == 3
-    assert len(re.findall(r"uses: astral-sh/setup-uv@[0-9a-f]{40}", source)) == 3
+    assert source.count("ref: " + head_ref) == 4
+    assert len(re.findall(r"uses: actions/checkout@[0-9a-f]{40}", source)) == 4
+    assert len(re.findall(r"uses: astral-sh/setup-uv@[0-9a-f]{40}", source)) == 4
     assert "secrets." not in source
 
 
@@ -166,8 +166,8 @@ def test_linux_optional_jobs_use_runner_toolcache_without_uv_python_download() -
     assert "runs-on: windows-latest" in windows
     assert "name: Set up uv and Python" in windows
     assert "actions/setup-python@" not in windows
-    assert source.count("UV_PYTHON_DOWNLOADS: never") == 2
-    assert source.count("UV_PYTHON_PREFERENCE: only-system") == 2
+    assert source.count("UV_PYTHON_DOWNLOADS: never") == 3
+    assert source.count("UV_PYTHON_PREFERENCE: only-system") == 3
 
 
 def test_native_recovery_runs_on_windows_without_skips() -> None:
@@ -227,3 +227,48 @@ def test_full_size_native_recovery_is_an_actual_windows_exact_count_case() -> No
         "trade_rl/strategies/forecasts/supervised.py",
     ):
         assert source.count("      - " + dependency + "\n") == 2
+
+
+def test_windows_rl_runtime_uses_locked_extras_and_exact_cases() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    assert "  windows-rl-runtime:\n" in source
+    job = _job(source, "windows-rl-runtime", "windows-job-object")
+    assert "runs-on: windows-latest" in job
+    assert "UV_PYTHON_PREFERENCE: only-system" in job
+    assert "UV_PYTHON_DOWNLOADS: never" in job
+    assert 'CUDA_VISIBLE_DEVICES: ""' in job
+    assert "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0" in job
+    assert "astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d" in job
+    assert 'version: "0.13.10"' in job
+    assert "uv sync --locked --extra dev --extra train-sb3 --extra learning-lab" in job
+    assert "assert os.name == 'nt'" in job
+    assert "import os, torch, stable_baselines3, sb3_contrib, lightgbm" in job
+    assert "git rev-parse HEAD" in job
+    assert "persist-credentials: false" in job
+    assert "continue-on-error:" not in job
+    for case in (
+        "tests/integrations/test_ppo_sb3_runtime.py::test_real_sb3_accepts_environment_and_runs_sequential_rollout",
+        "tests/integrations/test_ppo_sb3_runtime.py::test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract",
+        "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_records_effective_steps_and_scope",
+        "tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_bundle_load_roundtrip",
+        "tests/evaluation/test_learning_lab_runner.py::test_native_agent_checkpoint_roundtrip_without_registry",
+        "tests/evaluation/test_learning_lab_runner.py::test_registry_refuses_missing_native_lock_without_mutation",
+    ):
+        assert case in job
+    assert "m1-windows-rl.xml" in job
+    assert "python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 9" in job
+    assert (
+        "test_every_agent_trains_checkpoints_and_evaluates_on_a_tiny_dataset" not in job
+    )
+    for path in (
+        "pyproject.toml",
+        "uv.lock",
+        "trade_rl/strategies/rl/**",
+        "trade_rl/evaluation/learning_lab/**",
+        "tests/integrations/test_ppo_sb3_runtime.py",
+        "tests/integrations/test_a2c_sb3_runtime.py",
+        "tests/evaluation/test_learning_lab_runner.py",
+        "tests/evaluation/learning_lab_support.py",
+        "tests/strategies/test_ppo_interleaved_training.py",
+    ):
+        assert source.count("      - " + path + "\n") == 2

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from tests.evaluation import learning_lab_support as support
 from tools import core7_g4_comment as g4
 from tools import learning_lab as tool
 from trade_rl.evaluation.learning_lab import agents, baselines, runner, splits
+from trade_rl.evaluation.learning_lab import registry as reg
 from trade_rl.evaluation.learning_lab.registry import TrialRegistry
 
 pytest.importorskip("torch")
@@ -95,6 +97,62 @@ def test_every_agent_trains_checkpoints_and_evaluates_on_a_tiny_dataset(
     for key in ("sharpe_per_period", "max_drawdown", "half1", "half2", "n_obs"):
         assert key in validated.metrics
     assert [r.split for r in registry.records()] == [splits.TRAIN, splits.VALIDATE]
+
+
+@pytest.mark.parametrize("algorithm", _algorithms())
+def test_native_agent_checkpoint_roundtrip_without_registry(
+    algorithm: str, tmp_path: Path
+) -> None:
+    """Exercise the native model runtime without the POSIX registry contract."""
+    setup = support.synthetic_setup(n_bars=120)
+    config = _config(algorithm)
+    trained = agents.train_agent(
+        runner.make_env(setup, splits.TRAIN, algorithm), config, tmp_path / "ckpt"
+    )
+    digest = hashlib.sha256(trained.checkpoint.read_bytes()).hexdigest()
+    assert trained.checkpoint_sha256 == digest
+    assert (
+        trained.checkpoint.with_suffix(".sha256").read_text(encoding="utf-8").split()[0]
+        == digest
+    )
+    with pytest.raises(agents.AgentError, match="sha256"):
+        agents.load_agent(algorithm, trained.checkpoint, sha256="0" * 64)
+    model = agents.load_agent(algorithm, trained.checkpoint, sha256=digest)
+    assert model.device.type == "cpu"
+    result = agents.evaluate_agent(
+        model,
+        runner.make_env(setup, splits.VALIDATE, algorithm),
+        method=agents.method_id_for(algorithm),
+    )
+    assert len(result.bar_returns) > 0
+    assert np.isfinite(result.final_equity)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["ckpt"]
+
+
+def test_registry_refuses_missing_native_lock_without_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows uses its actual unsupported lock boundary; POSIX injects absence."""
+    if os.name == "nt":
+        assert reg.fcntl is None
+    else:
+        monkeypatch.setattr(reg, "fcntl", None)
+    path = tmp_path / "absent" / "trials.jsonl"
+    registry = TrialRegistry(path)
+    with pytest.raises(reg.RegistryError, match="POSIX no-follow file locking"):
+        registry.verify()
+    record = reg.TrialRecord(
+        method_id="L1-PPO",
+        config_digest="a" * 64,
+        seed=0,
+        split=splits.TRAIN,
+        code_commit=COMMIT,
+        metrics={},
+        status="completed",
+    )
+    with pytest.raises(reg.RegistryError, match="POSIX no-follow file locking"):
+        registry.append(record)
+    assert not path.parent.exists()
 
 
 def test_evaluation_is_deterministic_and_the_checkpoint_digest_is_enforced(

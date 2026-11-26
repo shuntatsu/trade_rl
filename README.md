@@ -71,6 +71,8 @@ The candidate comparison below requires a canonical filesystem market dataset
 artifact and one JSON run config. Market-data artifacts are not committed to this
 repository.
 
+The optional RL runtimes (train-sb3 and learning-lab) use the locked PyTorch wheel. With Torch 2.13.0, Apple Silicon requires macOS 14 or later (the previous Torch 2.4.1 wheel also admitted macOS 13); older macOS cannot install these locked RL extras. Linux x86_64/aarch64 Torch wheels require glibc 2.28 or later. This is a wheel-availability boundary, not a claim of native verification on every listed platform. Core-only installation does not require Torch.
+
 ```bash
 uv run --extra forecast-gbm --extra train-sb3 \
   python -m trade_rl.evaluation.runs.candidate \

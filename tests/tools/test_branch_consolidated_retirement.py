@@ -126,6 +126,9 @@ def test_consolidated_proof_cannot_override_live_or_reserved_refs(
         "fix/protected",
         "research/saved",
         "fix/m1-retain",
+        "fix/issue1112-m1-audit-20261123",
+        "fix/issue1112-junit-nested-counts-20261124",
+        "audit/m1-retained",
         "coordination/task-registry",
         "task/lease",
         "lease/task",
@@ -401,3 +404,49 @@ def test_unscoped_consolidated_cli_apply_refuses_before_api() -> None:
                 "--include-consolidated",
             ]
         )
+
+
+def test_octopus_first_introduction_is_not_normal_carrier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base, source, carrier, _, divergent = _graph(tmp_path)
+    _git(tmp_path, "reset", "--hard", base)
+    # Independent third parent with a real commit. commit-tree makes the
+    # parent-count oracle independent of git merge strategy selection.
+    tree = _git(tmp_path, "rev-parse", f"{base}^{{tree}}")
+    octopus = _git(
+        tmp_path,
+        "commit-tree",
+        tree,
+        "-p",
+        base,
+        "-p",
+        carrier,
+        "-p",
+        divergent,
+        "-m",
+        "octopus",
+    )
+    assert len(_git(tmp_path, "show", "-s", "--format=%P", octopus).split()) == 3
+    monkeypatch.chdir(tmp_path)
+    api = GitHubApi(
+        repository="shuntatsu/trade_rl", token="fake", api_url="https://github.invalid"
+    )
+    monkeypatch.setattr(
+        api,
+        "_list_pages",
+        lambda *a, **kw: [
+            _entry(10, "fix/carrier", carrier, merged_sha=octopus),
+            _entry(1, "fix/constituent", source),
+        ],
+    )
+    assert (
+        api.consolidated_pr_source_refs(
+            (
+                BranchInfo("main", octopus, False),
+                BranchInfo("fix/constituent", source, False),
+            ),
+            main_sha=octopus,
+        )
+        == ()
+    )

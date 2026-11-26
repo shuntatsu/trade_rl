@@ -49,6 +49,13 @@ on:
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py
       - tests/tools/test_ci_exact_pytest_counts.py
+      - trade_rl/strategies/rl/**
+      - trade_rl/evaluation/learning_lab/**
+      - tests/integrations/test_ppo_sb3_runtime.py
+      - tests/integrations/test_a2c_sb3_runtime.py
+      - tests/evaluation/test_learning_lab_runner.py
+      - tests/evaluation/learning_lab_support.py
+      - tests/strategies/test_ppo_interleaved_training.py
       - pyproject.toml
       - uv.lock
   push:
@@ -99,6 +106,13 @@ on:
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py
       - tests/tools/test_ci_exact_pytest_counts.py
+      - trade_rl/strategies/rl/**
+      - trade_rl/evaluation/learning_lab/**
+      - tests/integrations/test_ppo_sb3_runtime.py
+      - tests/integrations/test_a2c_sb3_runtime.py
+      - tests/evaluation/test_learning_lab_runner.py
+      - tests/evaluation/learning_lab_support.py
+      - tests/strategies/test_ppo_interleaved_training.py
       - pyproject.toml
       - uv.lock
   workflow_dispatch:
@@ -111,6 +125,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-rl-runtime:
+    name: Windows Native RL Runtime
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      UV_PYTHON_DOWNLOADS: never
+      CUDA_VISIBLE_DEVICES: ""
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MPLBACKEND: Agg
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          check-latest: false
+
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.10"
+          enable-cache: true
+
+      - name: Install locked RL optional dependencies
+        run: uv sync --locked --extra dev --extra train-sb3 --extra learning-lab
+
+      - name: Verify exact source and native Windows RL imports
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD) -ne $env:HEAD_SHA) { throw "Unexpected checkout" }
+          uv run --no-sync python -I -c "import os, torch, stable_baselines3, sb3_contrib, lightgbm; assert os.name == 'nt'; assert torch.tensor([1, 2], device='cpu').sum().item() == 3; print(torch.__version__, stable_baselines3.__version__, sb3_contrib.__version__, lightgbm.__version__)"
+
+      - name: Execute native Windows PPO A2C and Learning Lab synthetic cases
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          --junitxml="${{ runner.temp }}/m1-windows-rl.xml"
+          tests/integrations/test_ppo_sb3_runtime.py::test_real_sb3_accepts_environment_and_runs_sequential_rollout
+          tests/integrations/test_ppo_sb3_runtime.py::test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract
+          tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_records_effective_steps_and_scope
+          tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_bundle_load_roundtrip
+          tests/evaluation/test_learning_lab_runner.py::test_native_agent_checkpoint_roundtrip_without_registry
+          tests/evaluation/test_learning_lab_runner.py::test_registry_refuses_missing_native_lock_without_mutation
+
+      - name: Require all nine native RL and registry boundary cases without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 9
+
   windows-job-object:
     name: Windows Native Job Object
     runs-on: windows-latest

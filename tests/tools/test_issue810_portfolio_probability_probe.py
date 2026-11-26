@@ -108,6 +108,8 @@ def test_extracts_real_per_coordinate_probabilities_in_declared_order(
     )
 
     assert result.get("schema") == "issue810_portfolio_action_probabilities_v1"
+    assert result.get("torch_version") == "2.13.0"
+    assert result.get("torch_runtime_version") == str(torch.__version__)
     assert result.get("ordered_symbols") == ["BTCUSDT", "ETHUSDT"]
     assert result.get("action_order") == ["HOLD", "SHORT", "FLAT", "LONG"]
     assert result.get("symbol_order_source") == "caller_declared_not_verified"
@@ -299,8 +301,9 @@ def test_rejects_invalid_probability_rows(
     ("package", "wrong_version"),
     [
         ("stable-baselines3", "2.3.1"),
-        ("torch", "2.4.0"),
-        ("torch", "2.4.1+cu121"),
+        ("torch", "2.4.1"),
+        ("torch", "2.13.1"),
+        ("torch", "2.13.0+cu130"),
     ],
 )
 def test_rejects_unpinned_dependency_versions_before_inference(
@@ -326,7 +329,7 @@ def test_rejects_unpinned_dependency_versions_before_inference(
         lambda _obs: pytest.fail("version mismatch must stop before inference"),
     )
     expected = (
-        "stable-baselines3 2.3.2" if package == "stable-baselines3" else "torch 2.4.1"
+        "stable-baselines3 2.3.2" if package == "stable-baselines3" else "torch 2.13.0"
     )
     with pytest.raises(RuntimeError, match=expected):
         probe.extract_portfolio_action_probabilities(
@@ -338,7 +341,7 @@ def test_rejects_unpinned_dependency_versions_before_inference(
 
 @pytest.mark.parametrize(
     "runtime_version",
-    ["2.4.1", "2.4.1+cpu", "2.4.1+cu121"],
+    ["2.13.0", "2.13.0+cpu", "2.13.0+cu130"],
 )
 def test_accepts_pinned_torch_runtime_with_valid_local_build_suffix(
     monkeypatch: pytest.MonkeyPatch,
@@ -351,23 +354,23 @@ def test_accepts_pinned_torch_runtime_with_valid_local_build_suffix(
         "version",
         lambda package: {
             "stable-baselines3": "2.3.2",
-            "torch": "2.4.1",
+            "torch": "2.13.0",
         }[package],
     )
 
     runtime = probe._load_pinned_runtime()
 
-    assert runtime.torch_version == "2.4.1"
+    assert runtime.torch_version == "2.13.0"
     assert runtime.torch_runtime_version == runtime_version
 
 
 @pytest.mark.parametrize(
     "runtime_version",
     [
-        "2.4.0+cu121",
-        "2.5.0+cpu",
-        "2.4.1rc1+cu121",
-        "2.4.1+cu121?",
+        "2.4.1+cu121",
+        "2.13.1+cpu",
+        "2.13.0rc1+cu130",
+        "2.13.0+cu130?",
     ],
 )
 def test_rejects_mismatched_or_invalid_torch_runtime_versions(
@@ -381,7 +384,7 @@ def test_rejects_mismatched_or_invalid_torch_runtime_versions(
         "version",
         lambda package: {
             "stable-baselines3": "2.3.2",
-            "torch": "2.4.1",
+            "torch": "2.13.0",
         }[package],
     )
 

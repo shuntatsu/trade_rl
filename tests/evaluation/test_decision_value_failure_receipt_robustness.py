@@ -934,3 +934,112 @@ def test_spool_copy_io_failure_does_not_publish_or_reclassify_evidence(
     assert calls == ["copy"]
     assert not root.exists()
     assert not list(tmp_path.glob(".td8-incomplete-*"))
+
+
+@pytest.mark.parametrize(
+    "error_type", [MemoryError, ValueError, OverflowError, OSError]
+)
+def test_mapping_failure_does_not_quarantine_valid_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[Exception],
+) -> None:
+    """A mapping error is not a verdict about the record's financial content."""
+    real_mapping = study.mmap.mmap
+    calls = []
+
+    class FailOnceMapping(real_mapping):
+        def __new__(cls, *args, **kwargs):
+            calls.append("map")
+            if len(calls) == 1:
+                raise error_type("injected mapping failure")
+            return super().__new__(cls, *args, **kwargs)
+
+    monkeypatch.setattr(study.mmap, "mmap", FailOnceMapping)
+    root = tmp_path / "attempt"
+    with pytest.raises(error_type, match="injected mapping failure"):
+        _persist(root, _row())
+    assert calls == ["map"]
+    assert not root.exists()
+    assert not list(tmp_path.glob(".td8-incomplete-*"))
+
+
+@pytest.mark.parametrize("error_type", [MemoryError, OSError])
+@pytest.mark.parametrize("phase", ["source", "decode", "quarantine_source"])
+def test_memory_exhaustion_is_not_invalid_financial_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+    error_type: type[Exception],
+) -> None:
+    if phase in ("source", "quarantine_source"):
+        owner, name = labels.IneligiblePairOutcome, "to_mapping"
+    else:
+        owner, name = study, "_decode_incomplete_receipt"
+    original = getattr(owner, name)
+    calls = []
+
+    def fail_once(*args, **kwargs):
+        calls.append(phase)
+        if phase == "quarantine_source" and len(calls) == 1:
+            raise ValueError("injected semantic failure")
+        if len(calls) == (2 if phase == "quarantine_source" else 1):
+            raise error_type("injected resource failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(owner, name, fail_once)
+    root = tmp_path / "attempt"
+    with pytest.raises(error_type, match="injected resource failure"):
+        _persist(root, _row())
+    assert calls == [phase] * (2 if phase == "quarantine_source" else 1)
+    assert not root.exists()
+    assert not list(tmp_path.glob(".td8-incomplete-*"))
+
+
+@pytest.mark.parametrize("phase", ["write", "flush", "short_write"])
+def test_spool_storage_failure_does_not_trigger_quarantine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    real_temporary_file = study.tempfile.TemporaryFile
+    injected = []
+
+    class SpoolFault:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def write(self, part):
+            if not injected and phase in ("write", "short_write"):
+                injected.append(phase)
+                if phase == "write":
+                    raise ValueError("injected spool write failure")
+                return 0
+            return self.handle.write(part)
+
+        def flush(self):
+            if not injected and phase == "flush":
+                injected.append(phase)
+                raise ValueError("injected spool flush failure")
+            return self.handle.flush()
+
+    monkeypatch.setattr(
+        study.tempfile,
+        "TemporaryFile",
+        lambda *args, **kwargs: SpoolFault(real_temporary_file(*args, **kwargs)),
+    )
+    root = tmp_path / "attempt"
+    expected = OSError if phase == "short_write" else ValueError
+    with pytest.raises(expected, match="spool"):
+        _persist(root, _row())
+    assert injected == [phase]
+    assert not root.exists()
+    assert not list(tmp_path.glob(".td8-incomplete-*"))

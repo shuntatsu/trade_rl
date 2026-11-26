@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
-from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,10 +13,8 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.dev_realdata_study import runner
 from trade_rl.evaluation.dev_realdata_study import trial_sources as sources
-from trade_rl.evaluation.dev_realdata_study import trial_study as study
 from trade_rl.evaluation.dev_realdata_study.metrics import select_development_label
 from trade_rl.evaluation.dev_realdata_study.protocol import (
-    ARM_BUY_AND_HOLD,
     ARM_CASH,
     LABEL_NO_WINNER,
     LABEL_PROMISING,
@@ -30,7 +26,6 @@ from trade_rl.evaluation.dev_realdata_study.trials import (
     ALL_ARMS,
     CANDIDATE_POOL,
     CONSTANTS,
-    LABEL_FAILED_TO_RUN,
     PR_C_ARMS,
     TRIAL_ARMS,
     TRIALS,
@@ -277,7 +272,7 @@ def test_pure_series_signals_ignore_the_future(
 
 def served(arm: str, data: MarketDataset) -> list[tuple[float, ...]]:
     protocol = small_protocol()
-    context = study.make_context(data, protocol)
+    context = sources.TrialContext(data, protocol)
     built = sources.build_phase2_arm(arm, data, protocol, context)
     return [
         built.adapter.expected_simple_returns(snapshot_stub(day))
@@ -330,12 +325,12 @@ def test_real_replay_causality_probe_passes_for_registered_trials(
     report = runner.causality_probe(
         market,
         protocol,
-        study.make_context(market, protocol),
+        sources.TrialContext(market, protocol),
         start_index=runner._row_of(market, protocol.evaluation_start),
         arm=arm,
         expect_trades=False,
         arm_builder=sources.build_phase2_arm,
-        sources_builder=study.make_context,
+        sources_builder=sources.TrialContext,
     )
     assert report["identical_pre_cut_trace"] is True
     assert report["passed"] is True
@@ -353,12 +348,12 @@ def test_trial_probe_rule_does_not_require_pre_cut_trades(
 
     protocol = small_protocol()
     start = runner._row_of(market, protocol.evaluation_start)
-    context = study.make_context(market, protocol)
+    context = sources.TrialContext(market, protocol)
     common: dict[str, Any] = {
         "start_index": start,
         "arm": ARM_CASH,
         "arm_builder": sources.build_phase2_arm,
-        "sources_builder": study.make_context,
+        "sources_builder": sources.TrialContext,
     }
     strict = runner.causality_probe(market, protocol, context, **common)
     amended = runner.causality_probe(
@@ -367,18 +362,6 @@ def test_trial_probe_rule_does_not_require_pre_cut_trades(
     assert strict["identical_pre_cut_trace"] is True
     assert strict["pre_cut_trace_has_trades"] is False and strict["passed"] is False
     assert amended["pre_cut_trace_has_trades"] is False and amended["passed"] is True
-    # The study applies the amended rule to every trial probe it records.
-    outcome = study.run_arm(
-        market,
-        protocol,
-        "t3_funding_carry",
-        start_index=start,
-        stop_index=runner._row_of(market, protocol.evaluation_end),
-        say=lambda message: None,
-        matrix_cut=MATRIX_CUT,
-    )
-    assert outcome.probe is not None
-    assert outcome.probe["passed"] == outcome.probe["identical_pre_cut_trace"]
 
 
 # --- T4/T5 sources ---------------------------------------------------------
@@ -387,33 +370,11 @@ def test_trial_probe_rule_does_not_require_pre_cut_trades(
 def test_t4_uses_every_feature_and_t5_uses_the_pr_c_roster(
     market: MarketDataset,
 ) -> None:
-    context = study.make_context(market, small_protocol())
+    context = sources.TrialContext(market, small_protocol())
     all_source = context.forecast_source("ridge24_all")
     assert all_source.horizon_hours == 24
     assert len(all_source._feature_indices) == 5
     assert runner.feature_indices(market, small_protocol()) == (0, 1)
-
-
-def test_missing_lightgbm_is_a_recorded_failure_not_a_substitute(
-    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def refuse(name: str) -> Any:
-        raise ModuleNotFoundError(name)
-
-    monkeypatch.setattr(sources.importlib, "import_module", refuse)
-    protocol = small_protocol()
-    outcome = study.run_arm(
-        market,
-        protocol,
-        "t5_lightgbm24",
-        start_index=runner._row_of(market, protocol.evaluation_start),
-        stop_index=runner._row_of(market, protocol.evaluation_end),
-        say=lambda message: None,
-    )
-    assert outcome.outcomes == {}
-    assert set(outcome.failures) >= set(SCENARIOS)
-    assert outcome.failures["base"]["status"] == LABEL_FAILED_TO_RUN
-    assert "forecast-gbm" in outcome.failures["base"]["error"]
 
 
 @pytest.mark.skipif(not LIGHTGBM_INSTALLED, reason="forecast-gbm extra not installed")
@@ -425,7 +386,7 @@ def test_lightgbm_trial_fits_with_the_fixed_parameters(market: MarketDataset) ->
         200,
     )
     assert fitter.learning_rate == 0.05
-    context = study.make_context(market, small_protocol())
+    context = sources.TrialContext(market, small_protocol())
     source = context.forecast_source("lgbm24_1h")
     packet = source.packet(0, np.datetime64("2021-10-10T00:00:00", "ns"))
     assert packet is not None
@@ -603,7 +564,7 @@ def test_overlay_policy_caps_gross_at_scale_times_gross_max() -> None:
 
 def test_t8_decides_only_on_mondays_at_midnight(market: MarketDataset) -> None:
     protocol = small_protocol()
-    context = study.make_context(market, protocol)
+    context = sources.TrialContext(market, protocol)
     built = sources.build_phase2_arm("t8_blend_weekly", market, protocol, context)
     runner.run_shared_portfolio_replay(
         market,
@@ -624,121 +585,12 @@ def test_t8_decides_only_on_mondays_at_midnight(market: MarketDataset) -> None:
 # --- full study ---------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def phase2(market: MarketDataset) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-    return study.run_phase2(market, small_protocol(), matrix_cut=MATRIX_CUT)
-
-
-def test_every_arm_and_scenario_is_reported(
-    phase2: tuple[dict[str, Any], dict[str, np.ndarray]],
-) -> None:
-    results, equity = phase2
-    assert tuple(results["arms"]) == ALL_ARMS
-    for arm in ALL_ARMS:
-        assert tuple(results["arms"][arm]) == SCENARIOS
-    assert [row["trial_id"] for row in results["trials"]] == [
-        f"T{i}" for i in range(1, 9)
-    ]
-    assert results["label"] in {LABEL_PROMISING, LABEL_NO_WINNER}
-    assert results["label"] != "WINNER"
-    assert results["label"] == results["label_pr_c_probe_rule"]
-    assert results["label_amended_rule"] in {LABEL_PROMISING, LABEL_NO_WINNER}
-    assert results["registry_digest"] == registry_digest()
-    assert results["bonferroni_comparisons"] == 13
-    for arm in ALL_ARMS:
-        if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
-            assert results["validity"][arm] is False
-            assert results["arms"][arm]["base"]["status"] == LABEL_FAILED_TO_RUN
-            assert (
-                results["selection_pr_c_probe_rule"]["arms"][arm]["eligible"] is False
-            )
-            continue
-        row = results["arms"][arm]["base"]
-        assert row["net_pnl_usdt"] == pytest.approx(
-            row["gross_price_pnl_usdt"]
-            - row["execution_costs_usdt"]
-            + row["funding_pnl_usdt"]
-        )
-        assert row["reconciliation"]["passed"] is True
-    assert set(results["selection_pr_c_probe_rule"]["arms"]) == set(CANDIDATE_POOL)
-    assert set(results["bootstrap"]["base"]) >= set(ALL_ARMS) - {ARM_CASH} - (
-        {"t5_lightgbm24"} if not LIGHTGBM_INSTALLED else set()
-    )
-    interval = results["bootstrap"]["base"]["t1_tsmom"]["vs_cash"]
-    assert (
-        interval["bonferroni_ci_low_annualized"]
-        <= interval["ci95_low_annualized"]
-        <= interval["ci95_high_annualized"]
-        <= interval["bonferroni_ci_high_annualized"]
-    )
-    cash = results["arms"][ARM_CASH]["base"]
-    assert cash["terminal_net_profit_pct"] == 0.0
-    assert ARM_BUY_AND_HOLD in results["arms"]
-    assert "t7_blend_dd_overlay" in results["arms"]
-    assert "overlay" in results["arms"]["t7_blend_dd_overlay"]["base"]
-    assert len(equity) >= 2 * len(SCENARIOS) * (len(ALL_ARMS) - 1)
-    # The PR-C causality matrix runs for every trial in every scenario.
-    for arm in TRIAL_ARMS:
-        if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
-            continue
-        cells = results["causality_matrix"][arm]
-        assert set(cells) == set(SCENARIOS)
-        assert all(cell["identical_pre_cut_trace"] for cell in cells.values())
-        assert results["validity_detail"][arm]["causality_matrix_passed"] is True
-    # Terminal-flat status and any residual are reported, never hidden.
-    for arm in ALL_ARMS:
-        if arm == "t5_lightgbm24" and not LIGHTGBM_INSTALLED:
-            continue
-        for scenario in SCENARIOS:
-            reconciliation = results["arms"][arm][scenario]["reconciliation"]
-            assert "terminal_residual_quantities" in reconciliation
-            assert reconciliation["terminal_residual_notional_usdt"] >= 0.0
-            if reconciliation["terminal_flat"]:
-                assert reconciliation["terminal_residual_quantities"] == {}
-                assert reconciliation["terminal_residual_notional_usdt"] == 0.0
-
-
-def test_a_failed_trial_is_recorded_and_never_selected(
-    market: MarketDataset,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def broken(context: Any, spec: Any) -> Any:
-        raise RuntimeError("boom")
-
-    monkeypatch.setitem(sources.SOURCE_REGISTRY, "tsmom", broken)
-    protocol = small_protocol()
-    outcome = study.run_arm(
-        market,
-        protocol,
-        "t1_tsmom",
-        start_index=runner._row_of(market, protocol.evaluation_start),
-        stop_index=runner._row_of(market, protocol.evaluation_end),
-        say=lambda message: None,
-    )
-    assert outcome.outcomes == {} and outcome.probe is None
-    assert outcome.failures["base"]["error"] == "boom"
-    assert "causality_probe" in outcome.failures
-    # Selection treats the failed arm as ineligible even with a great base row.
-    pool = {
-        arm: {
-            "base": {"terminal_net_profit_pct": 10.0, "max_drawdown_pct": 5.0},
-            "cost_x2": {"terminal_net_profit_pct": 5.0, "max_drawdown_pct": 6.0},
-            "latency_1bar": {"terminal_net_profit_pct": 1.0, "max_drawdown_pct": 7.0},
-        }
-        for arm in CANDIDATE_POOL
-    }
-    protocol_pool = replace(
-        study.phase2_protocol(small_protocol()), candidate_arms=CANDIDATE_POOL
-    )
-    valid = {arm: arm != "t1_tsmom" for arm in CANDIDATE_POOL}
-    selection = select_development_label(pool, valid, protocol_pool)
-    assert selection.rows["t1_tsmom"]["eligible"] is False
-    assert selection.label == LABEL_PROMISING and selection.selected_arm != "t1_tsmom"
-
-
 def test_selection_over_the_eleven_candidates_applies_the_pr_c_selection_rule() -> None:
     protocol = replace(
-        study.phase2_protocol(small_protocol()), candidate_arms=CANDIDATE_POOL
+        small_protocol(),
+        arms=ALL_ARMS,
+        candidate_arms=CANDIDATE_POOL,
+        bonferroni_comparisons=CONSTANTS.bonferroni_arms,
     )
 
     def rows(base: float, x2: float, drawdown: float) -> dict[str, dict[str, float]]:
@@ -769,67 +621,6 @@ def test_selection_over_the_eleven_candidates_applies_the_pr_c_selection_rule() 
     # Unprofitable at cost x2 removes it.
     fragile = {**good, "t7_blend_dd_overlay": rows(12.0, -0.1, 19.0)}
     assert select_development_label(fragile, valid, protocol).selected_arm == "t2_xsmom"
-
-
-def test_assemble_marks_a_missing_arm_failed_and_ineligible(
-    market: MarketDataset,
-) -> None:
-    protocol = small_protocol()
-    start = runner._row_of(market, protocol.evaluation_start)
-    stop = runner._row_of(market, protocol.evaluation_end)
-    runs = {
-        arm: study.ArmRun(arm, {}, {"worker": {"status": LABEL_FAILED_TO_RUN}}, None)
-        for arm in ALL_ARMS
-    }
-    for arm in (ARM_CASH, ARM_BUY_AND_HOLD):
-        runs[arm] = study.run_arm(
-            market, protocol, arm, start_index=start, stop_index=stop, say=print
-        )
-    results, _ = study.assemble(market, protocol, runs)
-    assert results["label"] == LABEL_NO_WINNER
-    assert all(row["status"] == LABEL_FAILED_TO_RUN for row in results["trials"])
-    assert all(
-        not row["eligible"]
-        for row in results["selection_pr_c_probe_rule"]["arms"].values()
-    )
-    assert results["arms"]["t3_funding_carry"]["base"]["status"] == LABEL_FAILED_TO_RUN
-
-
-def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
-    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
-
-    identified = synthetic_market().with_content_identity()
-    root = tmp_path / "dataset"
-    publish_market_dataset_artifact(root, identified)
-    protocol = small_protocol(dataset_id=identified.dataset_id)
-    start = runner._row_of(identified, protocol.evaluation_start)
-    stop = runner._row_of(identified, protocol.evaluation_end)
-    loader = partial(runner.load_dataset, str(root))
-    with ProcessPoolExecutor(max_workers=1) as pool:
-        remote = pool.submit(
-            study._arm_worker,
-            loader,
-            protocol,
-            "t3_funding_carry",
-            start,
-            stop,
-            MATRIX_CUT,
-        ).result()
-    local = study.run_arm(
-        identified,
-        protocol,
-        "t3_funding_carry",
-        start_index=start,
-        stop_index=stop,
-        say=lambda message: None,
-        matrix_cut=MATRIX_CUT,
-    )
-    assert remote.failures == {}
-    assert remote.probe_matrix == local.probe_matrix and remote.probe == local.probe
-    for scenario in SCENARIOS:
-        assert np.array_equal(
-            remote.outcomes[scenario].equity, local.outcomes[scenario].equity
-        )
 
 
 def _report(name: str) -> Any:

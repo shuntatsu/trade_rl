@@ -10,9 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from concurrent.futures import ProcessPoolExecutor
-from dataclasses import replace
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +18,6 @@ import pytest
 
 from tests.evaluation.test_dev_realdata_phase2_trials import (
     COST,
-    MATRIX_CUT,
     SYMBOLS,
     FakeRidge,
     small_protocol,
@@ -34,7 +30,6 @@ from trade_rl.evaluation.dev_realdata_study import (
     runner,
 )
 from trade_rl.evaluation.dev_realdata_study import phase3_sources as sources
-from trade_rl.evaluation.dev_realdata_study import phase3_study as study
 from trade_rl.evaluation.dev_realdata_study import trial_sources as phase2_sources
 from trade_rl.evaluation.dev_realdata_study.phase3_registry import (
     ALL_ARMS,
@@ -42,7 +37,6 @@ from trade_rl.evaluation.dev_realdata_study.phase3_registry import (
     CANDIDATE_POOL,
     CONTROL_ARMS,
     KAPPA,
-    LABEL_FAILED_TO_RUN,
     LABEL_NO_WINNER,
     LABEL_POST_HOC_PROMISING,
     P3_ARMS,
@@ -58,7 +52,6 @@ from trade_rl.evaluation.dev_realdata_study.phase3_registry import (
 from trade_rl.evaluation.dev_realdata_study.protocol import (
     ARM_BUY_AND_HOLD,
     ARM_CASH,
-    PROTOCOL,
     SCENARIOS,
 )
 from trade_rl.evaluation.dev_realdata_study.trials import CONSTANTS
@@ -535,134 +528,6 @@ def test_vol_target_diagnostics_reach_the_replay_summary(market: MarketDataset) 
 # --- full study ---------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def phase3(market: MarketDataset) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-    return study.run_phase3(market, small_protocol(), matrix_cut=MATRIX_CUT)
-
-
-def test_every_arm_and_scenario_is_reported(
-    phase3: tuple[dict[str, Any], dict[str, np.ndarray]],
-) -> None:
-    results, equity = phase3
-    assert tuple(results["arms"]) == ALL_ARMS
-    for arm in ALL_ARMS:
-        assert tuple(results["arms"][arm]) == SCENARIOS
-        for scenario in SCENARIOS:
-            row = results["arms"][arm][scenario]
-            assert row["reconciliation"]["passed"] is True
-            assert "terminal_residual_quantities" in row["reconciliation"]
-            assert row["net_pnl_usdt"] == pytest.approx(
-                row["gross_price_pnl_usdt"]
-                - row["execution_costs_usdt"]
-                + row["funding_pnl_usdt"]
-            )
-    assert results["label"] in {LABEL_POST_HOC_PROMISING, LABEL_NO_WINNER}
-    assert results["label"] != "WINNER" and "WINNER" not in {
-        results["label_amended_rule"],
-        results["label_pr_c_probe_rule"],
-    }
-    assert results["label"] == results["label_pr_c_probe_rule"]
-    assert results["registry_digest"] == registry_digest()
-    assert (
-        results["bonferroni_all_arms"] == 21 and results["bonferroni_family_arms"] == 8
-    )
-    assert set(results["selection_pr_c_probe_rule"]["arms"]) == set(CANDIDATE_POOL)
-    assert PASSIVE_COMPARATOR_ARM not in results["selection_pr_c_probe_rule"]["arms"]
-    assert results["selected_arm_pr_c_probe_rule"] != PASSIVE_COMPARATOR_ARM
-    assert [t["role"] for t in results["trials"]] == ["candidate"] * 6 + [
-        "control",
-        "candidate",
-    ]
-    cash = results["arms"][ARM_CASH]["base"]
-    assert cash["terminal_net_profit_pct"] == 0.0
-    assert len(equity) == 2 * len(SCENARIOS) * len(ALL_ARMS)
-    # the causality matrix runs for every arm but CASH in every scenario
-    for arm in ALL_ARMS:
-        if arm == ARM_CASH:
-            continue
-        cells = results["causality_matrix"][arm]
-        assert set(cells) == set(SCENARIOS)
-        assert all(cell["identical_pre_cut_trace"] for cell in cells.values())
-        detail = results["validity_detail"][arm]
-        assert detail["causality_matrix_identical_all_scenarios"] is True
-        assert detail["causality_probe_identical"] is True
-    # bootstrap: baselines and arms, three comparison columns, nested intervals
-    table = results["bootstrap"]["base"]
-    assert set(table) == set(ALL_ARMS) - {ARM_CASH}
-    assert set(table[ARM_BUY_AND_HOLD]) == {"vs_cash"}
-    assert set(table["p3_2_t4_kappa3_vt12"]) == {
-        "vs_cash",
-        "vs_equal_weight_buy_and_hold",
-        "vs_p3_7_vol_scaled_passive",
-    }
-    assert set(table[PASSIVE_COMPARATOR_ARM]) == {
-        "vs_cash",
-        "vs_equal_weight_buy_and_hold",
-    }
-    interval = table["p3_2_t4_kappa3_vt12"]["vs_cash"]
-    assert (
-        interval["bonferroni_all21_ci_low_annualized"]
-        <= interval["bonferroni_family8_ci_low_annualized"]
-        <= interval["ci95_low_annualized"]
-        <= interval["ci95_high_annualized"]
-        <= interval["bonferroni_family8_ci_high_annualized"]
-        <= interval["bonferroni_all21_ci_high_annualized"]
-    )
-    assert "vol_target" in results["arms"]["p3_2_t4_kappa3_vt12"]["base"]
-    assert "vol_target" not in results["arms"]["p3_1_t4_kappa3"]["base"]
-    assert "vol_target" in results["arms"][PASSIVE_COMPARATOR_ARM]["base"]
-
-
-def test_validity_rules_differ_only_through_the_trade_requirement(
-    phase3: tuple[dict[str, Any], dict[str, np.ndarray]],
-) -> None:
-    results, _ = phase3
-    pr_c, amended = (
-        results["validity_pr_c_probe_rule"],
-        results["validity_amended_rule"],
-    )
-    for arm in ALL_ARMS:
-        detail = results["validity_detail"][arm]
-        if pr_c[arm]:
-            assert amended[arm]
-        if amended[arm] and not pr_c[arm]:
-            assert detail["causality_probe_traded_before_cut"] is False
-
-
-def test_a_failed_arm_is_recorded_and_never_selected(
-    market: MarketDataset, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def broken(*_: object, **__: object) -> Any:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(sources, "xsmom_series", broken)
-    protocol = small_protocol()
-    outcome = study.run_arm(
-        market,
-        protocol,
-        "p3_3_t2_vt12",
-        start_index=runner._row_of(market, protocol.evaluation_start),
-        stop_index=runner._row_of(market, protocol.evaluation_end),
-        say=lambda message: None,
-        matrix_cut=MATRIX_CUT,
-    )
-    # p3_3 uses the T2 source directly, so it still runs; p3_6 needs xsmom_series.
-    assert set(outcome.outcomes) == set(SCENARIOS)
-    broken_arm = study.run_arm(
-        market,
-        protocol,
-        "p3_6_zblend_t2t4_kappa3_vt12",
-        start_index=runner._row_of(market, protocol.evaluation_start),
-        stop_index=runner._row_of(market, protocol.evaluation_end),
-        say=lambda message: None,
-        matrix_cut=MATRIX_CUT,
-    )
-    assert broken_arm.outcomes == {} and broken_arm.probe is None
-    assert broken_arm.failures["base"]["error"] == "boom"
-    assert broken_arm.failures["base"]["status"] == LABEL_FAILED_TO_RUN
-    assert "causality_probe" in broken_arm.failures
-
-
 def _fabricated(
     profits: dict[str, float], drawdown: float = 5.0
 ) -> dict[str, dict[str, dict[str, Any]]]:
@@ -680,107 +545,6 @@ def _fabricated(
         }
         for arm in ALL_ARMS
     }
-
-
-def test_selection_applies_the_pr_c_rule_with_the_post_hoc_vocabulary() -> None:
-    protocol = study.phase3_protocol(small_protocol())
-    valid = dict.fromkeys(CANDIDATE_POOL, True)
-    # P3-7 is the best arm but a control: never selected.
-    table = _fabricated({PASSIVE_COMPARATOR_ARM: 900.0, "p3_2_t4_kappa3_vt12": 40.0})
-    chosen = study._select(table, valid, protocol, study.RULE_PR_C)
-    assert chosen["label"] == LABEL_POST_HOC_PROMISING
-    assert chosen["selected_arm"] == "p3_2_t4_kappa3_vt12"
-    # Risk gate: a 20.5% drawdown in any scenario disqualifies.
-    gated = _fabricated({"p3_2_t4_kappa3_vt12": 40.0})
-    gated["p3_2_t4_kappa3_vt12"]["latency_1bar"]["max_drawdown_pct"] = 20.5
-    result = study._select(gated, valid, protocol, study.RULE_PR_C)
-    assert result["selected_arm"] != "p3_2_t4_kappa3_vt12"
-    # Invalid arms and arms that do not beat CASH at cost x2 are ineligible.
-    none = _fabricated({}, drawdown=30.0)
-    nothing = study._select(none, valid, protocol, study.RULE_PR_C)
-    assert nothing["label"] == LABEL_NO_WINNER and nothing["selected_arm"] is None
-    invalid = study._select(
-        _fabricated({"p3_1_t4_kappa3": 99.0}),
-        {**valid, "p3_1_t4_kappa3": False},
-        protocol,
-        study.RULE_PR_C,
-    )
-    assert invalid["selected_arm"] != "p3_1_t4_kappa3"
-    weak = _fabricated({"p3_1_t4_kappa3": 99.0})
-    weak["p3_1_t4_kappa3"]["cost_x2"]["terminal_net_profit_pct"] = -0.1
-    assert (
-        study._select(weak, valid, protocol, study.RULE_PR_C)["selected_arm"]
-        != "p3_1_t4_kappa3"
-    )
-
-
-def test_reproduction_check_detects_any_difference() -> None:
-    baseline = {
-        "terminal_net_profit_pct": 95.9,
-        "max_drawdown_pct": 63.4,
-        "net_pnl_usdt": 9590.0,
-        "execution_costs_usdt": 30.0,
-        "funding_pnl_usdt": -5.0,
-        "turnover_total": 0.99,
-        "n_trades": 5,
-    }
-    arms = {
-        arm: {scenario: dict(baseline) for scenario in SCENARIOS}
-        for arm in BASELINE_ARMS
-    }
-    ours = {"arms": arms}
-    same = study.phase2_reproduction_check(ours, {"arms": json.loads(json.dumps(arms))})
-    assert same["all_bit_identical"] is True
-    changed = json.loads(json.dumps(arms))
-    changed[ARM_BUY_AND_HOLD]["cost_x2"]["net_pnl_usdt"] += 1e-9
-    different = study.phase2_reproduction_check(ours, {"arms": changed})
-    assert different["all_bit_identical"] is False
-    assert different["rows"][f"{ARM_BUY_AND_HOLD}/cost_x2"]["bit_identical"] is False
-
-
-def test_arm_worker_runs_in_a_separate_process(tmp_path: Path) -> None:
-    from trade_rl.data.artifacts.publication import publish_market_dataset_artifact
-
-    identified = synthetic_market().with_content_identity()
-    root = tmp_path / "dataset"
-    publish_market_dataset_artifact(root, identified)
-    protocol = replace(small_protocol(), dataset_id=identified.dataset_id)
-    start = runner._row_of(identified, protocol.evaluation_start)
-    stop = runner._row_of(identified, protocol.evaluation_end)
-    loader = partial(runner.load_dataset, str(root))
-    arm = "p3_2_t4_kappa3_vt12"
-    with ProcessPoolExecutor(max_workers=1) as pool:
-        remote = pool.submit(
-            study._arm_worker, loader, protocol, arm, start, stop, MATRIX_CUT
-        ).result()
-    local = study.run_arm(
-        identified,
-        protocol,
-        arm,
-        start_index=start,
-        stop_index=stop,
-        say=lambda message: None,
-        matrix_cut=MATRIX_CUT,
-    )
-    assert remote.failures == {}
-    assert remote.probe_matrix == local.probe_matrix and remote.probe == local.probe
-    for scenario in SCENARIOS:
-        assert np.array_equal(
-            remote.outcomes[scenario].equity, local.outcomes[scenario].equity
-        )
-
-
-def test_the_roster_runner_rejects_a_different_roster(market: MarketDataset) -> None:
-    with pytest.raises(ValueError, match="roster"):
-        study.run_phase3(market, small_protocol(), arms=(ARM_CASH,))
-    with pytest.raises(ValueError, match="dataset_id"):
-        study.run_phase3(market, replace(small_protocol(), dataset_id="0" * 64))
-
-
-def test_default_protocol_is_the_unchanged_pr_c_protocol() -> None:
-    assert PROTOCOL.dataset_id.startswith("0b95547145a8")
-    assert study.phase3_protocol(PROTOCOL).bonferroni_comparisons == 21
-    assert study.phase3_protocol(PROTOCOL).candidate_arms == CANDIDATE_POOL
 
 
 # --- committed evidence -----------------------------------------------------------
@@ -815,14 +579,7 @@ def test_committed_result_and_provenance_are_consistent() -> None:
         cells = result["causality_matrix"][arm]
         assert set(cells) == set(SCENARIOS)
         assert all(c["identical_pre_cut_trace"] for c in cells.values())
-    # both labels are recomputed from the committed rows and validity
-    protocol = study.phase3_protocol(PROTOCOL)
-    for key, validity_key, rule in (
-        ("selection_pr_c_probe_rule", "validity_pr_c_probe_rule", study.RULE_PR_C),
-        ("selection_amended_rule", "validity_amended_rule", study.RULE_AMENDED),
-    ):
-        recomputed = study._select(result["arms"], result[validity_key], protocol, rule)
-        assert recomputed == result[key]
+    # The retired stage-runner recomputation oracle is preserved in the archive.
     # the re-run baselines reproduce the committed Phase 2 numbers exactly
     assert result["phase2_reproduction_check"]["all_bit_identical"] is True
     # provenance: two executions, code head and summary digest recorded

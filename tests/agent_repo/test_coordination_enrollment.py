@@ -504,3 +504,22 @@ def test_enrollment_readback_rejects_each_null_oid(field: str) -> None:
             observed_registry_oid="0" * 40 if field == "observed_registry_oid" else OID,
             observed_branch_sha="0" * 40 if field == "observed_branch_sha" else HEAD,
         )
+
+
+@pytest.mark.parametrize("node_id", ["I_\ud800", "I_\udfff", "I_a\udc00b"])
+def test_enrollment_rejects_non_utf8_issue_node_id(node_id: str) -> None:
+    with pytest.raises(ValueError, match="issue_node_id.*valid Unicode"):
+        replace(_enrollment(), issue_node_id=node_id)
+
+
+@pytest.mark.parametrize("node_id", ["I_normal", "I_日本語", "I_\U0001f600"])
+def test_enrollment_valid_issue_node_id_round_trips(node_id: str) -> None:
+    from tools.agent_repo.coordination.registry import (
+        CoordinatorRegistry,
+        parse_registry_bytes,
+    )
+
+    candidate = replace(_enrollment(), issue_node_id=node_id)
+    registry = CoordinatorRegistry(candidate.repository, (candidate,))
+    assert parse_registry_bytes(registry.canonical_bytes()) == registry
+    assert candidate.issue_node_id == node_id

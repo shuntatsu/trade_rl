@@ -82,8 +82,9 @@ def test_full_core_shards_preserve_test_coverage_and_skip_reasons() -> None:
     assert "SHARD_INDEX: ${{ matrix.shard }}" in shards
     assert "path: ${{ runner.temp }}/core-shard.json" in shards
     assert "fail-fast: false" in shards
-    assert "max-parallel: 4" in shards
-    assert "shard: [0, 1, 2, 3]" in shards
+    assert "name: Lean Core tests (${{ matrix.shard }}/8)" in shards
+    assert "max-parallel: 8" in shards
+    assert "shard: [0, 1, 2, 3, 4, 5, 6, 7]" in shards
     assert "continue-on-error" not in shards
     command = shards.split("      - name: Core tests shard\n", 1)[1].split(
         "      - name: Upload completed shard receipt\n", 1
@@ -92,7 +93,7 @@ def test_full_core_shards_preserve_test_coverage_and_skip_reasons() -> None:
     assert (
         "uv run --no-sync python -m pytest -q -p tools.ci_test_shard tests" in command
     )
-    assert '--ci-shard-index "$SHARD_INDEX" --ci-shard-count 4' in command
+    assert '--ci-shard-index "$SHARD_INDEX" --ci-shard-count 8' in command
     assert '--ci-shard-head "$HEAD_SHA"' in command
     assert "--durations=25" in command
     assert "if-no-files-found: error" in shards
@@ -119,7 +120,7 @@ def test_lean_core_is_a_fail_closed_aggregate_of_the_exact_attempt() -> None:
     assert "HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in core
     assert "merge-multiple: false" in core
     assert "uv run --no-sync python -m tools.ci_test_shard" in core
-    assert '--directory "$RUNNER_TEMP/core-shards" --count 4 --head "$HEAD_SHA"' in core
+    assert '--directory "$RUNNER_TEMP/core-shards" --count 8 --head "$HEAD_SHA"' in core
     assert (
         core.index("Require all test shards to succeed")
         < core.index("Verify complete Core test collection")

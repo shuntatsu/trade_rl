@@ -350,3 +350,97 @@ def test_measured_module_fixture_runs_once_in_real_shards(tmp_path: Path) -> Non
     items = [f"{module}::test_work[{i}]" for i in range(16)]
     items += [f"test_sample.py::test_items[{i}]" for i in range(24)]
     assert verify_reports(root, count=4, head=HEAD, expected_items=items) == 40
+
+
+# Candidate eight-way placements are derived from the recorded slow-test
+# durations; each expensive module's fixture remains in one pytest process.
+_EIGHT_AFFINITY_CASES = (
+    ("tests/evaluation/test_dev_realdata_phase3.py", 7),
+    ("tests/evaluation/test_dev_realdata_phase2_trials.py", 3),
+    ("tests/evaluation/test_signal_diagnosis_run_scenarios.py", 4),
+    ("tests/evaluation/test_forward_study_fs1.py", 0),
+    ("tests/tools/tier_d_nonrl/test_task18_native_recovery.py", 2),
+    ("tests/evaluation/test_dev_realdata_study.py", 5),
+    ("tests/evaluation/test_lowturn_screen.py", 6),
+    ("tests/tools/tier_d_nonrl/test_task18_native_artifact.py", 1),
+)
+
+
+@pytest.mark.parametrize("module,expected", _EIGHT_AFFINITY_CASES)
+def test_eight_way_fixture_affinity(module: str, expected: int) -> None:
+    nodes = [f"{module}::TestShared::test_work[{i}]" for i in range(16)]
+    assert {shard_index(node, 8) for node in nodes} == {expected}
+    for count in (1, 2, 3, 5, 6, 16):
+        assert [shard_index(node, count) for node in nodes] == [
+            int.from_bytes(sha256(node.encode()).digest()[:8], "big") % count
+            for node in nodes
+        ]
+    similar = [f"{module}.copy.py::test_work[{i}]" for i in range(16)]
+    assert [shard_index(node, 8) for node in similar] == [
+        int.from_bytes(sha256(node.encode()).digest()[:8], "big") % 8
+        for node in similar
+    ]
+
+
+def test_eight_way_real_shards_reuse_each_fixture_and_verify_all_nodes(
+    tmp_path: Path,
+) -> None:
+    modules = [module for module, _ in _EIGHT_AFFINITY_CASES]
+    items = []
+    for module in modules:
+        path = tmp_path / module
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "from pathlib import Path\nimport pytest\n"
+            "@pytest.fixture(scope='module')\n"
+            "def shared():\n"
+            f"    with Path('fixture-count.txt').open('a') as log: log.write({(module + chr(10))!r})\n"
+            "    return 7\n"
+            "@pytest.mark.parametrize('i', range(16))\n"
+            "def test_work(shared, i): assert shared == 7 and i >= 0\n"
+        )
+        items.extend(f"{module}::test_work[{i}]" for i in range(16))
+    (tmp_path / "test_sample.py").write_text(
+        "import pytest\n@pytest.mark.parametrize('i', range(120))\n"
+        "def test_items(i): assert i >= 0\n"
+    )
+    items.extend(f"test_sample.py::test_items[{i}]" for i in range(120))
+    root = tmp_path / "reports"
+    root.mkdir()
+    paths = []
+    for index in range(8):
+        directory = root / f"shard-{index}"
+        directory.mkdir()
+        report = directory / "core-shard.json"
+        run = _run_shard(tmp_path, index, 8, report, *modules)
+        assert run.returncode == 0, run.stdout + run.stderr
+        paths.append(report)
+        nodes = json.loads(report.read_text())["completed"]
+        for module, expected in _EIGHT_AFFINITY_CASES:
+            assert sum(node.startswith(module + "::") for node in nodes) == (
+                16 if index == expected else 0
+            )
+    assert sorted((tmp_path / "fixture-count.txt").read_text().splitlines()) == sorted(
+        modules
+    )
+    assert verify_reports(root, count=8, head=HEAD, expected_items=items) == len(items)
+    with pytest.raises(ValueError, match="missing or extra shard receipts"):
+        verify_reports(root, count=4, head=HEAD, expected_items=items)
+    # A missing eighth receipt must not be accepted as a successful run.
+    last = paths[-1]
+    moved = last.with_name("withheld.json")
+    last.rename(moved)
+    with pytest.raises(ValueError, match="missing or extra shard receipts"):
+        verify_reports(root, count=8, head=HEAD, expected_items=items)
+    moved.rename(last)
+    # No acceptance of a previous placement even when the union is complete.
+    for index, path in enumerate(paths):
+        record = json.loads(path.read_text())
+        record["completed"] = sorted(
+            node
+            for node in items
+            if int.from_bytes(sha256(node.encode()).digest()[:8], "big") % 8 == index
+        )
+        path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="wrong shard"):
+        verify_reports(root, count=8, head=HEAD, expected_items=items)

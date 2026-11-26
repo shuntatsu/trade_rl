@@ -29,6 +29,8 @@ def ready_tasks(
 ) -> tuple[str, ...]:
     """Return a deterministic concurrently execution-ready set of task ids."""
 
+    # Keep dependency validation, conflict checks and selection on one roster.
+    packets = tuple(packets)
     graph = DependencyGraph(packets)
     packet_by_id = {packet.task_id: packet for packet in packets}
     leased = set(leased_task_ids)

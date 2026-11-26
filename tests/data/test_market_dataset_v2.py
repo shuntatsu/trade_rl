@@ -778,3 +778,53 @@ def test_dataset_constructor_plain_owners_preserve_content(backing: str) -> None
     assert actual.dataset_id == baseline.dataset_id
     for name, values in baseline.identity_arrays().items():
         np.testing.assert_array_equal(actual.identity_arrays()[name], values)
+
+
+@pytest.mark.parametrize("hours,periods", [(0.25, 35040), (1, 8760), (24, 365)])
+@pytest.mark.parametrize("delta_ns", [-1, 1])
+def test_continuous_cadence_rejects_near_integral_frequency(
+    hours: float, periods: int, delta_ns: int
+) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    step_ns = int(hours * 3_600_000_000_000) + delta_ns
+    assert (365 * 24 * 3_600_000_000_000) % step_ns != 0
+    values.update(
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(3) * np.timedelta64(step_ns, "ns"),
+        periods_per_year=periods,
+    )
+    with pytest.raises(
+        ValueError, match="timestamp cadence does not resolve to annual periods"
+    ):
+        MarketDataset(**values)
+
+
+@pytest.mark.parametrize(
+    "step_ns", [1, 1_000_000_000, 900_000_000_000, 86_400_000_000_000]
+)
+def test_continuous_cadence_accepts_exact_integer_frequency(step_ns: int) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    year_ns = 365 * 24 * 3_600_000_000_000
+    assert year_ns % step_ns == 0
+    values.update(
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(3) * np.timedelta64(step_ns, "ns"),
+        periods_per_year=year_ns // step_ns,
+    )
+    assert MarketDataset(**values).periods_per_year == year_ns // step_ns
+
+
+@pytest.mark.parametrize("days,nominal_periods", [(3, 122), (7, 52)])
+def test_legacy_continuous_calendar_does_not_round_coarse_cadence(
+    days: int, nominal_periods: int
+) -> None:
+    values = kwargs(n_bars=3, n_symbols=1)
+    values.update(
+        timestamps=np.datetime64("2026-01-05", "ns")
+        + np.arange(3) * np.timedelta64(days, "D"),
+        periods_per_year=nominal_periods,
+    )
+    with pytest.raises(
+        ValueError, match="timestamp cadence does not resolve to annual periods"
+    ):
+        MarketDataset(**values)

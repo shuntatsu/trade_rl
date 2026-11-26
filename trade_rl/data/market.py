@@ -294,6 +294,13 @@ class MarketDataset:
                 raise ValueError(
                     "native clock requires its exact rational annual frequency"
                 )
+            if self.information_available is not None and (
+                type(self.information_available) is not np.ndarray
+                or self.information_available.dtype != np.dtype(np.bool_)
+            ):
+                raise ValueError(
+                    "native clock requires boolean information availability evidence"
+                )
             if (
                 self.available_at is None
                 or self.funding_price_rate is None
@@ -1407,3 +1414,16 @@ def _require_available_marks_at_row(
             f"available_at={available_at[row_index, late_symbols[0]]}, "
             f"timestamp={timestamp}"
         )
+
+    if dataset.native_clock is not None:
+        information = dataset.resolved_array("information_available")
+        unavailable_symbols = sorted(
+            symbol_index
+            for symbol_index in relevant_symbols
+            if not information[row_index, symbol_index]
+        )
+        if unavailable_symbols:
+            names = ", ".join(dataset.symbols[index] for index in unavailable_symbols)
+            raise ValueError(
+                f"native decision-time mark unavailable for {names} at row {row_index}"
+            )

@@ -343,3 +343,32 @@ def test_native_next_open_fill_does_not_use_processing_volume(days, weekly):
             (float(replay.book.quantities[0]), replay.diagnostics.total_cost)
         )
     assert outputs == [(1.0, 0.0), (1.0, 0.0)]
+
+
+@pytest.mark.parametrize("row", [0, 1, 2, 5])
+def test_native_replay_refuses_explicitly_unavailable_marks(row):
+    values = native_values()
+    values["information_available"] = np.ones((6, 1), dtype=bool)
+    values["information_available"][row, 0] = False
+    dataset = MarketDataset(**values).with_content_identity()
+    policy = AlwaysLong()
+    with pytest.raises(ValueError, match="native.*unavailable"):
+        run_single_symbol_replay(
+            dataset,
+            policy,
+            start_index=0,
+            stop_index=5,
+            gross_budget=0.5,
+            initial_capital=1000,
+            execution_cost=native_cost(),
+        )
+    if row == 0:
+        assert policy.observations == []
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.float64, str])
+def test_native_dataset_rejects_nonboolean_explicit_information_mask(dtype):
+    values = native_values()
+    values["information_available"] = np.ones((6, 1), dtype=dtype)
+    with pytest.raises(ValueError, match="native.*boolean.*information"):
+        MarketDataset(**values)

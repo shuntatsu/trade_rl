@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-exact-cadence.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-opaque-array-owner.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -61,15 +61,20 @@ PACKET_ATOMIC_TARGET_TD8_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-atomic-target-td8-union.json"
 )
-PACKET_PATH = (
+PACKET_CADENCE_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-exact-cadence.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-opaque-array-owner.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "2e2e87fc88c217bc3e2570dc75fe8050c9653a3e4bf3725738c7fc486a488635"
+PINNED_DIGEST = "091d98c909581fc7e40de99249dafac9a49f85e49efcc67f189f98df5f09f48d"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2856,7 +2861,7 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
         assurance_digest(previous)
         == "488d1e9c809ae711c7e7eaaafc96b12b640225fc98b3772fea136446645851c0"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_CADENCE_PATH.read_bytes())
     head = "c4075b46c9c560550a23fa1839a7d362ba5995fa"
     expected = json.loads(raw)
     old = expected["identity"]["implementation_head"]
@@ -2878,6 +2883,48 @@ def test_exact_cadence_successor_preserves_prior_packet() -> None:
     diff = _git("diff", "--name-only", old, head, "--", *after)
     assert diff.returncode == 0, diff.stderr
     assert diff.stdout.splitlines() == ["trade_rl/data/market.py"]
+    for packet_record in (previous, current):
+        result = evaluate_assurance(packet_record)
+        assert result.status == "UNREVIEWED" and not result.errors
+        assert not result.economic_execution_authorized
+
+
+def test_opaque_array_owner_successor_preserves_prior_packet() -> None:
+    raw = PACKET_CADENCE_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "bda491463c83fa3e2aab654507d51ae0f000b1cacf9784f920acacbbcb823b67"
+    )
+    previous = json.loads(raw)
+    assert (
+        assurance_digest(previous)
+        == "2e2e87fc88c217bc3e2570dc75fe8050c9653a3e4bf3725738c7fc486a488635"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    head = "ef263bd111ad421200fbb398588dc7f1fca413d0"
+    expected = json.loads(raw)
+    old = expected["identity"]["implementation_head"]
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = expected[section][key].replace(old, head)
+    expected["thesis"]["limitations"] += (
+        " Opaque array-owner chains and spoofed type equality fail closed before risk, order or settlement effects; only known native buffer ownership is admitted. No recovery of caller-discarded mask provenance and no economic authority change."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source ef263bd111ad421200fbb398588dc7f1fca413d0: unchanged static closure with changes limited to trade_rl/_array_snapshot.py and trade_rl/simulation/accounting.py. Synthetic regression and controls cover opaque stride-backed masked arrays, settlement selectors and metaclass equality spoofing; 1302 risk and simulation tests passed. No market data or economic execution."
+    )
+    assert current == expected
+    before, after = bound_code_paths(old), bound_code_paths(head)
+    assert before == after and len(after) == 179
+    diff = _git("diff", "--name-only", old, head, "--", *after)
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/_array_snapshot.py",
+        "trade_rl/simulation/accounting.py",
+    ]
     for packet_record in (previous, current):
         result = evaluate_assurance(packet_record)
         assert result.status == "UNREVIEWED" and not result.errors

@@ -89,7 +89,9 @@ class CoordinatorRegistry:
         ):
             raise ValueError("registry repository must use owner/name form")
 
-        if type(self.entries) not in (list, tuple):
+        # Type equality can execute a foreign metaclass; require identity.
+        entry_type: type[object] = type(self.entries)
+        if entry_type is not list and entry_type is not tuple:
             raise ValueError("registry entries must be an ordered list or tuple")
         entries = tuple(self.entries)
         if any(not isinstance(entry, EnrollmentProjection) for entry in entries):

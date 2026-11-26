@@ -99,10 +99,15 @@ PACKET_V46_PATH = (
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v46-m2-bootstrap-duplicate-json.json"
 )
-PACKET_PATH = (
+PACKET_V47_M1_TARGET_PATH = (
     ROOT
     / "report"
     / "issue810-core7-mtf-ppo-research-assurance-v47-m1-target-missingness.json"
+)
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "issue810-core7-mtf-ppo-research-assurance-v48-td8-operational-failure.json"
 )
 PACKET_V24_PATH = (
     ROOT
@@ -154,7 +159,7 @@ PINNED_PROTOCOL_DIGEST = (
     "af34928c682de43afce8e203a42841ec7bdb89eb9407fe0b9399b7821e2ca013"
 )
 PINNED_PACKET_DIGEST = (
-    "c80cc448828422e2b3c14dc2442fcb1cf766d30d824ab2cc58c7adca71e38641"
+    "f772250793db124fb0d79baa57beefcbf0719cdcab13e463d1a92b9616b6fdb6"
 )
 ENTRY_POINTS = (
     "trade_rl/data/features/mtf6_signals.py",
@@ -3631,7 +3636,7 @@ def test_m1_target_missingness_source_successor() -> None:
         assurance_digest(prior)
         == "25d4dc3e4432117b1381a8213d1c7a73b49dd7b63d8a6fc56693b064d9530c91"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_V47_M1_TARGET_PATH.read_bytes())
     old_head = "2a5785d454e7100f87a20d917af2dcdb975b9f0a"
     head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
     expected = json.loads(raw)
@@ -3666,5 +3671,47 @@ def test_m1_target_missingness_source_successor() -> None:
     ]
     for record in (prior, current):
         verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_operational_failure_source_successor() -> None:
+    raw = PACKET_V47_M1_TARGET_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "40763f20860ab78c77b2ecbf1d6e79346cbb011cfad3130c14db3af4be30d433"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "c80cc448828422e2b3c14dc2442fcb1cf766d30d824ab2cc58c7adca71e38641"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
+    head = "4aa28612d2f522682afc8e4be07f505e777b4f25"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " TD8 source-only successor separates operational receipt failures from malformed evidence: short spool writes, storage/flush/mapping failures and MemoryError/OSError during source encoding or strict decoding propagate without quarantine or publication. Semantic invalid-record fallback and legacy valid receipt bytes remain. No aggregate producer bound, retry authorization or crash durability is established."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 4aa28612d2f522682afc8e4be07f505e777b4f25: eight injected failures RED before the fix and three controls passed. On the corrected source, 241 failure-receipt tests passed; expanded operational/semantic fault and positive controls total 15 passing cases. No market data or economic execution. Immutable earlier packets remain unchanged."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(_bound_code_paths(old_head))
+    new_paths = set(_bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 193
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for item in (prior, current):
+        verdict = evaluate_assurance(item)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

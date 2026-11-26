@@ -1,6 +1,6 @@
 """The SD2 packet stays UNREVIEWED, result-blind and bound to the runner code.
 
-``report/sd2-signal-diagnosis-research-assurance-20261126-m1-target-missingness.json`` is the ``research_assurance_v1``
+``report/sd2-signal-diagnosis-research-assurance-20261126-td8-operational-failure.json`` is the ``research_assurance_v1``
 author packet of the SD2 runner. These tests keep it valid, unreviewed and pinned, keep
 the documents that name it in step, keep it from claiming a review, a result or an
 authorization, and pin the code it covers: the static import closure of the runner,
@@ -31,15 +31,20 @@ PACKET_PRE_M1_TARGET_PATH = (
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-fill-td8-spooled-writer-union.json"
 )
-PACKET_PATH = (
+PACKET_M1_TARGET_PATH = (
     ROOT
     / "report"
     / "sd2-signal-diagnosis-research-assurance-20261126-m1-target-missingness.json"
 )
+PACKET_PATH = (
+    ROOT
+    / "report"
+    / "sd2-signal-diagnosis-research-assurance-20261126-td8-operational-failure.json"
+)
 SPEC = ROOT / "docs" / "specs" / "signal-diagnosis-run.md"
 ARCHITECTURE = ROOT / "docs" / "architecture" / "research-assurance.md"
 STATUS = ROOT / "docs" / "research" / "current-status.md"
-PINNED_DIGEST = "70263d7114d8887499cc104c3913ca496cc6f18e6585e010450687455ff57bae"
+PINNED_DIGEST = "7c89d7d63240a9129711362dde2600aa1c0baa6677c704971039e9f0c8346ef8"
 PREVIOUS_CORE7_M2_PACKET_PATH = (
     ROOT
     / "report"
@@ -2495,7 +2500,7 @@ def test_m1_target_missingness_source_successor() -> None:
         assurance_digest(prior)
         == "602bc5d65e3029df3cfe0553e765415694583fb2b35e2b5ceff17a310bf72b5d"
     )
-    current = json.loads(PACKET_PATH.read_bytes())
+    current = json.loads(PACKET_M1_TARGET_PATH.read_bytes())
     old_head = "4c6432d10de6cea273e57660d76a0487fabc8488"
     head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
     expected = json.loads(raw)
@@ -2530,5 +2535,47 @@ def test_m1_target_missingness_source_successor() -> None:
     ]
     for record in (prior, current):
         verdict = evaluate_assurance(record)
+        assert verdict.status == "UNREVIEWED" and not verdict.errors
+        assert not verdict.economic_execution_authorized
+
+
+def test_td8_operational_failure_source_successor() -> None:
+    raw = PACKET_M1_TARGET_PATH.read_bytes()
+    assert (
+        hashlib.sha256(raw).hexdigest()
+        == "1881ba081f5c1010cd3fb9905c2858864f975d4dc2eee8f49c7b247044ac2052"
+    )
+    prior = json.loads(raw)
+    assert (
+        assurance_digest(prior)
+        == "70263d7114d8887499cc104c3913ca496cc6f18e6585e010450687455ff57bae"
+    )
+    current = json.loads(PACKET_PATH.read_bytes())
+    old_head = "8bf7caeb4a4da610f910c214f06a94cef48b4a5b"
+    head = "4aa28612d2f522682afc8e4be07f505e777b4f25"
+    expected = json.loads(raw)
+    expected["identity"] = {"implementation_head": head, "protocol_head": head}
+    expected["thesis"]["limitations"] += (
+        " TD8 source-only successor separates operational receipt failures from malformed evidence: short spool writes, storage/flush/mapping failures and MemoryError/OSError during source encoding or strict decoding propagate without quarantine or publication. Semantic invalid-record fallback and legacy valid receipt bytes remain. No aggregate producer bound, retry authorization or crash durability is established."
+    )
+    expected["evidence"]["independent_reconstruction"] += (
+        " Exact source 4aa28612d2f522682afc8e4be07f505e777b4f25: eight injected failures RED before the fix and three controls passed. On the corrected source, 241 failure-receipt tests passed; expanded operational/semantic fault and positive controls total 15 passing cases. No market data or economic execution. Immutable earlier packets remain unchanged."
+    )
+    for section, key in (
+        ("thesis", "cheapest_falsifier"),
+        ("claims", "next_authorized_action"),
+    ):
+        expected[section][key] = prior[section][key].replace(old_head, head)
+    assert current == expected
+    old_paths = set(bound_code_paths(old_head))
+    new_paths = set(bound_code_paths(head))
+    assert old_paths == new_paths and len(new_paths) == 179
+    diff = _git("diff", "--name-only", old_head, head, "--", *sorted(new_paths))
+    assert diff.returncode == 0, diff.stderr
+    assert diff.stdout.splitlines() == [
+        "trade_rl/evaluation/decision_value_dev_study.py"
+    ]
+    for item in (prior, current):
+        verdict = evaluate_assurance(item)
         assert verdict.status == "UNREVIEWED" and not verdict.errors
         assert not verdict.economic_execution_authorized

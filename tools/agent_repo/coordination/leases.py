@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 from tools.agent_repo.coordination.model import ExecutionMode, TaskPacket
@@ -26,6 +26,11 @@ class ReconciliationDecision(str, Enum):
 def _require_aware(value: datetime, *, field_name: str) -> None:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
+
+
+def _expiry_after(now: datetime, ttl: timedelta) -> datetime:
+    """Add elapsed time on the UTC timeline, retaining the input timezone."""
+    return (now.astimezone(UTC) + ttl).astimezone(now.tzinfo)
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
@@ -101,11 +106,11 @@ class LeaseRecord:
             or self.ttl_seconds <= 0.0
         ):
             raise ValueError("ttl_seconds must be finite and positive")
-        if self.expires_at <= self.last_heartbeat_at:
+        if self.expires_at.astimezone(UTC) <= self.last_heartbeat_at.astimezone(UTC):
             raise ValueError("expires_at must be after last_heartbeat_at")
-        if self.expires_at != self.last_heartbeat_at + timedelta(
-            seconds=self.ttl_seconds
-        ):
+        if self.expires_at.astimezone(UTC) != self.last_heartbeat_at.astimezone(
+            UTC
+        ) + timedelta(seconds=self.ttl_seconds):
             raise ValueError("expires_at must match last heartbeat plus TTL")
 
 
@@ -208,13 +213,13 @@ def grant_lease(
             lease_branch=branch,
             head_sha=None,
             last_heartbeat_at=now,
-            expires_at=now + ttl,
+            expires_at=_expiry_after(now, ttl),
             ttl_seconds=ttl_seconds,
         )
 
     if previous.task_id != packet.task_id:
         raise ValueError("previous lease belongs to a different task")
-    if now < previous.expires_at:
+    if now.astimezone(UTC) < previous.expires_at.astimezone(UTC):
         raise ValueError("active lease cannot be replaced")
 
     resolved = _validate_reconciliation(previous, reconciliation)
@@ -239,7 +244,7 @@ def grant_lease(
             lease_branch=previous.lease_branch,
             head_sha=resolved.observed_head_sha,
             last_heartbeat_at=now,
-            expires_at=now + ttl,
+            expires_at=_expiry_after(now, ttl),
             ttl_seconds=ttl_seconds,
         )
 
@@ -258,7 +263,7 @@ def grant_lease(
         lease_branch=branch,
         head_sha=None,
         last_heartbeat_at=now,
-        expires_at=now + ttl,
+        expires_at=_expiry_after(now, ttl),
         ttl_seconds=ttl_seconds,
     )
 
@@ -277,7 +282,9 @@ def lease_is_current(
         and lease.task_revision == packet.task_revision
         and lease.task_contract_digest == packet.contract_digest()
         and lease.base_sha == packet.base_sha
-        and lease.last_heartbeat_at <= now < lease.expires_at
+        and lease.last_heartbeat_at.astimezone(UTC)
+        <= now.astimezone(UTC)
+        < lease.expires_at.astimezone(UTC)
     )
 
 
@@ -291,16 +298,16 @@ def heartbeat(
 
     _require_sha(head_sha, field_name="head_sha")
     _require_aware(observed_at, field_name="observed_at")
-    if observed_at < lease.last_heartbeat_at:
+    if observed_at.astimezone(UTC) < lease.last_heartbeat_at.astimezone(UTC):
         raise ValueError("heartbeat time must be monotonic")
-    if observed_at >= lease.expires_at:
+    if observed_at.astimezone(UTC) >= lease.expires_at.astimezone(UTC):
         raise ValueError("expired lease requires reconciliation before heartbeat")
     ttl = timedelta(seconds=lease.ttl_seconds)
     return replace(
         lease,
         head_sha=head_sha,
         last_heartbeat_at=observed_at,
-        expires_at=observed_at + ttl,
+        expires_at=_expiry_after(observed_at, ttl),
     )
 
 

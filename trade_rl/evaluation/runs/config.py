@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Mapping
@@ -14,6 +13,7 @@ from typing import ClassVar, cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.artifacts.canonical import strict_json_loads
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import (
@@ -594,7 +594,7 @@ def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
 def load_candidate_run_config(path: str | Path) -> CandidateRunConfig:
     """Load and validate a candidate-run JSON object from disk."""
 
-    raw_object = cast(object, json.loads(Path(path).read_text(encoding="utf-8")))
+    raw_object = strict_json_loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw_object, dict) or any(
         not isinstance(key, str) for key in raw_object
     ):

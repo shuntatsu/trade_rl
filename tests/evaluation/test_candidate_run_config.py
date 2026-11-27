@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -10,6 +12,7 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.config import (
     CandidateRunConfig,
+    load_candidate_run_config,
     parse_candidate_run_config,
     resolve_candidate_run_spec,
 )
@@ -830,3 +833,26 @@ def test_candidate_run_huge_integer_fails_with_contract_error(
         else:
             raw[field] = huge
             parse_candidate_run_config(raw)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        '"gross_budget":2,',
+        r'"\u0067ross_budget":2,',
+        '"gross_budget":NaN,',
+        '"gross_budget":1e400,',
+    ],
+)
+def test_run_config_file_rejects_ambiguous_json(tmp_path: Path, prefix: str) -> None:
+    path = tmp_path / "run.json"
+    original = json.dumps(raw_config())
+    path.write_text("{" + prefix + original[1:], encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON member|finite"):
+        load_candidate_run_config(path)
+
+
+def test_run_config_file_preserves_valid_noncompact_json(tmp_path: Path) -> None:
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(raw_config(), indent=2), encoding="utf-8")
+    assert load_candidate_run_config(path) == parse_candidate_run_config(raw_config())

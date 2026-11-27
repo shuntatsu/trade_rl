@@ -460,7 +460,12 @@ def test_artifact_repo_response_rejects_foreign_casefold() -> None:
 def test_artifact_metadata_rejects_foreign_text(key: str, foreign: str) -> None:
     api = FakeGet()
     api.artifacts[0][key] = foreign
-    with pytest.raises(ValueError):
+    message = (
+        "artifact digest is malformed"
+        if key == "digest"
+        else f"artifact {key} must be non-empty text"
+    )
+    with pytest.raises(ValueError, match=message):
         _observe(api)
 
 
@@ -496,3 +501,116 @@ def test_artifact_run_refuses_before_foreign_sha_comparison() -> None:
     api.run["head_sha"] = _CompareTrap(SHA)
     with pytest.raises(ValueError, match="run head SHA"):
         _observe(api)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("head_sha", _CompareTrap(SHA), "run head SHA"),
+        ("head_branch", _CompareTrap(BRANCH), "run head branch"),
+        ("updated_at", _CompareTrap("2026-11-02T10:30:39Z"), "run updated_at"),
+    ],
+)
+def test_run_readback_refuses_foreign_text(
+    field: str, value: str, message: str
+) -> None:
+    api = FakeGet()
+    api.next_run = {**api.run, field: value}
+    with pytest.raises(ValueError, match=message):
+        _observe(api)
+    assert api.run_reads == api.scans == 2
+
+
+def test_repository_readback_refuses_foreign_node_id() -> None:
+    api = FakeGet()
+    api.next_repo = {**api.repo, "node_id": _CompareTrap("R_123")}
+    with pytest.raises(ValueError, match="repository node id"):
+        _observe(api)
+    assert api.repo_reads == api.run_reads == api.scans == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("node_id", _CompareTrap("A_1"), "artifact node_id"),
+        ("name", _CompareTrap("repeated-name"), "artifact name"),
+        ("digest", _CompareTrap("sha256:" + "c" * 64), "artifact digest"),
+    ],
+)
+def test_artifact_metadata_refuses_before_foreign_comparison(
+    field: str, value: str, message: str
+) -> None:
+    api = FakeGet()
+    api.artifacts[0][field] = value
+    with pytest.raises(ValueError, match=message):
+        _observe(api)
+
+
+class _MappingTrap(dict[str, object]):
+    def get(self, *args, **kwargs):
+        raise AssertionError("foreign object lookup called")
+
+
+class _RowsTrap(list[object]):
+    def __len__(self):
+        raise AssertionError("foreign list length called")
+
+    def __iter__(self):
+        raise AssertionError("foreign list iteration called")
+
+
+class _ForeignKey(str):
+    pass
+
+
+class _ForeignResponse(FakeGet):
+    def __init__(self, location: str):
+        super().__init__()
+        self.location = location
+
+    def _request_json(self, method, suffix, *, query=None):
+        raw = super()._request_json(method, suffix, query=query)
+        location = self.location
+        if suffix == "":
+            if location == "repo":
+                return _MappingTrap(raw)
+            if location == "repo_key":
+                return {
+                    _ForeignKey(key) if key == "full_name" else key: value
+                    for key, value in raw.items()
+                }
+        elif suffix == f"actions/runs/{RUN}":
+            if location == "run":
+                return _MappingTrap(raw)
+            if location in ("repository", "head_repository"):
+                raw[location] = _MappingTrap(raw[location])
+        elif suffix == f"actions/runs/{RUN}/artifacts":
+            if location == "page":
+                return _MappingTrap(raw)
+            if location == "rows":
+                raw["artifacts"] = _RowsTrap(raw["artifacts"])
+            elif location == "artifact":
+                raw["artifacts"][0] = _MappingTrap(raw["artifacts"][0])
+            elif location == "origin":
+                row = raw["artifacts"][0]
+                row["workflow_run"] = _MappingTrap(row["workflow_run"])
+        return raw
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "repo",
+        "repo_key",
+        "run",
+        "repository",
+        "head_repository",
+        "page",
+        "rows",
+        "artifact",
+        "origin",
+    ],
+)
+def test_observation_refuses_foreign_json_containers(location: str) -> None:
+    with pytest.raises(ValueError, match="native JSON|artifact pagination"):
+        _observe(_ForeignResponse(location))

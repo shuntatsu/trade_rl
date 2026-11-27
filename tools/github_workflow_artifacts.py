@@ -41,8 +41,8 @@ class _Run(NamedTuple):
 
 
 def _mapping(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a GitHub response object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{field} must be a native JSON response object")
     return value
 
 
@@ -167,7 +167,7 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
         rows = raw.get("artifacts")
         remaining = count - len(artifacts)
         if (
-            not isinstance(rows, list)
+            type(rows) is not list
             or remaining < 0
             or len(rows) != min(_PAGE_SIZE, remaining)
         ):

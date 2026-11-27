@@ -151,3 +151,43 @@ def test_plan_reuses_existing_fail_closed_enrollment_transition_rules(
 
     with pytest.raises(ValueError, match=match):
         _plan(registry, candidate)
+
+
+class _ForgedRegistryDigest(str):
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+class _TrapRegistryDigest(str):
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("foreign equality must not be invoked")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("foreign inequality must not be invoked")
+
+
+@pytest.mark.parametrize("digest_type", [_ForgedRegistryDigest, _TrapRegistryDigest])
+def test_plan_rejects_non_native_digest_before_comparison(
+    digest_type: type[str],
+) -> None:
+    registry = CoordinatorRegistry(REPOSITORY)
+    stale = "f" * 64
+    assert stale != registry.digest()
+
+    with pytest.raises(ValueError, match="expected registry digest"):
+        _plan(
+            registry,
+            _projection("T1067-01"),
+            expected_before_digest=digest_type(stale),
+        )
+
+
+def test_plan_rejects_matching_non_native_digest_before_comparison() -> None:
+    registry = CoordinatorRegistry(REPOSITORY)
+
+    with pytest.raises(ValueError, match="expected registry digest"):
+        _plan(
+            registry,
+            _projection("T1067-01"),
+            expected_before_digest=_TrapRegistryDigest(registry.digest()),
+        )

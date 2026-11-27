@@ -133,6 +133,15 @@ def create_portfolio_scenario_runtime_binding_v2(
         raise TypeError("training_bound must be exactly BoundObjectiveClock")
     if type(runtime_env) is not SharedPortfolioGymEnv:
         raise TypeError("runtime_env must be exactly SharedPortfolioGymEnv")
+    native_interval_seconds = runtime_env.bound.clock.decision_interval_seconds
+    if (
+        native_interval_seconds is None
+        or training_bound.clock.decision_interval_seconds is None
+        or transform.native_interval_seconds is None
+    ):
+        raise ValueError(
+            "calendar month scenario inference requires a new scenario schema"
+        )
     if type(scenario) is not PortfolioRuntimeExecutionScenarioV2:
         raise TypeError("scenario must be exactly PortfolioRuntimeExecutionScenarioV2")
     if type(training_context) is not dict:
@@ -149,7 +158,7 @@ def create_portfolio_scenario_runtime_binding_v2(
     if require_unreset and runtime_env._session is not None:
         raise ValueError("runtime_env must not have been reset before bundle loading")
     if require_unreset:
-        runtime_env._validate_native_fixed_window()
+        runtime_env._validate_native_learning_window()
 
     context = _strict_object(training_context["context"], field="training context")
     financial = _strict_object(
@@ -291,7 +300,7 @@ def create_portfolio_scenario_runtime_binding_v2(
         runtime_agent_stop_index=runtime_agent_stop,
         runtime_start_ns=_datetime_ns(runtime_env.bound.objective.evaluation_start),
         runtime_horizon_seconds=runtime_env.bound.clock.economic_horizon_seconds,
-        native_interval_seconds=runtime_env.bound.clock.decision_interval_seconds,
+        native_interval_seconds=native_interval_seconds,
     )
 
 

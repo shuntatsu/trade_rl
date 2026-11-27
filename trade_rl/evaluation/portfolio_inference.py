@@ -124,6 +124,7 @@ def run_published_portfolio_inference_replay(
         market_order_profile=market_order_profile,
         settle_terminal_position=True,
         capture_ledger_evidence=capture_ledger_evidence,
+        native_calendar_month=dataset.native_calendar_month,
     )
     return artifact, replay_result
 

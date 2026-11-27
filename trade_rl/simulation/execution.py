@@ -480,20 +480,38 @@ def _require_execution_margin_roster(
         )
 
 
-def _preflight_native_fixed_execution_window(
+def _require_calendar_month_spot_roster(dataset: MarketDataset) -> None:
+    if dataset.native_calendar_month and (
+        any(
+            unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+            for unit in dataset.volume_units
+        )
+        or np.any(dataset.contract_multipliers != 1.0)
+    ):
+        raise ValueError(
+            "calendar month execution requires unit-multiplier Spot volume"
+        )
+
+
+def _preflight_native_learning_execution_window(
     dataset: MarketDataset,
     cost: ExecutionCostConfig,
     *,
     start_index: int,
     stop_index: int,
+    native_calendar_month: bool = False,
 ) -> None:
     """Refuse unsupported native learning inputs before reserving work."""
-    if dataset.native_calendar_month:
+    if (
+        type(native_calendar_month) is not bool
+        or native_calendar_month != dataset.native_calendar_month
+    ):
         raise ValueError("calendar month execution is not supported by fixed-clock Gym")
     if dataset.native_clock is None:
         return
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
+    _require_calendar_month_spot_roster(dataset)
     _require_native_execution_cost(dataset, cost)
     _require_execution_margin_roster(dataset, cost)
     _require_native_fixed_execution_rows(
@@ -531,16 +549,7 @@ class MarketExecutor:
             raise ValueError(
                 "calendar month execution requires explicit matching opt-in"
             )
-        if native_calendar_month and (
-            any(
-                unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
-                for unit in dataset.volume_units
-            )
-            or np.any(dataset.contract_multipliers != 1.0)
-        ):
-            raise ValueError(
-                "calendar month execution requires unit-multiplier Spot volume"
-            )
+        _require_calendar_month_spot_roster(dataset)
         self.dataset = dataset
         self._native_fixed_dataset = (
             dataset if dataset.native_clock is not None else None

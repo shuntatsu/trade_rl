@@ -307,6 +307,39 @@ def test_native_gym_rejects_legacy_replacement_before_direct_reset() -> None:
     assert env._session is None
 
 
+def test_native_reset_revalidates_mutated_execution_before_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _environment(_native_dataset())
+    env.execution_cost = replace(env.execution_cost, allow_short=True)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsupported native cost reached session construction")
+
+    monkeypatch.setattr(
+        "trade_rl.strategies.rl.portfolio_env.SharedPortfolioSession", forbidden
+    )
+    with pytest.raises(ValueError, match="native fixed execution requires"):
+        env.reset()
+    assert env._session is None
+
+
+def test_native_reset_revalidates_extended_window_before_session() -> None:
+    dataset = _native_dataset()
+    available = dataset.resolved_array("available_at").copy()
+    information = dataset.resolved_array("information_available").copy()
+    available[6, 0] += np.timedelta64(1, "ns")
+    information[6, 0] = False
+    dataset = _replace_evidence(
+        dataset, available_at=available, information_available=information
+    )
+    env = _environment(dataset, stop=5)
+    env.stop_index = 6
+    with pytest.raises(ValueError, match="unavailable"):
+        env.reset()
+    assert env._session is None
+
+
 def test_native_training_revalidates_replaced_dataset_before_attempt_or_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

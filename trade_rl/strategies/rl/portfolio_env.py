@@ -280,8 +280,8 @@ class SharedPortfolioGymEnv(gym.Env):
             )
 
     def _validate_native_fixed_window(self) -> None:
-        # Constructor admission is repeated by the fit and bundle-load
-        # boundaries because a Gym environment's attributes are mutable.
+        # Recheck admission at reset, fit and bundle loading because the
+        # Gym environment's configuration attributes are mutable.
         self._require_native_fixed_binding()
         _preflight_native_fixed_execution_window(
             self.dataset,
@@ -302,7 +302,7 @@ class SharedPortfolioGymEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
         if options:
             raise ValueError("reset options are not supported")
-        self._require_native_fixed_binding()
+        self._validate_native_fixed_window()
         super().reset(seed=seed)
         session = SharedPortfolioSession(
             self.dataset,

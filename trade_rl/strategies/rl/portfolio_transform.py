@@ -7,6 +7,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime, timedelta
 from numbers import Real
 from typing import cast
@@ -15,14 +16,17 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from trade_rl._validation import require_sha256
+from trade_rl._validation import _ordered_ns_durations, require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.simulation.accounting import EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
-from trade_rl.simulation.objectives.clock import _calendar_month_endpoint
+from trade_rl.simulation.objectives.clock import (
+    SessionFinancialClockContract,
+    _calendar_month_endpoint,
+)
 from trade_rl.simulation.orders.model import OrderStatus, OrderType, TimeInForce
 from trade_rl.strategies.rl.portfolio_env import (
     ACTIVE_ORDER_FIELDS,
@@ -39,6 +43,11 @@ from trade_rl.strategies.rl.ppo_normalization import (
 
 PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA = "shared_portfolio_observation_transform_v1"
 _MONTH_TRANSFORM_SCHEMA = "shared_portfolio_calendar_month_observation_transform_v1"
+_CARRY_TRANSFORM_SCHEMA = "shared_portfolio_fixed_linear_carry_observation_transform_v1"
+_SESSION_TRANSFORM_SCHEMA = "shared_portfolio_session_observation_transform_v1"
+_SESSION_RUNTIME_BINDING_SCHEMA = (
+    "shared_portfolio_session_observation_runtime_binding_v1"
+)
 _MONTH_RUNTIME_BINDING_SCHEMA = (
     "shared_portfolio_calendar_month_observation_runtime_binding_v1"
 )
@@ -199,8 +208,26 @@ def _native_timestamp_ns_after(
 
 
 def _validate_native_duration(
-    start_ns: int, steps: int, horizon_seconds: int, interval_seconds: int | None
+    start_ns: int,
+    steps: int,
+    horizon_seconds: int,
+    interval_seconds: int | None,
+    *,
+    session_boundaries_ns: tuple[int, ...] = (),
 ) -> None:
+    if type(session_boundaries_ns) is not tuple:
+        raise ValueError("session boundaries must be an immutable tuple")
+    if session_boundaries_ns:
+        durations = _ordered_ns_durations(session_boundaries_ns)
+        if (
+            interval_seconds is not None
+            or len(durations) != steps
+            or session_boundaries_ns[0] != start_ns
+            or any(x % 1_000_000_000 for x in session_boundaries_ns)
+            or sum(durations) != horizon_seconds * 1_000_000_000
+        ):
+            raise ValueError("session boundaries differ from the native window")
+        return
     if interval_seconds is not None:
         _native_int(interval_seconds, field="native_interval_seconds")
         if interval_seconds <= 0:
@@ -212,6 +239,24 @@ def _validate_native_duration(
         != horizon_seconds * 1_000_000_000
     ):
         raise ValueError("native horizon must match its index window")
+
+
+def _session_clock_boundaries(bound: BoundObjectiveClock) -> tuple[int, ...]:
+    clock = bound.clock
+    return (
+        clock.boundaries_ns if isinstance(clock, SessionFinancialClockContract) else ()
+    )
+
+
+def _session_payload_boundaries(
+    value: dict[str, object], schema: str
+) -> tuple[int, ...]:
+    if value.get("schema") != schema:
+        return ()
+    raw = value.get("session_boundaries_ns")
+    if type(raw) is not list or not raw or any(type(x) is not int for x in raw):
+        raise ValueError("session payload requires native integer boundaries")
+    return tuple(raw)
 
 
 def _dataset_timestamp_ns(env: SharedPortfolioGymEnv, index: int) -> int:
@@ -277,6 +322,7 @@ class PortfolioObservationRuntimeBinding:
     runtime_start_ns: int
     runtime_horizon_seconds: int
     native_interval_seconds: int | None
+    session_boundaries_ns: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -305,6 +351,7 @@ class PortfolioObservationRuntimeBinding:
             self.runtime_stop_index - self.runtime_start_index,
             self.runtime_horizon_seconds,
             self.native_interval_seconds,
+            session_boundaries_ns=self.session_boundaries_ns,
         )
 
     @property
@@ -314,7 +361,9 @@ class PortfolioObservationRuntimeBinding:
     def to_payload(self) -> dict[str, object]:
         return {
             "schema": (
-                _MONTH_RUNTIME_BINDING_SCHEMA
+                _SESSION_RUNTIME_BINDING_SCHEMA
+                if self.session_boundaries_ns
+                else _MONTH_RUNTIME_BINDING_SCHEMA
                 if self.native_interval_seconds is None
                 else PORTFOLIO_OBSERVATION_RUNTIME_BINDING_SCHEMA
             ),
@@ -327,6 +376,11 @@ class PortfolioObservationRuntimeBinding:
             "runtime_start_ns": self.runtime_start_ns,
             "runtime_horizon_seconds": self.runtime_horizon_seconds,
             "native_interval_seconds": self.native_interval_seconds,
+            **(
+                {"session_boundaries_ns": list(self.session_boundaries_ns)}
+                if self.session_boundaries_ns
+                else {}
+            ),
         }
 
     @classmethod
@@ -345,6 +399,11 @@ class PortfolioObservationRuntimeBinding:
             "runtime_horizon_seconds",
             "native_interval_seconds",
         }
+        if (
+            isinstance(value, dict)
+            and value.get("schema") == _SESSION_RUNTIME_BINDING_SCHEMA
+        ):
+            keys.add("session_boundaries_ns")
         if not isinstance(value, dict) or set(value) != keys:
             raise ValueError("runtime binding payload has missing or extra fields")
         require_sha256(expected_digest, field="expected_digest")
@@ -354,8 +413,13 @@ class PortfolioObservationRuntimeBinding:
             raise ValueError("runtime binding payload is not canonical JSON") from error
         if payload_digest != expected_digest:
             raise ValueError("runtime binding payload digest differs")
+        session_boundaries = _session_payload_boundaries(
+            value, _SESSION_RUNTIME_BINDING_SCHEMA
+        )
         expected_schema = (
-            _MONTH_RUNTIME_BINDING_SCHEMA
+            _SESSION_RUNTIME_BINDING_SCHEMA
+            if session_boundaries
+            else _MONTH_RUNTIME_BINDING_SCHEMA
             if value["native_interval_seconds"] is None
             else PORTFOLIO_OBSERVATION_RUNTIME_BINDING_SCHEMA
         )
@@ -371,6 +435,7 @@ class PortfolioObservationRuntimeBinding:
             runtime_start_ns=value["runtime_start_ns"],
             runtime_horizon_seconds=value["runtime_horizon_seconds"],
             native_interval_seconds=value["native_interval_seconds"],
+            session_boundaries_ns=session_boundaries,
         )
 
     @classmethod
@@ -407,7 +472,31 @@ class PortfolioObservationRuntimeBinding:
         ):
             raise ValueError("training bound differs from the fitted transform")
 
-        if transform.native_interval_seconds is None:
+        training_session = _session_clock_boundaries(training_bound)
+        runtime_session = _session_clock_boundaries(runtime_env.bound)
+        if transform.session_boundaries_ns != training_session or bool(
+            training_session
+        ) != bool(runtime_session):
+            raise ValueError("session runtime mode or training boundaries differ")
+        if training_session:
+            runtime_env._validate_native_learning_window()
+            actual_training = tuple(
+                int(x)
+                for x in runtime_env.dataset.timestamps[
+                    transform.start_index : transform.stop_index + 1
+                ].view(np.int64)
+            )
+            if actual_training != training_session:
+                raise ValueError(
+                    "session training boundaries differ from the runtime Dataset"
+                )
+        if transform.native_fixed_linear_carry != runtime_env.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry runtime mode differs from training"
+            )
+        if transform.native_fixed_linear_carry:
+            runtime_env._validate_native_learning_window()
+        if transform.native_interval_seconds is None and not training_session:
             runtime_env._validate_native_learning_window()
             if not runtime_env.dataset.native_calendar_month:
                 raise ValueError(
@@ -430,6 +519,8 @@ class PortfolioObservationRuntimeBinding:
         runtime_clock.pop("economic_horizon_seconds")
         training_clock.pop("economic_horizon_months", None)
         runtime_clock.pop("economic_horizon_months", None)
+        training_clock.pop("boundaries_ns", None)
+        runtime_clock.pop("boundaries_ns", None)
         if canonical_json_bytes(training_clock) != canonical_json_bytes(runtime_clock):
             raise ValueError("runtime clock semantics differ from training")
 
@@ -484,6 +575,7 @@ class PortfolioObservationRuntimeBinding:
             runtime_start_ns=_datetime_ns(runtime_env.bound.objective.evaluation_start),
             runtime_horizon_seconds=runtime_env.bound.clock.economic_horizon_seconds,
             native_interval_seconds=runtime_env.bound.clock.decision_interval_seconds,
+            session_boundaries_ns=runtime_session,
         )
 
     def validate_environment(
@@ -668,6 +760,11 @@ class PortfolioObservationTransform:
     global_usable_counts: tuple[int, ...]
     reference_log_price_mean: tuple[float, ...]
     reference_price_counts: tuple[int, ...]
+    native_fixed_linear_carry: bool = False
+    session_boundaries_ns: tuple[int, ...] = ()
+    _session_digest: str | None = dataclass_field(
+        init=False, repr=False, compare=False, default=None
+    )
 
     def __post_init__(self) -> None:
         symbols = tuple(self.symbols)
@@ -701,7 +798,17 @@ class PortfolioObservationTransform:
             self.stop_index - self.start_index,
             self.economic_horizon_seconds,
             self.native_interval_seconds,
+            session_boundaries_ns=self.session_boundaries_ns,
         )
+        if type(self.native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
+        if self.native_fixed_linear_carry and (
+            self.native_interval_seconds not in (3 * 86400, 7 * 86400)
+            or self.agent_stop_index != self.stop_index - 1
+        ):
+            raise ValueError(
+                "native fixed linear carry transform requires its fixed cadence and terminal reserve"
+            )
         capital = _finite_real(self.initial_capital, field="initial_capital")
         if capital <= 0.0:
             raise ValueError("initial_capital must be positive")
@@ -774,6 +881,11 @@ class PortfolioObservationTransform:
         object.__setattr__(self, "global_usable_counts", counts)
         object.__setattr__(self, "reference_log_price_mean", reference_means)
         object.__setattr__(self, "reference_price_counts", reference_counts)
+        # The immutable session grid must not be rehashed on every decision.
+        if self.session_boundaries_ns:
+            object.__setattr__(
+                self, "_session_digest", content_digest(self.to_payload())
+            )
 
     @property
     def observation_keys(self) -> tuple[str, ...]:
@@ -859,13 +971,17 @@ class PortfolioObservationTransform:
     def digest(self) -> str:
         """Bind the canonical serialized preprocessing parameters."""
 
-        return content_digest(self.to_payload())
+        return self._session_digest or content_digest(self.to_payload())
 
     def to_payload(self) -> dict[str, object]:
         return {
             "schema": (
-                _MONTH_TRANSFORM_SCHEMA
+                _SESSION_TRANSFORM_SCHEMA
+                if self.session_boundaries_ns
+                else _MONTH_TRANSFORM_SCHEMA
                 if self.native_interval_seconds is None
+                else _CARRY_TRANSFORM_SCHEMA
+                if self.native_fixed_linear_carry
                 else PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA
             ),
             "input_schema": PORTFOLIO_GYM_OBSERVATION_SCHEMA,
@@ -895,6 +1011,11 @@ class PortfolioObservationTransform:
             "global_usable_counts": list(self.global_usable_counts),
             "reference_log_price_mean": list(self.reference_log_price_mean),
             "reference_price_counts": list(self.reference_price_counts),
+            **(
+                {"session_boundaries_ns": list(self.session_boundaries_ns)}
+                if self.session_boundaries_ns
+                else {}
+            ),
         }
 
     @classmethod
@@ -931,6 +1052,8 @@ class PortfolioObservationTransform:
             "reference_log_price_mean",
             "reference_price_counts",
         }
+        if isinstance(value, dict) and value.get("schema") == _SESSION_TRANSFORM_SCHEMA:
+            keys.add("session_boundaries_ns")
         if not isinstance(value, dict) or set(value) != keys:
             raise ValueError("transform payload has missing or extra fields")
         require_sha256(expected_digest, field="expected_digest")
@@ -940,9 +1063,17 @@ class PortfolioObservationTransform:
             raise ValueError("transform payload is not canonical JSON") from error
         if payload_digest != expected_digest:
             raise ValueError("transform payload digest differs from expected_digest")
+        native_fixed_linear_carry = value["schema"] == _CARRY_TRANSFORM_SCHEMA
+        session_boundaries = _session_payload_boundaries(
+            value, _SESSION_TRANSFORM_SCHEMA
+        )
         expected_schema = (
-            _MONTH_TRANSFORM_SCHEMA
+            _SESSION_TRANSFORM_SCHEMA
+            if session_boundaries
+            else _MONTH_TRANSFORM_SCHEMA
             if value["native_interval_seconds"] is None
+            else _CARRY_TRANSFORM_SCHEMA
+            if native_fixed_linear_carry
             else PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA
         )
         if (
@@ -991,6 +1122,8 @@ class PortfolioObservationTransform:
                 global_usable_counts=tuple(value["global_usable_counts"]),
                 reference_log_price_mean=tuple(value["reference_log_price_mean"]),
                 reference_price_counts=tuple(value["reference_price_counts"]),
+                native_fixed_linear_carry=native_fixed_linear_carry,
+                session_boundaries_ns=session_boundaries,
             )
         except (TypeError, OverflowError) as error:
             raise ValueError("invalid transform metadata") from error
@@ -998,7 +1131,17 @@ class PortfolioObservationTransform:
     def validate_environment(self, env: SharedPortfolioGymEnv) -> None:
         if not isinstance(env, SharedPortfolioGymEnv):
             raise TypeError("environment must be SharedPortfolioGymEnv")
-        if self.native_interval_seconds is None:
+        if self.session_boundaries_ns != _session_clock_boundaries(env.bound):
+            raise ValueError("session transform boundaries differ from the environment")
+        if self.session_boundaries_ns:
+            env._validate_native_learning_window()
+        if self.native_fixed_linear_carry != env.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry transform mode differs from environment"
+            )
+        if self.native_fixed_linear_carry:
+            env._validate_native_learning_window()
+        if self.native_interval_seconds is None and not self.session_boundaries_ns:
             env._validate_native_learning_window()
             if not env.dataset.native_calendar_month:
                 raise ValueError(
@@ -1058,11 +1201,25 @@ class PortfolioObservationTransform:
                 raise TypeError(
                     "runtime_binding must be a PortfolioObservationRuntimeBinding"
                 )
-            expected_runtime_start_ns = _native_timestamp_ns_after(
-                self.objective_start_ns,
-                runtime_binding.runtime_start_index - self.start_index,
-                self.native_interval_seconds,
-            )
+            if bool(self.session_boundaries_ns) != bool(
+                runtime_binding.session_boundaries_ns
+            ):
+                raise ValueError("session runtime binding mode differs")
+            if self.session_boundaries_ns:
+                endpoint = self.session_boundaries_ns[-1]
+                if runtime_binding.runtime_start_ns < endpoint or (
+                    runtime_binding.runtime_start_ns == endpoint
+                ) != (runtime_binding.runtime_start_index == self.stop_index):
+                    raise ValueError(
+                        "session runtime binding overlaps the training clock"
+                    )
+                expected_runtime_start_ns = runtime_binding.runtime_start_ns
+            else:
+                expected_runtime_start_ns = _native_timestamp_ns_after(
+                    self.objective_start_ns,
+                    runtime_binding.runtime_start_index - self.start_index,
+                    self.native_interval_seconds,
+                )
             if (
                 runtime_binding.transform_digest != self.digest
                 or runtime_binding.training_bound_digest != self.bound_digest
@@ -1086,6 +1243,14 @@ class PortfolioObservationTransform:
             raise TypeError(
                 "runtime_binding must be exactly "
                 "PortfolioScenarioObservationRuntimeBindingV2"
+            )
+        if self.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry scenario inference requires a new scenario schema"
+            )
+        if self.session_boundaries_ns:
+            raise ValueError(
+                "session scenario inference requires a new scenario schema"
             )
         if self.native_interval_seconds is None:
             raise ValueError(
@@ -1254,8 +1419,19 @@ class PortfolioObservationTransform:
             or remaining != agent_stop - current_index
         ):
             raise ValueError("raw clock is outside the bound actor window")
-        expected_timestamp = _native_timestamp_ns_after(
-            window_start_ns, current_index - window_start, interval_seconds
+        boundaries = (
+            self.session_boundaries_ns
+            if runtime_binding is None
+            else runtime_binding.session_boundaries_ns
+            if isinstance(runtime_binding, PortfolioObservationRuntimeBinding)
+            else ()
+        )
+        expected_timestamp = (
+            boundaries[current_index - window_start]
+            if boundaries
+            else _native_timestamp_ns_after(
+                window_start_ns, current_index - window_start, interval_seconds
+            )
         )
         if timestamp_ns != expected_timestamp:
             raise ValueError("raw timestamp differs from the bound native clock")
@@ -1522,7 +1698,10 @@ def fit_portfolio_observation_transform(
 
     if not isinstance(env, SharedPortfolioGymEnv):
         raise TypeError("env must be a SharedPortfolioGymEnv")
-    if env.bound.clock.decision_interval_seconds is None:
+    if (
+        env.native_fixed_linear_carry
+        or env.bound.clock.decision_interval_seconds is None
+    ):
         env._validate_native_learning_window()
     dataset = env.dataset
     agent_stop = env.stop_index - env.execution_cost.order_latency_bars - 1
@@ -1592,6 +1771,8 @@ def fit_portfolio_observation_transform(
         global_usable_counts=tuple(counts),
         reference_log_price_mean=log_means,
         reference_price_counts=(agent_stop - start,) * dataset.n_symbols,
+        native_fixed_linear_carry=env.native_fixed_linear_carry,
+        session_boundaries_ns=_session_clock_boundaries(env.bound),
     )
 
 

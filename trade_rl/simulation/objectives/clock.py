@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from typing import ClassVar, Literal
 
+from trade_rl._validation import _ordered_ns_durations, _require_nominal_session_seconds
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.simulation.objectives.contract import _finite
 
@@ -156,3 +158,79 @@ class CalendarMonthFinancialClockContract:
     @property
     def digest(self) -> str:
         return content_digest(self.payload())
+
+
+@dataclass(frozen=True, slots=True)
+class SessionFinancialClockContract:
+    """Caller-established session closes, one undiscounted reward per decision.
+
+    Boundaries include the initial mark and all processing closes. They are a
+    declaration, not proof of venue calendar completeness. Nominal seconds
+    describe the processing bar, not the elapsed time between closes.
+    """
+
+    boundaries_ns: tuple[int, ...]
+    nominal_bar_seconds: int
+    economic_horizon_seconds: int
+    rollout_steps: int
+    gamma: float
+    gae_lambda: float
+    reward_schema: Literal["equity_delta_v1"]
+    _digest: str = dataclass_field(init=False, repr=False, compare=False)
+
+    decision_interval_seconds: ClassVar[None] = None
+    execution_interval_seconds: ClassVar[None] = None
+    reward_interval_seconds: ClassVar[None] = None
+
+    def __post_init__(self) -> None:
+        durations = _ordered_ns_durations(self.boundaries_ns)
+        _require_nominal_session_seconds(self.nominal_bar_seconds, durations)
+        if (
+            len(durations) < 2
+            or any(x % 1_000_000_000 for x in self.boundaries_ns)
+            or type(self.economic_horizon_seconds) is not int
+            or self.economic_horizon_seconds * 1_000_000_000 != sum(durations)
+            or type(self.rollout_steps) is not int
+            or self.rollout_steps <= 0
+        ):
+            raise ValueError(
+                "session clock requires a whole-second settled horizon matching its boundaries"
+            )
+        gamma = _finite(self.gamma, field="gamma")
+        gae = _finite(self.gae_lambda, field="gae_lambda")
+        if (
+            gamma != 1.0
+            or type(self.reward_schema) is not str
+            or self.reward_schema != "equity_delta_v1"
+        ):
+            raise ValueError("session clock requires gamma-one equity deltas")
+        if not 0.0 <= gae <= 1.0:
+            raise ValueError("gae_lambda must be within [0, 1]")
+        object.__setattr__(self, "gamma", gamma)
+        object.__setattr__(self, "gae_lambda", gae)
+        object.__setattr__(self, "_digest", content_digest(self.payload()))
+
+    def discount_after(self, seconds: int) -> float:
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 0:
+            raise ValueError("seconds must be a non-negative integer")
+        return 1.0
+
+    @property
+    def terminal_profit_aligned(self) -> bool:
+        return self.reward_schema == "equity_delta_v1" and self.gamma == 1.0
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "schema": "session_financial_clock_v1",
+            "boundaries_ns": list(self.boundaries_ns),
+            "nominal_bar_seconds": self.nominal_bar_seconds,
+            "economic_horizon_seconds": self.economic_horizon_seconds,
+            "rollout_steps": self.rollout_steps,
+            "gamma": self.gamma,
+            "gae_lambda": self.gae_lambda,
+            "reward_schema": self.reward_schema,
+        }
+
+    @property
+    def digest(self) -> str:
+        return self._digest

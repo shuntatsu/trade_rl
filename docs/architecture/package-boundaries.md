@@ -1173,6 +1173,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
 | `trade_rl.evaluation.strict_spot_cash_path` | `StrictSpotCashPathEvidence`, `verify_strict_spot_cash_path` (restricted source-backed cash-path audit) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+| `trade_rl.evaluation.clocked_native_replay` | `NativePublicationSlot`, `ClockedNativeReplayResult`, `clocked_native_decision_schedule`, `run_clocked_native_portfolio_replay` (publication-gated decisions on a verified fine-grid overlay) |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |

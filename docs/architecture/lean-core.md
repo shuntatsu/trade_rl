@@ -1202,3 +1202,44 @@ First-stage execution admits only identity-verified deterministic unlevered long
 `trade_rl.data.build.native_spot.build_native_fixed_spot_dataset` is a separate, explicit native-fixed v8 builder, not an extension of the legacy timeframe string contract. It accepts an explicit requested 3d/fixed7d/UTC-week close grid, ordered independently pinned normalized Spot execution sources with a complete optional warm-up prefix, ordered `ClockedNativeFeatureGroup` sources/specs, and an explicit as-of timestamp. Every execution and feature source must use the opt-in NativeRawMarketSeries constructor, which checks actual boolean masks, explicit publication, exact integer funding counts and losslessly representable real numeric inputs before the inherited normalized storage conversion. Legacy RawMarketSeries retains its existing normalization contract and is not admitted into this builder even with identical normalized bytes. The native source type does not authenticate prior caller-side conversion or provider evidence. Execution sources must end exactly at the requested grid; all source clocks, lifetimes, complete normalized rows, publication cutoffs and pins are checked before calculating features. A group using the identical execution clock must use the execution source pins. The existing clocked native alignment owns feature windows, normalization, dependency availability and staleness; separate feature clocks can be finer or coarser without inventing prices or future events. The canonical four global channels reuse existing causal one-bar return and portable population-moment arithmetic. The native build configuration, source digest roster, as-of and normalized values are bound by the content identity. No legacy identities are changed.
 
 `spot_raw_from_resampled` converts complete `NativeResampledBars` into the existing Spot raw contract, using the shared resampler to validate aggregate rows and preserving the chosen base/quote volume and actual publication timestamps. It does not authenticate original captures or prove original member counts; callers must retain their independent source and receipt evidence. These APIs reject unsupported funding/derivative multipliers, dynamic execution rules and incomplete ranges rather than silently inventing economic inputs. Static instrument rules are bound; the caller still supplies execution cost assumptions. Delayed publications remain delayed: unavailable close marks and their decision features are masked, and the current native replay boundary refuses them. This enables synthetic complete-grid artifact/replay testing, not delayed execution scheduling, real-data permission or economic authorization.
+
+### Publication-gated native decisions on a real fine execution grid
+
+`trade_rl.evaluation.clocked_native_replay` is an opt-in composition, not a
+second executor or a relaxation of the coarse v8 mark-admission rule. Build
+the existing clocked feature overlay once on a verified continuous fine-grid
+Dataset; choose one exact bound group for the decision clock. All selected
+group symbols must have the same complete native close grid and strict
+`NativeRawMarketSeries` receipt arrays, with the actual raw pins, clock and
+feature definition matching the overlay identity. Identity is content
+binding, not source/provider authentication. The fine execution grid must
+contain actual complete source bars; coarse OHLC is never disaggregated.
+
+For each declared coarse close, the latest receipt over the whole group
+determines the earliest possible actor time. Pick the first fine close at or
+after that receipt (an exact timestamp tie follows the existing close/
+next-open convention). A one-nanosecond delay moves the decision to a later
+fine close. Never schedule an earlier warm-up bar, catch up a missed
+decision at window start, or act at/after the next declared coarse close.
+Fixed elapsed and UTC-week expiry use exact elapsed nanoseconds; UTC-month
+expiry uses the next calendar month, not 30 days. Outside-window and expired
+slots are explicit, with the actor window taking precedence. This gates raw
+bar publication; feature-specific warm-up, dependency readiness, masks and
+staleness remain the existing as-of overlay and policy's responsibility.
+
+`run_clocked_native_portfolio_replay` reuses the common shared replay on every
+fine interval. It calls the supplied policy only on admitted slots, proposes
+exact-quantity HOLD otherwise, and leaves hard risk and terminal flattening
+to the native owner. The current restricted path requires deterministic,
+unlevered long-only strict spot cash, MARKET, zero additional order latency,
+previous-bar capacity, no pending partial-fill carry, available and tradable
+fine marks throughout the replay range, and no fine funding events. The
+native terminal reserve is excluded from the actor window. Insufficient
+liquidity or termination can prevent actual settlement; inspect the
+returned book and ledger. Planned slots and observed actor calls are
+distinct facts. Returns/fees remain on the fine execution cadence; sparse
+actor calls do not change annualization or the meaning of existing artifacts.
+The same augmented Dataset can serve multiple policies without repeating
+feature construction. This is neither native calendar-month execution nor
+an RL decision-clock/checkpoint migration, derivative funding/borrow model,
+provider authentication or economic authorization.

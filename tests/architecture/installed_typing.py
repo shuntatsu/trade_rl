@@ -29,6 +29,7 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.clocked_native_replay import NativePublicationSlot, ClockedNativeReplayResult, clocked_native_decision_schedule, run_clocked_native_portfolio_replay
 from trade_rl.evaluation.replay_exposure import ReplayExposureEvidence, mean_pre_interval_gross_from_ledger
 from trade_rl.evaluation.runs.external_provenance import (
     ExternalPackageInput, ExternalSourceProvenance, PackageFilePin, PackageSourcePin,
@@ -90,6 +91,10 @@ def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
     group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
+    assert_type(clocked_native_decision_schedule(market, group, start_index=0, stop_index=2), tuple[NativePublicationSlot, ...])
+    scheduled = assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig()), ClockedNativeReplayResult)
+    assert_type(scheduled.replay, SharedCashPortfolioReplayResult)
+    assert_type(scheduled.policy_decision_indices, tuple[int, ...])
     assert_type(training_execution_config_payload(ExecutionCostConfig()), dict[str, object])
     assert_type(training_execution_config_digest(ExecutionCostConfig()), str)
     assert_type(training_risk_config_payload(PreTradeRiskConfig()), dict[str, object])
@@ -123,6 +128,8 @@ training_risk_config_payload(ExecutionCostConfig())  # expect: arg-type
 utc_timestamp_ns("2024-01-01")  # expect: arg-type
 def bad_clock_group(clock: NativeBarClock, spec: FeatureSpec, market: MarketDataset) -> None:
     ClockedNativeFeatureGroup(clock, ("bad",), (spec,))  # expect: arg-type
+    clocked_native_decision_schedule(market, clock, start_index=0, stop_index=2)  # expect: arg-type
+    run_clocked_native_portfolio_replay(market, WrongPolicy(), decision_group=ClockedNativeFeatureGroup(clock, (), (spec,)), start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig())  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, fill_cash_observer=7)  # expect: arg-type
 def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type

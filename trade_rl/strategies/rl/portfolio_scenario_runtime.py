@@ -133,6 +133,10 @@ def create_portfolio_scenario_runtime_binding_v2(
         raise TypeError("training_bound must be exactly BoundObjectiveClock")
     if type(runtime_env) is not SharedPortfolioGymEnv:
         raise TypeError("runtime_env must be exactly SharedPortfolioGymEnv")
+    if transform.native_fixed_linear_carry or runtime_env.native_fixed_linear_carry:
+        raise ValueError(
+            "native fixed linear carry scenario inference requires a new scenario schema"
+        )
     native_interval_seconds = runtime_env.bound.clock.decision_interval_seconds
     if (
         native_interval_seconds is None

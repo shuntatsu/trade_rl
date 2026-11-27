@@ -532,6 +532,19 @@ def _require_calendar_month_spot_roster(dataset: MarketDataset) -> None:
         )
 
 
+def _require_native_fixed_linear_carry_dataset(dataset: MarketDataset) -> None:
+    if (
+        dataset.native_clock is None
+        or dataset.native_calendar_month
+        or dataset.funding_price_rate is None
+        or any(unit is not VolumeUnit.CONTRACTS for unit in dataset.volume_units)
+    ):
+        raise ValueError(
+            "native fixed linear carry requires an explicit fixed contract-unit Dataset "
+            "with event-price rates, not Spot or a calendar month"
+        )
+
+
 def _preflight_native_learning_execution_window(
     dataset: MarketDataset,
     cost: ExecutionCostConfig,
@@ -539,6 +552,7 @@ def _preflight_native_learning_execution_window(
     start_index: int,
     stop_index: int,
     native_calendar_month: bool = False,
+    native_fixed_linear_carry: bool = False,
 ) -> None:
     """Refuse unsupported native learning inputs before reserving work."""
     if (
@@ -546,15 +560,25 @@ def _preflight_native_learning_execution_window(
         or native_calendar_month != dataset.native_calendar_month
     ):
         raise ValueError("calendar month execution is not supported by fixed-clock Gym")
+    if type(native_fixed_linear_carry) is not bool:
+        raise ValueError("native_fixed_linear_carry must be boolean")
+    if native_fixed_linear_carry:
+        _require_native_fixed_linear_carry_dataset(dataset)
     if dataset.native_clock is None:
         return
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
     _require_calendar_month_spot_roster(dataset)
-    _require_native_execution_cost(dataset, cost)
+    if native_fixed_linear_carry:
+        _require_native_fixed_linear_carry_cost(cost)
+    else:
+        _require_native_execution_cost(dataset, cost)
     _require_execution_margin_roster(dataset, cost)
     _require_native_fixed_execution_rows(
-        dataset, start_index=start_index, stop_index=stop_index
+        dataset,
+        start_index=start_index,
+        stop_index=stop_index,
+        native_fixed_linear_carry=native_fixed_linear_carry,
     )
 
 
@@ -591,17 +615,10 @@ class MarketExecutor:
             )
         if type(native_fixed_linear_carry) is not bool:
             raise ValueError("native_fixed_linear_carry must be boolean")
-        if native_fixed_linear_carry and (
-            strict_spot_cash
-            or dataset.native_clock is None
-            or dataset.native_calendar_month
-            or dataset.funding_price_rate is None
-            or any(unit is not VolumeUnit.CONTRACTS for unit in dataset.volume_units)
-        ):
-            raise ValueError(
-                "native fixed linear carry requires an explicit fixed contract-unit Dataset "
-                "with event-price rates, not Spot or a calendar month"
-            )
+        if native_fixed_linear_carry:
+            if strict_spot_cash:
+                raise ValueError("native fixed linear carry excludes strict Spot")
+            _require_native_fixed_linear_carry_dataset(dataset)
         _require_calendar_month_spot_roster(dataset)
         self._native_fixed_linear_carry = native_fixed_linear_carry
         self.dataset = dataset

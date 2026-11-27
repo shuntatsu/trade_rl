@@ -39,6 +39,7 @@ from trade_rl.strategies.rl.ppo_normalization import (
 
 PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA = "shared_portfolio_observation_transform_v1"
 _MONTH_TRANSFORM_SCHEMA = "shared_portfolio_calendar_month_observation_transform_v1"
+_CARRY_TRANSFORM_SCHEMA = "shared_portfolio_fixed_linear_carry_observation_transform_v1"
 _MONTH_RUNTIME_BINDING_SCHEMA = (
     "shared_portfolio_calendar_month_observation_runtime_binding_v1"
 )
@@ -407,6 +408,12 @@ class PortfolioObservationRuntimeBinding:
         ):
             raise ValueError("training bound differs from the fitted transform")
 
+        if transform.native_fixed_linear_carry != runtime_env.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry runtime mode differs from training"
+            )
+        if transform.native_fixed_linear_carry:
+            runtime_env._validate_native_learning_window()
         if transform.native_interval_seconds is None:
             runtime_env._validate_native_learning_window()
             if not runtime_env.dataset.native_calendar_month:
@@ -668,6 +675,7 @@ class PortfolioObservationTransform:
     global_usable_counts: tuple[int, ...]
     reference_log_price_mean: tuple[float, ...]
     reference_price_counts: tuple[int, ...]
+    native_fixed_linear_carry: bool = False
 
     def __post_init__(self) -> None:
         symbols = tuple(self.symbols)
@@ -702,6 +710,15 @@ class PortfolioObservationTransform:
             self.economic_horizon_seconds,
             self.native_interval_seconds,
         )
+        if type(self.native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
+        if self.native_fixed_linear_carry and (
+            self.native_interval_seconds not in (3 * 86400, 7 * 86400)
+            or self.agent_stop_index != self.stop_index - 1
+        ):
+            raise ValueError(
+                "native fixed linear carry transform requires its fixed cadence and terminal reserve"
+            )
         capital = _finite_real(self.initial_capital, field="initial_capital")
         if capital <= 0.0:
             raise ValueError("initial_capital must be positive")
@@ -866,6 +883,8 @@ class PortfolioObservationTransform:
             "schema": (
                 _MONTH_TRANSFORM_SCHEMA
                 if self.native_interval_seconds is None
+                else _CARRY_TRANSFORM_SCHEMA
+                if self.native_fixed_linear_carry
                 else PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA
             ),
             "input_schema": PORTFOLIO_GYM_OBSERVATION_SCHEMA,
@@ -940,9 +959,12 @@ class PortfolioObservationTransform:
             raise ValueError("transform payload is not canonical JSON") from error
         if payload_digest != expected_digest:
             raise ValueError("transform payload digest differs from expected_digest")
+        native_fixed_linear_carry = value["schema"] == _CARRY_TRANSFORM_SCHEMA
         expected_schema = (
             _MONTH_TRANSFORM_SCHEMA
             if value["native_interval_seconds"] is None
+            else _CARRY_TRANSFORM_SCHEMA
+            if native_fixed_linear_carry
             else PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA
         )
         if (
@@ -991,6 +1013,7 @@ class PortfolioObservationTransform:
                 global_usable_counts=tuple(value["global_usable_counts"]),
                 reference_log_price_mean=tuple(value["reference_log_price_mean"]),
                 reference_price_counts=tuple(value["reference_price_counts"]),
+                native_fixed_linear_carry=native_fixed_linear_carry,
             )
         except (TypeError, OverflowError) as error:
             raise ValueError("invalid transform metadata") from error
@@ -998,6 +1021,12 @@ class PortfolioObservationTransform:
     def validate_environment(self, env: SharedPortfolioGymEnv) -> None:
         if not isinstance(env, SharedPortfolioGymEnv):
             raise TypeError("environment must be SharedPortfolioGymEnv")
+        if self.native_fixed_linear_carry != env.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry transform mode differs from environment"
+            )
+        if self.native_fixed_linear_carry:
+            env._validate_native_learning_window()
         if self.native_interval_seconds is None:
             env._validate_native_learning_window()
             if not env.dataset.native_calendar_month:
@@ -1086,6 +1115,10 @@ class PortfolioObservationTransform:
             raise TypeError(
                 "runtime_binding must be exactly "
                 "PortfolioScenarioObservationRuntimeBindingV2"
+            )
+        if self.native_fixed_linear_carry:
+            raise ValueError(
+                "native fixed linear carry scenario inference requires a new scenario schema"
             )
         if self.native_interval_seconds is None:
             raise ValueError(
@@ -1522,7 +1555,10 @@ def fit_portfolio_observation_transform(
 
     if not isinstance(env, SharedPortfolioGymEnv):
         raise TypeError("env must be a SharedPortfolioGymEnv")
-    if env.bound.clock.decision_interval_seconds is None:
+    if (
+        env.native_fixed_linear_carry
+        or env.bound.clock.decision_interval_seconds is None
+    ):
         env._validate_native_learning_window()
     dataset = env.dataset
     agent_stop = env.stop_index - env.execution_cost.order_latency_bars - 1
@@ -1592,6 +1628,7 @@ def fit_portfolio_observation_transform(
         global_usable_counts=tuple(counts),
         reference_log_price_mean=log_means,
         reference_price_counts=(agent_stop - start,) * dataset.n_symbols,
+        native_fixed_linear_carry=env.native_fixed_linear_carry,
     )
 
 

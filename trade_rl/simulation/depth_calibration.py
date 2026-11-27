@@ -1,7 +1,7 @@
 """Distribution-free execution-cost bounds from cumulative depth bands.
 
 The input is a sequence of order-book *band* snapshots, such as the roughly
-30-second Binance Vision USD-M ``bookDepth`` records: for each side, ten
+30-second Binance Vision USD-M ``bookDepth`` records: for each side, a set of
 percentages ``p_1 < ... < p_m`` of the mid price (1% .. 5%) and the cumulative
 resting quote notional ``N_1 <= ... <= N_m`` within that percentage. The caller
 converts its own store rows into :class:`DepthBandSnapshot`; this module reads
@@ -34,7 +34,7 @@ the distance because they depend only on the order of the liquidity.
 All arithmetic is exact rational arithmetic: no float is produced, so nothing
 can overflow, underflow or round, and metamorphic scaling of the notionals
 scales the notional-valued results exactly. Band values, positive notionals,
-quantiles and capacity thresholds have a bounded input domain: exact
+quantiles and capacity thresholds have a bounded input domain: native
 ``int``, ``Fraction``, finite ``Decimal`` (and finite ``float`` for thresholds
 only), zero or absolute value in ``[1e-308, 1e308]``, at most 700 significant
 Decimal digits and at most 4096 bits in a Fraction numerator or denominator.
@@ -42,8 +42,8 @@ The classifier and existing-cell lookups intentionally compare exact values
 outside the magnitude and Fraction bit limits, including derived bounds;
 the conversion/type/finite and Decimal/integer guards still apply. Finite
 float assumed costs are accepted. These comparisons do not admit inputs to
-the bounded solver or grid. Numeric validation errors name the offending
-field, never its value.
+the bounded solver or grid. Numeric and band tuple subclasses are refused before conversion or indexing.
+Numeric validation errors name the offending field, never its value.
 
 Derivation of the bounds
 ------------------------
@@ -134,8 +134,8 @@ _Bands = tuple[tuple[Fraction, Fraction], ...]
 class DepthBand(NamedTuple):
     """One band: cumulative resting quote notional within ``percentage``% of mid."""
 
-    percentage: Fraction | Decimal
-    cumulative_notional: Decimal
+    percentage: Exact
+    cumulative_notional: Exact
 
 
 def _decimal_to_fraction(value: Decimal, field: str) -> Fraction:
@@ -161,17 +161,17 @@ def _exact(
     outputs of this module (bounds can legitimately fall outside the input
     range, for example a tiny average cost after extreme notional ratios).
     """
-    if isinstance(value, bool):
+    if type(value) is bool:
         raise ValueError(f"{field} must be an exact number")
-    if isinstance(value, Fraction):
+    if type(value) is Fraction:
         result = value
-    elif isinstance(value, int):
+    elif type(value) is int:
         if value.bit_length() > _MAX_BITS:
             raise ValueError(f"{field} is outside the representable range")
         result = Fraction(value)
-    elif isinstance(value, Decimal):
+    elif type(value) is Decimal:
         result = _decimal_to_fraction(value, field)
-    elif allow_float and isinstance(value, float):
+    elif allow_float and type(value) is float:
         if not math.isfinite(value):
             raise ValueError(f"{field} must be finite")
         result = Fraction(value)
@@ -190,13 +190,13 @@ def _exact(
 
 
 def _coerce_side(bands: object, field: str) -> tuple[DepthBand, ...]:
-    if not isinstance(bands, tuple) or not bands:
+    if type(bands) is not tuple or not bands:
         raise ValueError(f"{field} must be a non-empty tuple of bands")
     coerced: list[DepthBand] = []
     previous_percentage: Fraction | None = None
     previous_notional: Fraction | None = None
     for band in bands:
-        if not isinstance(band, tuple) or len(band) != 2:
+        if type(band) not in (tuple, DepthBand) or len(band) != 2:
             raise ValueError(f"{field} bands must be (percentage, notional) pairs")
         percentage = _exact(band[0], f"{field} percentage")
         notional = _exact(band[1], f"{field} cumulative notional")
@@ -229,7 +229,9 @@ class DepthBandSnapshot:
 
     ``bid_bands`` (used by sells) and ``ask_bands`` (used by buys) are tuples of
     ``DepthBand(percentage, cumulative_notional)`` with percentages in percent
-    of mid. Construction accepts native aware datetimes with zero UTC offset,
+    of mid. Native tuples of native ``DepthBand`` or plain tuple pairs and
+    native exact numbers are required. Construction accepts native aware
+    datetimes with zero UTC offset,
     samples the offset once and stores a native UTC datetime. It refuses
     non-UTC or naive times, non-finite or out-of-range values, non-positive
     or non-increasing percentages, and negative or decreasing notionals.

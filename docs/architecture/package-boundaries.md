@@ -538,7 +538,8 @@ resizing the native quantity. Ordinary weight targets use the existing path.
 depth-band snapshots (such as Binance `bookDepth`). The caller builds immutable
 `DepthBandSnapshot` values; a native zero-offset datetime is admitted once
 and normalized to immutable UTC without retaining caller-owned timezone state.
-The module imports no store or integration, fits nothing, and is not
+Native exact numbers and native band tuples/pairs are required; numeric and
+tuple subclasses are refused before conversion or indexing. The module imports no store or integration, fits nothing, and is not
 re-exported from the simulation facade. For a market order
 of quote notional Q it derives distribution-free bounds on the marginal fill
 distance and on the notional-weighted average distance from mid (the upper bound

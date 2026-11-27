@@ -98,12 +98,17 @@ def test_bootstrap_rejects_nonnative_rank_before_short_sample_fallback() -> None
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
-def test_quantile_failure_never_publishes_an_interval(monkeypatch, bad: float) -> None:
+@pytest.mark.parametrize("bound", [0, 1])
+def test_quantile_failure_never_publishes_an_interval(
+    monkeypatch, bad: float, bound: int
+) -> None:
     # Fault injection at the quantile boundary, separate from resample overflow.
     def broken_quantile(means, probabilities):
         assert means.shape == (5,) and np.isfinite(means).all()
         assert probabilities == [0.025, 0.975]
-        return np.array([bad, 0.1])
+        bounds = np.array([-0.1, 0.1])
+        bounds[bound] = bad
+        return bounds
 
     monkeypatch.setattr(np, "quantile", broken_quantile)
     with pytest.raises(ValueError, match="bootstrap interval must be finite"):

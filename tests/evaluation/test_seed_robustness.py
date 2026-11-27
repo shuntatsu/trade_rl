@@ -217,3 +217,42 @@ def test_matching_effective_clock_does_not_remove_legacy_nominal_check() -> None
             baseline=baseline,
             n_bootstrap=5,
         )
+
+
+def test_identical_infinite_effective_clocks_are_rejected_before_metrics(
+    monkeypatch,
+) -> None:
+    from trade_rl.evaluation.comparison import seed_robustness as module
+
+    unrepresentable = _elapsed_series(5e-324)
+    assert math.isinf(unrepresentable.annualization_periods_per_year)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid baseline frequency reached performance calculation")
+
+    monkeypatch.setattr(module, "compound_return", unexpected)
+    monkeypatch.setattr(module, "evaluate_performance", unexpected)
+    with pytest.raises(ValueError, match="baseline annualization must be finite"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(
+                SeedEvaluation(0, unrepresentable, 0.0),
+                SeedEvaluation(1, unrepresentable, 0.0),
+            ),
+            baseline=unrepresentable,
+            n_bootstrap=5,
+        )
+
+
+def test_explicit_baseline_also_rejects_mismatched_implicit_seed_clock() -> None:
+    baseline = _elapsed_series(0.01)
+    with pytest.raises(ValueError, match="annualization"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(
+                SeedEvaluation(0, _series((0.01, 0.02)), 0.0),
+                SeedEvaluation(1, baseline, 0.0),
+            ),
+            baseline=baseline,
+            n_bootstrap=5,
+        )

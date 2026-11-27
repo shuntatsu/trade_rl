@@ -742,3 +742,149 @@ def test_explicit_reserve_excludes_coarse_event_from_actor_window():
     assert result.policy_decision_indices == ()
     assert result.replay.book.exact_quantities == (0, 0)
     assert result.replay.returns.values == (0,) * 9
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_clocked_replay_continues_latency_and_native_partial_fills(partial):
+    from trade_rl.data.identity import parse_identity_json
+
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+    entry = first + 3
+    terminal = entry + 8
+    stop = terminal + 6
+    volume = dataset.volume.copy()
+    volume[entry:stop, 0] = 1.0
+    dataset = replace(
+        dataset, identity_payload_json=None, volume=volume
+    ).with_content_identity(parse_identity_json(dataset.identity_payload_json))
+    seen = []
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            seen.append(snapshot.index)
+            return PortfolioTargetProposal((0.3, 0.0))
+
+    result = scheduling.run_clocked_native_portfolio_replay(
+        dataset,
+        Policy(),
+        decision_group=group,
+        start_index=first,
+        stop_index=stop,
+        initial_capital=1000,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            allow_short=False,
+            processing_bar_volume_capacity=False,
+            order_latency_bars=3,
+            partial_fill_carry=partial,
+        ),
+        continue_pending_orders=True,
+        terminal_reserve_bars=6,
+        capture_ledger_evidence=True,
+    )
+    assert result.policy_decision_indices == tuple(seen) == (entry,)
+    ledger = result.replay.ledger_evidence
+    assert ledger is not None
+    payload = ledger.to_mapping()
+    assert payload["schema_version"] == "shared_cash_portfolio_replay_ledger_v3"
+    assert payload["actor_decision_indices"] == (entry,)
+    assert payload["scheduled_actor_indices"] == (entry,)
+    rows = ledger.intervals.intervals
+    assert len(rows) == stop - first
+    orders = [e for row in rows for e in row.order_events]
+    entry_orders = [
+        e for e in orders if e.event_type == "submitted" and e.processing_index == entry
+    ]
+    assert len(entry_orders) == 1
+    order_id = entry_orders[0].order_id
+    entry_fills = [
+        e
+        for e in orders
+        if e.order_id == order_id and e.event_type in {"filled", "partial_fill"}
+    ]
+    assert [e.processing_index for e in entry_fills] == (
+        [entry + 3, entry + 4, entry + 5] if partial else [entry + 3]
+    )
+    expected_quantity = 300.0 / dataset.close[entry, 0] if partial else 1.0
+    assert sum(e.filled_quantity for e in entry_fills) == pytest.approx(
+        expected_quantity
+    )
+    assert all(e.order_id == order_id for e in orders if e.processing_index < terminal)
+    assert not any(
+        e.event_type == "cancelled" for e in orders if e.order_id == order_id
+    )
+    assert result.replay.book.exact_quantities == (0, 0)
+    assert ledger.intervals.active_order_remainders == ()
+    assert all(
+        d.pending_continuation_status is not None
+        for d in ledger.decisions
+        if d.index != entry
+    )
+    assert ledger.decisions[entry - first].pending_continuation_status is None
+    # Literal fill sequence, then mark at each actual fine close.
+    cash = 1000.0
+    quantity = 0.0
+    target = expected_quantity
+    previous = 1000.0
+    for row in rows:
+        idx = row.next_index
+        delta = 0.0
+        if idx in (entry + 3, entry + 4, entry + 5):
+            delta = min(1.0, target - quantity)
+        if idx in (terminal + 3, terminal + 4, terminal + 5):
+            delta = -min(1.0, quantity)
+        cash -= delta * dataset.open[idx, 0]
+        quantity += delta
+        equity = cash + quantity * dataset.close[idx, 0]
+        assert float(Fraction(row.exact_quantities_after[0])) == pytest.approx(
+            quantity, abs=1e-12
+        )
+        assert row.cash_after == pytest.approx(cash)
+        assert row.portfolio_value_after == pytest.approx(equity)
+        assert row.interval_net_return == pytest.approx(
+            equity / previous - 1, abs=1e-12
+        )
+        previous = equity
+
+
+def test_pending_entry_is_cancelled_in_terminal_reserve_before_eligibility():
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+    entry = first + 3
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            assert snapshot.index == entry
+            return PortfolioTargetProposal((0.3, 0.0))
+
+    result = scheduling.run_clocked_native_portfolio_replay(
+        dataset,
+        Policy(),
+        decision_group=group,
+        start_index=first,
+        stop_index=entry + 5,
+        initial_capital=1000,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            allow_short=False,
+            processing_bar_volume_capacity=False,
+            order_latency_bars=3,
+            partial_fill_carry=True,
+        ),
+        continue_pending_orders=True,
+        capture_ledger_evidence=True,
+    )
+    assert result.policy_decision_indices == (entry,)
+    ledger = result.replay.ledger_evidence
+    assert ledger is not None
+    events = [e for row in ledger.intervals.intervals for e in row.order_events]
+    assert [(e.event_type, e.processing_index) for e in events] == [
+        ("submitted", entry),
+        ("latency_wait", entry + 1),
+        ("cancelled", entry + 1),
+    ]
+    assert len({e.order_id for e in events}) == 1
+    assert result.replay.book.exact_quantities == (0, 0)
+    assert result.replay.book.cash == 1000.0
+    assert ledger.intervals.active_order_remainders == ()

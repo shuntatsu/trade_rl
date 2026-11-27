@@ -10,7 +10,7 @@ import numpy as np
 
 from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.metrics import compound_return, evaluate_performance
-from trade_rl.evaluation.series import ReturnSeries
+from trade_rl.evaluation.series import ReturnSeries, _finite_annualization
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,15 +81,11 @@ def summarize_seed_robustness(
         raise ValueError("seed and baseline return kinds must match")
     if any(len(item.returns.values) != len(baseline.values) for item in seeds):
         raise ValueError("seed and baseline ranges must have equal length")
-    baseline_frequency = baseline.annualization_periods_per_year
-    if not math.isfinite(baseline_frequency) or baseline_frequency <= 0.0:
-        raise ValueError("baseline annualization must be finite and positive")
+    baseline_frequency = _finite_annualization(baseline, label="baseline")
     for item in seeds:
-        frequency = item.returns.annualization_periods_per_year
+        frequency = _finite_annualization(item.returns, label="seed")
         if (
             item.returns.periods_per_year != baseline.periods_per_year
-            or not math.isfinite(frequency)
-            or frequency <= 0.0
             or not math.isclose(
                 frequency, baseline_frequency, rel_tol=0.0, abs_tol=1e-12
             )

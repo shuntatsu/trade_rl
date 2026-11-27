@@ -8,7 +8,7 @@ from statistics import fmean
 
 from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.metrics import compound_return
-from trade_rl.evaluation.series import ReturnSeries
+from trade_rl.evaluation.series import ReturnSeries, _finite_annualization
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +31,8 @@ def _validate_compatible(candidate: ReturnSeries, benchmark: ReturnSeries) -> No
     if candidate.kind is not benchmark.kind:
         raise ValueError("paired return series kind mismatch")
     if not math.isclose(
-        candidate.annualization_periods_per_year,
-        benchmark.annualization_periods_per_year,
+        _finite_annualization(candidate, label="candidate"),
+        _finite_annualization(benchmark, label="benchmark"),
         rel_tol=0.0,
         abs_tol=1e-12,
     ):

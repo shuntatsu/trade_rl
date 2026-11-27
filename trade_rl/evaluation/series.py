@@ -72,3 +72,14 @@ class ReturnSeries:
         if self.elapsed_years is None:
             return float(self.periods_per_year)
         return len(self.values) / self.elapsed_years
+
+
+def _finite_annualization(returns: ReturnSeries, *, label: str) -> float:
+    """Validate the derived binary64 clock before performing evaluation."""
+    try:
+        frequency = returns.annualization_periods_per_year
+    except OverflowError as exc:
+        raise ValueError(f"{label} annualization must be finite and positive") from exc
+    if not math.isfinite(frequency) or frequency <= 0.0:
+        raise ValueError(f"{label} annualization must be finite and positive")
+    return frequency

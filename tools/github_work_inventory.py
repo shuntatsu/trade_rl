@@ -93,16 +93,11 @@ def _comment_snapshot(
 
 def classify_ancestry(compare: dict[str, Any]) -> str:
     """Interpret the GitHub compare endpoint for PR_HEAD...CURRENT_MAIN."""
+    if type(compare) is not dict or any(type(key) is not str for key in compare):
+        raise ValueError("compare must be a native object with native string keys")
     ahead = compare.get("ahead_by")
     behind = compare.get("behind_by")
-    if (
-        isinstance(ahead, bool)
-        or isinstance(behind, bool)
-        or not isinstance(ahead, int)
-        or not isinstance(behind, int)
-        or ahead < 0
-        or behind < 0
-    ):
+    if type(ahead) is not int or type(behind) is not int or ahead < 0 or behind < 0:
         raise ValueError("compare ahead/behind counts must be nonnegative integers")
     if ahead == 0 and behind == 0:
         comparison_status = "identical"
@@ -116,7 +111,8 @@ def classify_ancestry(compare: dict[str, Any]) -> str:
     else:
         comparison_status = "diverged"
         relationship = "diverged"
-    if compare.get("status") != comparison_status:
+    status = compare.get("status")
+    if type(status) is not str or status != comparison_status:
         raise ValueError("GitHub compare status conflicts with ahead/behind counts")
     return relationship
 

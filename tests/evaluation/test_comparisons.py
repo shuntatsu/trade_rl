@@ -125,8 +125,22 @@ def test_paired_comparison_rejects_two_equal_unrepresentable_clocks() -> None:
         compare_paired_returns(candidate, benchmark, n_bootstrap=5)
 
 
-def test_paired_comparison_cannot_publish_overflowed_growth() -> None:
+@pytest.mark.parametrize("overflow_candidate", [False, True])
+def test_paired_comparison_cannot_publish_overflowed_growth(overflow_candidate) -> None:
+    excessive = series((1e155, 1e155))
+    ordinary = series((0.0, 0.0))
+    candidate, benchmark = (
+        (excessive, ordinary) if overflow_candidate else (ordinary, excessive)
+    )
     with pytest.raises(ValueError, match="compound.*finite"):
-        compare_paired_returns(
-            series((1e155, 1e155)), series((0.0, 0.0)), n_bootstrap=5
-        )
+        compare_paired_returns(candidate, benchmark, n_bootstrap=5)
+
+
+@pytest.mark.parametrize("invalid_arm", ["candidate", "benchmark", "both"])
+def test_paired_comparison_rejects_overflowing_nominal_clock(invalid_arm) -> None:
+    valid = series((0.01, 0.02))
+    invalid = series((0.01, 0.02), periods_per_year=10**400)
+    candidate = valid if invalid_arm == "benchmark" else invalid
+    benchmark = valid if invalid_arm == "candidate" else invalid
+    with pytest.raises(ValueError, match="annualization.*finite"):
+        compare_paired_returns(candidate, benchmark, n_bootstrap=5)

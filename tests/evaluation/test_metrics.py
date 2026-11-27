@@ -83,7 +83,17 @@ def test_performance_inputs_reject_negative_accounting_totals() -> None:
         evaluate_performance(returns, turnover_total=-0.1)
 
 
-@pytest.mark.parametrize("values", [(1e155, 1e155), (float("nan"),), (float("inf"),)])
+@pytest.mark.parametrize(
+    "values",
+    [
+        (1e155, 1e155),
+        (float("nan"),),
+        (float("inf"),),
+        (-float("inf"),),
+        (1e155, 1e155, -1.0),
+        (-1.0, float("nan")),
+    ],
+)
 def test_compound_return_rejects_nonfinite_wealth(values) -> None:
     with pytest.raises(ValueError, match="compound.*finite"):
         compound_return(values)

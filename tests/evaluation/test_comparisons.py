@@ -115,3 +115,18 @@ def test_paired_comparison_rejects_incompatible_series(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         compare_paired_returns(candidate, benchmark)
+
+
+def test_paired_comparison_rejects_two_equal_unrepresentable_clocks() -> None:
+    candidate = ReturnSeries((0.01, 0.02), ReturnKind.BASE_BAR, 365, 5e-324)
+    benchmark = ReturnSeries((0.0, 0.0), ReturnKind.BASE_BAR, 365, 5e-324)
+    assert math.isinf(candidate.annualization_periods_per_year)
+    with pytest.raises(ValueError, match="annualization"):
+        compare_paired_returns(candidate, benchmark, n_bootstrap=5)
+
+
+def test_paired_comparison_cannot_publish_overflowed_growth() -> None:
+    with pytest.raises(ValueError, match="compound.*finite"):
+        compare_paired_returns(
+            series((1e155, 1e155)), series((0.0, 0.0)), n_bootstrap=5
+        )

@@ -256,3 +256,14 @@ def test_explicit_baseline_also_rejects_mismatched_implicit_seed_clock() -> None
             baseline=baseline,
             n_bootstrap=5,
         )
+
+
+def test_seed_summary_rejects_overflowing_nominal_annualization() -> None:
+    baseline = ReturnSeries((0.01, 0.02), ReturnKind.DECISION_STEP, 10**400)
+    with pytest.raises(ValueError, match="baseline annualization must be finite"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(SeedEvaluation(0, baseline, 0.0), SeedEvaluation(1, baseline, 0.0)),
+            baseline=baseline,
+            n_bootstrap=5,
+        )

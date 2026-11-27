@@ -10,8 +10,12 @@ Recognised forms (an optional ``.CHECKSUM`` suffix is allowed)::
     https://data.binance.vision/data/spot/{monthly|daily}/klines/SYM/INTERVAL/SYM-INTERVAL-PERIOD.zip
     https://data.binance.vision/data/futures/um/{monthly|daily}/klines/SYM/INTERVAL/SYM-INTERVAL-PERIOD.zip
     https://data.binance.vision/data/futures/um/monthly/fundingRate/SYM/SYM-fundingRate-YYYY-MM.zip
+    https://data.binance.vision/data/futures/um/daily/metrics/SYM/SYM-metrics-YYYY-MM-DD.zip
+    https://data.binance.vision/data/futures/um/daily/bookDepth/SYM/SYM-bookDepth-YYYY-MM-DD.zip
 
 with ``PERIOD`` = ``YYYY-MM`` for ``monthly`` and ``YYYY-MM-DD`` for ``daily``.
+``metrics`` and ``bookDepth`` exist only as USD-M daily archives: the same names under
+spot, a monthly cadence or another futures root are refused with a specific message.
 Anything else is unrecognised and must not be fetched.
 """
 
@@ -43,6 +47,22 @@ _FUNDING: Final = re.compile(
     rf"^{re.escape(VISION_PREFIX)}futures/um/monthly/fundingRate/(?P<symbol>{_SYMBOL})"
     rf"/(?P<file_symbol>{_SYMBOL})-fundingRate-(?P<period>[0-9]{{4}}-[0-9]{{2}})"
     r"\.zip(?P<checksum>\.CHECKSUM)?$"
+)
+
+
+_DAILY_USDS_M_FILE_NAMES: Final = {
+    ArchiveKind.METRICS: "metrics",
+    ArchiveKind.BOOK_DEPTH: "bookDepth",
+}
+_DERIVATIVES: Final = re.compile(
+    rf"^{re.escape(VISION_PREFIX)}futures/um/daily/(?P<name>metrics|bookDepth)"
+    rf"/(?P<symbol>{_SYMBOL})/(?P<file_symbol>{_SYMBOL})-(?P=name)"
+    r"-(?P<period>[0-9]{4}-[0-9]{2}-[0-9]{2})\.zip(?P<checksum>\.CHECKSUM)?$"
+)
+# the same data-set names anywhere else (spot, monthly, coin-margined) get a clear error
+_DERIVATIVES_ELSEWHERE: Final = re.compile(
+    rf"^{re.escape(VISION_PREFIX)}(?P<root>[a-z/]+?)/(?P<cadence>[a-z]+)"
+    r"/(?P<name>metrics|bookDepth)/"
 )
 
 
@@ -82,11 +102,74 @@ def _period(text: str, cadence: str, url: str) -> tuple[datetime, datetime]:
         raise UnrecognizedArchiveUrlError(f"invalid archive period in {url}") from error
 
 
+def vision_daily_derivatives_url(
+    kind: ArchiveKind,
+    market: StoreMarket,
+    symbol: str,
+    day: datetime,
+    *,
+    period_kind: PeriodKind = PeriodKind.DAILY,
+) -> str:
+    """The official daily ``metrics`` / ``bookDepth`` archive URL for ``day`` (UTC).
+
+    Both exist only as USD-M **daily** archives; spot and monthly are refused here, so
+    no caller can build a URL the parser would later refuse.
+    """
+
+    name = _DAILY_USDS_M_FILE_NAMES.get(kind)
+    if name is None:
+        raise ValueError(f"{kind.value} is not a daily USD-M derivatives archive kind")
+    if market is not StoreMarket.USDS_M:
+        raise ValueError(
+            f"{name} archives exist only for USD-M futures, not {market.value}"
+        )
+    if period_kind is not PeriodKind.DAILY:
+        raise ValueError(
+            f"{name} archives exist only as daily archives, not {period_kind.value}"
+        )
+    if re.fullmatch(_SYMBOL, symbol) is None:
+        raise ValueError(f"invalid symbol: {symbol!r}")
+    if day.tzinfo is None or day.utcoffset() is None:
+        raise ValueError("day must be timezone-aware")
+    stamp = day.astimezone(UTC).strftime("%Y-%m-%d")
+    return (
+        f"{VISION_PREFIX}futures/um/daily/{name}/{symbol}/{symbol}-{name}-{stamp}.zip"
+    )
+
+
 def parse_archive_url(url: str) -> ParsedArchiveUrl:
     """Parse a Vision archive or ``.CHECKSUM`` URL; refuse anything unrecognised."""
 
     if not isinstance(url, str) or not url.startswith(VISION_PREFIX):
         raise UnrecognizedArchiveUrlError("not an official Binance Vision URL")
+    derivatives = _DERIVATIVES.match(url)
+    if derivatives is not None:
+        if derivatives["symbol"] != derivatives["file_symbol"]:
+            raise UnrecognizedArchiveUrlError(
+                f"directory and file name disagree in {url}"
+            )
+        start, end = _period(derivatives["period"], "daily", url)
+        return ParsedArchiveUrl(
+            kind=ArchiveKind.METRICS
+            if derivatives["name"] == "metrics"
+            else ArchiveKind.BOOK_DEPTH,
+            market=StoreMarket.USDS_M,
+            symbol=derivatives["symbol"],
+            interval=None,
+            period_kind=PeriodKind.DAILY,
+            period_start=start,
+            period_end=end,
+            is_checksum=derivatives["checksum"] is not None,
+        )
+    elsewhere = _DERIVATIVES_ELSEWHERE.match(url)
+    if elsewhere is not None and (elsewhere["root"], elsewhere["cadence"]) != (
+        "futures/um",
+        "daily",
+    ):
+        raise UnrecognizedArchiveUrlError(
+            f"{elsewhere['name']} archives exist only as USD-M daily archives "
+            f"(futures/um/daily), not {elsewhere['root']}/{elsewhere['cadence']}: {url}"
+        )
     match = _KLINES.match(url)
     if match is not None:
         if match["symbol"] != match["file_symbol"] or (
@@ -190,4 +273,5 @@ __all__ = [
     "check_url_fetchable",
     "parse_archive_url",
     "verify_spec_matches_url",
+    "vision_daily_derivatives_url",
 ]

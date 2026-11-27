@@ -298,12 +298,11 @@ class SharedPortfolioGymEnv(gym.Env):
             # session, training attempt, or checkpoint loading is admitted.
             start_ns = _market_timestamp_ns(self.dataset, self.start_index)
             stop_ns = _market_timestamp_ns(self.dataset, self.stop_index)
-            interval_ns = (
-                _market_timestamp_ns(self.dataset, self.start_index + 1)
-                - start_ns
-            )
+            next_ns = _market_timestamp_ns(self.dataset, self.start_index + 1)
+            interval_ns = next_ns - start_ns
             objective = self.bound.objective
             clock = self.bound.clock
+            horizon_ns = clock.economic_horizon_seconds * 1_000_000_000
             if (
                 start_ns != _utc_datetime_ns(objective.evaluation_start)
                 or stop_ns != _utc_datetime_ns(objective.evaluation_stop_exclusive)
@@ -315,8 +314,7 @@ class SharedPortfolioGymEnv(gym.Env):
                         clock.reward_interval_seconds,
                     )
                 )
-                or clock.economic_horizon_seconds * 1_000_000_000
-                != stop_ns - start_ns
+                or horizon_ns != stop_ns - start_ns
             ):
                 raise ValueError(
                     "native fixed Gym financial clock must match the Dataset window"

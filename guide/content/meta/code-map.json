@@ -312,7 +312,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "e94870e1ee1a7c15e5ba8afd867e63d57eb91d71228241cffe3e94963300a008",
+      "source_sha256": "ee3d01442d361cda11eeb6bc9608a6d56fdd699c082fee7ac53ac8d31253f1a9",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。",
       "variables": [],

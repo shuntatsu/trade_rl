@@ -908,3 +908,32 @@ def test_compare_rejects_zero_oid_before_http(
             "0" * 40 if location == "head" else "a" * 40,
             "0" * 40 if location == "main" else "b" * 40,
         )
+
+
+class _FalseZero(int):
+    def __eq__(self, other: object) -> bool:
+        return other == 0
+
+
+class _CompareStatus(str):
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+class _CompareDict(dict[str, object]):
+    def get(self, key, default=None):
+        raise AssertionError("foreign lookup must not run")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"status": "ahead", "ahead_by": 4, "behind_by": _FalseZero(3)},
+        {"status": _CompareStatus("behind"), "ahead_by": 4, "behind_by": 0},
+        _CompareDict(status="ahead", ahead_by=4, behind_by=0),
+        {"status": "ahead", "ahead_by": 4, "behind_by": 0, _CompareStatus("other"): 1},
+    ],
+)
+def test_compare_rejects_foreign_identity_before_comparison(payload) -> None:
+    with pytest.raises(ValueError):
+        classify_ancestry(payload)

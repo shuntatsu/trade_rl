@@ -18,11 +18,12 @@ Order of operations (exact):
 2. Take the last ``lookback`` history rows. Sample covariance with the explicit
    ``ddof``: ``S = C'C / (n - ddof)`` where ``C`` is the column-demeaned window.
    Internally each column is scaled to unit peak before the products, and the exact
-   scales are recombined with exponent-tracking arithmetic: weights are scale
-   invariant and no intermediate overflows or underflows silently. A result that is
-   truly not representable (overflow, or underflow to zero) is refused with
-   ``SleeveCombinerError`` (``non_representable`` / ``non_finite``), never returned
-   as ``inf``, ``nan`` or a spurious zero.
+   scales and individual variance-contribution factors are recombined with
+   exponent-tracking arithmetic. Nonrepresentable normalized nonzero risk
+   weights and final nonzero products that underflow to zero or overflow are
+   refused with ``SleeveCombinerError`` (``non_representable`` /
+   ``non_finite``). Other matrix operations use binary64, not exact rational
+   arithmetic; this is not an arbitrary-scale accuracy guarantee.
 3. Shrink toward the diagonal: ``Sigma = (1 - d) S + d diag(S)``, ``d`` in [0, 1].
 4. Apply the zero-variance policy (a sleeve whose window is constant): refuse by
    default, or ``EXCLUDE`` it (weight 0; the remaining ``FIXED`` weights or ERC
@@ -379,6 +380,10 @@ def combine_sleeves(
     # ``(G * dmax * max v)^2 * z' R z``. The exact scale factors are combined with
     # an exponent-tracking product so no intermediate can silently overflow.
     v = relative * weights
+    if np.any((relative > 0.0) & (weights > 0.0) & (v == 0.0)):
+        raise SleeveCombinerError(
+            "non_representable", "sleeve risk weights underflow to zero"
+        )
     v_max = float(np.max(v))
     if not v_max > 0.0:
         raise SleeveCombinerError(
@@ -411,7 +416,8 @@ def combine_sleeves(
             scaled.max_relative_scale,
             v_max,
             v_max,
-            float(z[i] * rz[i]),
+            float(z[i]),
+            float(rz[i]),
         )
         for i in range(k)
     ]

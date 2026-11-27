@@ -745,6 +745,18 @@ def execute_evidence_set(
     return completed
 
 
+def _unique_manifest_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject ambiguity before hashing any decoded evidence fields."""
+    result: dict[str, object] = {}
+    for name, value in pairs:
+        if name in result:
+            raise ArtifactIntegrityError(
+                "EvidenceSet manifest contains a duplicate JSON member"
+            )
+        result[name] = value
+    return result
+
+
 def _read_manifest(root: Path) -> dict[str, object]:
     manifest_path = root / "manifest.json"
     if manifest_path.is_symlink():
@@ -752,7 +764,14 @@ def _read_manifest(root: Path) -> dict[str, object]:
     try:
         with open_regular_binary(manifest_path, field="EvidenceSet manifest") as handle:
             payload = handle.read()
-        raw = cast(object, json.loads(payload.decode("utf-8")))
+        raw = cast(
+            object,
+            json.loads(
+                payload.decode("utf-8"), object_pairs_hook=_unique_manifest_members
+            ),
+        )
+    except ArtifactIntegrityError:
+        raise
     except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ArtifactIntegrityError("EvidenceSet manifest is malformed") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):

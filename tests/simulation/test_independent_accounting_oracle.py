@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -235,3 +236,118 @@ def test_margin_shortfall_matches_independent_manual_calculation() -> None:
     assert production.margin_deficit == pytest.approx(expected_deficit)
     assert production.insolvent is True
     assert production.termination_reason is EconomicTerminationReason.MARGIN_CALL
+
+
+@pytest.mark.parametrize("direction", [1, -1])
+def test_signed_multisymbol_lifecycle_matches_fraction_cash_and_equity(
+    direction: int,
+) -> None:
+    # Each event uses independently calculated signed principal and carry.
+    # Dyadic quantities, prices, multipliers and rates are exactly representable.
+    cash = Fraction(1024)
+    quantities = (Fraction(0), Fraction(0))
+    marks = (Fraction(16), Fraction(32))
+    multipliers = (Fraction(2), Fraction(1, 2))
+
+    def vector(values: tuple[Fraction, Fraction]) -> np.ndarray:
+        return np.array([float(value) for value in values])
+
+    def equity() -> Fraction:
+        return cash + sum(
+            quantity * mark * multiplier
+            for quantity, mark, multiplier in zip(
+                quantities, marks, multipliers, strict=True
+            )
+        )
+
+    book = BookState.zero(2, float(cash), vector(marks), vector(multipliers))
+
+    def check() -> None:
+        assert book.cash == float(cash)
+        assert book.exact_quantities == quantities
+        assert book.portfolio_value == float(equity())
+
+    targets = (Fraction(4 * direction), Fraction(-6 * direction))
+    fee = Fraction(7, 4)
+    cash -= (
+        sum(
+            target * mark * multiplier
+            for target, mark, multiplier in zip(
+                targets, marks, multipliers, strict=True
+            )
+        )
+        + fee
+    )
+    quantities = targets
+    book.execute(
+        fill_prices=vector(marks),
+        target_quantities=vector(targets),
+        cost_amount=float(fee),
+        turnover=0.5,
+    )
+    check()
+    assert book.total_cost == float(fee)
+    assert book.fill_count == 2
+
+    before_split = equity()
+    factors = (Fraction(2), Fraction(1, 2))
+    quantities = (quantities[0] * factors[0], quantities[1] * factors[1])
+    marks = (marks[0] / factors[0], marks[1] / factors[1])
+    book.apply_split(vector(factors))
+    assert equity() == before_split
+    check()
+
+    dividends = (Fraction(1, 4), Fraction(1))
+    dividend = sum(
+        quantity * multiplier * amount
+        for quantity, multiplier, amount in zip(
+            quantities, multipliers, dividends, strict=True
+        )
+    )
+    cash += dividend
+    assert book.apply_dividend(vector(dividends)) == float(dividend)
+    check()
+
+    interest = cash * Fraction(1, 8) * Fraction(1, 4)
+    cash += interest
+    assert book.apply_cash_interest(0.125, year_fraction=0.25) == float(interest)
+    check()
+    borrow = Fraction(3, 8)
+    cash -= borrow
+    book.charge_borrow(float(borrow))
+    check()
+    assert book.borrow_cost == float(borrow)
+
+    before_mark = equity()
+    marks = (Fraction(9), Fraction(60))
+    rates = (Fraction(1, 64), Fraction(1, 32))
+    funding = -sum(
+        quantity * mark * multiplier * rate
+        for quantity, mark, multiplier, rate in zip(
+            quantities, marks, multipliers, rates, strict=True
+        )
+    )
+    cash += funding
+    net_return = book.mark_to_market(
+        mark_prices=vector(marks),
+        funding_amount=float(funding),
+        period_start_value=float(before_mark),
+    )
+    check()
+    assert book.funding_pnl == float(funding)
+    assert net_return == pytest.approx(float(equity() / before_mark - 1), abs=1e-15)
+
+    recovery = (Fraction(3, 4), Fraction(1, 2))
+    proceeds = sum(
+        quantity * mark * multiplier * ratio
+        for quantity, mark, multiplier, ratio in zip(
+            quantities, marks, multipliers, recovery, strict=True
+        )
+    )
+    cash += proceeds
+    quantities = (Fraction(0), Fraction(0))
+    assert book.settle_positions(
+        mask=np.array([True, True]), prices=vector(marks), recovery=vector(recovery)
+    ) == float(proceeds)
+    check()
+    assert book.insolvent is False

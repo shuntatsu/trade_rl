@@ -358,8 +358,76 @@ def test_stochastic_computes_each_k_once(monkeypatch):
         return original(array, *args, **kwargs)
 
     monkeypatch.setattr(core.np, "max", counted)
-    _events(_stochastic_spec(17, 31), raw, present)
+    # The implicit profile retains the original reduction and portable mean.
+    legacy = FeatureSpec("stoch", FeatureKind.STOCHASTIC_D, lookback=17)
+    _events(legacy, raw, present)
     assert samples == [17] * (200 - 17 + 1)
+
+
+def test_configured_stochastic_does_not_rescan_price_windows(monkeypatch):
+    from trade_rl.data.features import core
+
+    raw = _raw(1000)
+    present = np.ones(1000, dtype=bool)
+    spec = _stochastic_spec(400, 3)
+    expected = _literal_stochastic(raw, 400, 3, present)
+    maximum, minimum = core.np.max, core.np.min
+    samples = []
+
+    def counted_max(array, *args, **kwargs):
+        samples.append(len(array))
+        return maximum(array, *args, **kwargs)
+
+    def counted_min(array, *args, **kwargs):
+        samples.append(len(array))
+        return minimum(array, *args, **kwargs)
+
+    monkeypatch.setattr(core.np, "max", counted_max)
+    monkeypatch.setattr(core.np, "min", counted_min)
+    actual = _events(spec, raw, present)
+    assert sum(samples) <= len(raw.close)
+    for a, b in zip(actual, expected, strict=True):
+        np.testing.assert_array_equal(a, b)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("periods", [(1, 1), (17, 31), (400, 3), (200, 200)])
+@pytest.mark.parametrize("gaps", [False, True])
+def test_configured_stochastic_extrema_preserve_reduction_bytes(dtype, periods, gaps):
+    from trade_rl.data.features import core
+
+    rng = np.random.default_rng(12)
+    close = rng.uniform(100, 200, 1000).astype(dtype)
+    high, low = (close + 2).astype(dtype), (close - 2).astype(dtype)
+    present = np.ones(len(close), dtype=bool)
+    if gaps:
+        present[200] = False
+        present[701:703] = False
+    args = (high, low, close, present, *periods)
+    expected = core._stochastic_d(*args)
+    actual = core._stochastic_d(*args, linear_extrema=True)
+    for a, b in zip(actual, expected, strict=True):
+        assert a.tobytes() == b.tobytes()
+
+
+@pytest.mark.parametrize("price", [0.0, -1.0, np.nan])
+def test_configured_stochastic_preserves_noncanonical_price_refusal(price):
+    from trade_rl.data.features import core
+
+    close = np.full(30, 2.0)
+    high, low = close + 1, close - 1
+    low[4] = price
+    args = (high, low, close, np.ones(len(close), dtype=bool), 3, 3)
+    if np.isnan(price):
+        with pytest.raises(ValueError, match="finite"):
+            core._stochastic_d(*args)
+        with pytest.raises(ValueError, match="finite"):
+            core._stochastic_d(*args, linear_extrema=True)
+    else:
+        expected = core._stochastic_d(*args)
+        actual = core._stochastic_d(*args, linear_extrema=True)
+        for a, b in zip(actual, expected, strict=True):
+            assert a.tobytes() == b.tobytes()
 
 
 @pytest.mark.parametrize("kind", _MACD)

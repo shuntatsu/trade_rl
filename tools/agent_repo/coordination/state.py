@@ -133,11 +133,22 @@ def parent_completion_allowed(
     parent_acceptance_satisfied: bool,
     parent_invariants_satisfied: bool,
 ) -> bool:
-    """Require child completion plus explicit parent-level acceptance and invariants."""
+    """Require a native child-status snapshot and affirmative parent oracles.
 
+    Caller-supplied rosters do not establish authoritative task completeness.
+    """
+
+    if type(child_statuses) is not dict:
+        return False
+    children = tuple(child_statuses.items())
+    if any(
+        type(key) is not str or type(status) is not TaskStatus
+        for key, status in children
+    ):
+        return False
     children_complete = all(
         status.phase is TaskPhase.COMPLETE and status.condition is TaskCondition.HEALTHY
-        for status in child_statuses.values()
+        for _, status in children
     )
     return (
         children_complete

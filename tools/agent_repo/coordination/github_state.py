@@ -44,8 +44,10 @@ def _require_digest(value: str) -> None:
 def _optional_text(value: str | None, *, field_name: str) -> None:
     if value is None:
         return
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be non-empty when provided")
+    if type(value) is not str or not value.strip():
+        raise ValueError(
+            f"{field_name} must be a non-empty native string when provided"
+        )
     # Durable GitHub projections must be representable as strict UTF-8.
     try:
         value.encode("utf-8")

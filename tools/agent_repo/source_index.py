@@ -76,16 +76,35 @@ def literal_public_exports(tree: ast.Module) -> tuple[str, ...] | None:
     return tuple(sorted(names))
 
 
+def _scan_files(repository: Path, root: Path, pattern: str) -> list[Path]:
+    """Reject linked subtrees instead of silently omitting their contents."""
+
+    def raise_scan_error(error: OSError) -> None:
+        raise error
+
+    paths: list[Path] = []
+    for directory, subdirs, files in root.walk(on_error=raise_scan_error):
+        # Path.walk does not follow symlinks and lists linked directories as
+        # filenames. Check both lists before selecting matching source files.
+        for name in (*subdirs, *files):
+            path = directory / name
+            if path.is_symlink():
+                raise ValueError(f"repository inspection rejects symlink: {path}")
+        paths.extend(
+            checked_repo_file(repository, directory / name)
+            for name in files
+            if Path(name).match(pattern)
+        )
+    return sorted(paths)
+
+
 class ImportCollector:
     """Resolve imports and selected static re-exports against a physical tree."""
 
     def __init__(self, package: Path) -> None:
         self.repository = package.parent.resolve()
         self.package = checked_repo_directory(self.repository, package)
-        source_paths = [
-            checked_repo_file(self.repository, path)
-            for path in sorted(self.package.rglob("*.py"))
-        ]
+        source_paths = _scan_files(self.repository, self.package, "*.py")
         self.modules: dict[str, Path] = {}
         for path in source_paths:
             module = self._module(path)
@@ -476,8 +495,7 @@ class SourceIndex:
             return ()
         tests_root = checked_repo_directory(self.repository, tests_root)
         result: set[str] = set()
-        for path in sorted(tests_root.rglob("test_*.py")):
-            path = checked_repo_file(self.repository, path)
+        for path in _scan_files(self.repository, tests_root, "test_*.py"):
             relative = path.relative_to(self.repository).as_posix()
             imports = self.collector.collect(path)
             if module is not None and module in imports:
@@ -512,8 +530,7 @@ class SourceIndex:
         if facade_module is not None:
             terms.add(facade_module)
         result: list[str] = []
-        for path in sorted(root.rglob("test_*.py")):
-            path = checked_repo_file(self.repository, path)
+        for path in _scan_files(self.repository, root, "test_*.py"):
             with tokenize.open(path) as source:
                 text = source.read()
             if any(term in text for term in terms):
@@ -560,8 +577,7 @@ class SourceIndex:
         if module is not None:
             terms.add(module)
         result: list[str] = []
-        for path in sorted(docs_root.rglob("*.md")):
-            path = checked_repo_file(self.repository, path)
+        for path in _scan_files(self.repository, docs_root, "*.md"):
             text = path.read_text(encoding="utf-8")
             if any(term in text for term in terms):
                 result.append(path.relative_to(self.repository).as_posix())

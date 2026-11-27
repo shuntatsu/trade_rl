@@ -286,3 +286,26 @@ def test_source_index_respects_python_source_encoding(
         path.write_bytes((cookie + "# caf\u00e9\n" + source).encode(encoding))
         compile(path.read_bytes(), str(path), "exec")
     assert SourceIndex.build(tmp_path).context(target) == expected
+
+
+@pytest.mark.parametrize("scan_root", ["trade_rl", "tests", "docs"])
+@pytest.mark.parametrize("target_kind", ["outside", "inside", "missing"])
+def test_index_rejects_nested_directory_symlinks(
+    tmp_path: Path, scan_root: str, target_kind: str
+) -> None:
+    root = tmp_path / "repo"
+    _tree(root)
+    outside = tmp_path / "outside"
+    _write(outside, "test_hidden.py", "import trade_rl.evaluation.runs.config\n")
+    _write(outside, "hidden.md", "trade_rl.evaluation.runs.config\n")
+    target = {
+        "outside": outside,
+        "inside": root / "trade_rl/evaluation",
+        "missing": tmp_path / "missing",
+    }[target_kind]
+    try:
+        (root / scan_root / "linked").symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+    with pytest.raises(ValueError, match="symlink"):
+        SourceIndex.build(root).context("trade_rl/evaluation/runs/config.py")

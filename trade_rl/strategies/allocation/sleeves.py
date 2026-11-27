@@ -17,6 +17,12 @@ Order of operations (exact):
 1. Validate sleeves, symbols, history and config. Refuse, never guess.
 2. Take the last ``lookback`` history rows. Sample covariance with the explicit
    ``ddof``: ``S = C'C / (n - ddof)`` where ``C`` is the column-demeaned window.
+   Internally each column is scaled to unit peak before the products, and the exact
+   scales are recombined with exponent-tracking arithmetic: weights are scale
+   invariant and no intermediate overflows or underflows silently. A result that is
+   truly not representable (overflow, or underflow to zero) is refused with
+   ``SleeveCombinerError`` (``non_representable`` / ``non_finite``), never returned
+   as ``inf``, ``nan`` or a spurious zero.
 3. Shrink toward the diagonal: ``Sigma = (1 - d) S + d diag(S)``, ``d`` in [0, 1].
 4. Apply the zero-variance policy (a sleeve whose window is constant): refuse by
    default, or ``EXCLUDE`` it (weight 0; the remaining ``FIXED`` weights or ERC
@@ -255,10 +261,14 @@ class SleeveCombination:
     def risk_contribution_fractions(self) -> tuple[float, ...] | None:
         """Contributions divided by the total variance; ``None`` if that is zero."""
 
-        total = math.fsum(self.risk_contributions)
+        peak = max((abs(value) for value in self.risk_contributions), default=0.0)
+        if peak == 0.0:
+            return None
+        unit = [value / peak for value in self.risk_contributions]
+        total = math.fsum(unit)
         if total <= 0.0:
             return None
-        return tuple(value / total for value in self.risk_contributions)
+        return tuple(value / total for value in unit)
 
 
 def combine_sleeves(
@@ -310,13 +320,8 @@ def combine_sleeves(
         raise SleeveCombinerError("config", "max_abs_weight must match the symbols")
 
     window = _history_window(history, n_sleeves=k, lookback=config.lookback)
-    covariance = _shrunk_covariance(
-        window, ddof=config.ddof, shrinkage=config.shrinkage
-    )
-
-    constant = np.ptp(window, axis=0) == 0.0
-    variances = np.diag(covariance)
-    zero_variance = constant | (variances <= 0.0)
+    scaled = _scaled_covariance(window, ddof=config.ddof, shrinkage=config.shrinkage)
+    zero_variance = scaled.constant
     excluded = tuple(
         name for name, flag in zip(names, zero_variance, strict=True) if flag
     )
@@ -327,78 +332,115 @@ def combine_sleeves(
     active = ~zero_variance
     if not np.any(active):
         raise SleeveCombinerError("zero_variance", "every sleeve has zero variance")
+    relative = scaled.relative_scale
+    correlation = scaled.correlation
 
     iterations = 0
     max_deviation: float | None = None
     weights = np.zeros(k)
-    if config.method is SleeveMethod.FIXED:
-        assert config.fixed_weights is not None
-        fixed = np.asarray(config.fixed_weights, dtype=np.float64) * active
-        total = float(fixed.sum())
-        if total <= 0.0:
-            raise SleeveCombinerError(
-                "zero_variance", "no fixed weight remains after excluding sleeves"
+    with np.errstate(all="ignore"):
+        if config.method is SleeveMethod.FIXED:
+            assert config.fixed_weights is not None
+            fixed = np.asarray(config.fixed_weights, dtype=np.float64) * active
+            total = float(fixed.sum())
+            if total <= 0.0:
+                raise SleeveCombinerError(
+                    "zero_variance", "no fixed weight remains after excluding sleeves"
+                )
+            weights = fixed / total
+        elif config.method is SleeveMethod.INVERSE_VOL:
+            inverse = np.zeros(k)
+            inverse[active] = 1.0 / (
+                relative[active] * np.sqrt(np.diag(correlation)[active])
             )
-        weights = fixed / total
-    elif config.method is SleeveMethod.INVERSE_VOL:
-        inverse = np.zeros(k)
-        inverse[active] = 1.0 / np.sqrt(variances[active])
-        weights = inverse / inverse.sum()
-    else:
-        block = covariance[np.ix_(active, active)]
-        _require_positive_definite(block)
-        if config.risk_budgets is None:
-            budgets = np.full(k, 1.0 / k)
+            weights = _normalized_active(inverse, active)
         else:
-            budgets = np.asarray(config.risk_budgets, dtype=np.float64)
-        active_budgets = budgets[active]
-        active_budgets = active_budgets / active_budgets.sum()
-        solved, iterations, max_deviation = _solve_erc(
-            block,
-            active_budgets,
-            tolerance=config.erc_tolerance,
-            max_iterations=config.erc_max_iterations,
-        )
-        weights[active] = solved
+            block = correlation[np.ix_(active, active)]
+            _require_positive_definite(block)
+            if config.risk_budgets is None:
+                budgets = np.full(k, 1.0 / k)
+            else:
+                budgets = np.asarray(config.risk_budgets, dtype=np.float64)
+            active_budgets = budgets[active]
+            active_budgets = active_budgets / active_budgets.sum()
+            solved, iterations, max_deviation = _solve_erc(
+                block,
+                active_budgets,
+                tolerance=config.erc_tolerance,
+                max_iterations=config.erc_max_iterations,
+            )
+            unscaled = np.zeros(k)
+            unscaled[active] = solved / relative[active]
+            weights = _normalized_active(unscaled, active)
 
-    marginal = covariance @ weights
-    contributions = weights * marginal
-    variance = max(float(weights @ marginal), 0.0)
-    if not math.isfinite(variance):
+    # Risk in scale-free form: with ``v = relative_scale * w`` (the sleeve weights
+    # in units of each sleeve's own volatility), ``z = v / max v`` and the
+    # correlation-like matrix ``R``, the true variance is
+    # ``(G * dmax * max v)^2 * z' R z``. The exact scale factors are combined with
+    # an exponent-tracking product so no intermediate can silently overflow.
+    v = relative * weights
+    v_max = float(np.max(v))
+    if not v_max > 0.0:
+        raise SleeveCombinerError(
+            "non_representable", "sleeve risk weights underflow to zero"
+        )
+    z = v / v_max
+    with np.errstate(all="ignore"):
+        rz = correlation @ z
+        quadratic = max(float(z @ rz), 0.0)
+        reference = float(np.sum(z * z * np.diag(correlation)))
+    if not (math.isfinite(quadratic) and math.isfinite(reference)):
         raise SleeveCombinerError("non_finite", "predicted variance is not finite")
-    variance_floor = _ZERO_VARIANCE_RELATIVE * float(np.max(variances))
+    vol_zero = quadratic <= _ZERO_VARIANCE_RELATIVE * reference
+    base_scale = scaled.global_scale * scaled.max_relative_scale
     periods = 1.0 if config.vol_target is None else config.vol_target.periods_per_year
-    predicted_vol = math.sqrt(variance * periods)
+    if vol_zero:
+        predicted_vol = 0.0
+    else:
+        predicted_vol = _scaled_product(
+            base_scale, v_max, math.sqrt(quadratic), math.sqrt(periods)
+        )
+    contributions = [
+        _scaled_product(base_scale, base_scale, v_max, v_max, float(z[i] * rz[i]))
+        for i in range(k)
+    ]
 
     scale = 1.0
     leverage_binding = False
     if config.vol_target is not None:
-        if variance <= variance_floor:
+        if vol_zero:
             raise SleeveCombinerError(
                 "zero_predicted_vol",
                 "predicted portfolio volatility is zero; cannot target volatility",
             )
-        raw_scale = config.vol_target.target_vol / predicted_vol
+        raw_scale = _scaled_ratio(config.vol_target.target_vol, predicted_vol)
         leverage_binding = raw_scale > config.vol_target.max_leverage
         scale = min(config.vol_target.max_leverage, raw_scale)
 
     matrix = np.asarray([sleeve.weights for sleeve in sleeve_list], dtype=np.float64)
-    netted = weights @ matrix
-    combined = scale * netted
-    symbol_binding = False
-    if config.max_abs_weight is not None:
-        caps = np.asarray(config.max_abs_weight, dtype=np.float64)
-        clipped = np.clip(combined, -caps, caps)
-        symbol_binding = bool(np.any(clipped != combined))
-        combined = clipped
-    gross_binding = False
-    if config.max_gross is not None:
-        gross = float(np.abs(combined).sum())
-        if gross > config.max_gross:
-            combined = combined * (config.max_gross / gross)
-            gross_binding = True
-    if not (np.all(np.isfinite(combined)) and np.all(np.isfinite(netted))):
-        raise SleeveCombinerError("non_finite", "combined weights are not finite")
+    with np.errstate(all="ignore"):
+        netted = weights @ matrix
+        _require_finite(netted, "netted weights")
+        combined = scale * netted
+        _require_finite(combined, "scaled weights")
+        symbol_binding = False
+        if config.max_abs_weight is not None:
+            caps = np.asarray(config.max_abs_weight, dtype=np.float64)
+            clipped = np.clip(combined, -caps, caps)
+            symbol_binding = bool(np.any(clipped != combined))
+            combined = clipped
+        gross_binding = False
+        if config.max_gross is not None:
+            # Scale-stable gross: sum |c| = peak * sum(|c| / peak), never overflowing.
+            peak = float(np.max(np.abs(combined)))
+            if peak > 0.0:
+                unit = combined / peak
+                unit_gross = float(np.abs(unit).sum())
+                factor = config.max_gross / unit_gross
+                if peak > factor:
+                    combined = unit * factor
+                    gross_binding = True
+        _require_finite(combined, "combined weights")
 
     return SleeveCombination(
         symbols=symbols,
@@ -407,7 +449,7 @@ def combine_sleeves(
         scale=float(scale),
         netted_weights=tuple(float(value) for value in netted),
         combined_weights=tuple(float(value) for value in combined),
-        risk_contributions=tuple(float(value) for value in contributions),
+        risk_contributions=tuple(contributions),
         diagnostics=SleeveCombinationDiagnostics(
             method=config.method,
             lookback=config.lookback,
@@ -418,7 +460,7 @@ def combine_sleeves(
             converged=True,
             max_budget_deviation=max_deviation,
             excluded_sleeves=excluded,
-            predicted_vol=predicted_vol,
+            predicted_vol=float(predicted_vol),
             leverage_cap_binding=leverage_binding,
             symbol_cap_binding=symbol_binding,
             gross_cap_binding=gross_binding,
@@ -443,11 +485,16 @@ def _real_tuple(values: object, *, name: str) -> tuple[float, ...]:
 
 def _history_window(history: object, *, n_sleeves: int, lookback: int) -> np.ndarray:
     try:
-        array = np.array(history, dtype=np.float64)
+        raw = np.asarray(history)
     except (TypeError, ValueError) as error:
         raise SleeveCombinerError(
             "history", "history must be a real (T, K) array"
         ) from error
+    if raw.dtype.kind not in "iuf":
+        raise SleeveCombinerError(
+            "history", f"history must have a real numeric dtype, got {raw.dtype}"
+        )
+    array = raw.astype(np.float64)
     if array.ndim != 2 or array.shape[1] != n_sleeves:
         raise SleeveCombinerError(
             "shape", f"history must have shape (T, {n_sleeves}), got {array.shape}"
@@ -463,17 +510,132 @@ def _history_window(history: object, *, n_sleeves: int, lookback: int) -> np.nda
     return window
 
 
-def _shrunk_covariance(
+@dataclass(frozen=True, slots=True)
+class _ScaledCovariance:
+    """``Sigma = global_scale * diag(rel) R diag(rel) * global_scale`` (shrunk).
+
+    ``relative_scale`` are per-sleeve standard-deviation scales divided by
+    ``max_relative_scale`` (so they lie in (0, 1], 0 for constant sleeves);
+    ``correlation`` is the shrunk, unit-max-scaled second-moment matrix ``R``.
+    """
+
+    constant: np.ndarray
+    relative_scale: np.ndarray
+    max_relative_scale: float
+    global_scale: float
+    correlation: np.ndarray
+
+
+def _scaled_covariance(
     window: np.ndarray, *, ddof: int, shrinkage: float
-) -> np.ndarray:
-    centered = window - window.mean(axis=0)
-    with np.errstate(all="ignore"):
-        sample = centered.T @ centered / (window.shape[0] - ddof)
-        shrunk = (1.0 - shrinkage) * sample + shrinkage * np.diag(np.diag(sample))
-    shrunk = 0.5 * (shrunk + shrunk.T)
-    if not np.all(np.isfinite(shrunk)):
+) -> _ScaledCovariance:
+    """Sample covariance factored into scale-free parts that cannot overflow.
+
+    Each column is divided by its max-abs, demeaned and divided by its largest
+    deviation, so ``R = X'X / (n - ddof)`` has entries of order one however small or
+    large the returns are. The scales are recombined only by exponent-tracking
+    products at the end, which refuse genuinely non-representable results.
+    """
+
+    n, k = window.shape
+    column_peak = np.max(np.abs(window), axis=0)
+    constant = (np.ptp(window, axis=0) == 0.0) | (column_peak == 0.0)
+    safe_peak = np.where(constant, 1.0, column_peak)
+    normalized = window / safe_peak
+    centered = normalized - normalized.mean(axis=0)
+    deviation = np.max(np.abs(centered), axis=0)
+    constant = constant | (deviation == 0.0)
+    safe_deviation = np.where(constant, 1.0, deviation)
+    unit = np.where(constant, 0.0, centered / safe_deviation)
+    sample = unit.T @ unit / (n - ddof)
+    correlation = (1.0 - shrinkage) * sample + shrinkage * np.diag(np.diag(sample))
+    correlation = 0.5 * (correlation + correlation.T)
+    if not np.all(np.isfinite(correlation)):
         raise SleeveCombinerError("non_finite", "covariance is not finite")
-    return shrunk
+    active = ~constant
+    if not np.any(active):
+        return _ScaledCovariance(constant, np.zeros(k), 1.0, 1.0, correlation)
+    global_scale = float(np.max(column_peak[active]))
+    relative = np.zeros(k)
+    relative[active] = (column_peak[active] / global_scale) * deviation[active]
+    if np.any(relative[active] <= 0.0):
+        raise SleeveCombinerError(
+            "non_representable", "sleeve volatility scales span too many magnitudes"
+        )
+    max_relative = float(np.max(relative))
+    relative = relative / max_relative
+    if np.any(relative[active] <= 0.0):
+        raise SleeveCombinerError(
+            "non_representable", "sleeve volatility scales span too many magnitudes"
+        )
+    return _ScaledCovariance(
+        constant, relative, max_relative, global_scale, correlation
+    )
+
+
+def _normalized_active(values: np.ndarray, active: np.ndarray) -> np.ndarray:
+    if not np.all(np.isfinite(values[active])) or np.any(values[active] <= 0.0):
+        raise SleeveCombinerError(
+            "non_representable", "sleeve weights are not representable"
+        )
+    total = float(values.sum())
+    weights = values / total
+    if not np.all(np.isfinite(weights)) or np.any(weights[active] <= 0.0):
+        raise SleeveCombinerError(
+            "non_representable", "sleeve weights are not representable"
+        )
+    return weights
+
+
+def _require_finite(values: np.ndarray, name: str) -> None:
+    if not np.all(np.isfinite(values)):
+        raise SleeveCombinerError("non_finite", f"{name} are not finite")
+
+
+def _scaled_product(*factors: float) -> float:
+    """Exact-exponent product; refuses overflow and underflow to zero."""
+
+    sign = 1.0
+    mantissa = 1.0
+    exponent = 0
+    for factor in factors:
+        if not math.isfinite(factor):
+            raise SleeveCombinerError("non_finite", "scale factor is not finite")
+        if factor == 0.0:
+            return 0.0
+        if factor < 0.0:
+            sign = -sign
+            factor = -factor
+        part, power = math.frexp(factor)
+        mantissa *= part
+        exponent += power
+    try:
+        result = math.ldexp(mantissa, exponent)
+    except OverflowError as error:
+        raise SleeveCombinerError(
+            "non_representable", "result overflows the float range"
+        ) from error
+    if result == 0.0:
+        raise SleeveCombinerError(
+            "non_representable", "result underflows the float range"
+        )
+    return sign * result
+
+
+def _scaled_ratio(numerator: float, denominator: float) -> float:
+    """``numerator / denominator`` for positive finite floats; ``inf`` on overflow."""
+
+    part_n, power_n = math.frexp(numerator)
+    part_d, power_d = math.frexp(denominator)
+    try:
+        result = math.ldexp(part_n / part_d, power_n - power_d)
+    except OverflowError:
+        return math.inf
+    if result == 0.0:
+        raise SleeveCombinerError(
+            "non_representable", "volatility scale underflows the float range"
+        )
+    return result
 
 
 def _require_positive_definite(block: np.ndarray) -> None:

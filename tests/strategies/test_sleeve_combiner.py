@@ -668,14 +668,173 @@ def test_refuses_to_return_an_unconverged_erc_solution() -> None:
     assert ok.diagnostics.iterations > 1
 
 
-def test_refuses_infinite_covariance_overflow() -> None:
+def test_refuses_variance_contributions_that_cannot_be_represented() -> None:
     history, sleeves = _dense()
+    # Weights and volatility are representable, but the variance contributions
+    # (1e400) are not: refuse instead of returning inf.
     _refuses(
-        "non_finite",
+        "non_representable",
         sleeves,
         history * 1e200,
         _config(SleeveMethod.INVERSE_VOL),
     )
+    _refuses(
+        "non_representable",
+        sleeves,
+        history * 1e-200,
+        _config(SleeveMethod.INVERSE_VOL),
+    )
+
+
+def _single(
+    returns: list[list[float]],
+    target: tuple[float, float],
+    **overrides: Any,
+) -> SleeveCombination:
+    sleeve = SleeveTarget("only", ("A", "B"), target)
+    config = SleeveCombinerConfig(
+        method=SleeveMethod.FIXED,
+        lookback=2,
+        ddof=0,
+        shrinkage=0.0,
+        fixed_weights=(1.0,),
+        **overrides,
+    )
+    return combine_sleeves(
+        [sleeve], symbols=("A", "B"), history=np.array(returns), config=config
+    )
+
+
+def test_witness_gross_cap_does_not_overflow_on_huge_weights() -> None:
+    result = _single([[-1.0], [1.0]], (1e308, 1e308), max_gross=1.0)
+    assert result.combined_weights == (0.5, 0.5)
+    assert result.diagnostics.gross_cap_binding
+    # A gross of 1.5e308 under a 1.6e308 cap is untouched, not rescaled.
+    loose = _single([[-1.0], [1.0]], (1e308, -0.5e308), max_gross=1.6e308)
+    assert loose.combined_weights == (1e308, -0.5e308)
+    assert not loose.diagnostics.gross_cap_binding
+    # A gross above the float range (2e308) still shrinks proportionally.
+    over = _single([[-1.0], [1.0]], (1e308, -1e308), max_gross=1.5e308)
+    assert over.combined_weights == (0.75e308, -0.75e308)
+
+
+def test_witness_huge_annualization_keeps_the_exact_finite_vol() -> None:
+    result = _single(
+        [[-2.0], [2.0]], (1.0, 1.0), vol_target=VolatilityTarget(1.0, 2.0, 1e308)
+    )
+    assert math.isclose(result.diagnostics.predicted_vol, 2e154, rel_tol=1e-12)
+    assert math.isclose(result.scale, 5e-155, rel_tol=1e-12)
+    assert result.combined_weights == pytest.approx((5e-155, 5e-155), rel=1e-12)
+    assert result.risk_contributions == pytest.approx((4.0,), rel=1e-12)
+
+
+def test_witness_tiny_returns_do_not_divide_by_zero() -> None:
+    result = _single(
+        [[-1e-100], [1e-100]],
+        (1.0, 1.0),
+        vol_target=VolatilityTarget(1.0, 2.0, 1e-200),
+    )
+    assert math.isclose(result.diagnostics.predicted_vol, 1e-200, rel_tol=1e-12)
+    assert result.scale == 2.0  # 1 / 1e-200 is capped
+    assert result.diagnostics.leverage_cap_binding
+    assert result.combined_weights == (2.0, 2.0)
+    assert result.risk_contributions == pytest.approx((1e-200,), rel=1e-12)
+
+
+def test_truly_unrepresentable_results_are_refused_not_returned() -> None:
+    sleeve = SleeveTarget("only", ("A", "B"), (1e308, 0.0))
+    history = np.array([[-1.0], [1.0]])
+
+    def run(target: VolatilityTarget) -> SleeveCombination:
+        config = SleeveCombinerConfig(
+            method=SleeveMethod.FIXED,
+            lookback=2,
+            ddof=0,
+            shrinkage=0.0,
+            fixed_weights=(1.0,),
+            vol_target=target,
+        )
+        return combine_sleeves(
+            [sleeve], symbols=("A", "B"), history=history, config=config
+        )
+
+    assert run(VolatilityTarget(1.0, 1.0)).combined_weights == (1e308, 0.0)
+    # Leverage 10 on a 1e308 weight leaves the float range: refuse, never inf.
+    with pytest.raises(SleeveCombinerError) as info:
+        run(VolatilityTarget(10.0, 10.0))
+    assert info.value.reason == "non_finite"
+    # A volatility scale below the float range is refused, never returned as 0.
+    with pytest.raises(SleeveCombinerError) as info:
+        run(VolatilityTarget(1e-300, 1.0, 1e300))
+    assert info.value.reason == "non_representable"
+    # Sleeve volatilities that differ by more than the float range are refused.
+    wide = np.array([[-1e200, -1e-200], [1e200, 1e-200]])
+    _refuses(
+        "non_representable",
+        _sleeves(2),
+        wide,
+        _config(SleeveMethod.INVERSE_VOL, lookback=2),
+    )
+
+
+@pytest.mark.parametrize("case", _method_cases())
+@pytest.mark.parametrize("c", [1e-150, 1e-50, 1.0, 1e50, 1e150])
+def test_scale_metamorphic_across_extreme_magnitudes(
+    case: dict[str, Any], c: float
+) -> None:
+    history, sleeves = _dense()
+    config = _config(vol_target=VolatilityTarget(0.5, 1e300), **case)
+    base = _run(sleeves, history, config)
+    scaled = _run(sleeves, history * c, config)
+    np.testing.assert_allclose(scaled.sleeve_weights, base.sleeve_weights, atol=1e-9)
+    assert math.isclose(scaled.scale * c, base.scale, rel_tol=1e-9)
+    assert math.isclose(
+        scaled.diagnostics.predicted_vol,
+        base.diagnostics.predicted_vol * c,
+        rel_tol=1e-9,
+    )
+    np.testing.assert_allclose(
+        np.asarray(scaled.risk_contributions) / (c * c),
+        base.risk_contributions,
+        rtol=1e-9,
+    )
+    fractions = scaled.risk_contribution_fractions
+    assert fractions is not None
+    np.testing.assert_allclose(fractions, base.risk_contribution_fractions, rtol=1e-9)
+    for value in (*scaled.combined_weights, scaled.scale):
+        assert math.isfinite(value)
+
+
+def test_mixed_sleeve_magnitudes_keep_inverse_vol_exact() -> None:
+    cov = np.diag([1e-8, 1e-12])  # vols 1e-4 and 1e-6
+    result = _run(_sleeves(2), _history(cov), _config(SleeveMethod.INVERSE_VOL))
+    np.testing.assert_allclose(
+        result.sleeve_weights, (1e-2 / 1.01, 1.0 / 1.01), rtol=1e-9
+    )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        np.full((60, 3), 0.01, dtype=complex),
+        np.zeros((60, 3), dtype=bool),
+        np.full((60, 3), "0.01"),
+        np.full((60, 3), "0.01", dtype=object),
+        np.full((60, 3), 0.01, dtype=object),
+        [["0.01", "0.02", "0.03"]] * 60,
+        [[True, False, True]] * 60,
+        [[1 + 2j, 1.0, 1.0]] * 60,
+    ],
+)
+def test_refuses_non_real_history_dtypes(bad: Any) -> None:
+    _, sleeves = _dense()
+    _refuses("history", sleeves, bad, _config(SleeveMethod.INVERSE_VOL))
+
+
+def test_integer_history_is_accepted_as_real() -> None:
+    history = np.tile(np.array([[1, 2, 3], [3, 1, 2]]), (30, 1))
+    result = _run(_sleeves(3), history, _config(SleeveMethod.INVERSE_VOL))
+    assert math.isclose(sum(result.sleeve_weights), 1.0)
 
 
 @pytest.mark.parametrize(

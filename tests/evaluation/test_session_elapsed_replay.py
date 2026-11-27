@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import replace
+from decimal import Decimal, localcontext
 from fractions import Fraction
 
 import numpy as np
@@ -366,3 +367,68 @@ def test_session_next_open_long_fee_and_gap_carry_literal_ledger():
         equity = after
     assert result.book.exact_quantities == (0,)
     assert result.book.portfolio_value == pytest.approx(float(cash))
+
+
+@pytest.mark.parametrize("hours", [(2, 1), (1, 1), (1, 1, 1)])
+@pytest.mark.parametrize("sign", [1, -1])
+def test_duration_risk_preserves_nonzero_subnormal_residual(hours, sign):
+    unit = math.ulp(0.0)
+    values = (sign * unit,) + (0.0,) * (len(hours) - 1)
+    boundaries = [0]
+    for hours_i in hours:
+        boundaries.append(boundaries[-1] + hours_i * 3600 * 10**9)
+    actual = evaluate_session_elapsed_annualization(
+        values, boundaries_ns=tuple(boundaries)
+    )
+    elapsed = Fraction(sum(hours), 8760)
+    exact = tuple(Fraction.from_float(value) for value in values)
+    total = sum(exact, Fraction(0))
+    residual_variance = sum(
+        (value - total * Fraction(hours_i, sum(hours))) ** 2
+        for value, hours_i in zip(exact, hours, strict=True)
+    ) / elapsed
+    downside_variance = sum(min(value, 0) ** 2 for value in exact) / elapsed
+    with localcontext() as context:
+        context.prec = 100
+        expected_volatility = float(
+            (
+                Decimal(residual_variance.numerator) / residual_variance.denominator
+            ).sqrt()
+        )
+        expected_downside = float(
+            (
+                Decimal(downside_variance.numerator) / downside_variance.denominator
+            ).sqrt()
+        )
+    assert expected_volatility > 0.0
+    assert actual.annualized_volatility == expected_volatility
+    assert actual.annualized_downside_deviation == expected_downside
+    assert actual.sharpe == actual.annualized_arithmetic_return / expected_volatility
+
+
+def test_duration_risk_preserves_proportional_subnormal_zero_variance():
+    unit = math.ulp(0.0)
+    hour = 3600 * 10**9
+    actual = evaluate_session_elapsed_annualization(
+        (2 * unit, unit), boundaries_ns=(0, 2 * hour, 3 * hour)
+    )
+    assert actual.annualized_volatility == 0.0
+    assert actual.sharpe == 0.0
+
+
+def test_duration_risk_rejects_unrepresentable_nonzero_drift():
+    unit = math.ulp(0.0)
+    year = 365 * 86400 * 10**9
+    with pytest.raises(ValueError, match="nonzero native annualization"):
+        evaluate_session_elapsed_annualization(
+            (unit, 0.0), boundaries_ns=(0, 10 * year, 20 * year)
+        )
+
+
+def test_duration_risk_rejects_unrepresentable_nonzero_volatility():
+    unit = math.ulp(0.0)
+    year = 365 * 86400 * 10**9
+    with pytest.raises(ValueError, match="nonzero native annualization risk"):
+        evaluate_session_elapsed_annualization(
+            (unit, -unit), boundaries_ns=(0, 10 * year, 20 * year)
+        )

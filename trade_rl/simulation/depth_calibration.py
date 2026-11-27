@@ -33,13 +33,17 @@ the distance because they depend only on the order of the liquidity.
 
 All arithmetic is exact rational arithmetic: no float is produced, so nothing
 can overflow, underflow or round, and metamorphic scaling of the notionals
-scales the notional-valued results exactly. Inputs outside the representable
-domain are refused with a ``ValueError`` before any computation: accepted
-values are exact ``int``, ``Fraction``, finite ``Decimal`` (and finite ``float``
-for thresholds and assumed costs only), zero or with absolute value in
-``[1e-308, 1e308]``, with at most 700 significant Decimal digits and at most
-4096 bits in a Fraction numerator or denominator. Error messages name the
-offending field, never its value.
+scales the notional-valued results exactly. Band values, positive notionals,
+quantiles and capacity thresholds have a bounded input domain: exact
+``int``, ``Fraction``, finite ``Decimal`` (and finite ``float`` for thresholds
+only), zero or absolute value in ``[1e-308, 1e308]``, at most 700 significant
+Decimal digits and at most 4096 bits in a Fraction numerator or denominator.
+The classifier and existing-cell lookups intentionally compare exact values
+outside the magnitude and Fraction bit limits, including derived bounds;
+the conversion/type/finite and Decimal/integer guards still apply. Finite
+float assumed costs are accepted. These comparisons do not admit inputs to
+the bounded solver or grid. Numeric validation errors name the offending
+field, never its value.
 
 Derivation of the bounds
 ------------------------
@@ -108,7 +112,6 @@ from enum import StrEnum
 from fractions import Fraction
 from typing import Literal, NamedTuple
 
-from trade_rl._validation import require_aware_datetime
 from trade_rl.artifacts.hashing import content_digest
 
 Side = Literal["buy", "sell"]
@@ -226,9 +229,10 @@ class DepthBandSnapshot:
 
     ``bid_bands`` (used by sells) and ``ask_bands`` (used by buys) are tuples of
     ``DepthBand(percentage, cumulative_notional)`` with percentages in percent
-    of mid. Construction refuses non-UTC or naive times, non-finite or
-    out-of-range values, non-positive or non-increasing percentages, and
-    negative or decreasing cumulative notionals.
+    of mid. Construction accepts native aware datetimes with zero UTC offset,
+    samples the offset once and stores a native UTC datetime. It refuses
+    non-UTC or naive times, non-finite or out-of-range values, non-positive
+    or non-increasing percentages, and negative or decreasing notionals.
     """
 
     time: datetime
@@ -236,9 +240,15 @@ class DepthBandSnapshot:
     ask_bands: tuple[DepthBand, ...]
 
     def __post_init__(self) -> None:
-        require_aware_datetime(self.time, field="snapshot time")
-        if self.time.utcoffset() != timedelta(0):
+        if type(self.time) is not datetime:
+            raise ValueError("snapshot time must be a native timezone-aware datetime")
+        offset = self.time.utcoffset()
+        if offset is None:
+            raise ValueError("snapshot time must be timezone-aware")
+        if offset != timedelta(0):
             raise ValueError("snapshot time must be UTC")
+        # Preserve the admitted instant without keeping caller-owned tzinfo.
+        object.__setattr__(self, "time", self.time.replace(tzinfo=UTC, fold=0))
         object.__setattr__(self, "bid_bands", _coerce_side(self.bid_bands, "bid"))
         object.__setattr__(self, "ask_bands", _coerce_side(self.ask_bands, "ask"))
 

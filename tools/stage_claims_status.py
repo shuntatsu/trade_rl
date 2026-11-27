@@ -412,35 +412,44 @@ def _entry_for(item: _Group) -> dict[str, Any]:
 
 
 def _apply_schedule(
-    entries: list[dict[str, Any]],
+    ledgers: list[dict[str, Any]],
     schedule: dict[str, dict[str, date]],
     today: date,
-) -> list[str]:
-    """Annotate entries with due dates; add NOT_CLAIMED rows. Return matched keys."""
+) -> set[str]:
+    """Annotate only protocols with one unambiguous observed ledger scope."""
+    # An unreadable or invalid input could hide a claim for any scheduled
+    # protocol. Do not infer absence from the remaining inputs in that case.
+    if any(
+        ledger["error"] is not None
+        or any(entry["state"] == INVALID for entry in ledger["entries"])
+        for ledger in ledgers
+    ):
+        return set()
+    observed: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for index, ledger in enumerate(ledgers):
+        for entry in ledger["entries"]:
+            digest = entry.get("protocol_digest")
+            if digest in schedule:
+                observed.setdefault(digest, []).append((index, entry))
     matched: set[str] = set()
-    claimed: dict[tuple[str, str], dict[str, Any]] = {}
-    for entry in entries:
-        digest = entry.get("protocol_digest")
-        if digest in schedule:
-            matched.add(digest)
-            claimed[(digest, entry["stage"])] = entry
-    for entry in entries:
-        entry.setdefault("earliest_allowed", None)
-        entry.setdefault("days_until_due", None)
-        entry.setdefault("schedule_status", None)
-    for digest in sorted(matched):
-        locations = sorted(
-            {e["location"] for e in entries if e.get("protocol_digest") == digest}
-        )
+    for digest, observations in sorted(observed.items()):
+        scopes = {(index, entry["location"]) for index, entry in observations}
+        if len(scopes) != 1:
+            # The schedule has no root identity; choosing one would silently
+            # turn a partial observation into an apparent absence or due date.
+            continue
+        index, location = next(iter(scopes))
+        matched.add(digest)
+        claimed = {entry["stage"]: entry for _, entry in observations}
         for stage, due in sorted(schedule[digest].items()):
-            existing = claimed.get((digest, stage))
+            existing = claimed.get(stage)
             if existing is not None:
                 existing["earliest_allowed"] = due.isoformat()
                 continue
             days = (due - today).days
-            entries.append(
+            ledgers[index]["entries"].append(
                 {
-                    "location": locations[0],
+                    "location": location,
                     "stage": stage,
                     "state": NOT_CLAIMED,
                     "protocol_digest": digest,
@@ -463,7 +472,7 @@ def _apply_schedule(
                     ),
                 }
             )
-    return sorted(matched)
+    return matched
 
 
 def _sort_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -484,7 +493,6 @@ def build_report(
     scheduled = schedule or {}
     reference = today if today is not None else datetime.now(UTC).date()
     out: list[dict[str, Any]] = []
-    matched: set[str] = set()
     for ledger in ledgers:
         try:
             groups, loose = _scan(ledger)
@@ -501,9 +509,10 @@ def build_report(
             continue
         entries = [_entry_for(item) for item in groups]
         entries.extend(loose)
-        # An invalid observation cannot establish that another stage is absent.
-        if scheduled and not any(entry["state"] == INVALID for entry in entries):
-            matched.update(_apply_schedule(entries, scheduled, reference))
+        out.append({"path": str(ledger), "error": None, "entries": entries})
+    matched = _apply_schedule(out, scheduled, reference) if scheduled else set()
+    for ledger_report in out:
+        entries = ledger_report["entries"]
         for entry in entries:
             entry.setdefault("earliest_allowed", None)
             entry.setdefault("days_until_due", None)
@@ -519,7 +528,6 @@ def build_report(
             entry.setdefault("reason", None)
             entry.setdefault("file", None)
         entries.sort(key=_sort_key)
-        out.append({"path": str(ledger), "error": None, "entries": entries})
     report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "notice": NO_PERFORMANCE_NOTICE,
@@ -611,7 +619,7 @@ def render_text(report: dict[str, Any]) -> str:
     if report["schedule_unmatched_protocols"]:
         lines.append("")
         lines.append(
-            "Schedule protocols not found in any ledger: "
+            "Schedule protocols not uniquely matched in a valid scan: "
             + ", ".join(report["schedule_unmatched_protocols"])
         )
     lines.append("")
@@ -670,7 +678,7 @@ def render_html(report: dict[str, Any]) -> str:
             parts.append(f"<p>Protocol digest: <code>{esc(digest)}</code></p>")
     if report["schedule_unmatched_protocols"]:
         parts.append(
-            "<p>Schedule protocols not found in any ledger: "
+            "<p>Schedule protocols not uniquely matched in a valid scan: "
             + esc(", ".join(report["schedule_unmatched_protocols"]))
             + "</p>"
         )

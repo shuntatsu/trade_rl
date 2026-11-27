@@ -596,3 +596,47 @@ def test_invalid_scan_does_not_infer_unclaimed_stages(tmp_path: Path) -> None:
         for entry in report["ledgers"][0]["entries"]
     )
     assert report["schedule_unmatched_protocols"] == [DIGEST_A]
+
+
+@pytest.mark.parametrize(
+    "scope", ["separate_roots", "nested_namespace", "invalid_root", "unreadable_root"]
+)
+def test_schedule_refuses_ambiguous_or_incomplete_observation(
+    tmp_path: Path, scope: str
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    _write(first / "INTERIM_A.claim", _legacy_claim())
+    ledgers = [first, second]
+    if scope == "separate_roots":
+        _write(second / "FINAL.claim", _legacy_claim("FINAL", comment=12))
+    elif scope == "nested_namespace":
+        _write(
+            first / DIGEST_A / "FINAL.claim", _legacy_claim("FINAL", comment=12)
+        )
+        ledgers = [first]
+    elif scope == "invalid_root":
+        _write(second / "FINAL.claim", b"{incomplete")
+    schedule = {DIGEST_A: {"INTERIM_A": TODAY, "FINAL": TODAY, "OTHER": TODAY}}
+    report = status.build_report(ledgers, schedule, TODAY)
+    entries = [entry for ledger in report["ledgers"] for entry in ledger["entries"]]
+    assert any(entry["state"] == status.CLAIMED for entry in entries)
+    assert all(entry["state"] != status.NOT_CLAIMED for entry in entries)
+    assert report["schedule_unmatched_protocols"] == [DIGEST_A]
+    for rendered in (status.render_text(report), status.render_html(report)):
+        assert "Schedule protocols not uniquely matched in a valid scan" in rendered
+
+
+def test_schedule_preserves_distinct_unambiguous_protocols(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    _write(first / "INTERIM_A.claim", _legacy_claim())
+    _write(second / "INTERIM_A.claim", _legacy_claim(digest=DIGEST_B))
+    schedule = {DIGEST_A: {"FINAL": TODAY}, DIGEST_B: {"FINAL": TODAY}}
+    report = status.build_report([first, second], schedule, TODAY)
+    assert report["schedule_unmatched_protocols"] == []
+    for ledger, digest in zip(report["ledgers"], (DIGEST_A, DIGEST_B), strict=True):
+        final = next(entry for entry in ledger["entries"] if entry["stage"] == "FINAL")
+        assert final["protocol_digest"] == digest
+        assert final["state"] == status.NOT_CLAIMED
+        assert final["schedule_status"] == "DUE_TODAY"

@@ -24,6 +24,7 @@ from trade_rl.evaluation.runs.artifact import (
 )
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.risk import PreTradeRiskConfig
+from trade_rl.simulation.accounting import BookState
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
@@ -157,11 +158,7 @@ def _result() -> object:
             active_order_remainders=(),
             terminal_order_reasons=(),
             diagnostics=diagnostics,
-            book=SimpleNamespace(
-                portfolio_value=1000.0,
-                fill_count=0,
-                quantities=np.asarray([0.0]),
-            ),
+            book=BookState.zero(1, 1000.0),
         ),
         metrics=metrics,
     )
@@ -235,17 +232,23 @@ def _holding_result(
         metrics = evaluate_performance(returns)
         quantity = final_quantity if name == "ppo" else 0.0
         remainders = active_order_remainders if name == "ppo" else ()
+        equity = 1000.0 * (1.0 + metrics.total_return)
+        # Use the real BookState to preserve the exact quantity contract.
+        book = BookState(
+            quantities=np.asarray([quantity]),
+            cash=equity - quantity,
+            mark_prices=np.ones(1),
+            peak_value=max(1000.0, equity),
+            fill_count=int(quantity != 0.0),
+        )
+        assert book.portfolio_value == pytest.approx(equity)
         replay = SimpleNamespace(
             returns=returns,
             decisions=(),
             active_order_remainders=remainders,
             terminal_order_reasons=(),
             diagnostics=diagnostics,
-            book=SimpleNamespace(
-                portfolio_value=1000.0 * (1.0 + metrics.total_return),
-                fill_count=int(quantity != 0.0),
-                quantities=np.asarray([quantity]),
-            ),
+            book=book,
         )
         entries.append(SimpleNamespace(name=name, replay=replay, metrics=metrics))
     result.comparison.by_symbol[0].comparison.entries = tuple(entries)

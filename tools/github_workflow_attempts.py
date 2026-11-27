@@ -77,13 +77,13 @@ def _positive_int(value: Any, name: str) -> int:
 
 
 def _text(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise ValueError(f"{name} must be non-empty text")
     return value
 
 
 def _sha(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
+    if type(value) is not str or not _SHA_RE.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase 40-hex SHA")
     if value == "0" * 40:
         raise ValueError(f"{name} must not be a null SHA")

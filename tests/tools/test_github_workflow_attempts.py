@@ -321,3 +321,77 @@ def test_null_job_head_is_rejected_even_with_valid_run_head() -> None:
     api.pages[0]["jobs"][0]["head_sha"] = "0" * 40
     with pytest.raises(ValueError, match="job head SHA must not be a null SHA"):
         observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+class _ForgedIdentity(str):
+    def __eq__(self, other: object) -> bool:
+        return other != "0" * 40
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _ForgedIdentity("b" * 40)),
+        ("head_branch", _ForgedIdentity("foreign")),
+    ],
+)
+def test_attempt_job_rejects_foreign_identity(field: str, value: str) -> None:
+    api = FakeReader()
+    api.pages[0]["jobs"][0][field] = value
+    with pytest.raises(ValueError, match="job head"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _ForgedIdentity("b" * 40)),
+        ("head_branch", _ForgedIdentity("foreign")),
+        ("updated_at", _ForgedIdentity("different")),
+    ],
+)
+def test_attempt_readback_rejects_foreign_identity(field: str, value: str) -> None:
+    api = FakeReader()
+    api.runs[1][field] = value
+    with pytest.raises(ValueError, match="workflow (?:head|update)"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+class _IdentityTrap(str):
+    def strip(self, *args: object, **kwargs: object) -> str:
+        raise AssertionError("foreign strip invoked")
+
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("foreign equality invoked")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("foreign inequality invoked")
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _IdentityTrap(HEAD)),
+        ("head_branch", _IdentityTrap(BRANCH)),
+        ("updated_at", _IdentityTrap("2026-11-01T12:00:00Z")),
+    ],
+)
+def test_attempt_initial_run_rejects_foreign_hooks(field: str, value: str) -> None:
+    api = FakeReader()
+    api.runs[0][field] = value
+    with pytest.raises(ValueError, match="workflow (?:head|update)"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_attempt_job_name_rejects_foreign_hook() -> None:
+    api = FakeReader()
+    api.pages[0]["jobs"][0]["name"] = _IdentityTrap("job-1")
+    with pytest.raises(ValueError, match="job name"):
+        observe_workflow_attempt(api, run_id=RUN_ID)

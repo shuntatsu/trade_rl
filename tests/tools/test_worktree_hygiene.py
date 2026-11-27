@@ -8,7 +8,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from types import SimpleNamespace
+from typing import Callable, Sequence, cast
 
 import pytest
 
@@ -764,13 +765,37 @@ def _victim(env: Env) -> Path:
 def test_cache_named_link_to_outside_is_kept(
     env: Env, capsys: pytest.CaptureFixture[str], flags: tuple[str, ...]
 ) -> None:
-    """Git for Windows follows junctions on remove and deletes their targets."""
+    """Git for Windows follows junctions on remove and deletes their targets.
+
+    A Windows junction named ``__pycache__`` is treated as an ignored directory,
+    so the link check decides.  On POSIX git sees a symlink as a file, so the
+    untracked-file check may keep the worktree first; either way it is KEEP.
+    """
     victim = _victim(env)
     wt = env.add("linked")
     make_dir_link(wt / "pkg" / "__pycache__", victim)
     env.age(wt)
-    assert reasons(plan(env, capsys, *flags))["linked"] == "contains-link"
+    allowed = (
+        {"contains-link"} if os.name == "nt" else {"contains-link", "untracked-files"}
+    )
+    assert reasons(plan(env, capsys, *flags))["linked"] in allowed
     assert env.run("--apply", *flags) == 0
+    assert wt.is_dir()
+    assert (victim / "precious.txt").read_text(encoding="utf-8") == "keep\n"
+
+
+def test_link_in_ignored_directory_is_decided_by_link_check(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The link sits under an ignored directory, so only the link check can keep it."""
+    victim = _victim(env)
+    wt = env.add("ignored-link")
+    make_dir_link(wt / "artifacts" / "pkg" / "__pycache__", victim)
+    env.age(wt)
+    assert reasons(plan(env, capsys))["ignored-link"] == "ignored-data"
+    flag = "--allow-ignored-data"
+    assert reasons(plan(env, capsys, flag))["ignored-link"] == "contains-link"
+    assert env.run("--apply", flag) == 0
     assert wt.is_dir()
     assert (victim / "precious.txt").read_text(encoding="utf-8") == "keep\n"
 
@@ -784,11 +809,54 @@ def test_link_created_between_plan_and_apply_is_kept(env: Env) -> None:
         env.repo,
         open_pulls=[],
         origin_main_sha=wh.resolve_origin_main(env.repo),
+        allow_ignored_data=True,
     )
-    make_dir_link(wt / "__pycache__", victim)
-    (result,) = wh.apply_removals(env.repo, decisions)
+    make_dir_link(wt / "artifacts" / "__pycache__", victim)
+    (result,) = wh.apply_removals(env.repo, decisions, allow_ignored_data=True)
     assert result.reason == "recheck-contains-link"
     assert (victim / "precious.txt").exists() and wt.is_dir()
+
+
+def test_link_helper_detects_links_on_every_platform(env: Env) -> None:
+    victim = _victim(env)
+    link = env.root / "a-link"
+    make_dir_link(link, victim)
+    assert wh._is_link(str(link), os.lstat(link))
+    assert not wh._is_link(str(victim), os.lstat(victim))
+    scan_root = env.root / "scan"
+    (scan_root / "sub").mkdir(parents=True)
+    make_dir_link(scan_root / "sub" / "cache", victim)
+    found = wh._scan_tree(scan_root)
+    assert found.link == scan_root / "sub" / "cache"
+    assert found.nested is None
+
+
+def test_link_helper_honours_reparse_point_attribute(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    real = os.lstat(plain)
+    fake = SimpleNamespace(
+        st_mode=real.st_mode,
+        st_file_attributes=wh._REPARSE_POINT,
+    )
+    assert wh._is_link(str(plain), cast(os.stat_result, fake))
+    clear = SimpleNamespace(st_mode=real.st_mode, st_file_attributes=0)
+    assert not wh._is_link(str(plain), cast(os.stat_result, clear))
+
+
+def test_leftover_probe_directory_refuses_apply(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("done")
+    env.age(wt)
+    leftover = env.scope / "stuck.hygiene-probe-123"
+    leftover.mkdir()
+    capsys.readouterr()
+    assert env.run("--apply") == 2
+    captured = capsys.readouterr()
+    assert str(leftover) in captured.err and "nothing was removed" in captured.err
+    assert wt.is_dir()
+    assert env.run() == 0  # the read-only plan is still allowed
 
 
 def test_symlink_to_file_is_kept(env: Env, capsys: pytest.CaptureFixture[str]) -> None:

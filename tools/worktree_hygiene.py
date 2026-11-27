@@ -16,6 +16,8 @@ processed, and the exit code is 1; an unexpected error after removals began
 reports the actual removed count and also exits 1.
 If the rename probe cannot restore a directory, the run stops at once (exit 1),
 skips ``git worktree prune`` and prints the probe path for manual restore.
+While such a leftover ``*.hygiene-probe-*`` directory exists next to an in-scope
+worktree, ``--apply`` refuses to start (exit 2); the read-only plan still works.
 
 Limits (heuristics, not guarantees): only a git lock, the worktree the tool
 runs in, and the idle window identify live sessions; on Windows a rename probe
@@ -553,6 +555,29 @@ def _probe_in_use(path: Path) -> str | None:
     return None
 
 
+PROBE_GLOB = "*.hygiene-probe-*"
+
+
+def leftover_probes(
+    repo_root: Path, decisions: Sequence[WorktreeDecision]
+) -> list[Path]:
+    """Probe directories left by an earlier failed restore, next to in-scope worktrees."""
+    scope = repo_root.joinpath(*SCOPE_PARTS)
+    parents = {scope}
+    parents.update(
+        item.worktree.path.parent
+        for item in decisions
+        if not item.worktree.is_main and _is_within(item.worktree.path, scope)
+    )
+    found = {
+        match
+        for parent in parents
+        if parent.is_dir()
+        for match in parent.glob(PROBE_GLOB)
+    }
+    return sorted(found)
+
+
 def _delete_branch(repo_root: Path, branch: str) -> str:
     if branch in PROTECTED_BRANCHES:
         return f"skipped: protected branch {branch}"
@@ -789,6 +814,15 @@ def main(
             allow_ignored_data=args.allow_ignored_data,
             now=now,
         )
+        if args.apply:
+            leftovers = leftover_probes(repo_root, decisions)
+            if leftovers:
+                raise WorktreeHygieneError(
+                    "refusing --apply: leftover rename-probe director(ies) from an "
+                    "earlier failed restore; move each back to its worktree name "
+                    "(or delete it if it is a stray) first: "
+                    + ", ".join(str(path) for path in leftovers)
+                )
     except (WorktreeHygieneError, OSError) as exc:
         print(f"worktree_hygiene: {exc}; nothing was removed", file=sys.stderr)
         return 2

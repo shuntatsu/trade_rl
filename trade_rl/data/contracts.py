@@ -98,6 +98,7 @@ class FeatureAlignment(StrEnum):
     """Semantic placement of one feature on the decision-time axis."""
 
     UNSHIFTED_DECISION_TIME = "unshifted_decision_time"
+    VISIBLE_DISPLACED_CLOUD = "visible_displaced_cloud"
 
 
 PORTABLE_FEATURE_NUMERICS_SCHEMA = "portable_feature_numerics_v1"
@@ -253,6 +254,62 @@ class InstrumentContract:
 
 
 @dataclass(frozen=True, slots=True)
+class IchimokuPeriods:
+    """An explicit versioned Ichimoku profile; all lengths are native bars.
+
+    Zero displacement denotes the unshifted decision-time calculation.
+    Positive displacement requires explicit visible-cloud feature alignment.
+    """
+
+    tenkan_period: int = 9
+    kijun_period: int = 26
+    span_b_period: int = 52
+    displacement: int = 0
+
+    def __post_init__(self) -> None:
+        for value in (self.tenkan_period, self.kijun_period, self.span_b_period):
+            if type(value) is not int or value < 1:
+                raise ValueError("Ichimoku periods must be positive native integers")
+        if type(self.displacement) is not int or self.displacement < 0:
+            raise ValueError(
+                "Ichimoku displacement must be a non-negative native integer"
+            )
+
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": "ichimoku_periods_v1",
+            "tenkan_period": self.tenkan_period,
+            "kijun_period": self.kijun_period,
+            "span_b_period": self.span_b_period,
+            "displacement": self.displacement,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MACDPeriods:
+    """Explicit EMA horizons in native bars; the fast period precedes slow."""
+
+    fast_period: int = 12
+    slow_period: int = 26
+    signal_period: int = 9
+
+    def __post_init__(self) -> None:
+        for value in (self.fast_period, self.slow_period, self.signal_period):
+            if type(value) is not int or value < 1:
+                raise ValueError("MACD periods must be positive native integers")
+        if self.fast_period >= self.slow_period:
+            raise ValueError("MACD fast period must be shorter than slow period")
+
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": "macd_periods_v1",
+            "fast_period": self.fast_period,
+            "slow_period": self.slow_period,
+            "signal_period": self.signal_period,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class FeatureSpec:
     """One causal feature and its native-timeframe normalization contract."""
 
@@ -265,6 +322,9 @@ class FeatureSpec:
     max_staleness_hours: float = 24.0
     timeframe: str | None = None
     alignment: FeatureAlignment | None = None
+    ichimoku_periods: IchimokuPeriods | None = None
+    macd_periods: MACDPeriods | None = None
+    stochastic_smoothing_period: int | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
@@ -279,6 +339,55 @@ class FeatureSpec:
             except ValueError as error:
                 raise ValueError("feature alignment is unsupported") from error
             object.__setattr__(self, "alignment", resolved_alignment)
+        if self.macd_periods is not None:
+            if type(self.macd_periods) is not MACDPeriods:
+                raise ValueError("expected an explicit MACD periods profile")
+            if self.kind not in {
+                FeatureKind.MACD_LINE,
+                FeatureKind.MACD_SIGNAL,
+                FeatureKind.MACD_HISTOGRAM,
+            }:
+                raise ValueError("MACD periods require a MACD feature kind")
+            if self.lookback != 1:
+                raise ValueError("explicit MACD periods require the default lookback")
+        smoothing = self.stochastic_smoothing_period
+        if smoothing is not None:
+            if self.kind is not FeatureKind.STOCHASTIC_D:
+                raise ValueError("stochastic smoothing requires a stochastic D feature")
+            if type(smoothing) is not int or smoothing <= 0:
+                raise ValueError(
+                    "stochastic smoothing period must be a positive native integer"
+                )
+            if type(self.lookback) is not int:
+                raise ValueError(
+                    "explicit stochastic lookback must be a native integer"
+                )
+        periods = self.ichimoku_periods
+        visible = self.alignment is FeatureAlignment.VISIBLE_DISPLACED_CLOUD
+        if periods is None:
+            if visible:
+                raise ValueError("visible cloud requires explicit Ichimoku periods")
+        else:
+            if type(periods) is not IchimokuPeriods:
+                raise ValueError("expected an explicit Ichimoku periods profile")
+            if self.lookback != 1:
+                raise ValueError(
+                    "explicit Ichimoku periods require the default lookback"
+                )
+            if self.kind not in {
+                FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+                FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+                FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            }:
+                raise ValueError("Ichimoku periods require an Ichimoku feature kind")
+            if visible and self.kind not in {
+                FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            }:
+                raise ValueError("visible alignment is only for cloud features")
+            if visible != (periods.displacement > 0):
+                raise ValueError("Ichimoku displacement and feature alignment disagree")
         if (
             isinstance(self.lookback, bool)
             or not isinstance(self.lookback, int)
@@ -308,6 +417,15 @@ class FeatureSpec:
         ):
             raise ValueError("max_staleness_hours must be finite and positive")
 
+    @property
+    def requires_complete_native_rows(self) -> bool:
+        """Explicit period contracts reset warm-up on unavailable tradable rows."""
+        return (
+            self.ichimoku_periods is not None
+            or self.macd_periods is not None
+            or self.stochastic_smoothing_period is not None
+        )
+
     def resolved_timeframe(self, base_timeframe: str) -> str:
         timeframe_hours(base_timeframe)
         return base_timeframe if self.timeframe is None else self.timeframe
@@ -326,6 +444,12 @@ class FeatureSpec:
             payload["timeframe"] = self.timeframe
         if self.alignment is not None:
             payload["alignment"] = self.alignment.value
+        if self.ichimoku_periods is not None:
+            payload["ichimoku_periods"] = self.ichimoku_periods.canonical_payload()
+        if self.macd_periods is not None:
+            payload["macd_periods"] = self.macd_periods.canonical_payload()
+        if self.stochastic_smoothing_period is not None:
+            payload["stochastic_smoothing_period"] = self.stochastic_smoothing_period
         return payload
 
 

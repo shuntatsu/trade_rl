@@ -30,6 +30,36 @@ def fixed_execution_frequency(clock: NativeBarClock) -> Fraction:
     )
 
 
+def calendar_month_execution_frequency(
+    clock: NativeBarClock, closes: np.ndarray
+) -> Fraction:
+    """Exact observed ACT/365F frequency of a complete calendar-month grid."""
+    calendar_month_clock_payload(clock)
+    _, ends = clock.interval_bounds(closes)
+    return len(ends) / clock.elapsed_years(ends)
+
+
+def calendar_month_clock_payload(clock: NativeBarClock) -> dict[str, object]:
+    if type(clock) is not NativeBarClock or clock.kind is not NativeClockKind.UTC_MONTH:
+        raise ValueError("expected an explicit UTC calendar month execution clock")
+    return {
+        "kind": NativeClockKind.UTC_MONTH.value,
+        "fixed_seconds": None,
+        "fixed_anchor_ns": None,
+    }
+
+
+def calendar_month_clock_from_payload(value: object) -> NativeBarClock:
+    clock = NativeBarClock(NativeClockKind.UTC_MONTH)
+    if (
+        type(value) is not dict
+        or type(value.get("kind")) is not str
+        or value != calendar_month_clock_payload(clock)
+    ):
+        raise ValueError("invalid calendar month execution clock payload")
+    return clock
+
+
 def frequency_payload(value: Fraction) -> dict[str, int]:
     if type(value) is not Fraction or value <= 0:
         raise ValueError("expected positive exact annual frequency")
@@ -99,6 +129,9 @@ def execution_clock_from_payload(value: object) -> NativeBarClock:
 
 
 __all__ = [
+    "calendar_month_clock_from_payload",
+    "calendar_month_clock_payload",
+    "calendar_month_execution_frequency",
     "execution_clock_from_payload",
     "execution_clock_payload",
     "fixed_execution_frequency",

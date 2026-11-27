@@ -6,7 +6,15 @@ import math
 
 import numpy as np
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, NormalizationMode
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    MACDPeriods,
+    NormalizationMode,
+)
+from trade_rl.data.features.indicators._ichimoku_windows import (
+    _configured_ichimoku_events,
+)
 from trade_rl.data.features.numerics import (
     portable_correlation,
     portable_dot,
@@ -149,34 +157,82 @@ def _macd(
     close: np.ndarray,
     usable: np.ndarray,
     kind: FeatureKind,
+    periods: MACDPeriods | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     values = np.zeros_like(close, dtype=np.float64)
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
+    fast_period, slow_period, signal_period = (
+        (_MACD_FAST, _MACD_SLOW, _MACD_SIGNAL)
+        if periods is None
+        else (periods.fast_period, periods.slow_period, periods.signal_period)
+    )
+    line_only = kind is FeatureKind.MACD_LINE
+    required = slow_period if line_only else slow_period + signal_period - 1
     for start, stop in _contiguous_segments(usable):
-        if stop - start < _MACD_SLOW:
+        size = stop - start
+        if size < required:
             continue
-        fast = _ema(close, start, stop, _MACD_FAST)
-        slow = _ema(close, start, stop, _MACD_SLOW)
+        # Segment-sized scratch avoids quadratic allocation on fragmented
+        # histories. Recurrence and seeds are the original MACD arithmetic.
+        segment = close[start:stop]
+        if periods is not None and (
+            not np.isfinite(segment).all() or np.any(segment <= 0.0)
+        ):
+            raise ValueError("MACD requires positive finite closes")
+        fast = _ema(segment, 0, size, fast_period)
+        slow = _ema(segment, 0, size, slow_period)
         line = fast - slow
-        line_first = start + _MACD_SLOW - 1
-        if kind is FeatureKind.MACD_LINE:
-            indices = range(line_first, stop)
+        if line_only:
             selected = line
         else:
-            signal = np.zeros_like(close, dtype=np.float64)
-            signal[line_first] = line[line_first]
-            alpha = 2.0 / (_MACD_SIGNAL + 1.0)
-            for index in range(line_first + 1, stop):
-                signal[index] = alpha * line[index] + (1.0 - alpha) * signal[index - 1]
-            signal_first = line_first + _MACD_SIGNAL - 1
-            indices = range(signal_first, stop)
+            signal = _ema(line, slow_period - 1, size, signal_period)
             selected = signal if kind is FeatureKind.MACD_SIGNAL else line - signal
-        for index in indices:
-            values[index] = selected[index] / close[index]
+        for offset in range(required - 1, size):
+            value = selected[offset] / segment[offset]
+            if periods is not None and not math.isfinite(value):
+                raise ValueError("MACD feature must be finite")
+            index = start + offset
+            values[index] = value
             valid[index] = True
             source_start[index] = start
     return values, valid, source_start
+
+
+def _stochastic_d(
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    usable: np.ndarray,
+    lookback: int,
+    smoothing: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    values = np.zeros_like(close, dtype=np.float64)
+    valid = np.zeros_like(usable, dtype=np.bool_)
+    starts = np.full(len(close), -1, dtype=np.int64)
+    required = lookback + smoothing - 1
+    for start, stop in _contiguous_segments(usable):
+        size = stop - start
+        if size < required:
+            continue
+        # Compute each trailing K once, then keep the same portable fsum
+        # mean for every D window. No repeated K computation per D event.
+        ks = np.empty(size - lookback + 1, dtype=np.float64)
+        for offset, index in enumerate(range(start + lookback - 1, stop)):
+            first = index - lookback + 1
+            highest = float(np.max(high[first : index + 1]))
+            lowest = float(np.min(low[first : index + 1]))
+            spread = highest - lowest
+            ratio = 0.5 if spread <= _EPSILON else (close[index] - lowest) / spread
+            ks[offset] = 2.0 * ratio - 1.0
+        for offset in range(smoothing - 1, len(ks)):
+            index = start + lookback - 1 + offset
+            values[index] = float(
+                portable_mean(ks[offset - smoothing + 1 : offset + 1])
+            )
+            valid[index] = True
+            starts[index] = index - required + 1
+    return values, valid, starts
 
 
 def _atr(
@@ -432,7 +488,11 @@ def calculate_feature_events(
     source_start = np.full(n_bars, -1, dtype=np.int64)
     kind = FeatureKind(spec.kind)
 
-    if kind is FeatureKind.FUNDING_BPS:
+    if spec.ichimoku_periods is not None:
+        values, valid, source_start = _configured_ichimoku_events(
+            kind, spec.ichimoku_periods, high, low, close, usable
+        )
+    elif kind is FeatureKind.FUNDING_BPS:
         valid = np.asarray(funding_available, dtype=np.bool_) & usable
         values[valid] = np.asarray(funding_rate, dtype=np.float64)[valid] * 10_000.0
         source_start[valid] = np.flatnonzero(valid)
@@ -451,7 +511,18 @@ def calculate_feature_events(
         FeatureKind.MACD_SIGNAL,
         FeatureKind.MACD_HISTOGRAM,
     }:
-        values, valid, source_start = _macd(close, usable, kind)
+        values, valid, source_start = _macd(close, usable, kind, spec.macd_periods)
+    elif kind is FeatureKind.STOCHASTIC_D:
+        values, valid, source_start = _stochastic_d(
+            high,
+            low,
+            close,
+            usable,
+            spec.lookback,
+            _STOCHASTIC_SMOOTH
+            if spec.stochastic_smoothing_period is None
+            else spec.stochastic_smoothing_period,
+        )
     elif kind is FeatureKind.ATR_PCT:
         values, valid, source_start = _atr(high, low, close, usable, spec.lookback)
     elif kind is FeatureKind.ATR_CHANGE:
@@ -797,28 +868,6 @@ def calculate_feature_events(
                     )
                     valid[index] = True
                     source_start[index] = start
-            elif kind is FeatureKind.STOCHASTIC_D:
-                base_start = index - spec.lookback - _STOCHASTIC_SMOOTH + 2
-                if base_start < 0:
-                    continue
-                k_values: list[float] = []
-                for k_index in range(index - _STOCHASTIC_SMOOTH + 1, index + 1):
-                    start = k_index - spec.lookback + 1
-                    if not _window_is_valid(usable, start, k_index + 1):
-                        break
-                    highest = float(np.max(high[start : k_index + 1]))
-                    lowest = float(np.min(low[start : k_index + 1]))
-                    spread = highest - lowest
-                    ratio = (
-                        0.5
-                        if spread <= _EPSILON
-                        else (close[k_index] - lowest) / spread
-                    )
-                    k_values.append(2.0 * ratio - 1.0)
-                if len(k_values) == _STOCHASTIC_SMOOTH:
-                    values[index] = float(portable_mean(k_values))
-                    valid[index] = True
-                    source_start[index] = base_start
             elif kind is FeatureKind.CCI:
                 start = index - spec.lookback + 1
                 if _window_is_valid(usable, start, index + 1):

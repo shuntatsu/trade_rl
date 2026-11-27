@@ -21,10 +21,13 @@ from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     MARKET_DATASET_IDENTITY_SCHEMA_V7,
     MARKET_DATASET_IDENTITY_SCHEMA_V8,
+    MARKET_DATASET_IDENTITY_SCHEMA_V9,
     parse_identity_json,
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_execution_clock import (
+    calendar_month_clock_from_payload,
+    calendar_month_clock_payload,
     execution_clock_from_payload,
     execution_clock_payload,
     frequency_from_payload,
@@ -36,6 +39,7 @@ DATASET_ARRAYS_NAME: Final = "arrays.npz"
 DATASET_ARTIFACT_SCHEMA: Final = "market_dataset_artifact_v3"
 DATASET_ARTIFACT_SCHEMA_V4: Final = "market_dataset_artifact_v4"
 DATASET_ARTIFACT_SCHEMA_V5: Final = "market_dataset_artifact_v5"
+DATASET_ARTIFACT_SCHEMA_V6: Final = "market_dataset_artifact_v6"
 _FIXED_ZIP_TIMESTAMP: Final = (1980, 1, 1, 0, 0, 0)
 
 
@@ -110,6 +114,7 @@ def _dataset_parts(
         MARKET_DATASET_IDENTITY_SCHEMA,
         MARKET_DATASET_IDENTITY_SCHEMA_V7,
         MARKET_DATASET_IDENTITY_SCHEMA_V8,
+        MARKET_DATASET_IDENTITY_SCHEMA_V9,
     }:
         raise ValueError("unsupported market dataset identity schema")
     arrays: dict[str, np.ndarray] = {}
@@ -123,17 +128,24 @@ def _dataset_parts(
         ):
             continue
         if item.name == "native_clock":
-            if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8:
+            if identity_schema in (
+                MARKET_DATASET_IDENTITY_SCHEMA_V8,
+                MARKET_DATASET_IDENTITY_SCHEMA_V9,
+            ):
                 if dataset.native_clock is None:
-                    raise ValueError("identity v8 requires a native clock")
-                scalars[item.name] = execution_clock_payload(dataset.native_clock)
+                    raise ValueError("native identity requires a native clock")
+                scalars[item.name] = (
+                    calendar_month_clock_payload(dataset.native_clock)
+                    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V9
+                    else execution_clock_payload(dataset.native_clock)
+                )
             continue
-        if (
-            item.name == "periods_per_year"
-            and identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8
+        if item.name == "periods_per_year" and identity_schema in (
+            MARKET_DATASET_IDENTITY_SCHEMA_V8,
+            MARKET_DATASET_IDENTITY_SCHEMA_V9,
         ):
             if not isinstance(dataset.periods_per_year, Fraction):
-                raise ValueError("identity v8 requires exact frequency")
+                raise ValueError("native identity requires exact frequency")
             scalars[item.name] = frequency_payload(dataset.periods_per_year)
             continue
         value = getattr(dataset, item.name)
@@ -144,8 +156,9 @@ def _dataset_parts(
     if identity_schema in (
         MARKET_DATASET_IDENTITY_SCHEMA_V7,
         MARKET_DATASET_IDENTITY_SCHEMA_V8,
+        MARKET_DATASET_IDENTITY_SCHEMA_V9,
     ) and (dataset.funding_price_rate is None):
-        raise ValueError("identity v7/v8 requires funding_price_rate")
+        raise ValueError("identity v7/v8/v9 requires funding_price_rate")
     return arrays, scalars
 
 
@@ -156,6 +169,8 @@ def _artifact_schema_for_identity(identity_schema: object) -> str:
         return DATASET_ARTIFACT_SCHEMA_V4
     if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8:
         return DATASET_ARTIFACT_SCHEMA_V5
+    if identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V9:
+        return DATASET_ARTIFACT_SCHEMA_V6
     raise ValueError("unsupported market dataset identity schema")
 
 
@@ -255,6 +270,7 @@ def _load_dataset_files_with_digest(
         DATASET_ARTIFACT_SCHEMA,
         DATASET_ARTIFACT_SCHEMA_V4,
         DATASET_ARTIFACT_SCHEMA_V5,
+        DATASET_ARTIFACT_SCHEMA_V6,
     }:
         raise ValueError("unsupported dataset artifact schema")
     scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
@@ -275,11 +291,16 @@ def _load_dataset_files_with_digest(
         )
     has_funding_price_rate = "funding_price_rate" in metadata
     if (
-        artifact_schema in (DATASET_ARTIFACT_SCHEMA_V4, DATASET_ARTIFACT_SCHEMA_V5)
+        artifact_schema
+        in (
+            DATASET_ARTIFACT_SCHEMA_V4,
+            DATASET_ARTIFACT_SCHEMA_V5,
+            DATASET_ARTIFACT_SCHEMA_V6,
+        )
         and not has_funding_price_rate
     ):
         raise ValueError(
-            f"{'v4' if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 else 'v5'} artifact is missing funding_price_rate"
+            f"{str(artifact_schema).rsplit('_', 1)[-1]} artifact is missing funding_price_rate"
         )
     if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
         raise ValueError("v3 artifact must not contain funding_price_rate")
@@ -332,7 +353,7 @@ def _restore_dataset(
     allowed = {item.name for item in fields(MarketDataset) if item.init}
     if artifact_schema == DATASET_ARTIFACT_SCHEMA:
         allowed.remove("funding_price_rate")
-    if artifact_schema != DATASET_ARTIFACT_SCHEMA_V5:
+    if artifact_schema not in (DATASET_ARTIFACT_SCHEMA_V5, DATASET_ARTIFACT_SCHEMA_V6):
         allowed.remove("native_clock")
     if set(kwargs) != allowed:
         missing = sorted(allowed - set(kwargs))
@@ -340,10 +361,13 @@ def _restore_dataset(
         raise ValueError(
             f"dataset artifact field contract mismatch: missing={missing}, extra={extra}"
         )
-    if artifact_schema == DATASET_ARTIFACT_SCHEMA_V5:
-        kwargs["native_clock"] = execution_clock_from_payload(
-            scalar_meta.get("native_clock")
+    if artifact_schema in (DATASET_ARTIFACT_SCHEMA_V5, DATASET_ARTIFACT_SCHEMA_V6):
+        decoder = (
+            calendar_month_clock_from_payload
+            if artifact_schema == DATASET_ARTIFACT_SCHEMA_V6
+            else execution_clock_from_payload
         )
+        kwargs["native_clock"] = decoder(scalar_meta.get("native_clock"))
         kwargs["periods_per_year"] = frequency_from_payload(
             scalar_meta.get("periods_per_year")
         )

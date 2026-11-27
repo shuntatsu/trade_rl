@@ -54,7 +54,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "18237fc2c3059b8b9ea54073052fb56b526e9a704130cbc23565ccae1c61e2d8"
+      "sha256": "7a3e003e585ea69e0d9809b2e057d0e0ae1bdcfebcebfcb07797fb2cc52ecfd8"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -72,7 +72,7 @@
       "id": "replay-run",
       "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
       "kind": "function",
-      "source_sha256": "a8616158ffd13e5a27b900bebd861667f458ddbf21e4447bb2ebe5bf7ab0cec9",
+      "source_sha256": "e954b6ace8f9f30753b0738d05f3a68ebc60e43376c9bdcbb2d13edea51ba611",
       "label_ja": "単銘柄リプレイを実行",
       "description_ja": "各バーで実約定数量と銘柄ごとのgross budgetを含む観測を作り、戦略意図から希望数量を計算します。最小保有中の抑制後もhard riskとterminal settlementを通し、約定・帳簿・区間収益・抑制イベントを更新します。",
       "variables": [
@@ -120,7 +120,7 @@
       "id": "portfolio-replay-run",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "ff2d7c2092ce1f9c7037d3e9df5494f4737e5ca8de6b2a20e827fdef5c20b985",
+      "source_sha256": "d040f09b07ebb886380865c67600a19e733fdba913faf1390f50fc4218bba49d",
       "label_ja": "全銘柄portfolio policyを実行",
       "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。",
       "variables": [
@@ -178,7 +178,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "e6e3117694931a3e4c2887d04dbab922018ac3eaf2123c0373755d51b219467d",
+      "source_sha256": "ee3d01442d361cda11eeb6bc9608a6d56fdd699c082fee7ac53ac8d31253f1a9",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
       "variables": [],
@@ -338,7 +338,7 @@
       "id": "portfolio-session-owner",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "95a99a4d3a69789326d279fbe10595af085929a67cdc58f74d31d8e7941d5d39",
+      "source_sha256": "34be32c45e2c709623ae334b84bbac3e06fd2ede93cd57552ffa4f12d42a0211",
       "label_ja": "数値portfolio sessionを継続",
       "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。",
       "variables": [],

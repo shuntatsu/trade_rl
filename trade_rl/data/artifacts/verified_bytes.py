@@ -19,6 +19,7 @@ from trade_rl.data.artifacts.codec import (
     DATASET_ARTIFACT_SCHEMA,
     DATASET_ARTIFACT_SCHEMA_V4,
     DATASET_ARTIFACT_SCHEMA_V5,
+    DATASET_ARTIFACT_SCHEMA_V6,
     _artifact_schema_for_identity,
     _mapping,
     _restore_dataset,
@@ -56,6 +57,7 @@ def load_dataset_from_verified_bytes(
         DATASET_ARTIFACT_SCHEMA,
         DATASET_ARTIFACT_SCHEMA_V4,
         DATASET_ARTIFACT_SCHEMA_V5,
+        DATASET_ARTIFACT_SCHEMA_V6,
     }:
         raise ValueError("unsupported dataset artifact schema")
     scalar_meta = dict(_mapping(manifest.get("dataset"), field="dataset"))
@@ -76,11 +78,16 @@ def load_dataset_from_verified_bytes(
         )
     has_funding_price_rate = "funding_price_rate" in metadata
     if (
-        artifact_schema in (DATASET_ARTIFACT_SCHEMA_V4, DATASET_ARTIFACT_SCHEMA_V5)
+        artifact_schema
+        in (
+            DATASET_ARTIFACT_SCHEMA_V4,
+            DATASET_ARTIFACT_SCHEMA_V5,
+            DATASET_ARTIFACT_SCHEMA_V6,
+        )
         and not has_funding_price_rate
     ):
         raise ValueError(
-            f"{'v4' if artifact_schema == DATASET_ARTIFACT_SCHEMA_V4 else 'v5'} artifact is missing funding_price_rate"
+            f"{str(artifact_schema).rsplit('_', 1)[-1]} artifact is missing funding_price_rate"
         )
     if artifact_schema == DATASET_ARTIFACT_SCHEMA and has_funding_price_rate:
         raise ValueError("v3 artifact must not contain funding_price_rate")

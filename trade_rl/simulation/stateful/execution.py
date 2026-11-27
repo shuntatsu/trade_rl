@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
-from trade_rl.data.market import _require_available_marks_at_row
+from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
@@ -173,6 +173,49 @@ def execute_stateful_orders(
         raise
 
 
+def _require_native_fixed_execution_rows(
+    dataset: MarketDataset, *, start_index: int, stop_index: int
+) -> None:
+    """Check the complete declared native window without invoking an actor.
+
+    The first row supplies the decision mark and liquidity; only subsequent
+    processing rows incur funding, corporate actions and cash carry. Use the
+    same admission predicates for an individual transition and an up-front
+    learning window. The validated data are not a provider attestation.
+    """
+    if (
+        type(start_index) is not int
+        or type(stop_index) is not int
+        or not 0 <= start_index < stop_index < dataset.n_bars
+    ):
+        raise ValueError("native fixed execution window is outside the Dataset")
+    span = slice(start_index, stop_index + 1)
+    processing = slice(start_index + 1, stop_index + 1)
+    unavailable = np.any(
+        (dataset.resolved_array("available_at")[span] > dataset.timestamps[span, None])
+        | ~dataset.resolved_array("information_available")[span],
+        axis=1,
+    )
+    if np.any(unavailable):
+        # Reuse the common row diagnostics for the earliest unavailable mark.
+        _require_available_marks_at_row(
+            dataset,
+            row_index=start_index + int(np.argmax(unavailable)),
+            selected_symbol_indices=tuple(range(dataset.n_symbols)),
+        )
+    if (
+        np.any(dataset.resolved_array("funding_event_count")[processing] != 0)
+        or np.any(dataset.resolved_array("dividend")[processing] != 0.0)
+        or np.any(dataset.resolved_array("split_factor")[processing] != 1.0)
+        or np.any(~dataset.resolved_array("asset_active")[span])
+        or np.any(~dataset.tradable[span])
+        or np.any(dataset.resolved_array("cash_rate")[processing] < 0.0)
+    ):
+        raise ValueError(
+            "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
+        )
+
+
 def _execute_stateful_orders_impl(
     executor: MarketExecutor,
     book: BookState,
@@ -253,33 +296,9 @@ def _execute_stateful_orders_impl(
         previous_index = start_index + offset
         processing_index = previous_index + 1
         if native_fixed:
-            # A prior complete bar supplies the decision and capacity. Reject
-            # delayed publications and unsupported intrabar cash-flow ordering.
-            for row in (previous_index, processing_index):
-                _require_available_marks_at_row(
-                    dataset,
-                    row_index=row,
-                    selected_symbol_indices=tuple(range(dataset.n_symbols)),
-                )
-            if (
-                np.any(
-                    dataset.resolved_array("funding_event_count")[processing_index] != 0
-                )
-                or np.any(dataset.resolved_array("dividend")[processing_index] != 0.0)
-                or np.any(
-                    dataset.resolved_array("split_factor")[processing_index] != 1.0
-                )
-                or np.any(
-                    ~dataset.resolved_array("asset_active")[
-                        previous_index : processing_index + 1
-                    ]
-                )
-                or np.any(~dataset.tradable[previous_index : processing_index + 1])
-                or dataset.resolved_array("cash_rate")[processing_index] < 0.0
-            ):
-                raise ValueError(
-                    "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
-                )
+            _require_native_fixed_execution_rows(
+                dataset, start_index=previous_index, stop_index=processing_index
+            )
         if executor.strict_spot_cash:
             executor._validate_strict_spot_row(processing_index)
         context = lifecycle.begin_bar(

@@ -130,7 +130,11 @@ def _require_representable_position_values(
         for quantity, mark, multiplier in zip(
             quantities, marks, multipliers, strict=True
         ):
-            position = float(quantity) * float(mark) * float(multiplier)
+            mark_value = float(mark)
+            multiplier_value = float(multiplier)
+            if mark_value <= 0.0 or multiplier_value <= 0.0:
+                raise ValueError("account marks and multipliers must be positive")
+            position = float(quantity) * mark_value * multiplier_value
             if not math.isfinite(position):
                 raise ValueError("proposed account state became non-finite")
             if quantity != 0.0 and position == 0.0:
@@ -138,6 +142,8 @@ def _require_representable_position_values(
             values.append(position)
         return np.asarray(values, dtype=np.float64)
 
+    if np.any(marks <= 0.0) or np.any(multipliers <= 0.0):
+        raise ValueError("account marks and multipliers must be positive")
     with np.errstate(over="ignore", under="ignore", invalid="ignore"):
         position_values = quantities * marks * multipliers
     if not np.isfinite(position_values).all():
@@ -161,6 +167,20 @@ def _require_finite_post_update_equity(
     if not all(math.isfinite(value) for value in (cash, equity)):
         raise ValueError("proposed account state became non-finite")
     return equity
+
+
+def _project_drawdown(
+    *, value: float, peak: float, maximum: float, unbounded_loss: bool
+) -> tuple[float, float]:
+    """Calculate finite diagnostics before committing either peak or drawdown."""
+    drawdown_value = value if unbounded_loss else max(value, 0.0)
+    projected_peak = max(peak, drawdown_value)
+    projected_drawdown = max(
+        maximum, 1.0 - drawdown_value / max(projected_peak, _MIN_EQUITY)
+    )
+    if not math.isfinite(projected_drawdown) or not math.isfinite(projected_peak):
+        raise ValueError("base-bar drawdown became non-finite")
+    return projected_peak, projected_drawdown
 
 
 class SpotCashAdmissionError(ValueError):
@@ -949,20 +969,17 @@ class BookState:
             raise ValueError("base-bar net return became non-finite")
         if not unbounded_loss_metrics:
             net_return = max(net_return, -1.0 + 1e-12)
-        drawdown_value = (
-            proposed_value if unbounded_loss_metrics else max(proposed_value, 0.0)
+        projected_peak, projected_drawdown = _project_drawdown(
+            value=proposed_value,
+            peak=self.peak_value,
+            maximum=self.max_drawdown,
+            unbounded_loss=unbounded_loss_metrics,
         )
-        projected_peak = max(self.peak_value, drawdown_value)
-        projected_drawdown = max(
-            self.max_drawdown,
-            1.0 - drawdown_value / max(projected_peak, _MIN_EQUITY),
-        )
-        if not math.isfinite(projected_drawdown):
-            raise ValueError("base-bar drawdown became non-finite")
 
         self.cash = proposed_cash
         self.revalue(marks)
-        self._update_drawdown(unbounded_loss=unbounded_loss_metrics)
+        self.peak_value = projected_peak
+        self.max_drawdown = projected_drawdown
         self.funding_pnl = proposed_funding_pnl
         self.returns_history.append(float(net_return))
         return float(net_return)
@@ -973,13 +990,11 @@ class BookState:
         self._update_drawdown(unbounded_loss=unbounded_loss)
 
     def _update_drawdown(self, *, unbounded_loss: bool = False) -> None:
-        value = (
-            self.portfolio_value if unbounded_loss else max(self.portfolio_value, 0.0)
-        )
-        self.peak_value = max(self.peak_value, value)
-        self.max_drawdown = max(
-            self.max_drawdown,
-            1.0 - value / max(self.peak_value, _MIN_EQUITY),
+        self.peak_value, self.max_drawdown = _project_drawdown(
+            value=self.portfolio_value,
+            peak=self.peak_value,
+            maximum=self.max_drawdown,
+            unbounded_loss=unbounded_loss,
         )
 
     def _refresh_economic_state(self) -> None:

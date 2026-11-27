@@ -847,6 +847,13 @@ The scalar `interval_net_return` is therefore an uncapped simple return in
 nonpositive wealth. Debt-tail comparisons must still inspect book equity/cash,
 the unbounded drawdown/simple-return evidence, and a separate independent account
 oracle rather than treating the bounded log diagnostic as financial authority.
+Both direct drawdown refresh and mark/funding updates validate the projected
+peak and drawdown before committing either diagnostic. An unrepresentable
+retained-debt ratio is rejected rather than stored as infinite drawdown.
+The legacy denominator floor and bounded-loss mode are unchanged. Public
+BookState valuation arrays must retain positive marks and contract multipliers,
+including flat symbols.
+
 Retained debt is not a complete venue bankruptcy/liquidation model and is not enabled
 by default in shared-portfolio sessions or Gym. Green synthetic tests do
 not supply G0–G4 approval, historical market funding or account-rule

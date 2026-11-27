@@ -391,3 +391,108 @@ def test_matching_null_run_and_artifact_heads_are_not_exact_commits() -> None:
         artifact["workflow_run"]["head_sha"] = "0" * 40
     with pytest.raises(ValueError, match="SHA"):
         _observe(api)
+
+
+class _ForgedText(str):
+    def __eq__(self, other: object) -> bool:
+        # Preserve the existing null-SHA rejection check so the real equality
+        # defect, rather than that unrelated guard, is the failure oracle.
+        return not (type(other) is str and other == "0" * 40)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+class _CasefoldTrap(str):
+    def casefold(self) -> str:
+        raise AssertionError("foreign repository casefold called")
+
+
+@pytest.mark.parametrize(
+    ("key", "forged"),
+    [
+        ("head_sha", _ForgedText("b" * 40)),
+        ("head_branch", _ForgedText("wrong/branch")),
+    ],
+)
+def test_artifact_origin_rejects_foreign_identity(key: str, forged: str) -> None:
+    api = FakeGet()
+    api.artifacts[0]["workflow_run"][key] = forged  # type: ignore[index]
+    with pytest.raises(ValueError, match="artifact workflow identity"):
+        _observe(api)
+
+
+def test_artifact_run_rejects_foreign_sha_even_when_it_forges_readback() -> None:
+    api = FakeGet()
+    api.run["head_sha"] = _ForgedText("b" * 40)
+    api.next_run = {**api.run, "head_sha": SHA}
+    with pytest.raises(ValueError, match="run head SHA"):
+        _observe(api)
+
+
+def test_artifact_repo_argument_rejects_foreign_casefold_before_reads() -> None:
+    api = FakeGet()
+    with pytest.raises(ValueError, match="expected_repository"):
+        observe_workflow_artifacts(
+            api, expected_repository=_CasefoldTrap(REPOSITORY), run_id=RUN
+        )
+    assert api.calls == []
+
+
+def test_artifact_repo_response_rejects_foreign_casefold() -> None:
+    api = FakeGet()
+    api.repo["full_name"] = _CasefoldTrap(REPOSITORY)
+    with pytest.raises(ValueError, match="repository identity"):
+        _observe(api)
+
+
+@pytest.mark.parametrize(
+    ("key", "foreign"),
+    [
+        ("node_id", _ForgedText("A_1")),
+        ("name", _ForgedText("repeated-name")),
+        ("digest", _ForgedText("sha256:" + "c" * 64)),
+    ],
+)
+def test_artifact_metadata_rejects_foreign_text(key: str, foreign: str) -> None:
+    api = FakeGet()
+    api.artifacts[0][key] = foreign
+    with pytest.raises(ValueError):
+        _observe(api)
+
+
+def test_artifact_native_repository_case_insensitive_control() -> None:
+    api = FakeGet()
+    result = observe_workflow_artifacts(
+        api, expected_repository=REPOSITORY.upper(), run_id=RUN
+    )
+    assert result["artifact_count"] == 2
+    assert result["cleanup_authorized"] is False
+
+
+class _CompareTrap(str):
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("foreign equality called")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("foreign inequality called")
+
+
+@pytest.mark.parametrize("key", ["head_branch", "head_sha"])
+def test_artifact_origin_refuses_before_foreign_comparison(key: str) -> None:
+    api = FakeGet()
+    api.artifacts[0]["workflow_run"][key] = _CompareTrap(  # type: ignore[index]
+        BRANCH if key == "head_branch" else SHA
+    )
+    with pytest.raises(ValueError, match="artifact workflow identity"):
+        _observe(api)
+
+
+def test_artifact_run_refuses_before_foreign_sha_comparison() -> None:
+    api = FakeGet()
+    api.run["head_sha"] = _CompareTrap(SHA)
+    with pytest.raises(ValueError, match="run head SHA"):
+        _observe(api)

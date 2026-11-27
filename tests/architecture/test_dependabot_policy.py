@@ -17,9 +17,19 @@ MANIFEST = ROOT / ".github" / "dependabot.yml"
 ECOSYSTEM_PATTERN = re.compile(r'^  - package-ecosystem: "([a-z-]+)"$', re.M)
 
 
-def _ecosystem_sections() -> dict[str, str]:
-    source = MANIFEST.read_text(encoding="utf-8")
+def _ecosystem_sections(source: str | None = None) -> dict[str, str]:
+    if source is None:
+        source = MANIFEST.read_text(encoding="utf-8")
     assert source.startswith("version: 2\nupdates:\n")
+    # Every non-comment line outside an update mapping must be one of the
+    # canonical list entries. A regex search alone misses extra flow entries,
+    # replacement root keys and appended YAML documents.
+    for line in source.splitlines()[2:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        assert line.startswith("    ") or ECOSYSTEM_PATTERN.fullmatch(line), (
+            f"noncanonical update layout: {line}"
+        )
     matches = list(ECOSYSTEM_PATTERN.finditer(source))
     names = [match.group(1) for match in matches]
     assert names == ["github-actions", "uv", "npm", "docker-compose"]
@@ -109,6 +119,25 @@ def test_uv_hold_rejects_noncanonical_or_enabled_limit(replacement: str) -> None
     changed = section.replace(original, replacement + "\n", 1)
     with pytest.raises(AssertionError):
         _require_version_update_limit(changed, 0)
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        '  - {package-ecosystem: uv, directory: "/other", '
+        'schedule: {interval: weekly}, open-pull-requests-limit: 1}\n',
+        'updates: [{package-ecosystem: uv, directory: "/", '
+        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+        '"updates": [{package-ecosystem: uv, directory: "/", '
+        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+        '---\nversion: 2\nupdates: [{package-ecosystem: uv, directory: "/", '
+        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+    ],
+)
+def test_update_roster_refuses_hidden_entries(suffix: str) -> None:
+    source = MANIFEST.read_text(encoding="utf-8") + suffix
+    with pytest.raises(AssertionError, match="noncanonical update layout"):
+        _ecosystem_sections(source)
 
 
 def test_python_lockfile_only_recipe_is_retained_for_reenable() -> None:

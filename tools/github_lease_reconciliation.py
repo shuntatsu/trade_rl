@@ -50,6 +50,10 @@ def _id(value: object, label: str) -> int:
     return value
 
 
+def _same_text(value: object, expected: object) -> bool:
+    return type(value) is str and type(expected) is str and value == expected
+
+
 def _false(value: Mapping[str, Any], *keys: str) -> None:
     for key in keys:
         if value.get(key) is not False:
@@ -131,11 +135,11 @@ def inspect_expired_lease_evidence(
 
     observed = _object(inventory, "work inventory")
     if (
-        observed.get("schema") != "github_work_inventory_v1"
-        or observed.get("repository") != snapshot.repository
+        not _same_text(observed.get("schema"), "github_work_inventory_v1")
+        or not _same_text(observed.get("repository"), snapshot.repository)
         or _sha(observed.get("main_sha"), "inventory main_sha") != expected_main_sha
         or observed.get("unfinished_workflow_branch_names_checked") is not True
-        or observed.get("task_scope") != "open_issue_comments_only"
+        or not _same_text(observed.get("task_scope"), "open_issue_comments_only")
     ):
         raise ValueError("work inventory scope, main, or repository differs")
     _false(
@@ -198,10 +202,10 @@ def inspect_expired_lease_evidence(
         if run in pairs:
             raise ValueError("duplicate workflow attempt run id")
         if (
-            item.get("schema") != "github_workflow_attempt_observation_v1"
-            or item.get("scope") != "single_run_attempt"
-            or item.get("job_source") != "attempt_scoped_only"
-            or item.get("head_branch") != lease.lease_branch
+            not _same_text(item.get("schema"), "github_workflow_attempt_observation_v1")
+            or not _same_text(item.get("scope"), "single_run_attempt")
+            or not _same_text(item.get("job_source"), "attempt_scoped_only")
+            or not _same_text(item.get("head_branch"), lease.lease_branch)
             or _sha(item.get("head_sha"), "attempt head_sha") != lease.head_sha
         ):
             raise ValueError("attempt observation differs from lease")
@@ -246,10 +250,14 @@ def inspect_expired_lease_evidence(
         validate_workflow_state(item, name="artifact")
         observed_attempt = _id(item.get("run_attempt_observed"), "artifact run attempt")
         if (
-            item.get("schema") != "github_workflow_artifact_observation_v1"
-            or item.get("scope") != "single_run_all_attempts_current_artifacts"
-            or item.get("repository") != snapshot.repository
-            or item.get("head_branch") != attempt["head_branch"]
+            not _same_text(
+                item.get("schema"), "github_workflow_artifact_observation_v1"
+            )
+            or not _same_text(
+                item.get("scope"), "single_run_all_attempts_current_artifacts"
+            )
+            or not _same_text(item.get("repository"), snapshot.repository)
+            or not _same_text(item.get("head_branch"), attempt["head_branch"])
             or _sha(item.get("head_sha"), "artifact head_sha") != attempt["head_sha"]
             or observed_attempt != attempt["run_attempt"]
             or item.get("status") != attempt.get("status")

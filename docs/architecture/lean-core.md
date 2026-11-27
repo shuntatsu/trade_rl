@@ -1234,16 +1234,42 @@ staleness remain the existing as-of overlay and policy's responsibility.
 `run_clocked_native_portfolio_replay` reuses the common shared replay on every
 fine interval. It calls the supplied policy only on admitted slots, proposes
 exact-quantity HOLD otherwise, and leaves hard risk and terminal flattening
-to the native owner. The current restricted path requires deterministic,
-unlevered long-only strict spot cash, MARKET, zero additional order latency,
-previous-bar capacity, no pending partial-fill carry, available and tradable
-fine marks throughout the replay range, and no fine funding events. The
-native terminal reserve is excluded from the actor window. Insufficient
-liquidity or termination can prevent actual settlement; inspect the
-returned book and ledger. Planned slots and observed actor calls are
-distinct facts. Returns/fees remain on the fine execution cadence; sparse
-actor calls do not change annualization or the meaning of existing artifacts.
+to the native owner. The default execution_mode="strict_spot" retains
+deterministic, unlevered long-only strict spot cash and no fine funding
+events. Explicit execution_mode="linear_carry" uses the same shared
+signed-position cross-margin engine with gross leverage limit at most one
+and full collateral. This mode is not the strict cash/inventory invariant.
+It requires identity-bound v7 fine funding price-rate products, zero or
+one close-assigned event per symbol/row, matching funding due/count,
+zero rate and price-rate outside event rows, consistent zero-rate events,
+and a finite positive implied event price when the rate is nonzero.
+Fine/coarse contract multipliers and volume units must agree. No split
+or dividend is admitted in this linear model. Borrow availability/rate
+are the existing declared fine Dataset inputs, not venue attestations.
+The existing executor owns native order admission, signed position sizes,
+fees, cash carry, borrow and funding; it applies funding to the post-open
+fill positions at each processing close using the explicit event
+price-rate product, not an inferred close price. A zero position at the
+terminal processing close has no funding exposure. Borrow uses the
+existing post-open-fill book valuation (processing open mark before the
+close mark) and actual elapsed year fraction.
+These are discrete bar-model assumptions: the arrays do not prove actual
+event timestamps, execution-time financing, or provider authenticity.
+An intrabar or multi-event funding source requires a separate contract.
+
+Both modes require deterministic MARKET, zero additional order latency,
+previous-bar capacity, no pending partial-fill carry, and available,
+active and tradable fine marks throughout the replay range. The native
+terminal reserve is excluded from the actor window. Borrow denial can
+prevent new shorts; insufficient liquidity or termination can prevent
+actual settlement. Inspect the returned book and ledger. Planned slots and observed actor calls are
+distinct facts. Returns/fees/carry remain on the fine execution cadence;
+sparse actor calls do not change annualization or the meaning of existing
+artifacts. The runtime execution-policy digest distinguishes strict spot
+from the signed native path, and Dataset identity binds the declared
+economic arrays; retain the mode/config and captured ledger as evidence.
 The same augmented Dataset can serve multiple policies without repeating
-feature construction. This is neither native calendar-month execution nor
-an RL decision-clock/checkpoint migration, derivative funding/borrow model,
-provider authentication or economic authorization.
+feature construction. This does not admit native calendar-month execution,
+additional order latency or persistent pending orders, leveraged margin
+or intrabar funding, RL checkpoint migration, provider authentication
+or economic authorization.

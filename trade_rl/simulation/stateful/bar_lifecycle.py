@@ -57,7 +57,10 @@ class StatefulBarLifecycle:
             previous_index,
             processing_index,
         )
-        if elapsed_hours <= dataset.bar_hours + _TOLERANCE:
+        if (
+            dataset.native_calendar_month
+            or elapsed_hours <= dataset.bar_hours + _TOLERANCE
+        ):
             processing_year_fraction = elapsed_year_fraction
             gap_year_fraction = 0.0
         else:

@@ -1,4 +1,4 @@
-"""Opt-in fixed native spot Dataset construction from explicitly pinned bars.
+"""Opt-in native spot Dataset construction from explicitly pinned bars.
 
 The maintained resampler and clocked feature alignment own time/indicator
 semantics. This builder does not authenticate venue captures or grant access.
@@ -26,6 +26,8 @@ from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 from trade_rl.data.native_execution_clock import (
+    calendar_month_clock_payload,
+    calendar_month_execution_frequency,
     execution_clock_payload,
     fixed_execution_frequency,
 )
@@ -201,15 +203,16 @@ def _finite_float32(value: np.ndarray) -> np.ndarray:
     return value.astype(np.float32)
 
 
-def build_native_fixed_spot_dataset(
+def _build_native_spot_dataset(
     *,
     clock: NativeBarClock,
     closes: np.ndarray,
     sources: tuple[ClockedNativeSource, ...],
     feature_groups: tuple[ClockedNativeFeatureGroup, ...],
     as_of: np.datetime64,
+    calendar_month: bool,
 ) -> MarketDataset:
-    """Construct a v8 Dataset without changing the legacy MarketBuildConfig.
+    """Construct a clock-bound Dataset without changing the legacy MarketBuildConfig.
 
     Execution sources must share the explicit requested suffix grid and may
     have a complete warm-up prefix. Require NativeRawMarketSeries for every
@@ -220,7 +223,12 @@ def build_native_fixed_spot_dataset(
     No funding, derivatives, time-varying rules or provider authentication.
     Execution costs beyond the static instrument rules remain caller-owned.
     """
-    frequency = fixed_execution_frequency(clock)
+    if calendar_month:
+        execution_clock = calendar_month_clock_payload(clock)
+        frequency = calendar_month_execution_frequency(clock, closes)
+    else:
+        execution_clock = execution_clock_payload(clock)
+        frequency = fixed_execution_frequency(clock)
     _, grid = clock.interval_bounds(closes)
     if len(grid) < 3:
         raise ValueError("native execution grid requires at least three closes")
@@ -263,7 +271,7 @@ def build_native_fixed_spot_dataset(
                 "native feature source contracts must match execution roster"
             )
         for i, source in enumerate(group.sources):
-            if descriptor == execution_clock_payload(clock):
+            if descriptor == execution_clock:
                 if source.expected_source_digest != sources[i].expected_source_digest:
                     raise ValueError(
                         "same-clock feature source must match the execution pin"
@@ -305,8 +313,10 @@ def build_native_fixed_spot_dataset(
     close = column("close")
     globals_, globals_available = _global_features(close, information)
     config = {
-        "schema_version": _SCHEMA,
-        "execution_clock": execution_clock_payload(clock),
+        "schema_version": "native_calendar_month_spot_build_v1"
+        if calendar_month
+        else _SCHEMA,
+        "execution_clock": execution_clock,
         "groups": tuple(
             {"clock": p, "specs": tuple(s.canonical_payload() for s in g.specs)}
             for g, p in zip(feature_groups, descriptors, strict=True)
@@ -319,7 +329,9 @@ def build_native_fixed_spot_dataset(
     config_digest = content_digest(config)
     normalization_digest = content_and_arrays_digest(
         {
-            "schema": "native_fixed_spot_normalization_v1",
+            "schema": "native_calendar_month_spot_normalization_v1"
+            if calendar_month
+            else "native_fixed_spot_normalization_v1",
             "feature_config_digest": config_digest,
         },
         (
@@ -383,4 +395,46 @@ def build_native_fixed_spot_dataset(
     )
 
 
-__all__ = ["build_native_fixed_spot_dataset", "spot_raw_from_resampled"]
+def build_native_fixed_spot_dataset(
+    *,
+    clock: NativeBarClock,
+    closes: np.ndarray,
+    sources: tuple[ClockedNativeSource, ...],
+    feature_groups: tuple[ClockedNativeFeatureGroup, ...],
+    as_of: np.datetime64,
+) -> MarketDataset:
+    """Build the unchanged v8 fixed 3d/7d/week spot Dataset contract."""
+    return _build_native_spot_dataset(
+        clock=clock,
+        closes=closes,
+        sources=sources,
+        feature_groups=feature_groups,
+        as_of=as_of,
+        calendar_month=False,
+    )
+
+
+def build_native_calendar_month_spot_dataset(
+    *,
+    clock: NativeBarClock,
+    closes: np.ndarray,
+    sources: tuple[ClockedNativeSource, ...],
+    feature_groups: tuple[ClockedNativeFeatureGroup, ...],
+    as_of: np.datetime64,
+) -> MarketDataset:
+    """Build a v9 spot Dataset on actual consecutive UTC calendar months."""
+    return _build_native_spot_dataset(
+        clock=clock,
+        closes=closes,
+        sources=sources,
+        feature_groups=feature_groups,
+        as_of=as_of,
+        calendar_month=True,
+    )
+
+
+__all__ = [
+    "build_native_calendar_month_spot_dataset",
+    "build_native_fixed_spot_dataset",
+    "spot_raw_from_resampled",
+]

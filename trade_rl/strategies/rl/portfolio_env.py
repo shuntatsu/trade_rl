@@ -21,7 +21,11 @@ from trade_rl.risk.pretrade import (
     RiskConstrainedTarget,
 )
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    _preflight_native_fixed_execution_window,
+)
+from trade_rl.simulation.native_transition import _require_risk_execution_limits
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
@@ -209,6 +213,10 @@ class SharedPortfolioGymEnv(gym.Env):
         self.market_order_profile = market_order_profile
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
+        self._native_fixed_dataset = (
+            dataset if dataset.native_clock is not None else None
+        )
+        self._validate_native_fixed_window()
         n_symbols = dataset.n_symbols
         n_features = len(dataset.feature_names)
         n_global_features = len(dataset.global_feature_names)
@@ -258,6 +266,60 @@ class SharedPortfolioGymEnv(gym.Env):
             list[StatefulExecutionObservation] | None
         ) = None
 
+    def _require_native_fixed_binding(self) -> None:
+        # Bind the mode to the original immutable Dataset. A mutable Gym
+        # attribute must not disable native admission by selecting a legacy
+        # Dataset with a copied ID, or enter native mode after construction.
+        if (
+            self._native_fixed_dataset is not None
+            or self.dataset.native_clock is not None
+        ) and self.dataset is not self._native_fixed_dataset:
+            raise ValueError(
+                "native fixed Gym requires its original verified Dataset identity; "
+                "create a fresh environment for a different Dataset"
+            )
+
+    def _validate_native_fixed_window(self) -> None:
+        # Recheck admission at reset, fit and bundle loading because the
+        # Gym environment's configuration attributes are mutable.
+        self._require_native_fixed_binding()
+        _preflight_native_fixed_execution_window(
+            self.dataset,
+            self.execution_cost,
+            start_index=self.start_index,
+            stop_index=self.stop_index,
+        )
+        if self.dataset.native_clock is not None:
+            _require_risk_execution_limits(
+                self.risk_config, float(self.execution_cost.max_leverage)
+            )
+            # The native Dataset grid is immutable and complete. Match the
+            # current indices to the declared financial window before any
+            # session, training attempt, or checkpoint loading is admitted.
+            start_ns = _market_timestamp_ns(self.dataset, self.start_index)
+            stop_ns = _market_timestamp_ns(self.dataset, self.stop_index)
+            next_ns = _market_timestamp_ns(self.dataset, self.start_index + 1)
+            interval_ns = next_ns - start_ns
+            objective = self.bound.objective
+            clock = self.bound.clock
+            horizon_ns = clock.economic_horizon_seconds * 1_000_000_000
+            if (
+                start_ns != _utc_datetime_ns(objective.evaluation_start)
+                or stop_ns != _utc_datetime_ns(objective.evaluation_stop_exclusive)
+                or any(
+                    seconds * 1_000_000_000 != interval_ns
+                    for seconds in (
+                        clock.decision_interval_seconds,
+                        clock.execution_interval_seconds,
+                        clock.reward_interval_seconds,
+                    )
+                )
+                or horizon_ns != stop_ns - start_ns
+            ):
+                raise ValueError(
+                    "native fixed Gym financial clock must match the Dataset window"
+                )
+
     def reset(
         self,
         *,
@@ -266,6 +328,7 @@ class SharedPortfolioGymEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
         if options:
             raise ValueError("reset options are not supported")
+        self._validate_native_fixed_window()
         super().reset(seed=seed)
         session = SharedPortfolioSession(
             self.dataset,

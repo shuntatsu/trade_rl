@@ -64,6 +64,7 @@ trade_rl/
 │   ├── metrics.py
 │   ├── native_annualization.py
 │   ├── native_fixed_returns.py
+│   ├── native_calendar_returns.py
 │   ├── paired_portfolio_action.py
 │   ├── paired_portfolio_label.py
 │   ├── paper/
@@ -582,7 +583,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `evaluation/comparison/strategies.py` owns named independent-per-symbol comparisons and shared-cash factory comparisons. Shared-cash comparison gives each strategy arm one replay over the full symbol roster, reusing `evaluation/replay.py` and `evaluate_performance`; it does not fit models or select a winner.
 
-`evaluation/comparison/multiple_testing.py` owns the standard-library-only Probabilistic Sharpe Ratio, expected-maximum Sharpe and Deflated Sharpe Ratio (Bailey and Lopez de Prado 2012/2014). All Sharpe inputs are per-period, never annualised, and kurtosis is the non-excess definition; `expected_maximum_sharpe(1, V)` is defined as `0.0` so a single-trial DSR equals `PSR(0)`. `evaluation/comparison/trial_ledger.py` owns the immutable `TrialRecord` (COMPLETED / FAILED / ABANDONED, a required reason unless COMPLETED, a sha256 config digest and an uninterpreted free-text data label), the append-only `TrialLedger` and its strict canonical JSONL codec, which refuses duplicate keys, unknown fields, non-finite numbers, non-canonical lines and, when `expected_digest` is given, any content change. `evaluation/comparison/leaderboard.py` ranks one family's COMPLETED trials by DSR with `N` counting every trial including FAILED and ABANDONED and `V` taken from the completed trials' Sharpe ratios, or from an explicit value only when fewer than two completed; it never invents a variance. Ranking is by DSR, then the unsaturated DSR z statistic (PSR/DSR saturate to exactly 1.0 or 0.0 at large z), then `trial_id`. These modules are generic: they contain no method names, thresholds or rosters, and the leaderboard is a statistic table with no claim. A high DSR on known-used data is not out-of-sample evidence and authorises no study, promotion or live action; the raw trial count is a conservative proxy for independent trials, and the ledger proves neither completeness of recording nor the honesty of the supplied statistics.
+`evaluation/comparison/multiple_testing.py` owns the standard-library-only Probabilistic Sharpe Ratio, expected-maximum Sharpe and Deflated Sharpe Ratio (Bailey and Lopez de Prado 2012/2014). All Sharpe inputs are per-period, never annualised, and kurtosis is the non-excess definition; finite skew/kurtosis pairs whose Pearson bound is impossible or overflows are refused. Derived dimensionless moments scale returns by the maximum absolute value before accumulating powers, retaining the relative dispersion cutoff and sample-SR/population-moment conventions (ordinary floating-point rounding may differ); `expected_maximum_sharpe(1, V)` is defined as `0.0` so a single-trial DSR equals `PSR(0)`. `evaluation/comparison/trial_ledger.py` owns the immutable `TrialRecord` (COMPLETED / FAILED / ABANDONED, a required reason unless COMPLETED, a sha256 config digest and an uninterpreted free-text data label), the append-only `TrialLedger` and its strict canonical JSONL codec, which refuses duplicate keys, unknown fields, non-finite numbers, non-canonical lines and, when `expected_digest` is given, any content change. `evaluation/comparison/leaderboard.py` ranks one family's COMPLETED trials by DSR with `N` counting every trial including FAILED and ABANDONED and `V` taken from the completed trials' Sharpe ratios, or from an explicit value only when fewer than two completed; it never invents a variance. Ranking is by DSR, then the unsaturated DSR z statistic (PSR/DSR saturate to exactly 1.0 or 0.0 at large z), then `trial_id`. These modules are generic: they contain no method names, thresholds or rosters, and the leaderboard is a statistic table with no claim. A high DSR on known-used data is not out-of-sample evidence and authorises no study, promotion or live action; the raw trial count is a conservative proxy for independent trials, and the ledger proves neither completeness of recording nor the honesty of the supplied statistics.
 
 `evaluation/replay.py` also owns `run_scripted_shared_cash_replay`, an opt-in
 per-symbol action schedule that reuses the same shared risk, `MarketExecutor`, and
@@ -1030,12 +1031,12 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | import先 | 対象 |
 |---|---|
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
-| `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
+| `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind`, `FeatureAlignment`, `IchimokuPeriods` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
 | `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
-| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
+| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud`, `VisibleCloudEvents`, `visible_ichimoku_events`, `AlignedVisibleCloud`, `align_visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
@@ -1230,6 +1231,42 @@ and availability delays, before serving a decision. No new 3d/weekly Dataset
 or execution-clock support follows merely from row arithmetic. Research
 owns timeframe composition, strategy thresholds, rosters and trial contexts.
 The original source-bound research branch is not modified by this API.
+
+The optional `FeatureSpec.ichimoku_periods` is the Dataset-facing typed
+profile. Its complete JSON object has `schema_version: ichimoku_periods_v1`,
+`tenkan_period`, `kijun_period`, `span_b_period` and `displacement`.
+All periods are positive native integers; displacement is nonnegative.
+Use `lookback=1` and zero displacement for unshifted features. A positive
+displacement requires `FeatureAlignment.VISIBLE_DISPLACED_CLOUD` and a
+cloud-position or cloud-thickness kind. The profile participates in the
+feature configuration/content digest only when explicitly selected. Tenkan
+and kijun distances use only their corresponding period; the full profile
+is retained as configuration provenance. The shared rolling midpoint
+primitive works per contiguous usable segment, and the existing Dataset
+builders and publication alignment bind readiness and dependency time.
+A nonrepresentable feature ratio is refused rather than marked valid.
+The standalone visible-cloud arithmetic API and legacy implicit 9/26/52
+FeatureSpec calculations remain unchanged. These features do not enable
+new execution clocks or authorize research.
+
+The opt-in visible-cloud publication API consumes exact `NativeRawMarketSeries`
+with an explicit `NativeBarClock` and `InstrumentContract`.
+`visible_ichimoku_events` validates a complete native close grid and the
+instrument lifetime, reuses the existing displaced cloud arithmetic,
+and attaches the maximum declared receipt timestamp over every required
+bar from `t - displacement - max(periods) + 1` through visible row `t`.
+Invalid events have NaN prices and NaT availability; a valid event is not
+necessarily available at its close. `align_visible_ichimoku_cloud` aligns both
+spans through the shared batched publication frontier in one pass after one
+cloud calculation. It selects the latest published native close as of the
+decision row, applies the decision lifetime/active mask and explicit
+elapsed-hour staleness limit measured from that visible close, and returns
+NaN prices where unavailable. It admits fixed, UTC-week and UTC-month
+feature clocks, not new execution clocks. The existing `VisibleCloud`
+and unshifted `FeatureSpec` identities, values and serialization contracts
+are unchanged. Callers must independently bind the native source, periods,
+clock and decision grid to their own evidence before persisting or using
+the result; no provider authenticity or research authority is established.
 
 
 `trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。

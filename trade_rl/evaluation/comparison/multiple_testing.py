@@ -85,7 +85,9 @@ def validate_sharpe_moments(
     resolved_skew = require_finite_real(skew, name="skew")
     resolved_kurtosis = require_finite_real(kurtosis, name="kurtosis")
     floor = 1.0 + resolved_skew * resolved_skew
-    if resolved_kurtosis < floor - _KURTOSIS_RELATIVE_TOLERANCE * floor:
+    if not math.isfinite(floor) or (
+        resolved_kurtosis < floor - _KURTOSIS_RELATIVE_TOLERANCE * floor
+    ):
         raise ValueError(
             "kurtosis must be the non-excess definition and at least 1 + skew**2"
         )
@@ -131,15 +133,20 @@ def sharpe_moments_from_returns(returns: Sequence[float]) -> SharpeMoments:
     n = len(values)
     if n < 2:
         raise ValueError("at least two return observations are required")
-    mean = math.fsum(values) / n
-    deviations = [item - mean for item in values]
-    m2 = math.fsum(d * d for d in deviations) / n
+    # All returned moments are dimensionless; scale first to avoid
+    # intermediate overflow/underflow without changing the relative cutoff.
     scale = max(abs(item) for item in values)
-    if m2 <= 0.0 or not math.isfinite(m2) or math.sqrt(m2) <= scale * 1e-12:
+    if scale == 0.0:
+        raise ValueError("return series must have non-zero finite dispersion")
+    normalized = [item / scale for item in values]
+    mean = math.fsum(normalized) / n
+    deviations = [item - mean for item in normalized]
+    m2 = math.fsum(d * d for d in deviations) / n
+    if m2 <= 0.0 or not math.isfinite(m2) or math.sqrt(m2) <= 1e-12:
         raise ValueError("return series must have non-zero finite dispersion")
     m3 = math.fsum(d**3 for d in deviations) / n
     m4 = math.fsum(d**4 for d in deviations) / n
-    sample_std = math.sqrt(m2 * n / (n - 1))
+    sample_std = math.sqrt(m2 * (n / (n - 1)))
     skew = m3 / m2**1.5
     kurtosis = m4 / (m2 * m2)
     if not all(math.isfinite(x) for x in (mean, sample_std, skew, kurtosis)):

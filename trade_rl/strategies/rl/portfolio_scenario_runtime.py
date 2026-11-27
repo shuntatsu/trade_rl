@@ -148,6 +148,8 @@ def create_portfolio_scenario_runtime_binding_v2(
         raise ValueError("scenario training, transform, or checkpoint anchor differs")
     if require_unreset and runtime_env._session is not None:
         raise ValueError("runtime_env must not have been reset before bundle loading")
+    if require_unreset:
+        runtime_env._validate_native_fixed_window()
 
     context = _strict_object(training_context["context"], field="training context")
     financial = _strict_object(

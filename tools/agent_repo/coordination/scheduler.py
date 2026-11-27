@@ -35,6 +35,10 @@ def ready_tasks(
     # external registry read, only a local snapshot for this decision.
     packets = tuple(packets)
     statuses = dict(statuses)
+    if any(type(task_id) is not str for task_id in statuses):
+        raise ValueError("status task IDs must contain native strings")
+    if any(type(status) is not TaskStatus for status in statuses.values()):
+        raise ValueError("scheduler requires native TaskStatus records")
     graph = DependencyGraph(packets)
     packet_by_id = {packet.task_id: packet for packet in packets}
     if not isinstance(leased_task_ids, Collection) or isinstance(

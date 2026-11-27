@@ -9,10 +9,10 @@ opening an artifact or any economic dataset.
 from __future__ import annotations
 
 import io
-import json
 
 import numpy as np
 
+from trade_rl.artifacts.canonical import strict_json_loads
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME,
@@ -42,7 +42,9 @@ def load_dataset_from_verified_bytes(
     if type(manifest_bytes) is not bytes or type(arrays_bytes) is not bytes:
         raise TypeError("manifest and arrays must be bytes")
     manifest = dict(
-        _mapping(json.loads(manifest_bytes.decode("utf-8")), field="dataset manifest")
+        _mapping(
+            strict_json_loads(manifest_bytes.decode("utf-8")), field="dataset manifest"
+        )
     )
     artifact_digest = _string(
         manifest.pop("artifact_digest", None), field="artifact_digest"

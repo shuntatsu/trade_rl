@@ -84,6 +84,40 @@ def freeze_json_value(value: object) -> object:
     return freeze_item(normalized)
 
 
+def _unique_json_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError("duplicate JSON member")
+        result[name] = value
+    return result
+
+
+def _finite_json_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("JSON numbers must be finite")
+    return value
+
+
+def _reject_json_constant(_text: str) -> None:
+    raise ValueError("JSON numbers must be finite")
+
+
+def strict_json_loads(text: str) -> object:
+    """Decode JSON without discarding duplicate names or admitting nonfinite numbers.
+
+    This preserves ordinary JSON whitespace, member ordering and finite numeric
+    types. Schema and identity validation remain the responsibility of the caller.
+    """
+    return json.loads(
+        text,
+        object_pairs_hook=_unique_json_members,
+        parse_float=_finite_json_float,
+        parse_constant=_reject_json_constant,
+    )
+
+
 def canonical_json_bytes(value: object) -> bytes:
     """Encode a supported value as stable UTF-8 canonical JSON bytes."""
 
@@ -103,5 +137,6 @@ __all__ = [
     "JsonValue",
     "canonical_json_bytes",
     "freeze_json_value",
+    "strict_json_loads",
     "to_json_value",
 ]

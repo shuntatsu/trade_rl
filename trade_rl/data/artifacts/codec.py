@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import os
 import zipfile
 from collections.abc import Mapping
@@ -16,7 +15,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
@@ -244,7 +243,7 @@ def _load_dataset_files_with_digest(
         raise FileNotFoundError(f"dataset manifest is missing: {manifest_path}")
     if not arrays_path.is_file():
         raise FileNotFoundError(f"dataset arrays are missing: {arrays_path}")
-    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw = strict_json_loads(manifest_path.read_text(encoding="utf-8"))
     manifest = dict(_mapping(raw, field="dataset manifest"))
     artifact_digest = _string(
         manifest.pop("artifact_digest", None), field="artifact_digest"

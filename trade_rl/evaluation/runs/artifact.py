@@ -20,7 +20,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory, atomic_write_bytes
-from trade_rl.artifacts.canonical import freeze_json_value
+from trade_rl.artifacts.canonical import freeze_json_value, strict_json_loads
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
 from trade_rl.evaluation.metrics import PerformanceMetrics
@@ -540,9 +540,11 @@ def _verified_bytes(path: Path, *, label: str) -> tuple[bytes, str, int]:
 
 def _read_json_object(payload: bytes, *, label: str) -> dict[str, object]:
     try:
-        raw = cast(object, json.loads(payload.decode("utf-8")))
+        raw = strict_json_loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"malformed candidate {label} JSON") from error
+    except ValueError as error:
+        raise ValueError(f"candidate {label} JSON: {error}") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError(f"candidate {label} must be a JSON object")
     return cast(dict[str, object], raw)

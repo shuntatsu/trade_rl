@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 
 import numpy as np
 
-from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
 
 MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 MARKET_DATASET_IDENTITY_SCHEMA_V7 = "market_dataset_identity_v7"
@@ -112,7 +112,7 @@ def canonical_identity_json(payload: Mapping[str, object]) -> str:
 def parse_identity_json(value: str) -> dict[str, object]:
     """Parse and require an object-valued canonical identity payload."""
 
-    parsed = json.loads(value)
+    parsed = strict_json_loads(value)
     if not isinstance(parsed, dict):
         raise ValueError("dataset identity payload must be a JSON object")
     return parsed

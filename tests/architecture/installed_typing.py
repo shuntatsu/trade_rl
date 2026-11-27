@@ -19,7 +19,7 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.data.build import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import FeatureAlignment, FeatureKind, FeatureSpec, IchimokuPeriods, InstrumentContract, MarketBuildConfig
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import MarketDataSource, RawMarketSeries
 from trade_rl.data.timestamps import utc_timestamp_ns
@@ -90,6 +90,10 @@ def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: 
     assert_type(core.files, tuple[PackageFilePin, ...])
 def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
+    periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
+    cloud = FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, alignment=FeatureAlignment.VISIBLE_DISPLACED_CLOUD, ichimoku_periods=periods)
+    assert_type(cloud.ichimoku_periods, IchimokuPeriods | None)
+    assert_type(ClockedNativeFeatureGroup(clock, (native,), (cloud,)), ClockedNativeFeatureGroup)
     group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
     assert_type(clocked_native_decision_schedule(market, group, start_index=0, stop_index=2), tuple[NativePublicationSlot, ...])
@@ -124,6 +128,8 @@ bad_policy: PortfolioPolicy = WrongPolicy()  # expect: assignment
 parse_quantity(1.5)  # expect: arg-type
 PortfolioTargetProposal(("wrong",))  # expect: arg-type
 FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
+IchimokuPeriods(tenkan_period="9")  # expect: arg-type
+FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, ichimoku_periods={"tenkan_period": 9})  # expect: arg-type
 ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present="unknown")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg

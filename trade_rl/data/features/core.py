@@ -7,6 +7,9 @@ import math
 import numpy as np
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, NormalizationMode
+from trade_rl.data.features.indicators._ichimoku_windows import (
+    _configured_ichimoku_events,
+)
 from trade_rl.data.features.numerics import (
     portable_correlation,
     portable_dot,
@@ -432,7 +435,11 @@ def calculate_feature_events(
     source_start = np.full(n_bars, -1, dtype=np.int64)
     kind = FeatureKind(spec.kind)
 
-    if kind is FeatureKind.FUNDING_BPS:
+    if spec.ichimoku_periods is not None:
+        values, valid, source_start = _configured_ichimoku_events(
+            kind, spec.ichimoku_periods, high, low, close, usable
+        )
+    elif kind is FeatureKind.FUNDING_BPS:
         valid = np.asarray(funding_available, dtype=np.bool_) & usable
         values[valid] = np.asarray(funding_rate, dtype=np.float64)[valid] * 10_000.0
         source_start[valid] = np.flatnonzero(valid)

@@ -1028,7 +1028,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | import先 | 対象 |
 |---|---|
 | `trade_rl.data` / `trade_rl.data.build` | `MarketDataset` / `MarketDatasetBuilder` |
-| `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind` / `MarketDataSource`, `RawMarketSeries` |
+| `trade_rl.data.contracts` / `trade_rl.data.source` | `MarketBuildConfig`, `InstrumentContract`, `FeatureSpec`, `FeatureKind`, `FeatureAlignment`, `IchimokuPeriods` / `MarketDataSource`, `RawMarketSeries` |
 | `trade_rl.data.features` | `calculate_feature_events`（現行native-bar/availability契約） |
 | `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
@@ -1228,6 +1228,22 @@ and availability delays, before serving a decision. No new 3d/weekly Dataset
 or execution-clock support follows merely from row arithmetic. Research
 owns timeframe composition, strategy thresholds, rosters and trial contexts.
 The original source-bound research branch is not modified by this API.
+
+The optional `FeatureSpec.ichimoku_periods` is the Dataset-facing typed
+profile. Its complete JSON object has `schema_version: ichimoku_periods_v1`,
+`tenkan_period`, `kijun_period`, `span_b_period` and `displacement`.
+All periods are positive native integers; displacement is nonnegative.
+Use `lookback=1` and zero displacement for unshifted features. A positive
+displacement requires `FeatureAlignment.VISIBLE_DISPLACED_CLOUD` and a
+cloud-position or cloud-thickness kind. The profile participates in the
+feature configuration/content digest only when explicitly selected. Tenkan
+and kijun distances use only their corresponding period; the full profile
+is retained as configuration provenance. The shared rolling midpoint
+primitive works per contiguous usable segment, and the existing Dataset
+builders and publication alignment bind readiness and dependency time.
+The standalone visible-cloud arithmetic API and legacy implicit 9/26/52
+FeatureSpec calculations remain unchanged. These features do not enable
+new execution clocks or authorize research.
 
 
 `trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。

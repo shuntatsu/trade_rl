@@ -64,6 +64,8 @@ native calendarの集約は上流の完全性検査です。直接構築するMa
 
 native特徴量の時点整列を固定サイズのchunkで処理しても、strategyへ渡る公開済みの最新close、鮮度およびavailabilityの意味は変わりません。
 
+一目均衡表の明示期間設定では、変位なしの雲と可視雲を区別します。可視雲は過去のspanを現在行の価格と比較し、必要な全依存行が公開済みのときだけ新しい特徴量として扱います。
+
 Replayは開始行と、約定またはterminal settlementが処理する各target行について、raw rowの `available_at` がその行のtimestampより後なら、その行を帳簿・risk・strategy・executionへ渡す前に停止します。single-symbolでは選択銘柄と実保有銘柄、shared-cashでは全strategy rosterが対象です。直接`MarketExecutor.execute_interval`も、有効targetのnonzero weightと帳簿のnonzero exact holdingを対象にdecision rowを同じ時計で確認し、遅着ならvaluation・reconciliation前に停止します。flat accountのzero targetでpending orderだけをcancelする場合は許します。未選択flat銘柄と処理しないtailは対象外で、`information_available=False`だけでは拒否しません。判定は前のdecision時刻ではなくtarget行自身のtimestampと比べます。明示`mark_price`・外部帳簿markの独立availability、明示`OrderIntent`実行、直接close liquidation、venue arrivalまで保証するものではありません。
 
 ## 2. 戦略がintentを返す

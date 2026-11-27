@@ -8,12 +8,14 @@ decision-time analysis; this opt-in series intentionally has different semantics
 
 from __future__ import annotations
 
-import math
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl.data.features.indicators._ichimoku_windows import (
+    _midpoint,
+    _rolling_midpoints,
+)
 from trade_rl.data.source import RawMarketSeries
 
 
@@ -24,33 +26,6 @@ class VisibleCloud:
     span_a: np.ndarray
     span_b: np.ndarray
     ready: np.ndarray
-
-
-def _midpoint(upper: float, lower: float) -> float:
-    total = upper + lower
-    return 0.5 * total if math.isfinite(total) else 0.5 * upper + 0.5 * lower
-
-
-def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.ndarray:
-    """Compute trailing midpoints in amortized linear time."""
-    result = np.full(len(high), np.nan)
-    upper: deque[tuple[int, float]] = deque()
-    lower: deque[tuple[int, float]] = deque()
-    for i, (hi, lo) in enumerate(zip(high, low, strict=True)):
-        high_value, low_value = float(hi), float(lo)
-        while upper and upper[0][0] <= i - period:
-            upper.popleft()
-        while lower and lower[0][0] <= i - period:
-            lower.popleft()
-        while upper and upper[-1][1] <= high_value:
-            upper.pop()
-        while lower and lower[-1][1] >= low_value:
-            lower.pop()
-        upper.append((i, high_value))
-        lower.append((i, low_value))
-        if i >= period - 1:
-            result[i] = _midpoint(upper[0][1], lower[0][1])
-    return result
 
 
 def visible_ichimoku_cloud(

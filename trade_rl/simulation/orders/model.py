@@ -84,6 +84,19 @@ def _validate_positive(name: str, value: float) -> None:
         raise OrderDomainError(f"{name} must be finite and positive")
 
 
+def _normalize_intent_number(name: str, value: object) -> float:
+    """Normalize before hashing, without aliasing distinct integer inputs."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise OrderDomainError(f"{name} must be numeric")
+    try:
+        normalized = float(value)
+    except OverflowError as error:
+        raise OrderDomainError(f"{name} is outside finite float range") from error
+    if isinstance(value, int) and normalized != value:
+        raise OrderDomainError(f"{name} cannot be represented exactly as a float")
+    return normalized
+
+
 def _validate_digest(name: str, value: str) -> None:
     try:
         require_sha256(value, field=name)
@@ -155,6 +168,18 @@ class OrderIntent:
         if not target_identity:
             raise OrderDomainError("target_identity must be non-empty")
         _validate_digest("execution_policy_digest", execution_policy_digest)
+        # The ID must commit to the same floats that are persisted and reloaded.
+        requested_quantity = _normalize_intent_number(
+            "requested_quantity", requested_quantity
+        )
+        submission_reference_price = _normalize_intent_number(
+            "submission_reference_price", submission_reference_price
+        )
+        decision_equity = _normalize_intent_number("decision_equity", decision_equity)
+        if limit_price is not None:
+            limit_price = _normalize_intent_number("limit_price", limit_price)
+        if stop_price is not None:
+            stop_price = _normalize_intent_number("stop_price", stop_price)
         if (
             isinstance(symbol_index, bool)
             or not isinstance(symbol_index, int)
@@ -310,18 +335,13 @@ class OrderIntent:
             return raw
 
         def number(field: str) -> float:
-            raw = value[field]
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                raise OrderDomainError(f"{field} must be numeric")
-            return float(raw)
+            return _normalize_intent_number(field, value[field])
 
         def optional_number(field: str) -> float | None:
             raw = value[field]
             if raw is None:
                 return None
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                raise OrderDomainError(f"{field} must be numeric or null")
-            return float(raw)
+            return _normalize_intent_number(field, raw)
 
         try:
             order_type = OrderType(string("order_type"))

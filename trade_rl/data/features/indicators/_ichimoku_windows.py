@@ -90,6 +90,8 @@ def _configured_ichimoku_events(
         for t in range(first, stop):
             s = t - displacement - start
             c = float(close[t])
+            if not math.isfinite(c) or c <= 0.0:
+                raise ValueError("Ichimoku feature requires a positive finite close")
             if len(windows) == 1:
                 value = (c - float(mids[windows[0]][s])) / c
             else:
@@ -100,6 +102,8 @@ def _configured_ichimoku_events(
                     if kind is FeatureKind.ICHIMOKU_CLOUD_POSITION
                     else abs(a - b) / c
                 )
+            if not math.isfinite(value):
+                raise ValueError("Ichimoku feature must be finite")
             values[t] = value
             valid[t] = True
             starts[t] = t - displacement - required + 1

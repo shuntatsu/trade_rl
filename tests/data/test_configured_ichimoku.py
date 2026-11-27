@@ -437,3 +437,52 @@ def test_configured_window_passes_scale_with_rows_not_period_length(monkeypatch)
     assert sorted(calls) == [(9990, 3000), (9990, 6000)]
     assert np.flatnonzero(valid)[0] == 6009 and starts[6009] == 0
     assert np.isfinite(v[valid]).all()
+
+
+@pytest.mark.parametrize("cadence", ["259200", "week", "month"])
+@pytest.mark.parametrize("kind", _KINDS[2:])
+def test_dataset_cloud_event_matches_public_native_cloud(cadence, kind):
+    from tests.data.test_visible_cloud_publication import _grid
+    from trade_rl.data.features.indicators.ichimoku_cloud import visible_ichimoku_events
+
+    closes, clock = _grid(cadence, n=100)
+    receipts = closes.copy()
+    receipts[18] = closes[30] + np.timedelta64(1, "ns")
+    raw = _source(closes, receipts)
+    active = raw.tradable.copy()
+    active[50] = False
+    raw = replace(raw, tradable=active)
+    contract = InstrumentContract("SYNTH")
+    params = _periods(7, 3, 5, 2)
+    spec = _spec(kind, params, displaced=True)
+    public = visible_ichimoku_events(
+        raw,
+        clock=clock,
+        contract=contract,
+        tenkan_period=7,
+        kijun_period=3,
+        span_b_period=5,
+        displacement=2,
+    )
+    values, valid, at = mtf._native_events(spec, raw, contract)
+    np.testing.assert_array_equal(valid, public.valid)
+    np.testing.assert_array_equal(at, public.available_at)
+    close = raw.close[valid]
+    a, b = public.span_a[valid], public.span_b[valid]
+    if kind is FeatureKind.ICHIMOKU_CLOUD_POSITION:
+        expected = (close - (a + b) * 0.5) / close
+    else:
+        expected = np.abs(a - b) / close
+    np.testing.assert_array_equal(values[valid], expected)
+    assert np.all(values[~valid] == 0.0)
+
+
+@pytest.mark.parametrize("kind", _KINDS[2:])
+def test_nonfinite_explicit_profile_ratio_is_refused(kind):
+    times = np.datetime64("2024-01-01", "ns") + np.arange(4) * np.timedelta64(1, "h")
+    raw = _source(times, times)
+    prices = np.array([1e-308, 1e308, 1e-308, 1e-308])
+    raw = replace(raw, open=prices, high=prices, low=prices, close=prices)
+    spec = _spec(kind, _periods(1, 1, 2, 1), displaced=True)
+    with pytest.raises(ValueError, match="Ichimoku feature must be finite"):
+        _events(spec, raw)

@@ -21,10 +21,11 @@ from trade_rl.data import MarketDataset
 from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import FeatureAlignment, FeatureKind, FeatureSpec, IchimokuPeriods, InstrumentContract, MarketBuildConfig
 from trade_rl.data.features import calculate_feature_events
-from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.source import MarketDataSource, NativeRawMarketSeries, RawMarketSeries
 from trade_rl.data.timestamps import utc_timestamp_ns
 from trade_rl.data.features.clocked_overlay import ClockedNativeFeatureGroup, ClockedNativeSource, append_clocked_native_feature_groups
 from trade_rl.data.native_clock import NativeBarClock
+from trade_rl.data.features.indicators.ichimoku_cloud import AlignedVisibleCloud, VisibleCloud, VisibleCloudEvents, align_visible_ichimoku_cloud, visible_ichimoku_cloud, visible_ichimoku_events
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
@@ -88,6 +89,13 @@ def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: 
     ), ExternalSourceProvenance)
     assert_type(result.digest, str)
     assert_type(core.files, tuple[PackageFilePin, ...])
+def cloud_features(raw: NativeRawMarketSeries, clock: NativeBarClock, contract: InstrumentContract) -> None:
+    assert_type(visible_ichimoku_cloud(raw), VisibleCloud)
+    events = assert_type(visible_ichimoku_events(raw, clock=clock, contract=contract, tenkan_period=12), VisibleCloudEvents)
+    assert_type(events.available_at, np.ndarray[Any, Any])
+    aligned = assert_type(align_visible_ichimoku_cloud(raw, clock=clock, contract=contract, base_timestamps=raw.timestamps, base_active=raw.tradable, max_staleness_hours=720.0), AlignedVisibleCloud)
+    assert_type(aligned.available, np.ndarray[Any, Any])
+    assert_type(aligned.span_a, np.ndarray[Any, Any])
 def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
     periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
@@ -146,6 +154,11 @@ def bad_clock_group(clock: NativeBarClock, spec: FeatureSpec, market: MarketData
     run_clocked_native_portfolio_replay(market, policy, decision_group=clock, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig())  # expect: arg-type
     run_clocked_native_portfolio_replay(market, WrongPolicy(), decision_group=ClockedNativeFeatureGroup(clock, (), (spec,)), start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig())  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, fill_cash_observer=7)  # expect: arg-type
+def bad_cloud(raw: RawMarketSeries, native: NativeRawMarketSeries, clock: NativeBarClock, contract: InstrumentContract) -> None:
+    visible_ichimoku_events(raw, clock=clock, contract=contract)  # expect: arg-type
+    visible_ichimoku_events(native, clock=clock, contract=contract, displacement="bad")  # expect: arg-type
+    align_visible_ichimoku_cloud(native, clock=clock, contract=contract, base_timestamps=native.timestamps, base_active=native.tradable)  # expect: call-arg
+    align_visible_ichimoku_cloud(native, clock=clock, contract=contract, base_timestamps=native.timestamps, base_active=native.tradable, max_staleness_hours="bad")  # expect: arg-type
 def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg

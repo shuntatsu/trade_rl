@@ -779,7 +779,7 @@ The package imports numpy and the standard library, the SD0 and SD1 packages, `s
 
 ## Market-data store runbook
 
-`integrations/market_store/` is a reusable, generic PostgreSQL store of public Binance market data (Issue #810). It is an adapter beside `integrations/binance/`: it depends only on `data`, `artifacts` and `integrations.binance`, never on strategies, evaluation, simulation or risk, and it is not re-exported from `trade_rl.integrations`. It stores USD-M perpetual and spot 1h klines and USD-M funding rates for a configurable universe (default BTC, ETH, BNB, XRP, ADA, SOL against USDT), reuses the Vision URL planner (`plan_vision_kline_urls`, `vision_funding_url`) and the unchanged `build_binance_market_dataset`, and owns no strategy, execution or P&L semantics. `psycopg` is imported only by `store.py` and is the optional `store` extra (also in `dev`); `plan` and a dry-run `ingest` need neither PostgreSQL nor the extra, and only `fetch.py` imports a network client.
+`integrations/market_store/` is a reusable, generic PostgreSQL store of public Binance market data (Issue #810). It is an adapter beside `integrations/binance/`: it depends only on `data`, `artifacts` and `integrations.binance`, never on strategies, evaluation, simulation or risk, and it is not re-exported from `trade_rl.integrations`. It stores USD-M perpetual and spot 1h klines and USD-M funding rates for a configurable universe (default BTC, ETH, BNB, XRP, ADA, SOL against USDT). A USD-M symbol's rules are admitted only when its exact `exchangeInfo` `contractType` is `PERPETUAL` or `TRADIFI_PERPETUAL` (Binance's USDT-margined commodity, equity and ETF perpetuals such as XAUUSDT or SPYUSDT); delivery contracts and any other or non-string value are refused. `instruments.contract_type` records the store's USD-M perpetual class (`PERPETUAL`), and the verbatim `exchangeInfo` snapshot keeps each symbol's exact value. Admitting a TradFi perpetual attests nothing about its underlying's trading hours, price continuity or economic suitability; export gap policy still governs missing bars. The store reuses the Vision URL planner (`plan_vision_kline_urls`, `vision_funding_url`) and the unchanged `build_binance_market_dataset`, and owns no strategy, execution or P&L semantics. `psycopg` is imported only by `store.py` and is the optional `store` extra (also in `dev`); `plan` and a dry-run `ingest` need neither PostgreSQL nor the extra, and only `fetch.py` imports a network client.
 
 Schema (plain SQL, `migrations/NNNN_name.sql`, applied in order with a `schema_version` ledger that records each file's SHA-256 and refuses an edited or unknown applied migration): `instruments`, `exchange_info_snapshots` + `instrument_rule_snapshots` (current-snapshot rules valid from retrieval, not historical rules), `sources` (one row per archive: URL, kind, period, archive sha256, the `.CHECKSUM` line digest, the sha256 of the `.CHECKSUM` file, size, HTTP status, fetched_at), `ingestion_runs` (code commit, command line, counts, status, FS1 warm-up flag and authorization URL), `klines`, `funding_rates` and `ingestion_conflicts`. Every price, quantity and rate is exact `NUMERIC`; natural keys are primary keys; CHECK constraints enforce `high >= max(open, close)`, `low <= min(open, close)` and non-negative volume. `klines`, `funding_rates`, `sources` (once ingested) and the exchange snapshots are append-only (triggers reject UPDATE and DELETE). TRUNCATE is also blocked on every evidence table, and a 404 `sources` record may only gain its evidence, never change its identity. What is committed outside the per-archive transaction: before the run, `ingest --allow-network` snapshots `exchangeInfo` (`exchange_info_snapshots`, `instrument_rule_snapshots`, `instruments`, `run_id` NULL); during the run, `instruments` rows and 404 `missing` source markers are committed as they occur, plus the `ingestion_runs` audit row; none of these holds a price, a funding rate or a boundary state. Re-ingesting an archive is a no-op; a changed value for an existing key rolls the archive back, is written to `ingestion_conflicts`, fails the run and is never applied.
 
@@ -1033,7 +1033,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
-| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
+| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud`, `VisibleCloudEvents`, `visible_ichimoku_events`, `AlignedVisibleCloud`, `align_visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
@@ -1241,9 +1241,29 @@ and kijun distances use only their corresponding period; the full profile
 is retained as configuration provenance. The shared rolling midpoint
 primitive works per contiguous usable segment, and the existing Dataset
 builders and publication alignment bind readiness and dependency time.
+A nonrepresentable feature ratio is refused rather than marked valid.
 The standalone visible-cloud arithmetic API and legacy implicit 9/26/52
 FeatureSpec calculations remain unchanged. These features do not enable
 new execution clocks or authorize research.
+
+The opt-in visible-cloud publication API consumes exact `NativeRawMarketSeries`
+with an explicit `NativeBarClock` and `InstrumentContract`.
+`visible_ichimoku_events` validates a complete native close grid and the
+instrument lifetime, reuses the existing displaced cloud arithmetic,
+and attaches the maximum declared receipt timestamp over every required
+bar from `t - displacement - max(periods) + 1` through visible row `t`.
+Invalid events have NaN prices and NaT availability; a valid event is not
+necessarily available at its close. `align_visible_ichimoku_cloud` aligns both
+spans through the shared batched publication frontier in one pass after one
+cloud calculation. It selects the latest published native close as of the
+decision row, applies the decision lifetime/active mask and explicit
+elapsed-hour staleness limit measured from that visible close, and returns
+NaN prices where unavailable. It admits fixed, UTC-week and UTC-month
+feature clocks, not new execution clocks. The existing `VisibleCloud`
+and unshifted `FeatureSpec` identities, values and serialization contracts
+are unchanged. Callers must independently bind the native source, periods,
+clock and decision grid to their own evidence before persisting or using
+the result; no provider authenticity or research authority is established.
 
 
 `trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。

@@ -158,7 +158,9 @@ def test_declared_fixed_close_event_carry_literal_ledger(
             assert event.processing_index == index
             assert event.signed_quantities == (float(quantity),)
             assert event.funding_amount == pytest.approx(float(funding))
-            assert event.funding_price_rates == tuple(restored.funding_price_rate[index])
+            assert event.funding_price_rates == tuple(
+                restored.funding_price_rate[index]
+            )
         else:
             assert not row.funding_events
         previous = equity

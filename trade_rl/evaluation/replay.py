@@ -989,7 +989,9 @@ def _run_shared_cash_replay_core(
         native_fixed_linear_carry
         and (not portfolio_mode or not settle_terminal_position)
     ):
-        raise ValueError("native fixed linear carry requires explicit settled portfolio replay")
+        raise ValueError(
+            "native fixed linear carry requires explicit settled portfolio replay"
+        )
     if (
         type(native_calendar_month) is not bool
         or native_calendar_month != dataset.native_calendar_month

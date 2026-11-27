@@ -11,143 +11,118 @@ Trade RLはtop-level responsibilityを `artifacts / data / integrations / risk /
 
 ## Current package tree
 
+現行のGit追跡source/resourceに基づく原則第2階層までの概略（維持対象の一部submoduleを明示。完全なfile rosterではない）。旧個別研究の実行pathは退役済みであり、この一覧に復活させない。完全な現行rosterは `git ls-tree -r --name-only HEAD -- trade_rl` で確認する。旧構成は[一括退役記録](../plans/repository-split.md#一括退役記録)と固定Git履歴に保持する。
+
 ```text
 trade_rl/
 ├── __init__.py
-├── _version.py
+├── _array_snapshot.py
 ├── _validation.py
+├── _version.py
+├── py.typed
 ├── artifacts/
-│   ├── canonical.py
-│   ├── hashing.py
+│   ├── __init__.py
 │   ├── atomic_pointer.py
 │   ├── atomic_write.py
+│   ├── canonical.py
+│   ├── hashing.py
+│   ├── stage_claim.py
 │   ├── store.py
 │   └── verified_file.py
 ├── data/
-│   ├── market.py
+│   ├── __init__.py
 │   ├── _timestamps.py
-│   ├── market_order_rules.py
+│   ├── artifacts/
+│   ├── build/
 │   ├── contracts.py
+│   ├── features/
 │   ├── identity.py
+│   ├── market.py
+│   ├── market_order_rules.py
+│   ├── native_clock.py
+│   ├── native_execution_clock.py
+│   ├── native_resampling.py
 │   ├── source.py
-│   ├── view.py
-│   ├── artifacts/{codec.py,publication.py}
-│   ├── build/{config.py,builder.py,economics.py}
-│   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py,numerics.py,price_channels.py}
+│   ├── timestamps.py
+│   └── view.py
+├── evaluation/
+│   ├── __init__.py
+│   ├── bot.py
+│   ├── carry.py
+│   ├── clocked_native_replay.py
+│   ├── comparison/
+│   ├── decision_value_fit.py
+│   ├── decision_value_ledger_oracle.py
+│   ├── directional.py
+│   ├── directional_contract.py
+│   ├── equity_path.py
+│   ├── evidence.py
+│   ├── experiments/
+│   ├── final_test/
+│   ├── gates/
+│   ├── ledger_reconciliation.py
+│   ├── metrics.py
+│   ├── native_annualization.py
+│   ├── native_fixed_returns.py
+│   ├── paired_portfolio_action.py
+│   ├── paired_portfolio_label.py
+│   ├── paper/
+│   ├── portfolio_inference.py
+│   ├── replay.py
+│   ├── replay_exposure.py
+│   ├── robustness/
+│   ├── runs/
+│   ├── series.py
+│   ├── signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,significance.py,targets.py}
+│   ├── strict_spot_cash_path.py
+│   └── terminal_settlement.py
 ├── integrations/
-│   └── binance/
-│       ├── types.py
-│       ├── transport.py
-│       ├── cache.py
-│       ├── vision.py
-│       ├── book_depth.py
-│       ├── agg_trades.py
-│       ├── metadata.py
-│       ├── carry.py
-│       ├── forward.py
-│       ├── forward_evidence.py
-│       ├── forward_rules.py
-│       ├── market_order_profile.py
-│       ├── derived_klines.py
-│       ├── source_clock.py
-│       └── dataset.py
-│   ├── market_store/{__init__.py,__main__.py,contracts.py,embargo.py,plan.py,checksum.py,parse.py,ingest.py,fetch.py,rules.py,store.py,export.py,lineage.py,carry_source.py,cli.py,migrations/*.sql}
-│   └── cross_asset/{__init__.py,__main__.py,catalog.py,parsers.py,pit.py,store.py,fetch.py,observations.py,features.py,normalization.py,loader.py,dataset.py,cli.py}
+│   ├── __init__.py
+│   ├── binance/
+│   ├── cross_asset/
+│   └── market_store/
 ├── risk/
+│   ├── __init__.py
+│   ├── _cash_scalars.py
+│   ├── cash_projection.py
+│   ├── emergency.py
 │   ├── inputs.py
 │   ├── portfolio.py
 │   ├── pretrade.py
-│   └── emergency.py
+│   └── spot_cash.py
 ├── simulation/
+│   ├── __init__.py
 │   ├── accounting.py
-│   ├── objectives/{__init__.py,contract.py,clock.py,binding.py}
-│   ├── execution.py
-│   ├── native_transition.py
 │   ├── bar_path.py
-│   ├── liquidity.py
-│   ├── quantities.py
 │   ├── depth.py
-│   ├── orders/{model.py,admission.py,reconciliation.py}
-│   ├── stateful/{runtime.py,execution.py,bar_lifecycle.py,order_transitions.py,symbol_fills.py,portfolio_session.py}
-│   ├── targets/execution.py
-│   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
-├── strategies/
-│   ├── dataset_scope.py
-│   ├── position_duration.py
-│   ├── interface.py
-│   ├── position_intent.py
-│   ├── portfolio.py
-│   ├── portfolio_observation.py
-│   ├── portfolio_adapter.py
-│   ├── portfolio_policy_codec.py
-│   ├── decision_value.py
-│   ├── decision_value_shallow.py
-│   ├── controls.py
-│   ├── carry.py
-│   ├── rules/{trend.py,mean_reversion.py,channel_breakout.py,trend_stop.py}
-│   ├── forecasts/{controller.py,supervised.py,ridge.py,ridge_artifact.py,lightgbm.py,prequential.py}
-│   ├── allocation/{solver.py,cost_aware.py,buy_and_hold.py,costs.py}
-│   ├── agy_anchor/{primitives.py,inputs.py,signals.py,targets.py,policy.py}
-│   └── rl/{intent.py,ppo.py,portfolio_env.py,portfolio_transform.py,portfolio_runtime_scenario.py,portfolio_scenario_runtime.py,portfolio_scenario_inference.py,portfolio_training.py,portfolio_inference_bundle.py,portfolio_episode_journal.py,portfolio_policy_sample_journal.py,a2c.py,ppo_normalization.py,ppo_artifact.py,a2c_artifact.py}
-└── evaluation/
-    ├── replay.py
-    ├── paired_portfolio_action.py
-    ├── paired_portfolio_label.py
-    ├── decision_value_fit.py
-    ├── decision_value_plan.py
-    ├── decision_value_feature_transform.py
-    ├── decision_value_ledger_oracle.py
-    ├── decision_value_reachable_labels.py
-    ├── decision_value_margin.py
-    ├── decision_value_dev_study.py
-    ├── portfolio_inference.py
-    ├── bot.py
-    ├── metrics.py
-    ├── evidence.py
-    ├── series.py
-    ├── directional.py
+│   ├── diagnostics/
+│   ├── execution.py
+│   ├── liquidity.py
+│   ├── native_transition.py
+│   ├── objectives/
+│   ├── orders/
+│   ├── quantities.py
+│   ├── stateful/
+│   ├── targets/
+│   └── training_identity.py
+└── strategies/
+    ├── __init__.py
+    ├── allocation/
     ├── carry.py
-    ├── directional_candidates.py
-    ├── directional_selection.py
-    ├── directional_study.py
-    ├── ppo_risk_study.py
-    ├── dev_realdata_study/{__init__.py,protocol.py,metrics.py,runner.py,trials.py,trial_sources.py,phase3_registry.py,phase3_sources.py}
-    ├── signal_measurement/{__init__.py,ic.py,leakage.py,multitest.py,payoff.py,profile.py,significance.py,targets.py}
-    ├── forward_study/{__init__.py,__main__.py,registry.py,labels.py,seal.py,fs1.py,cli.py}
-    ├── forward_acquisition/{__init__.py,__main__.py,plan.py,acquire.py,seal_record.py,cli.py}
-    ├── signal_diagnosis/{__init__.py,protocol.py,verdict.py}
-    ├── signal_diagnosis_run/{__init__.py,__main__.py,cli.py,fitting.py,leakage.py,measure.py,panel.py,runner.py}
-    ├── xs_lowvol_funding/{__init__.py,protocol.py,universe.py,policy.py,data.py,decision.py,runner.py,candidates.json}
-    ├── ppo_feature_study.py
-    ├── ppo_feature_checkpoint.py
-    ├── ppo_normalization_replication.py
-    ├── ppo_normalization_execution.py
-    ├── ppo_normalization_activation.json
-    ├── paper/
-    │   ├── {__init__.py,store.py,account.py,engine.py,control.py,failure.py,lock.py,collection_policy.py}
-    │   ├── {supervisor.py,operations.py,watchdog.py,predecessor.py,attempt2.py,linux_service.py}
-    │   └── {storage_probe.py,assessment.py,cli.py}
-    ├── gates/{models.py,resolve.py}
-    ├── comparison/{bootstrap.py,paired.py,seed_robustness.py,strategies.py}
-    ├── robustness/
-    │   ├── capacity.py
-    │   ├── closed_trades.py
-    │   ├── fold_metrics.py
-    │   ├── perfect_information/{bound.py,solver.py}
-    │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py,portfolio_family_comparison.py,portfolio_family_scenario_replay_v2.py,portfolio_family_scenario_attempt_v2.py,portfolio_family_scenario_result_artifact_v2.py,portfolio_family_attempt.py,portfolio_family_result_artifact.py,synthetic_value_attempt.py,synthetic_value_costaware_attempt.py}
-    ├── final_test/{__init__.py,contracts.py,workflow.py}
-    └── experiments/
-        ├── errors.py
-        ├── codec.py
-        ├── inspection.py
-        ├── store.py
-        ├── evidence.py
-        ├── analysis.py
-        ├── delta.py
-        ├── workflow.py
-        ├── contracts/
-        └── bootstrap/{__init__.py,config.py,binance.py,workflow.py,cli.py}
+    ├── controls.py
+    ├── dataset_scope.py
+    ├── decision_value.py
+    ├── decision_value_shallow.py
+    ├── forecasts/
+    ├── interface.py
+    ├── portfolio.py
+    ├── portfolio_adapter.py
+    ├── portfolio_observation.py
+    ├── portfolio_policy_codec.py
+    ├── position_duration.py
+    ├── position_intent.py
+    ├── rl/
+    └── rules/
 ```
 
 `evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。`evaluation/final_test/` はfrozen WINNER Studyをread-onlyでinspectionし、unused-futureを開くone-shot authorizationだけを別rootへ発行する。final Dataset、Replay/P&L、stress、Production/live authorizationは所有しない。
@@ -686,120 +661,17 @@ Dataset/model artifacts, verify eligibility, fit, replay, select, or authorize
 execution. It is private and does not expand the experiments facade or the
 canonical `StudyPlan` lifecycle.
 
-`evaluation/ppo_feature_study.py` owns a write-once, development-only paired PPO
-feature ablation. It reuses the frozen Dataset, existing PPO fitter, shared-cash
-directional replay, and ledger evidence rather than adding a second execution or
-accounting implementation. Its private CLI and result schema bind the baseline
-feature roster against the same roster plus three BTC-relative return features,
-the fixed seeds, independent per-symbol evaluation accounts, candidate-only
-stress scenarios, and the result-blind admission rules. This module is not a
-public package facade and does not expand `trade_rl.evaluation` or authorize
-paper/live orders; a pass can only require a later prospective paper study.
-
-`evaluation/ppo_feature_checkpoint.py` separates that fixed development study
-into completed fits, individual replay cells, arm assembly, and comparison.
-It owns a distinct checkpoint protocol and publication lifecycle, while reusing
-`ppo_feature_study` for economic validation and comparison. It uses the existing
-PPO inference bundle and verified-file primitives; it does not implement a
-second model serializer. A completed fit or cell is reusable only after its
-protocol, source, runtime, feature schema, and artifact digests are verified.
-Interrupted work is not a completed checkpoint. Legacy partial study roots
-cannot be imported into this runner. The evaluation public facade is unchanged.
-
-`evaluation/ppo_normalization_replication.py` owns the sealed, result-blind
-corrected-economics PPO fit-only feature-standardization protocol. It freezes the
-five matched seeds, raw/normalized arms, common current directional execution
-contract, 2023-2024 development window, runtime/artifact identity, relative gate,
-absolute family gate, and no-rescue boundary. It does not fit a model or publish
-P&L.
-
-`evaluation/ppo_normalization_execution.py` owns only the later software/evidence
-boundary for that protocol: the exact ten fresh-fit slots, prepared-root state machine,
-PPO fit delegation, inference-bundle publication/reload, current shared-cash directional
-replay, no-refit verification, and comparison recomputation. It does not implement a
-second PPO trainer, normalizer, executor, accounting path, selection oracle, or repository-
-global one-shot transport. `prepare_replication_execution` is the only root-creation
-transition: it validates current activation provenance before filesystem mutation, builds
-the complete root in sibling staging, validates it, and publishes by atomic rename.
-Claim/failure transitions are private and derive activation/implementation identity from
-that prepared root rather than caller-supplied digests. Per-root immutability therefore
-does not by itself establish repository-global exactly-once execution. The separate
-`tools/ppo_normalization_actions.py` transport and
-`.github/workflows/ppo-normalization-execution.yml` own that repository-global boundary:
-an open Draft request PR may change only the canonical execution-request record, must
-contain current `main`, and must have exact-head Core / real-PPO / Guide / generic-review
-Green before a write-authorized canonical request comment can proceed. That request HEAD
-is authorization provenance only: the request record separately binds the reviewed/sealed
-implementation source SHA, and economic execution / no-refit verification checkout that
-sealed source rather than inheriting later Python changes from current `main`. The transport
-revalidates the merged implementation seal/review tags and the frozen source Artifact,
-requires the fixed activation tag to be absent, and creates that tag before crossing any
-economic slot boundary. A failed activated run may publish only a non-economic failure
-receipt; partial slot evidence is not uploaded as execution evidence.
-
-The sealed protocol's `source_blobs` remain historical preregistration provenance; later
-correctness fixes to the maintained PPO/artifact path are not rewritten into those bytes.
-The exact current execution implementation/runtime is instead bound by separately reviewed
-activation provenance and rechecked around long fit/replay before durable publication.
-`evaluation/ppo_normalization_activation.json` is a canonical non-Python activation
-authority. It is committed with `activation_sha256=null` in the software-only state.
-The candidate implementation identity intentionally hashes `trade_rl/**/*.py` only and
-canonicalizes Python source line endings (`CRLF -> LF`, bare `CR` rejected) before hashing,
-so clean checkouts on different host policies reconstruct one source identity. A later
-result-blind activation commit can therefore bind the reviewed Python implementation without
-changing that implementation digest. The activation itself must bind result-blind
-implementation-seal, fresh-reconstruction, and assurance-review evidence digests.
-
-A local `verified.json` is no longer sufficient to make a comparison independent.
-Before comparison publication, the ten verification-record identities must be transitively
-bound to a fresh verifier artifact authority carrying repository/run/artifact identity,
-raw artifact SHA-256 and the matching GitHub API digest. The one-shot workflow therefore
-uploads execution evidence only after all ten slots complete, re-downloads that complete
-artifact by immutable id/run/raw digest into a separate no-refit verifier job, uploads a
-complete verification artifact, and only then re-downloads it in the finalizer to construct
-the verifier authority and reveal `comparison.json`. Execution requires the exact
-activation runtime; the verifier uses a separately frozen stable-runtime contract requiring
-the same Python implementation/version, machine architecture, OS family, and complete
-bound package map while recording kernel release without making it an equality gate.
-Bundle manifest and all parent paths are validated before SB3 deserialization, and realized
-PPO timesteps must equal the sealed 262,144 budget. The committed activation resource
-remains null until the authenticated request lifecycle actually creates the one-shot
-activation; transport capability by itself does not authorize or execute economics. These
-modules remain private evaluation surfaces that do not expand
-`trade_rl.evaluation.__all__`.
-
-`evaluation/ppo_feature_checkpoint.py`'s private CLI provides `prepare`, `fit`,
-`replay-cell`, `assemble-arm`, and `finalize`, each with `--source` and `--output`.
-`prepare` requires a fresh root
-and writes `checkpoint-protocol.json`, which embeds the unchanged economic
-`core_protocol` and the checkpoint execution contract. `fit` and `assemble-arm`
-select `--factor` and `--seed`; `replay-cell` also selects `--scenario` and
-`--symbol-index`. Subsequent commands validate existing completed stages and
-return without recomputation. Fits live under `fits/`, cells under `cells/`,
-legacy-compatible assembled results under `arms/`, and the final decision under
-`comparison/`. Failed staging under `attempts/` is retained and never counted
-as completed evidence.
-
-A fit also retains the legacy fitter's hash-bound `model.zip` as a diagnostic
-export. Replay authority is the inference `bundle/policy.zip`; the assembled
-arm's `model.zip` is a verified copy of that inference policy. The diagnostic
-export is not loaded for replay or treated as a second candidate.
-
-The manual `.github/workflows/ppo-feature-checkpoint.yml` workflow transports
-this study between GitHub-hosted runners. Repository tooling at
-`tools/ppo_checkpoint_actions.py` verifies the source and checkpoint artifact
-identities and archive bytes, stages files without conflicting overwrites,
-and invokes the existing checkpoint commands. It owns remote transport and
-process limits, not training, accounting, comparison, or research admission.
-Published checkpoint roots retain their original protocol; changing hosts does
-not permit a source or runtime mismatch. Completed evidence is reused only
-through the checkpoint runner's validators.
-Fresh replay strategy wrappers preserve the verified policy's fitted feature
-names as well as its indices and normalizer, matching the strategy-owned
-schema contract used by inference bundle publication.
-Transport receipts also bind the actual checkout and workflow revision. A
-failed producer job may supply a completed checkpoint, but its failure status
-must remain visible; a success conclusion is not an evidence-integrity oracle.
+The original study-specific PPO feature-ablation, checkpoint and normalization
+replication/execution runners, activation resource and dedicated transport
+workflows were retired by [#1487](https://github.com/shuntatsu/trade_rl/pull/1487).
+Their source, exact identity/activation contracts and original evidence remain
+in the fixed pre-retirement Git history and
+[retirement manifest](../../report/legacy-research-retirement-20261126.json).
+They are not current core APIs or executable workflows. The research-side
+generated migration does not inherit historical authorization. Common PPO
+training, inference bundle, risk, replay, accounting and StudyStore primitives
+remain owned by core. The maintained four-family input declaration above is
+not a transfer of the retired execution or one-shot authority.
 
 ## Prequential forecast packet boundary
 
@@ -1366,9 +1238,9 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 
 ## Distribution source closure
 
-構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。PPO normalizationの非Python runtime authorityである `trade_rl/evaluation/ppo_normalization_activation.json` は明示的なpackage-resource closureへ含め、checkout/sdist/wheel間のexact bytesとcanonical schemaを同じgateで検証する。
+構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。現行の型付き配布resource `trade_rl/py.typed` もGit HEADと配布物のroster・exact bytesを照合する。旧PPO normalization activation JSONは#1487でsource・配布設定から退役済みであり、現行wheelに存在しない。closure helperの既知旧resourceのschema検証は当該pathが検査対象に現れた場合の境界であり、現行のactivation authorityや復活許可ではない。
 
-CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpに加えて、installed wheelから実際のnormalization activation resourceを読み、そのSHA-256がcheckout authorityと一致することを確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。normalization activation resourceと `py.typed` はそれぞれ研究authorityと型付き配布契約のため、明示的なresource closure対象とする。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（各行で宣言された型不一致等の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpと、installed wheelの `py.typed` および型情報を確認する。通常のsource closureはPython source中心の配布契約であり、optional trainerの実学習、全platform動作、任意のnon-code resourceすべてを保証するものではない。`py.typed` は明示的な型付き配布closure対象とする。Market StoreのSQL migrationsはpackage-data設定で配布するが、このPython source中心のclosure検査だけで全非Python resourceの完全性を保証しない。Full CIではclean wheelの型情報を使い、checkout外のconsumerに対するmypy正例（正しい型のinfer）と負例（各行で宣言された型不一致等の期待診断）を検査する。core側のmypyが通るだけでは外部packageの型契約を満たしたとはみなさない。license/provenanceの恒久保持は別の既存gateも維持する。
 
 ## External research admission boundaries
 

@@ -12,6 +12,7 @@ import numpy as np
 from trade_rl._array_snapshot import checked_array_input
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
     MarketOrderProfile,
@@ -447,7 +448,9 @@ class _FillResult:
     cost_by_symbol: np.ndarray
 
 
-def _require_native_fixed_execution_cost(cost: ExecutionCostConfig) -> None:
+def _require_native_execution_cost(
+    dataset: MarketDataset, cost: ExecutionCostConfig
+) -> None:
     if (
         cost.order_type != "market"
         or cost.processing_bar_volume_capacity
@@ -458,7 +461,12 @@ def _require_native_fixed_execution_cost(cost: ExecutionCostConfig) -> None:
         or cost.tail_slippage_probability != 0.0
     ):
         raise ValueError(
-            "native fixed execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
+            (
+                "native calendar month"
+                if dataset.native_calendar_month
+                else "native fixed"
+            )
+            + " execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
         )
 
 
@@ -480,11 +488,13 @@ def _preflight_native_fixed_execution_window(
     stop_index: int,
 ) -> None:
     """Refuse unsupported native learning inputs before reserving work."""
+    if dataset.native_calendar_month:
+        raise ValueError("calendar month execution is not supported by fixed-clock Gym")
     if dataset.native_clock is None:
         return
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
-    _require_native_fixed_execution_cost(cost)
+    _require_native_execution_cost(dataset, cost)
     _require_execution_margin_roster(dataset, cost)
     _require_native_fixed_execution_rows(
         dataset, start_index=start_index, stop_index=stop_index
@@ -511,8 +521,26 @@ class MarketExecutor:
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         strict_spot_cash: bool = False,
+        native_calendar_month: bool = False,
         fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
+        if (
+            type(native_calendar_month) is not bool
+            or native_calendar_month != dataset.native_calendar_month
+        ):
+            raise ValueError(
+                "calendar month execution requires explicit matching opt-in"
+            )
+        if native_calendar_month and (
+            any(
+                unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+                for unit in dataset.volume_units
+            )
+            or np.any(dataset.contract_multipliers != 1.0)
+        ):
+            raise ValueError(
+                "calendar month execution requires unit-multiplier Spot volume"
+            )
         self.dataset = dataset
         self._native_fixed_dataset = (
             dataset if dataset.native_clock is not None else None
@@ -598,7 +626,7 @@ class MarketExecutor:
                 "native fixed execution requires a fresh executor for a different Dataset"
             )
         if self.dataset.native_clock is not None:
-            _require_native_fixed_execution_cost(self.cost)
+            _require_native_execution_cost(self.dataset, self.cost)
 
     def _validate_strict_spot_configuration(self) -> None:
         if self.strict_spot_cash and (

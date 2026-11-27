@@ -64,6 +64,8 @@ native calendarの集約は上流の完全性検査です。直接構築するMa
 
 native特徴量の時点整列を固定サイズのchunkで処理しても、strategyへ渡る公開済みの最新close、鮮度およびavailabilityの意味は変わりません。
 
+一目均衡表の明示期間設定では、変位なしの雲と可視雲を区別します。可視雲は過去のspanを現在行の価格と比較し、必要な全依存行が公開済みのときだけ新しい特徴量として扱います。
+
 Replayは開始行と、約定またはterminal settlementが処理する各target行について、raw rowの `available_at` がその行のtimestampより後なら、その行を帳簿・risk・strategy・executionへ渡す前に停止します。single-symbolでは選択銘柄と実保有銘柄、shared-cashでは全strategy rosterが対象です。直接`MarketExecutor.execute_interval`も、有効targetのnonzero weightと帳簿のnonzero exact holdingを対象にdecision rowを同じ時計で確認し、遅着ならvaluation・reconciliation前に停止します。flat accountのzero targetでpending orderだけをcancelする場合は許します。未選択flat銘柄と処理しないtailは対象外で、`information_available=False`だけでは拒否しません。判定は前のdecision時刻ではなくtarget行自身のtimestampと比べます。明示`mark_price`・外部帳簿markの独立availability、明示`OrderIntent`実行、直接close liquidation、venue arrivalまで保証するものではありません。
 
 ## 2. 戦略がintentを返す
@@ -166,6 +168,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 明示的に判断するfine barを指定すると、それ以外の区間は新しいactor判断なしで進みます。決定論的な非レバレッジの成行注文に限り、現在の保有・残注文の全約定後・銘柄ごとの部分約定による最大露出をリスク検査します。許容される残注文は元のID・数量・約定可能時刻を維持し、許容されなければ通常のHOLD取消・リスク縮小を行います。新しいv3台帳で予定・実際のactor indexと判断のない区間を区別し、既定のv1/v2台帳はデータクラスのフィールド構成も含めて維持します。現在markによる検査は将来の約定価格でのリスクを保証せず、終端決済の残高検査も必要です。
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
+
+UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_month=True` を明示した共有ポートフォリオ経路だけで受理します。実際の月の長さを保持して約定・現金利息・年率を計算し、通常の固定時間足やRL環境には流しません。
 
 任意のfill_cash_observerは成功したnative invocationごとに、各実約定直前・直後のcash・exact quantity・実費用を順序付きの別レコードで通知します。終端の通常約定も対象ですが、marginによる非注文清算やcarryは含みません。旧ledger形式・既定の会計はそのままです。callbackの失敗は実行を中断し、すでに外部へ書いた観測は自動的に取り消しません。
 

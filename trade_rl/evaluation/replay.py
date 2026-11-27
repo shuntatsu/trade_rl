@@ -13,6 +13,9 @@ import numpy as np
 from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.data.market_order_rules import MarketOrderProfile
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
+from trade_rl.evaluation.native_calendar_returns import (
+    calendar_month_returns_for_replay,
+)
 from trade_rl.evaluation.replay_exposure import (
     EXPOSURE_LEDGER_SCHEMA,
     PreIntervalMarkEvidence,
@@ -640,6 +643,8 @@ def run_single_symbol_replay(
     evaluated independently on every symbol without inventing sliced datasets.
     """
 
+    if dataset.native_calendar_month:
+        raise ValueError("calendar month execution requires explicit portfolio replay")
     if (
         isinstance(symbol_index, bool)
         or not isinstance(symbol_index, int)
@@ -965,6 +970,7 @@ def _run_shared_cash_replay_core(
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
+    native_calendar_month: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
@@ -978,6 +984,14 @@ def _run_shared_cash_replay_core(
     """
 
     portfolio_mode = _portfolio_policy is not None
+    if (
+        type(native_calendar_month) is not bool
+        or native_calendar_month != dataset.native_calendar_month
+        or (native_calendar_month and not portfolio_mode)
+    ):
+        raise ValueError(
+            "calendar month execution requires explicit matching portfolio replay opt-in"
+        )
     if fill_cash_observer is not None and (
         not portfolio_mode or not callable(fill_cash_observer)
     ):
@@ -1125,6 +1139,7 @@ def _run_shared_cash_replay_core(
             insolvency_valuation=insolvency_valuation,
             hold_unchanged_risk_target=hold_unchanged_risk_target,
             strict_spot_cash=strict_spot_cash,
+            native_calendar_month=native_calendar_month,
             execution_observer=retain_latest_execution_observation,
             fill_cash_observer=fill_cash_observer,
         )
@@ -1717,10 +1732,16 @@ def _run_shared_cash_replay_core(
     return (
         SharedCashReplayResult(
             book=book.clone(),
-            returns=ReturnSeries(
-                values=tuple(returns),
-                kind=ReturnKind.BASE_BAR,
-                periods_per_year=dataset.periods_per_year,
+            returns=(
+                calendar_month_returns_for_replay(
+                    dataset, tuple(returns), start_index=start_index
+                )
+                if native_calendar_month
+                else ReturnSeries(
+                    values=tuple(returns),
+                    kind=ReturnKind.BASE_BAR,
+                    periods_per_year=dataset.periods_per_year,
+                )
             ),
             diagnostics=diagnostics,
             decisions=tuple(decisions),
@@ -1782,6 +1803,7 @@ def run_shared_portfolio_replay(
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
+    native_calendar_month: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
@@ -1808,6 +1830,8 @@ def run_shared_portfolio_replay(
     actor intervals. Terminal settlement is required; sparse v3 ledger rows
     distinguish actual actor calls from continuation and risk fallback.
     Exposure evidence v2 is not combined with this opt-in mode.
+    The native_calendar_month opt-in requires a verified UTC-month Dataset
+    and emits duration-bound returns. Other replay modes remain unchanged.
     Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
@@ -1852,6 +1876,7 @@ def run_shared_portfolio_replay(
         insolvency_valuation=insolvency_valuation,
         hold_unchanged_risk_target=hold_unchanged_risk_target,
         strict_spot_cash=strict_spot_cash,
+        native_calendar_month=native_calendar_month,
         on_native_advance=on_native_advance,
         fill_cash_observer=fill_cash_observer,
     )

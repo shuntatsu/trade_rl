@@ -14,6 +14,7 @@ from trade_rl.data.contracts import (
     FeatureAlignment,
     FeatureKind,
     FeatureSpec,
+    IchimokuPeriods,
     InstrumentContract,
     MarketBuildConfig,
     NormalizationMode,
@@ -101,6 +102,24 @@ def _reject_unknown(
         raise ValueError(f"{field} contains unknown fields: {unknown}")
 
 
+def _ichimoku_periods(value: object, *, field: str) -> IchimokuPeriods:
+    item = _mapping(value, field=field)
+    names = ("tenkan_period", "kijun_period", "span_b_period", "displacement")
+    if (
+        set(item) != {"schema_version", *names}
+        or item.get("schema_version") != "ichimoku_periods_v1"
+    ):
+        raise ValueError(f"{field} requires the complete ichimoku_periods_v1 profile")
+
+    def integer(name: str) -> int:
+        number = item[name]
+        if type(number) is not int:
+            raise ValueError(f"{field}.{name} must be a native integer")
+        return number
+
+    return IchimokuPeriods(*(integer(name) for name in names))
+
+
 def _feature(value: object, *, index: int) -> FeatureSpec:
     field = f"features[{index}]"
     item = _mapping(value, field=field)
@@ -116,6 +135,7 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             "max_staleness_hours",
             "timeframe",
             "alignment",
+            "ichimoku_periods",
         },
         field=field,
     )
@@ -156,6 +176,13 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
         ),
         timeframe=_optional_string(item.get("timeframe"), field=f"{field}.timeframe"),
         alignment=alignment,
+        ichimoku_periods=(
+            _ichimoku_periods(
+                item["ichimoku_periods"], field=f"{field}.ichimoku_periods"
+            )
+            if "ichimoku_periods" in item
+            else None
+        ),
     )
 
 

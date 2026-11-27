@@ -19,6 +19,7 @@ from tests.strategies.rl.test_portfolio_inference_bundle import (
 )
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
+from trade_rl.data.native_execution_clock import calendar_month_execution_frequency
 from trade_rl.evaluation.native_fixed_returns import (
     load_native_fixed_return_payload,
     native_fixed_return_payload,
@@ -93,13 +94,14 @@ def _environment(
     stop: int = 5,
     cost: ExecutionCostConfig | None = None,
     weights: tuple[float, float] = (0.5, 0.5),
+    first: datetime = _START,
 ) -> SharedPortfolioGymEnv:
     base = _bound_clock(start_index=start, stop_index=stop)
     bound = BoundObjectiveClock(
         replace(
             base.objective,
-            evaluation_start=_START + timedelta(days=days * start),
-            evaluation_stop_exclusive=_START + timedelta(days=days * stop),
+            evaluation_start=first + timedelta(days=days * start),
+            evaluation_stop_exclusive=first + timedelta(days=days * stop),
         ),
         replace(
             base.clock,
@@ -136,6 +138,29 @@ def _replace_evidence(dataset: MarketDataset, **values: object) -> MarketDataset
     return replace(dataset, identity_payload_json=None, **values).with_content_identity(
         {"fixture": "native-fixed-portfolio-mutated"}
     )
+
+
+def test_native_gym_refuses_even_equal_duration_calendar_month_window() -> None:
+    # July and August both have 31 days. The regular local window is not
+    # evidence that the Dataset has a fixed-duration execution contract.
+    base = _native_dataset()
+    closes = np.arange("2026-07", "2027-03", dtype="datetime64[M]").astype(
+        "datetime64[ns]"
+    )
+    clock = NativeBarClock(NativeClockKind.UTC_MONTH)
+    dataset = replace(
+        base,
+        timestamps=closes,
+        available_at=np.broadcast_to(closes[:, None], (8, 2)).copy(),
+        native_clock=clock,
+        periods_per_year=calendar_month_execution_frequency(clock, closes),
+        nominal_bar_hours=None,
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "native-month-gym-refusal"})
+    assert dataset.identity_verified and dataset.native_calendar_month
+    assert dataset.elapsed_hours(0, 1) == dataset.elapsed_hours(1, 2) == 31 * 24
+    with pytest.raises(ValueError, match="calendar month.*fixed-clock Gym"):
+        _environment(dataset, days=31, stop=2, first=datetime(2026, 7, 1, tzinfo=UTC))
 
 
 def test_native_gym_rejects_unverified_dataset_before_reset() -> None:

@@ -369,7 +369,12 @@ class MarketDatasetBuilder:
                         volume=volume[:, symbol_index],
                         funding_rate=funding_rate[:, symbol_index],
                         funding_available=funding_available[:, symbol_index],
-                        row_present=causal_row_present[:, symbol_index],
+                        row_present=(
+                            causal_row_present[:, symbol_index]
+                            & tradable[:, symbol_index]
+                            if spec.ichimoku_periods is not None
+                            else causal_row_present[:, symbol_index]
+                        ),
                         active=symbol_active[:, symbol_index],
                     )
                     values, available, age_hours, staleness = _carry_feature(

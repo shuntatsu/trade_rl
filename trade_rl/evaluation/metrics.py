@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from fractions import Fraction
 from statistics import fmean
 
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries, _finite_annualization
+from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
+from trade_rl.evaluation.native_annualization import evaluate_native_bar_annualization
+from trade_rl.evaluation.series import (
+    CalendarMonthReturnSeries,
+    ReturnKind,
+    ReturnSeries,
+    _finite_annualization,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,25 +95,45 @@ def evaluate_performance(
             raise ValueError(f"{field_name} must be a non-negative integer")
 
     values = returns.values
-    frequency = _finite_annualization(returns, label="performance")
-    total_return = compound_return(values)
-    try:
-        mean = fmean(values)
-        variance = fmean((value - mean) ** 2 for value in values)
-        standard_deviation = math.sqrt(variance)
-        annualization = math.sqrt(frequency)
-        sharpe = (
-            mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
+    if isinstance(returns, CalendarMonthReturnSeries):
+        total_return = compound_return(values)
+        native = evaluate_native_bar_annualization(
+            values,
+            clock=NativeBarClock(NativeClockKind.UTC_MONTH),
+            closes=returns.closes,
         )
-        downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
-        sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0
-    except OverflowError as exc:
-        raise ValueError("performance metrics must be finite") from exc
+        sharpe, sortino = native.sharpe, native.sortino
+        periods: int | Fraction = native.periods_per_year
+    else:
+        frequency = _finite_annualization(returns, label="performance")
+        total_return = compound_return(values)
+        try:
+            mean = fmean(values)
+            variance = fmean((value - mean) ** 2 for value in values)
+            standard_deviation = math.sqrt(variance)
+            annualization = math.sqrt(frequency)
+            sharpe = (
+                mean / standard_deviation * annualization
+                if standard_deviation > 0
+                else 0.0
+            )
+            downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
+            sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0
+        except OverflowError as exc:
+            raise ValueError("performance metrics must be finite") from exc
+        if not all(
+            math.isfinite(value)
+            for value in (mean, variance, downside_rms, sharpe, sortino)
+        ):
+            raise ValueError("performance metrics must be finite")
+
+        periods = (
+            returns.periods_per_year
+            if isinstance(returns.periods_per_year, Fraction)
+            else int(round(frequency))
+        )
     max_drawdown = _max_drawdown(values)
-    if not all(
-        math.isfinite(value)
-        for value in (mean, variance, downside_rms, sharpe, sortino, max_drawdown)
-    ):
+    if not math.isfinite(max_drawdown):
         raise ValueError("performance metrics must be finite")
 
     return PerformanceMetrics(
@@ -123,9 +150,5 @@ def evaluate_performance(
         termination_count=termination_count,
         n_periods=len(values),
         return_kind=returns.kind,
-        periods_per_year=(
-            returns.periods_per_year
-            if isinstance(returns.periods_per_year, Fraction)
-            else int(round(frequency))
-        ),
+        periods_per_year=periods,
     )

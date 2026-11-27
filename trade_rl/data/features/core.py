@@ -276,14 +276,37 @@ def _atr(
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
     for start, stop in _contiguous_segments(usable):
-        tr = _true_range(high, low, close, start, stop)
-        average = _wilder_average(tr, start, stop, period)
-        first = start + period - 1
-        for index in range(first, stop):
-            values[index] = average[index] / close[index]
+        size = stop - start
+        # A gap starts a new Wilder seed. Allocate only that segment, not
+        # another full history for every gap.
+        tr = _true_range(high[start:stop], low[start:stop], close[start:stop], 0, size)
+        average = _wilder_average(tr, 0, size, period)
+        for offset in range(period - 1, size):
+            index = start + offset
+            values[index] = average[offset] / close[index]
             valid[index] = True
             source_start[index] = start
     return values, valid, source_start
+
+
+def _directional_wilder(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the original TR and directional Wilder seeds within one segment."""
+    size = len(close)
+    tr = _true_range(high, low, close, 0, size)
+    plus_dm = np.zeros_like(close, dtype=np.float64)
+    minus_dm = np.zeros_like(close, dtype=np.float64)
+    for offset in range(1, size):
+        up = high[offset] - high[offset - 1]
+        down = low[offset - 1] - low[offset]
+        plus_dm[offset] = up if up > down and up > 0.0 else 0.0
+        minus_dm[offset] = down if down > up and down > 0.0 else 0.0
+    return (
+        _wilder_average(tr, 0, size, period),
+        _wilder_average(plus_dm, 0, size, period),
+        _wilder_average(minus_dm, 0, size, period),
+    )
 
 
 def _adx(
@@ -297,45 +320,40 @@ def _adx(
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
     for start, stop in _contiguous_segments(usable):
-        if stop - start < 2 * period:
+        size = stop - start
+        if size < 2 * period:
             continue
-        tr = _true_range(high, low, close, start, stop)
-        plus_dm = np.zeros_like(close, dtype=np.float64)
-        minus_dm = np.zeros_like(close, dtype=np.float64)
-        for index in range(start + 1, stop):
-            up = high[index] - high[index - 1]
-            down = low[index - 1] - low[index]
-            plus_dm[index] = up if up > down and up > 0.0 else 0.0
-            minus_dm[index] = down if down > up and down > 0.0 else 0.0
-        atr = _wilder_average(tr, start, stop, period)
-        plus_avg = _wilder_average(plus_dm, start, stop, period)
-        minus_avg = _wilder_average(minus_dm, start, stop, period)
-        dx = np.zeros_like(close, dtype=np.float64)
-        dx_valid = np.zeros_like(usable, dtype=np.bool_)
-        di_first = start + period - 1
-        for index in range(di_first, stop):
-            if atr[index] <= _EPSILON:
+        atr, plus_avg, minus_avg = _directional_wilder(
+            high[start:stop], low[start:stop], close[start:stop], period
+        )
+        dx = np.zeros(size, dtype=np.float64)
+        dx_valid = np.zeros(size, dtype=np.bool_)
+        di_first = period - 1
+        for offset in range(di_first, size):
+            if atr[offset] <= _EPSILON:
                 continue
-            plus_di = 100.0 * plus_avg[index] / atr[index]
-            minus_di = 100.0 * minus_avg[index] / atr[index]
+            plus_di = 100.0 * plus_avg[offset] / atr[offset]
+            minus_di = 100.0 * minus_avg[offset] / atr[offset]
             denominator = plus_di + minus_di
-            dx[index] = (
+            dx[offset] = (
                 0.0
                 if denominator <= _EPSILON
                 else 100.0 * abs(plus_di - minus_di) / denominator
             )
-            dx_valid[index] = True
+            dx_valid[offset] = True
         first = di_first + period - 1
-        if first >= stop or not np.all(dx_valid[di_first : first + 1]):
+        if first >= size or not np.all(dx_valid[di_first : first + 1]):
             continue
         adx = float(portable_mean(dx[di_first : first + 1]))
-        values[first] = adx / 100.0
-        valid[first] = True
-        source_start[first] = start
-        for index in range(first + 1, stop):
-            if not dx_valid[index]:
+        index = start + first
+        values[index] = adx / 100.0
+        valid[index] = True
+        source_start[index] = start
+        for offset in range(first + 1, size):
+            if not dx_valid[offset]:
                 break
-            adx = ((period - 1) * adx + dx[index]) / period
+            adx = ((period - 1) * adx + dx[offset]) / period
+            index = start + offset
             values[index] = adx / 100.0
             valid[index] = True
             source_start[index] = start
@@ -354,26 +372,21 @@ def _directional_indices(
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
     for start, stop in _contiguous_segments(usable):
-        if stop - start < period:
+        size = stop - start
+        if size < period:
             continue
-        tr = _true_range(high, low, close, start, stop)
-        plus_dm = np.zeros_like(close, dtype=np.float64)
-        minus_dm = np.zeros_like(close, dtype=np.float64)
-        for index in range(start + 1, stop):
-            up = high[index] - high[index - 1]
-            down = low[index - 1] - low[index]
-            plus_dm[index] = up if up > down and up > 0.0 else 0.0
-            minus_dm[index] = down if down > up and down > 0.0 else 0.0
-        atr = _wilder_average(tr, start, stop, period)
-        plus_avg = _wilder_average(plus_dm, start, stop, period)
-        minus_avg = _wilder_average(minus_dm, start, stop, period)
-        first = start + period - 1
-        for index in range(first, stop):
-            if atr[index] <= _EPSILON:
+        atr, plus_avg, minus_avg = _directional_wilder(
+            high[start:stop], low[start:stop], close[start:stop], period
+        )
+        for offset in range(period - 1, size):
+            if atr[offset] <= _EPSILON:
                 continue
-            plus_values[index] = float(np.clip(plus_avg[index] / atr[index], 0.0, 1.0))
+            index = start + offset
+            plus_values[index] = float(
+                np.clip(plus_avg[offset] / atr[offset], 0.0, 1.0)
+            )
             minus_values[index] = float(
-                np.clip(minus_avg[index] / atr[index], 0.0, 1.0)
+                np.clip(minus_avg[offset] / atr[offset], 0.0, 1.0)
             )
             valid[index] = True
             source_start[index] = start
@@ -391,20 +404,24 @@ def _ema_feature(
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
     for start, stop in _contiguous_segments(usable):
-        if stop - start < period:
+        size = stop - start
+        if size < period:
             continue
-        slow = _ema(close, start, stop, period)
-        first = start + period - 1
+        segment = close[start:stop]
+        slow = _ema(segment, 0, size, period)
+        first = period - 1
         if slope:
-            for index in range(max(first, start + 1), stop):
-                values[index] = (slow[index] - slow[index - 1]) / close[index]
+            for offset in range(max(first, 1), size):
+                index = start + offset
+                values[index] = (slow[offset] - slow[offset - 1]) / close[index]
                 valid[index] = True
                 source_start[index] = start
         else:
             fast_period = max(2, period // 2)
-            fast = _ema(close, start, stop, fast_period)
-            for index in range(first, stop):
-                values[index] = (fast[index] - slow[index]) / close[index]
+            fast = _ema(segment, 0, size, fast_period)
+            for offset in range(first, size):
+                index = start + offset
+                values[index] = (fast[offset] - slow[offset]) / close[index]
                 valid[index] = True
                 source_start[index] = start
     return values, valid, source_start

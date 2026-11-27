@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
-from trade_rl.evaluation.series import ReturnSeries
+from trade_rl.evaluation.series import CalendarMonthReturnSeries, ReturnSeries
 
 
 class StitchMode(str, Enum):
@@ -65,6 +65,10 @@ def stitch_oos(
 
     if not results:
         raise ValueError("at least one OOS fold result is required")
+    if any(isinstance(result.returns, CalendarMonthReturnSeries) for result in results):
+        raise ValueError(
+            "calendar month return stitching requires a duration-aware contract"
+        )
     ordered = tuple(
         sorted(results, key=lambda result: (result.start, result.fold_index))
     )

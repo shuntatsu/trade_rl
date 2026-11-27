@@ -1690,6 +1690,7 @@ def _validate_runtime_environment(
         raise TypeError("runtime_env must be a SharedPortfolioGymEnv")
     if runtime_env._session is not None:
         raise ValueError("runtime_env must not have been reset before bundle loading")
+    runtime_env._validate_native_fixed_window()
     financial = _strict_object(
         training_context["financial_context"], field="financial_context"
     )

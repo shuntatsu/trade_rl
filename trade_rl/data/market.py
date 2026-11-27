@@ -17,12 +17,19 @@ from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     MARKET_DATASET_IDENTITY_SCHEMA_V7,
     MARKET_DATASET_IDENTITY_SCHEMA_V8,
+    MARKET_DATASET_IDENTITY_SCHEMA_V9,
     canonical_identity_json,
     compute_market_dataset_id,
     parse_identity_json,
 )
-from trade_rl.data.native_clock import NativeBarClock, _require_unmasked_array_owners
+from trade_rl.data.native_clock import (
+    NativeBarClock,
+    NativeClockKind,
+    _require_unmasked_array_owners,
+)
 from trade_rl.data.native_execution_clock import (
+    calendar_month_clock_payload,
+    calendar_month_execution_frequency,
     execution_clock_payload,
     fixed_execution_frequency,
     frequency_payload,
@@ -180,8 +187,9 @@ class MarketDataset:
     execute at the open stored in row ``t + 1``. Continuous datasets require an
     exactly regular cadence. Session datasets may contain overnight, weekend and
     holiday gaps while preserving strictly increasing timestamps. An explicit
-    native_clock selects the distinct v8 fixed-grid contract and exact rational
-    annual frequency; no legacy calendar or integer cadence is reinterpreted.
+    native_clock selects the distinct v8 fixed-grid or v9 UTC-month contract.
+    Both bind an exact rational frequency; only v9 is duration-varying.
+    No legacy calendar or integer cadence is reinterpreted.
     """
 
     dataset_id: str
@@ -246,7 +254,7 @@ class MarketDataset:
     native_clock: NativeBarClock | None = None
     _timestamp_ns: np.ndarray = field(init=False, repr=False)
     _bar_duration_ns: int | None = field(init=False, repr=False)
-    _nominal_bar_hours: float = field(init=False, repr=False)
+    _nominal_bar_hours: float | None = field(init=False, repr=False)
     _information_is_immediate: bool = field(init=False, repr=False)
     _eligibility_invalid_prefix: np.ndarray = field(init=False, repr=False)
     _feature_invalid_prefix: np.ndarray = field(init=False, repr=False)
@@ -286,10 +294,20 @@ class MarketDataset:
                 raise ValueError("periods_per_year must be a positive integer")
             object.__setattr__(self, "periods_per_year", int(periods_per_year))
         else:
-            expected_frequency = fixed_execution_frequency(self.native_clock)
+            if type(self.native_clock) is not NativeBarClock:
+                raise ValueError("expected a native execution clock")
+            expected_frequency = (
+                None
+                if self.native_calendar_month
+                else fixed_execution_frequency(self.native_clock)
+            )
             if (
                 type(periods_per_year) is not Fraction
-                or periods_per_year != expected_frequency
+                or periods_per_year <= 0
+                or (
+                    expected_frequency is not None
+                    and periods_per_year != expected_frequency
+                )
             ):
                 raise ValueError(
                     "native clock requires its exact rational annual frequency"
@@ -385,15 +403,29 @@ class MarketDataset:
             if calendar_kind is not MarketCalendarKind.CONTINUOUS:
                 raise ValueError("native fixed execution requires a continuous market")
             starts, ends = self.native_clock.interval_bounds(normalized_timestamps)
-            bar_duration_ns = int(ends[0].astype(np.int64)) - int(
-                starts[0].astype(np.int64)
-            )
-            nominal_bar_hours = bar_duration_ns / _NS_PER_HOUR
-            if (
-                self.nominal_bar_hours is not None
-                and self.nominal_bar_hours != nominal_bar_hours
-            ):
-                raise ValueError("nominal_bar_hours differs from explicit native clock")
+            if self.native_calendar_month:
+                if (
+                    self.nominal_bar_hours is not None
+                    or self.periods_per_year
+                    != calendar_month_execution_frequency(self.native_clock, ends)
+                ):
+                    raise ValueError(
+                        "calendar month requires its exact observed frequency and no nominal bar hours"
+                    )
+                bar_duration_ns = None
+                nominal_bar_hours = None
+            else:
+                bar_duration_ns = int(ends[0].astype(np.int64)) - int(
+                    starts[0].astype(np.int64)
+                )
+                nominal_bar_hours = bar_duration_ns / _NS_PER_HOUR
+                if (
+                    self.nominal_bar_hours is not None
+                    and self.nominal_bar_hours != nominal_bar_hours
+                ):
+                    raise ValueError(
+                        "nominal_bar_hours differs from explicit native clock"
+                    )
         elif calendar_kind is MarketCalendarKind.CONTINUOUS:
             if not np.all(deltas == deltas[0]):
                 raise ValueError(
@@ -916,8 +948,21 @@ class MarketDataset:
             _validate_cross_asset_global_provenance(global_names, payload)
             canonical_payload_json = canonical_identity_json(payload)
             identity_schema = payload.get("schema")
-            if (self.native_clock is not None) != (
-                identity_schema == MARKET_DATASET_IDENTITY_SCHEMA_V8
+            expected_native_schema = (
+                MARKET_DATASET_IDENTITY_SCHEMA_V9
+                if self.native_calendar_month
+                else MARKET_DATASET_IDENTITY_SCHEMA_V8
+            )
+            if (
+                self.native_clock is not None
+                and identity_schema != expected_native_schema
+            ) or (
+                self.native_clock is None
+                and identity_schema
+                in (
+                    MARKET_DATASET_IDENTITY_SCHEMA_V8,
+                    MARKET_DATASET_IDENTITY_SCHEMA_V9,
+                )
             ):
                 raise ValueError("native clock and identity schema do not match")
             if (
@@ -935,6 +980,7 @@ class MarketDataset:
             if identity_schema in (
                 MARKET_DATASET_IDENTITY_SCHEMA_V7,
                 MARKET_DATASET_IDENTITY_SCHEMA_V8,
+                MARKET_DATASET_IDENTITY_SCHEMA_V9,
             ):
                 stored_contract = payload.get("dataset_contract")
                 if not isinstance(stored_contract, dict) or canonical_identity_json(
@@ -981,7 +1027,11 @@ class MarketDataset:
         if self.native_clock is not None:
             assert isinstance(self.periods_per_year, Fraction)
             arrays["periods_per_year"] = frequency_payload(self.periods_per_year)
-            arrays["native_clock"] = execution_clock_payload(self.native_clock)
+            arrays["native_clock"] = (
+                calendar_month_clock_payload(self.native_clock)
+                if self.native_calendar_month
+                else execution_clock_payload(self.native_clock)
+            )
         return arrays
 
     def identity_arrays(self) -> dict[str, np.ndarray]:
@@ -1056,7 +1106,11 @@ class MarketDataset:
             )
         _validate_cross_asset_global_provenance(self.global_feature_names, payload)
         if self.native_clock is not None:
-            payload["schema"] = MARKET_DATASET_IDENTITY_SCHEMA_V8
+            payload["schema"] = (
+                MARKET_DATASET_IDENTITY_SCHEMA_V9
+                if self.native_calendar_month
+                else MARKET_DATASET_IDENTITY_SCHEMA_V8
+            )
         else:
             payload["schema"] = (
                 MARKET_DATASET_IDENTITY_SCHEMA_V7
@@ -1092,11 +1146,20 @@ class MarketDataset:
         return len(self.feature_names)
 
     @property
+    def native_calendar_month(self) -> bool:
+        return (
+            self.native_clock is not None
+            and self.native_clock.kind is NativeClockKind.UTC_MONTH
+        )
+
+    @property
     def regular_cadence(self) -> bool:
         return self._bar_duration_ns is not None
 
     @property
     def bar_hours(self) -> float:
+        if self._nominal_bar_hours is None:
+            raise ValueError("calendar month has no fixed bar hours")
         return self._nominal_bar_hours
 
     def elapsed_hours(self, start_index: int, end_index: int) -> float:

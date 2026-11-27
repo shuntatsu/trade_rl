@@ -46,6 +46,26 @@ class _ForeignID(str):
             raise AssertionError("foreign identity hash accessed")
         return super().__hash__()
 
+    def __eq__(self, other: object) -> bool:
+        if self.armed:
+            raise AssertionError("foreign identity comparison accessed")
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:
+        if self.armed:
+            raise AssertionError("foreign identity comparison accessed")
+        return super().__ne__(other)
+
+    def __lt__(self, other: str) -> bool:
+        if self.armed:
+            raise AssertionError("foreign identity ordering accessed")
+        return super().__lt__(other)
+
+    def __str__(self) -> str:
+        if self.armed:
+            raise AssertionError("foreign identity coercion accessed")
+        return super().__str__()
+
 
 @pytest.mark.parametrize(
     "foreign",

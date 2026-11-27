@@ -65,8 +65,8 @@ class WorkflowReadApi(Protocol):
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be a native JSON object")
     return value
 
 
@@ -202,7 +202,7 @@ def observe_workflow_attempt(reader: WorkflowReadApi, *, run_id: int) -> dict[st
             raise ValueError("attempt job total_count changed between pages")
         records = raw_page.get("jobs")
         remaining = total - len(jobs)
-        if not isinstance(records, list) or len(records) != min(_PAGE_SIZE, remaining):
+        if type(records) is not list or len(records) != min(_PAGE_SIZE, remaining):
             raise ValueError("attempt job pagination is incomplete or inconsistent")
         for raw_job in records:
             item = _job_identity(

@@ -1,6 +1,8 @@
 """Literal publication-clock and next-open synthetic replay oracles."""
 
+import math
 from dataclasses import fields, replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -357,6 +359,163 @@ def test_declared_receipt_in_terminal_reserve_does_not_call_policy():
     assert result.policy_decision_indices == ()
     assert result.replay.book.exact_quantities == (0, 0)
     assert result.replay.returns.values == (0, 0, 0, 0)
+
+
+def test_multi_slot_ledger_and_future_receipt_oracle():
+    """Use literal fine marks and two decisions, not another replay as oracle."""
+    dataset, group = _group()
+    closes = group.sources[0].raw.timestamps
+    first = _index(dataset, closes[0])
+    middle = _index(dataset, closes[1])
+    third = _index(dataset, closes[2])
+    enter = first + 3
+    stop = third + 4
+    cost = replace(
+        ExecutionCostConfig.zero(),
+        allow_short=False,
+        processing_bar_volume_capacity=False,
+        partial_fill_carry=False,
+    )
+
+    def execute(ds, selected_group):
+        seen = []
+
+        class Policy:
+            def decide_portfolio(self, snapshot):
+                seen.append(snapshot)
+                return PortfolioTargetProposal(
+                    (0.25, 0.0) if snapshot.index == enter else (0.0, 0.0)
+                )
+
+        result = scheduling.run_clocked_native_portfolio_replay(
+            ds,
+            Policy(),
+            decision_group=selected_group,
+            start_index=first,
+            stop_index=stop,
+            initial_capital=1000.0,
+            execution_cost=cost,
+            risk=PreTradeRisk(PreTradeRiskConfig(max_gross=1.0, max_abs_weight=1.0)),
+            capture_ledger_evidence=True,
+        )
+        return seen, result
+
+    seen, result = execute(dataset, group)
+    assert result.policy_decision_indices == (enter, third)
+    assert [slot.status for slot in result.slots] == [
+        "scheduled",
+        "expired",
+        "scheduled",
+        "outside_window",
+    ]
+    assert [s.index for s in seen] == [enter, third]
+    for snap, coarse_row in zip(seen, (0, 2), strict=True):
+        for i, source in enumerate(group.sources):
+            assert snap.feature_available[i][1]
+            expected = math.log(
+                float(source.raw.close[coarse_row]) / float(source.raw.open[coarse_row])
+            )
+            assert snap.features[i][1] == pytest.approx(expected, rel=1e-7)
+    # Order target uses the decision close, fill uses the next fine open.
+    # Independently reconstruct the entire zero-fee cash/equity path.
+    q = Fraction(250) / Fraction.from_float(float(dataset.close[enter, 0]))
+    cash_after_buy = Fraction(1000) - q * Fraction.from_float(
+        float(dataset.open[enter + 1, 0])
+    )
+    cash_after_sell = cash_after_buy + q * Fraction.from_float(
+        float(dataset.open[third + 1, 0])
+    )
+    assert seen[0].account.quantities == (0.0, 0.0)
+    assert seen[1].account.quantities == pytest.approx((float(q), 0.0))
+    assert seen[1].account.cash == pytest.approx(float(cash_after_buy))
+    ledger = result.replay.ledger_evidence
+    assert ledger is not None
+    rows = ledger.intervals.intervals
+    assert len(rows) == stop - first
+    previous = Fraction(1000)
+    for row, index in zip(rows, range(first, stop), strict=True):
+        assert (row.start_index, row.next_index) == (index, index + 1)
+        if index < enter:
+            quantity, cash = Fraction(0), Fraction(1000)
+        elif index < third:
+            quantity, cash = q, cash_after_buy
+        else:
+            quantity, cash = Fraction(0), cash_after_sell
+        equity = cash + quantity * Fraction.from_float(
+            float(dataset.close[index + 1, 0])
+        )
+        assert float(Fraction(row.exact_quantities_after[0])) == pytest.approx(
+            float(quantity), abs=1e-12
+        )
+        assert row.exact_quantities_after[1] == "0"
+        assert row.cash_after == pytest.approx(float(cash), abs=1e-10)
+        assert row.portfolio_value_after == pytest.approx(float(equity), abs=1e-10)
+        expected_return = float(equity / previous - 1)
+        assert row.interval_net_return == pytest.approx(expected_return, abs=1e-12)
+        assert result.replay.returns.values[index - first] == pytest.approx(
+            expected_return, abs=1e-12
+        )
+        previous = equity
+    assert result.replay.book.cash == pytest.approx(float(cash_after_sell))
+    assert result.replay.book.exact_quantities == (0, 0)
+    # Change only a later native receipt. Earlier actor snapshot and the
+    # realized prefix before that receipt must be unchanged, not just its slot.
+    changed, changed_group = _group(expire=False)
+    changed_seen, changed_result = execute(changed, changed_group)
+    assert changed_result.policy_decision_indices == (enter, middle, third)
+    assert changed_seen[0] == seen[0]
+    assert (
+        changed_result.replay.returns.values[: middle - first]
+        == result.replay.returns.values[: middle - first]
+    )
+
+
+@pytest.mark.parametrize("bad", ["unverified", "changed_pin", "terminal_symbol_b"])
+def test_replay_refuses_identity_and_terminal_mark_before_policy(bad):
+    from trade_rl.data.identity import parse_identity_json
+
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+    stop = first + 9
+    expected = "identity"
+    if bad == "unverified":
+        dataset = replace(dataset, identity_payload_json=None)
+    elif bad == "changed_pin":
+        group = replace(
+            group,
+            sources=(
+                replace(group.sources[0], expected_source_digest="f" * 64),
+                group.sources[1],
+            ),
+        )
+        expected = "bound overlay group"
+    else:
+        info = dataset.resolved_array("information_available").copy()
+        info[stop, 1] = False
+        dataset = replace(
+            dataset, identity_payload_json=None, information_available=info
+        ).with_content_identity(parse_identity_json(dataset.identity_payload_json))
+        expected = "complete available fine"
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            pytest.fail("invalid input reached policy")
+
+    with pytest.raises(ValueError, match=expected):
+        scheduling.run_clocked_native_portfolio_replay(
+            dataset,
+            Never(),
+            decision_group=group,
+            start_index=first,
+            stop_index=stop,
+            initial_capital=1000,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                allow_short=False,
+                processing_bar_volume_capacity=False,
+                partial_fill_carry=False,
+            ),
+        )
 
 
 @pytest.mark.parametrize("unit", ["h", "s", "ms", "us"])

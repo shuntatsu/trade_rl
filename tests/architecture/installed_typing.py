@@ -19,12 +19,16 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.data.build import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import FeatureAlignment, FeatureKind, FeatureSpec, IchimokuPeriods, InstrumentContract, MarketBuildConfig
 from trade_rl.data.features import calculate_feature_events
-from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.source import MarketDataSource, NativeRawMarketSeries, RawMarketSeries
 from trade_rl.data.timestamps import utc_timestamp_ns
 from trade_rl.data.features.clocked_overlay import ClockedNativeFeatureGroup, ClockedNativeSource, append_clocked_native_feature_groups
 from trade_rl.data.native_clock import NativeBarClock
+from trade_rl.data.build.native_spot import build_native_calendar_month_spot_dataset
+from trade_rl.evaluation.series import CalendarMonthReturnSeries
+from trade_rl.evaluation.native_calendar_returns import native_calendar_month_return_payload, load_native_calendar_month_return_payload
+from trade_rl.data.features.indicators.ichimoku_cloud import AlignedVisibleCloud, VisibleCloud, VisibleCloudEvents, align_visible_ichimoku_cloud, visible_ichimoku_cloud, visible_ichimoku_events
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
@@ -88,8 +92,27 @@ def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: 
     ), ExternalSourceProvenance)
     assert_type(result.digest, str)
     assert_type(core.files, tuple[PackageFilePin, ...])
+def cloud_features(raw: NativeRawMarketSeries, clock: NativeBarClock, contract: InstrumentContract) -> None:
+    assert_type(visible_ichimoku_cloud(raw), VisibleCloud)
+    events = assert_type(visible_ichimoku_events(raw, clock=clock, contract=contract, tenkan_period=12), VisibleCloudEvents)
+    assert_type(events.available_at, np.ndarray[Any, Any])
+    aligned = assert_type(align_visible_ichimoku_cloud(raw, clock=clock, contract=contract, base_timestamps=raw.timestamps, base_active=raw.tradable, max_staleness_hours=720.0), AlignedVisibleCloud)
+    assert_type(aligned.available, np.ndarray[Any, Any])
+    assert_type(aligned.span_a, np.ndarray[Any, Any])
+def month(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock, closes: np.ndarray[Any, Any]) -> None:
+    group = ClockedNativeFeatureGroup(clock, (native,), (FeatureSpec("ret", FeatureKind.LOG_RETURN),))
+    assert_type(build_native_calendar_month_spot_dataset(clock=clock, closes=closes, sources=(native,), feature_groups=(group,), as_of=np.datetime64("2024-01-01")), MarketDataset)
+    result = assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month=True), SharedCashPortfolioReplayResult)
+    if isinstance(result.returns, CalendarMonthReturnSeries):
+        assert_type(result.returns.exact_elapsed_years, Fraction)
+        payload = native_calendar_month_return_payload(market, result.returns, start_index=0)
+        assert_type(load_native_calendar_month_return_payload(market, payload), CalendarMonthReturnSeries)
 def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
+    periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
+    cloud = FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, alignment=FeatureAlignment.VISIBLE_DISPLACED_CLOUD, ichimoku_periods=periods)
+    assert_type(cloud.ichimoku_periods, IchimokuPeriods | None)
+    assert_type(ClockedNativeFeatureGroup(clock, (native,), (cloud,)), ClockedNativeFeatureGroup)
     group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
     assert_type(clocked_native_decision_schedule(market, group, start_index=0, stop_index=2), tuple[NativePublicationSlot, ...])
@@ -124,6 +147,8 @@ bad_policy: PortfolioPolicy = WrongPolicy()  # expect: assignment
 parse_quantity(1.5)  # expect: arg-type
 PortfolioTargetProposal(("wrong",))  # expect: arg-type
 FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
+IchimokuPeriods(tenkan_period="9")  # expect: arg-type
+FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, ichimoku_periods={"tenkan_period": 9})  # expect: arg-type
 ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present="unknown")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig())  # expect: call-arg
@@ -140,10 +165,16 @@ def bad_clock_group(clock: NativeBarClock, spec: FeatureSpec, market: MarketData
     run_clocked_native_portfolio_replay(market, policy, decision_group=clock, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig())  # expect: arg-type
     run_clocked_native_portfolio_replay(market, WrongPolicy(), decision_group=ClockedNativeFeatureGroup(clock, (), (spec,)), start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig())  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, fill_cash_observer=7)  # expect: arg-type
+def bad_cloud(raw: RawMarketSeries, native: NativeRawMarketSeries, clock: NativeBarClock, contract: InstrumentContract) -> None:
+    visible_ichimoku_events(raw, clock=clock, contract=contract)  # expect: arg-type
+    visible_ichimoku_events(native, clock=clock, contract=contract, displacement="bad")  # expect: arg-type
+    align_visible_ichimoku_cloud(native, clock=clock, contract=contract, base_timestamps=native.timestamps, base_active=native.tradable)  # expect: call-arg
+    align_visible_ichimoku_cloud(native, clock=clock, contract=contract, base_timestamps=native.timestamps, base_active=native.tradable, max_staleness_hours="bad")  # expect: arg-type
 def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
 def bad_replay(market: MarketDataset) -> None:
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """
 )

@@ -64,7 +64,11 @@ def _native_events(
         volume=raw.volume,
         funding_rate=raw.funding_rate,
         funding_available=raw.funding_available,
-        row_present=np.ones(raw.timestamps.shape, dtype=np.bool_),
+        row_present=(
+            raw.tradable
+            if spec.ichimoku_periods is not None
+            else np.ones(raw.timestamps.shape, dtype=np.bool_)
+        ),
         active=active,
     )
     assert raw.available_at is not None
@@ -170,29 +174,11 @@ def align_clocked_native_feature(
             "explicit native clock supports only single-instrument price/volume features"
         )
     starts, closes = clock.interval_bounds(raw.timestamps)
-    base = _datetime64_values_to_ns_exact(
-        _native_unmasked_array(base_timestamps, field_name="base timestamps")
-    )
-    active = _native_unmasked_array(base_active, field_name="base active")
-    if base.ndim != 1 or not base.size or np.any(base[1:] <= base[:-1]):
-        raise ValueError("base timestamps must be nonempty and strictly increasing")
-    if active.dtype != np.dtype(np.bool_) or active.shape != base.shape:
-        raise ValueError("base active must be a matching boolean array")
-
-    # Convert through microseconds to detect out-of-nanosecond-range lifetimes.
-    def lifecycle_time(value: datetime) -> np.datetime64:
-        utc = value.astimezone(timezone.utc).replace(tzinfo=None)
-        return cast(
-            np.datetime64,
-            _datetime64_values_to_ns_exact(np.asarray(np.datetime64(utc, "us")))[()],
-        )
-
-    listed = lifecycle_time(contract.listed_at)
-    native_active = starts >= listed
+    base, active = _decision_grid(base_timestamps, base_active)
+    listed, delisted = _clocked_lifetime(contract)
+    native_active = _complete_lifetime_mask(starts, closes, listed, delisted)
     decision_active = active & (base >= listed)
-    if contract.delisted_at is not None:
-        delisted = lifecycle_time(contract.delisted_at)
-        native_active &= closes < delisted
+    if delisted is not None:
         decision_active &= base < delisted
     return _align_events(
         spec,
@@ -203,6 +189,49 @@ def align_clocked_native_feature(
     )
 
 
+def _decision_grid(
+    timestamps: np.ndarray, active_mask: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    base = _datetime64_values_to_ns_exact(
+        _native_unmasked_array(timestamps, field_name="base timestamps")
+    )
+    active = _native_unmasked_array(active_mask, field_name="base active")
+    if base.ndim != 1 or not base.size or np.any(base[1:] <= base[:-1]):
+        raise ValueError("base timestamps must be nonempty and strictly increasing")
+    if active.dtype != np.dtype(np.bool_) or active.shape != base.shape:
+        raise ValueError("base active must be a matching boolean array")
+    return base, active
+
+
+def _clocked_lifetime(
+    contract: InstrumentContract,
+) -> tuple[np.datetime64, np.datetime64 | None]:
+    # Convert through microseconds to detect out-of-nanosecond-range lifetimes.
+    def lifecycle_time(value: datetime) -> np.datetime64:
+        utc = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return cast(
+            np.datetime64,
+            _datetime64_values_to_ns_exact(np.asarray(np.datetime64(utc, "us")))[()],
+        )
+
+    return (
+        lifecycle_time(contract.listed_at),
+        None if contract.delisted_at is None else lifecycle_time(contract.delisted_at),
+    )
+
+
+def _complete_lifetime_mask(
+    starts: np.ndarray,
+    closes: np.ndarray,
+    listed: np.datetime64,
+    delisted: np.datetime64 | None,
+) -> np.ndarray:
+    active = starts >= listed
+    if delisted is not None:
+        active &= closes < delisted
+    return active
+
+
 def _align_events(
     spec: FeatureSpec,
     raw: RawMarketSeries,
@@ -210,12 +239,23 @@ def _align_events(
     base_timestamps: np.ndarray,
     base_active: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    event_values, event_valid, event_available_at = events
-    values = np.zeros(len(base_timestamps), dtype=np.float64)
-    available = np.zeros(len(base_timestamps), dtype=np.bool_)
-    age_hours = np.full(
-        len(base_timestamps), spec.max_staleness_hours, dtype=np.float64
+    return _align_event_values(
+        spec.max_staleness_hours, raw, events, base_timestamps, base_active
     )
+
+
+def _align_event_values(
+    max_staleness_hours: float,
+    raw: RawMarketSeries,
+    events: tuple[np.ndarray, np.ndarray, np.ndarray],
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    # Multiple columns from a single native event share one publication frontier.
+    event_values, event_valid, event_available_at = events
+    values = np.zeros((len(base_timestamps), *event_values.shape[1:]), dtype=np.float64)
+    available = np.zeros(len(base_timestamps), dtype=np.bool_)
+    age_hours = np.full(len(base_timestamps), max_staleness_hours, dtype=np.float64)
     staleness = np.ones(len(base_timestamps), dtype=np.float64)
 
     valid_indices = np.flatnonzero(event_valid)
@@ -266,8 +306,8 @@ def _align_events(
         rows = begin + active_rows
         age_hours[rows] = age
         with np.errstate(over="ignore"):
-            staleness[rows] = np.minimum(age / spec.max_staleness_hours, 1.0)
-        fresh = age <= spec.max_staleness_hours + 1e-12
+            staleness[rows] = np.minimum(age / max_staleness_hours, 1.0)
+        fresh = age <= max_staleness_hours + 1e-12
         values[rows[fresh]] = event_values[selected[fresh]]
         available[rows[fresh]] = True
 

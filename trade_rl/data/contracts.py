@@ -98,6 +98,7 @@ class FeatureAlignment(StrEnum):
     """Semantic placement of one feature on the decision-time axis."""
 
     UNSHIFTED_DECISION_TIME = "unshifted_decision_time"
+    VISIBLE_DISPLACED_CLOUD = "visible_displaced_cloud"
 
 
 PORTABLE_FEATURE_NUMERICS_SCHEMA = "portable_feature_numerics_v1"
@@ -253,6 +254,38 @@ class InstrumentContract:
 
 
 @dataclass(frozen=True, slots=True)
+class IchimokuPeriods:
+    """An explicit versioned Ichimoku profile; all lengths are native bars.
+
+    Zero displacement denotes the unshifted decision-time calculation.
+    Positive displacement requires explicit visible-cloud feature alignment.
+    """
+
+    tenkan_period: int = 9
+    kijun_period: int = 26
+    span_b_period: int = 52
+    displacement: int = 0
+
+    def __post_init__(self) -> None:
+        for value in (self.tenkan_period, self.kijun_period, self.span_b_period):
+            if type(value) is not int or value < 1:
+                raise ValueError("Ichimoku periods must be positive native integers")
+        if type(self.displacement) is not int or self.displacement < 0:
+            raise ValueError(
+                "Ichimoku displacement must be a non-negative native integer"
+            )
+
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": "ichimoku_periods_v1",
+            "tenkan_period": self.tenkan_period,
+            "kijun_period": self.kijun_period,
+            "span_b_period": self.span_b_period,
+            "displacement": self.displacement,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class FeatureSpec:
     """One causal feature and its native-timeframe normalization contract."""
 
@@ -265,6 +298,7 @@ class FeatureSpec:
     max_staleness_hours: float = 24.0
     timeframe: str | None = None
     alignment: FeatureAlignment | None = None
+    ichimoku_periods: IchimokuPeriods | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
@@ -279,6 +313,32 @@ class FeatureSpec:
             except ValueError as error:
                 raise ValueError("feature alignment is unsupported") from error
             object.__setattr__(self, "alignment", resolved_alignment)
+        periods = self.ichimoku_periods
+        visible = self.alignment is FeatureAlignment.VISIBLE_DISPLACED_CLOUD
+        if periods is None:
+            if visible:
+                raise ValueError("visible cloud requires explicit Ichimoku periods")
+        else:
+            if type(periods) is not IchimokuPeriods:
+                raise ValueError("expected an explicit Ichimoku periods profile")
+            if self.lookback != 1:
+                raise ValueError(
+                    "explicit Ichimoku periods require the default lookback"
+                )
+            if self.kind not in {
+                FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+                FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+                FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            }:
+                raise ValueError("Ichimoku periods require an Ichimoku feature kind")
+            if visible and self.kind not in {
+                FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            }:
+                raise ValueError("visible alignment is only for cloud features")
+            if visible != (periods.displacement > 0):
+                raise ValueError("Ichimoku displacement and feature alignment disagree")
         if (
             isinstance(self.lookback, bool)
             or not isinstance(self.lookback, int)
@@ -326,6 +386,8 @@ class FeatureSpec:
             payload["timeframe"] = self.timeframe
         if self.alignment is not None:
             payload["alignment"] = self.alignment.value
+        if self.ichimoku_periods is not None:
+            payload["ichimoku_periods"] = self.ichimoku_periods.canonical_payload()
         return payload
 
 

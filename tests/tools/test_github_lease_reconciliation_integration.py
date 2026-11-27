@@ -156,3 +156,92 @@ def test_real_lease_head_drift_refuses_even_with_stable_inventory() -> None:
             artifacts=[],
             now=NOW,
         )
+
+
+def test_native_producer_observations_with_jobs_and_artifacts_still_hold() -> None:
+    from copy import deepcopy
+
+    from tools.github_workflow_artifacts import observe_workflow_artifacts
+    from tools.github_workflow_attempts import observe_workflow_attempt
+
+    snapshot, lease, inventory = _actual_inputs()
+    run_id = 1234
+    repo_id = 123
+    run = {
+        "id": run_id,
+        "run_attempt": 2,
+        "head_branch": lease.lease_branch,
+        "head_sha": HEAD,
+        "status": "completed",
+        "conclusion": "success",
+        "updated_at": "2026-11-02T11:50:00Z",
+        "repository": {"id": repo_id},
+        "head_repository": {"id": repo_id},
+    }
+    job = {
+        "id": 41,
+        "run_id": run_id,
+        "run_attempt": 2,
+        "head_branch": lease.lease_branch,
+        "head_sha": HEAD,
+        "name": "core",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    artifact = {
+        "id": 42,
+        "node_id": "A_42",
+        "name": "receipt",
+        "size_in_bytes": 128,
+        "expired": False,
+        "digest": "sha256:" + "f" * 64,
+        "workflow_run": {
+            "id": run_id,
+            "repository_id": repo_id,
+            "head_repository_id": repo_id,
+            "head_branch": lease.lease_branch,
+            "head_sha": HEAD,
+        },
+    }
+
+    class WorkflowGet:
+        def _request_json(
+            self, method: str, suffix: str, *, query: dict[str, str] | None = None
+        ) -> object:
+            assert method == "GET"
+            if suffix == "":
+                return {"id": repo_id, "node_id": "R_123", "full_name": REPOSITORY}
+            if suffix == f"actions/runs/{run_id}":
+                return deepcopy(run)
+            assert query == {"page": "1", "per_page": "100"}
+            if suffix == f"actions/runs/{run_id}/attempts/2/jobs":
+                return {"total_count": 1, "jobs": [deepcopy(job)]}
+            if suffix == f"actions/runs/{run_id}/artifacts":
+                return {"total_count": 1, "artifacts": [deepcopy(artifact)]}
+            raise AssertionError(f"Unexpected endpoint: {suffix}")
+
+    api = WorkflowGet()
+    attempt = observe_workflow_attempt(api, run_id=run_id)
+    artifacts = observe_workflow_artifacts(
+        api, expected_repository=REPOSITORY, run_id=run_id
+    )
+    report = inspect_expired_lease_evidence(
+        snapshot,
+        lease,
+        inventory,
+        expected_main_sha=BASE,
+        attempts=[attempt],
+        artifacts=[artifacts],
+        now=NOW,
+    )
+    assert report["sampled_run_ids"] == [run_id]
+    assert report["sampled_artifact_ids"] == [42]
+    assert report["supplied_evidence_consistent"] is True
+    assert report["decision"] == "HOLD"
+    for flag in (
+        "trusted_roster_complete",
+        "authoritative_registry_established",
+        "lease_reassignment_authorized",
+        "cleanup_authorized",
+    ):
+        assert report[flag] is False

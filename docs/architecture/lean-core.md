@@ -330,8 +330,10 @@ calls. Opt-in `shared_cash_portfolio_replay_ledger_v3` binds the planned
 schedule and observed actor indices; dense pre-terminal decision rows label
 non-actor steps as continued, risk_fallback, or hold (a HOLD request can still
 be constrained by hard risk). It does not combine with v2 exposure evidence
-or admit v3 into the existing pinned v1 artifact readers. Default v1/v2 and
-legacy intent ledger bytes remain unchanged. This seam does not change PPO's
+or admit v3 into the existing pinned v1 artifact readers. V3 uses separate
+continuation-decision and scheduled-ledger DTOs; the old dataclass field
+sets and serialized v1/v2 records remain closed. Legacy intent ledger bytes
+remain unchanged. This seam does not change PPO's
 training/checkpoint contract or establish an economic result.
 
 `evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory

@@ -263,7 +263,7 @@ class SharedCashReplayResult:
 
 @dataclass(frozen=True, slots=True)
 class SharedCashPortfolioReplayDecision:
-    """One actor or no-new-intent proposal and its native risk result."""
+    """One full-vector portfolio proposal and its native risk result."""
 
     index: int
     proposal_weights: tuple[float, ...]
@@ -271,10 +271,14 @@ class SharedCashPortfolioReplayDecision:
     risk_reasons: tuple[str, ...]
     requested_hold_symbols: tuple[int, ...]
     effective_hold_symbols: tuple[int, ...]
-    pending_continuation_status: PendingContinuationStatus | None = None
+
+    @property
+    def pending_continuation_status(self) -> PendingContinuationStatus | None:
+        # V1/V2 readers use dataclass field closure, not just to_mapping().
+        return None
 
     def to_mapping(self) -> dict[str, object]:
-        payload: dict[str, object] = {
+        return {
             "effective_hold_symbols": self.effective_hold_symbols,
             "index": self.index,
             "proposal_weights": self.proposal_weights,
@@ -282,8 +286,30 @@ class SharedCashPortfolioReplayDecision:
             "risk_reasons": self.risk_reasons,
             "target_weights": self.target_weights,
         }
-        if self.pending_continuation_status is not None:
-            payload["pending_continuation_status"] = self.pending_continuation_status
+
+
+@dataclass(frozen=True, slots=True)
+class SparsePortfolioContinuationDecision(SharedCashPortfolioReplayDecision):
+    """A v3 non-actor row; leave the v1/v2 decision field closure intact."""
+
+    continuation_status: PendingContinuationStatus
+
+    def __post_init__(self) -> None:
+        status: object = self.continuation_status
+        if type(status) is not str or status not in (
+            "continued",
+            "risk_fallback",
+            "hold",
+        ):
+            raise ValueError("invalid pending continuation status")
+
+    @property
+    def pending_continuation_status(self) -> PendingContinuationStatus:
+        return self.continuation_status
+
+    def to_mapping(self) -> dict[str, object]:
+        payload = SharedCashPortfolioReplayDecision.to_mapping(self)
+        payload["pending_continuation_status"] = self.continuation_status
         return payload
 
 
@@ -294,9 +320,8 @@ class SharedCashPortfolioReplayLedgerEvidence:
     intervals: SharedCashReplayLedgerEvidence
     decisions: tuple[SharedCashPortfolioReplayDecision, ...]
     exposure_evidence: ReplayExposureEvidence | None = None
-    scheduled_actor_indices: tuple[int, ...] | None = None
 
-    def to_mapping(self) -> dict[str, object]:
+    def _common_mapping(self) -> dict[str, object]:
         payload = self.intervals.to_mapping()
         payload.pop("decisions", None)
         payload["schema_version"] = "shared_cash_portfolio_replay_ledger_v1"
@@ -306,35 +331,48 @@ class SharedCashPortfolioReplayLedgerEvidence:
         if self.exposure_evidence is not None:
             payload["schema_version"] = EXPOSURE_LEDGER_SCHEMA
             payload["pre_interval_exposure"] = self.exposure_evidence.to_mapping()
-        if self.scheduled_actor_indices is not None:
-            if self.exposure_evidence is not None:
-                raise ValueError("sparse actor ledger does not admit exposure evidence")
-            planned = self.scheduled_actor_indices
-            if (
-                type(planned) is not tuple
-                or any(type(idx) is not int for idx in planned)
-                or tuple(sorted(set(planned))) != planned
-            ):
-                raise ValueError("invalid sparse actor ledger schedule")
-            planned_set = frozenset(planned)
-            actual = tuple(
-                d.index for d in self.decisions if d.pending_continuation_status is None
-            )
-            if actual != tuple(
-                d.index for d in self.decisions if d.index in planned_set
-            ) or any(
-                d.pending_continuation_status
-                not in (None, "continued", "risk_fallback", "hold")
-                for d in self.decisions
-            ):
-                raise ValueError("sparse actor ledger decisions differ from schedule")
-            payload["schema_version"] = "shared_cash_portfolio_replay_ledger_v3"
-            payload["scheduled_actor_indices"] = planned
-            payload["actor_decision_indices"] = actual
-        elif any(d.pending_continuation_status is not None for d in self.decisions):
+        return payload
+
+    def to_mapping(self) -> dict[str, object]:
+        if any(d.pending_continuation_status is not None for d in self.decisions):
             raise ValueError(
                 "pending continuation evidence requires sparse actor ledger"
             )
+        return self._common_mapping()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SparsePortfolioReplayLedgerEvidence(SharedCashPortfolioReplayLedgerEvidence):
+    """V3 schedule/continuation evidence, separate from the closed v1/v2 DTO."""
+
+    scheduled_actor_indices: tuple[int, ...]
+
+    def to_mapping(self) -> dict[str, object]:
+        if self.exposure_evidence is not None:
+            raise ValueError("sparse actor ledger does not admit exposure evidence")
+        planned = self.scheduled_actor_indices
+        if (
+            type(planned) is not tuple
+            or any(type(idx) is not int for idx in planned)
+            or tuple(sorted(set(planned))) != planned
+        ):
+            raise ValueError("invalid sparse actor ledger schedule")
+        planned_set = frozenset(planned)
+        actual = tuple(
+            d.index for d in self.decisions if d.pending_continuation_status is None
+        )
+        if actual != tuple(
+            d.index for d in self.decisions if d.index in planned_set
+        ) or any(
+            d.pending_continuation_status
+            not in (None, "continued", "risk_fallback", "hold")
+            for d in self.decisions
+        ):
+            raise ValueError("sparse actor ledger decisions differ from schedule")
+        payload = self._common_mapping()
+        payload["schema_version"] = "shared_cash_portfolio_replay_ledger_v3"
+        payload["scheduled_actor_indices"] = planned
+        payload["actor_decision_indices"] = actual
         return payload
 
 
@@ -1365,17 +1403,30 @@ def _run_shared_cash_replay_core(
                 )
                 recorded_proposal = proposal.target_weights
                 requested_holds = proposal.hold_current_quantity_symbols
-            portfolio_decisions.append(
-                SharedCashPortfolioReplayDecision(
-                    index=decision_index,
-                    proposal_weights=recorded_proposal,
-                    target_weights=tuple(float(value) for value in constrained.weights),
-                    risk_reasons=constrained.reasons,
-                    requested_hold_symbols=requested_holds,
-                    effective_hold_symbols=effective_holds,
-                    pending_continuation_status=continuation_status,
+            target_weights = tuple(float(value) for value in constrained.weights)
+            if continuation_status is None:
+                portfolio_decisions.append(
+                    SharedCashPortfolioReplayDecision(
+                        index=decision_index,
+                        proposal_weights=recorded_proposal,
+                        target_weights=target_weights,
+                        risk_reasons=constrained.reasons,
+                        requested_hold_symbols=requested_holds,
+                        effective_hold_symbols=effective_holds,
+                    )
                 )
-            )
+            else:
+                portfolio_decisions.append(
+                    SparsePortfolioContinuationDecision(
+                        index=decision_index,
+                        proposal_weights=recorded_proposal,
+                        target_weights=target_weights,
+                        risk_reasons=constrained.reasons,
+                        requested_hold_symbols=requested_holds,
+                        effective_hold_symbols=effective_holds,
+                        continuation_status=continuation_status,
+                    )
+                )
             for symbol_index in range(dataset.n_symbols):
                 position_age_bars[symbol_index] = next_position_age_bars(
                     position_age_bars[symbol_index],
@@ -1804,22 +1855,26 @@ def run_shared_portfolio_replay(
         on_native_advance=on_native_advance,
         fill_cash_observer=fill_cash_observer,
     )
-    ledger = (
-        None
-        if result.ledger_evidence is None
-        else SharedCashPortfolioReplayLedgerEvidence(
-            intervals=result.ledger_evidence,
-            decisions=decisions,
-            scheduled_actor_indices=actor_decision_indices,
-            exposure_evidence=(
-                None
-                if exposure_rows is None
-                else ReplayExposureEvidence(
-                    symbols=dataset.symbols, rows=tuple(exposure_rows)
-                )
-            ),
-        )
-    )
+    ledger: SharedCashPortfolioReplayLedgerEvidence | None = None
+    if result.ledger_evidence is not None:
+        if actor_decision_indices is not None:
+            ledger = SparsePortfolioReplayLedgerEvidence(
+                intervals=result.ledger_evidence,
+                decisions=decisions,
+                scheduled_actor_indices=actor_decision_indices,
+            )
+        else:
+            ledger = SharedCashPortfolioReplayLedgerEvidence(
+                intervals=result.ledger_evidence,
+                decisions=decisions,
+                exposure_evidence=(
+                    None
+                    if exposure_rows is None
+                    else ReplayExposureEvidence(
+                        symbols=dataset.symbols, rows=tuple(exposure_rows)
+                    )
+                ),
+            )
     return SharedCashPortfolioReplayResult(
         book=result.book,
         returns=result.returns,

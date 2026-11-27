@@ -713,3 +713,30 @@ def test_sparse_actor_ledger_distinguishes_risk_fallback_from_actor():
     assert ledger.to_mapping()["actor_decision_indices"] == (0,)
     assert result.book.exact_quantities == (0, 0)
     assert ledger.intervals.active_order_remainders == ()
+
+
+def test_legacy_portfolio_dto_fields_and_serialized_mapping_remain_closed():
+    from dataclasses import asdict, fields
+
+    from trade_rl.evaluation.replay import (
+        SharedCashPortfolioReplayDecision,
+        SharedCashPortfolioReplayLedgerEvidence,
+    )
+
+    keys = {
+        "index",
+        "proposal_weights",
+        "target_weights",
+        "risk_reasons",
+        "requested_hold_symbols",
+        "effective_hold_symbols",
+    }
+    assert {f.name for f in fields(SharedCashPortfolioReplayDecision)} == keys
+    assert {f.name for f in fields(SharedCashPortfolioReplayLedgerEvidence)} == {
+        "intervals",
+        "decisions",
+        "exposure_evidence",
+    }
+    decision = SharedCashPortfolioReplayDecision(0, (0.0, 0.0), (0.0, 0.0), (), (), ())
+    assert asdict(decision) == decision.to_mapping()
+    assert set(decision.to_mapping()) == keys

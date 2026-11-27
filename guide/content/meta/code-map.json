@@ -60,7 +60,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "a6b38b10bf411161359481f37b40f0fe0e56f66d473f9379024adc6f53e532e7"
+      "sha256": "079170e550460f3aa0306bf055f247362e069ecce611ee80c222f37ade79595a"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -283,7 +283,7 @@
       "id": "shared-portfolio-policy-replay",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "d7b3fd83dc76aa7e285627a6e1770c3548905cc090a7a6e1901521223d08783c",
+      "source_sha256": "ff2d7c2092ce1f9c7037d3e9df5494f4737e5ca8de6b2a20e827fdef5c20b985",
       "label_ja": "全銘柄portfolio policyの共通replay",
       "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。",
       "variables": [],

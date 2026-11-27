@@ -18,19 +18,19 @@ _MAX_TASK_ISSUE_COMMENTS = 1000
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be a native object with native string keys")
     return value
 
 
 def _sha(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _SHA.fullmatch(value) or value == "0" * 40:
+    if type(value) is not str or not _SHA.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{name} must be an exact commit SHA")
     return value
 
 
 def _number(value: Any, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if type(value) is not int or value < 1:
         raise ValueError(f"{name} must be a positive integer")
     return value
 
@@ -44,7 +44,7 @@ def _issue_identity(value: Any, repository: str) -> tuple[int, int, str, str, in
     node_id = issue.get("node_id")
     repository_url = issue.get("repository_url")
     if (
-        not isinstance(repository_url, str)
+        type(repository_url) is not str
         or repository_url.casefold()
         != f"https://api.github.com/repos/{repository}".casefold()
     ):
@@ -52,11 +52,16 @@ def _issue_identity(value: Any, repository: str) -> tuple[int, int, str, str, in
     state = issue.get("state")
     count = issue.get("comments")
     updated_at = issue.get("updated_at")
-    if not isinstance(node_id, str) or not node_id.strip() or state != "open":
+    if (
+        type(node_id) is not str
+        or not node_id.strip()
+        or type(state) is not str
+        or state != "open"
+    ):
         raise ValueError("open Issue identity or state is invalid")
     if type(count) is not int or count < 0 or count > _MAX_TASK_ISSUE_COMMENTS:
         raise ValueError("open Issue comments count is invalid or unbounded")
-    if not isinstance(updated_at, str) or not updated_at.strip():
+    if type(updated_at) is not str or not updated_at.strip():
         raise ValueError("open Issue updated_at is missing")
     return (number, issue_id, node_id, state, count, updated_at)
 
@@ -67,7 +72,7 @@ def _comment_snapshot(
     """Require exact comment cardinality and unchanged identity, author and body."""
 
     comments = api.issue_comments(issue_number)
-    if not isinstance(comments, list) or len(comments) != expected_count:
+    if type(comments) is not list or len(comments) != expected_count:
         raise RuntimeError(f"Issue #{issue_number} comments count differs from Issue")
     identities: list[tuple[int, int, str, str]] = []
     seen: set[int] = set()
@@ -82,8 +87,8 @@ def _comment_snapshot(
         body = comment.get("body")
         updated_at = comment.get("updated_at")
         if (
-            not isinstance(body, str)
-            or not isinstance(updated_at, str)
+            type(body) is not str
+            or type(updated_at) is not str
             or not updated_at.strip()
         ):
             raise ValueError("Issue comment body or updated_at is malformed")
@@ -128,26 +133,30 @@ def _pull_identity(
     base_repo = _mapping(base.get("repo"), "PR base repository")
     base_full_name = base_repo.get("full_name")
     if (
-        not isinstance(base_full_name, str)
+        type(base_full_name) is not str
         or base_full_name.casefold() != repository.casefold()
     ):
         raise ValueError("PR base points at a different repository")
     base_name = base.get("ref")
-    if not isinstance(base_name, str) or not base_name:
+    if type(base_name) is not str or not base_name:
         raise ValueError("PR base branch missing")
     base_sha = _sha(base.get("sha"), "PR base SHA")
     head_sha = _sha(head.get("sha"), "PR head SHA")
     head_name: str | None = None
     head_repo = head.get("repo")
-    if (
-        isinstance(head_repo, dict)
-        and isinstance(head_repo.get("full_name"), str)
-        and head_repo["full_name"].casefold() == repository.casefold()
-    ):
-        raw_name = head.get("ref")
-        if not isinstance(raw_name, str) or not raw_name:
-            raise ValueError("local PR head branch missing")
-        head_name = raw_name
+    if head_repo is not None:
+        head_repo = _mapping(head_repo, "PR head repository")
+        head_full_name = head_repo.get("full_name")
+        if head_full_name is not None and type(head_full_name) is not str:
+            raise ValueError("PR head repository identity must be a native string")
+        if (
+            type(head_full_name) is str
+            and head_full_name.casefold() == repository.casefold()
+        ):
+            raw_name = head.get("ref")
+            if type(raw_name) is not str or not raw_name:
+                raise ValueError("local PR head branch missing")
+            head_name = raw_name
     return number, head_sha, base_name, base_sha, head_name
 
 
@@ -155,6 +164,8 @@ class GitHubWorkApi:
     """Read-only public adapter; the underlying shared client is not a security boundary."""
 
     def __init__(self, *, repository: str, token: str) -> None:
+        if type(repository) is not str:
+            raise ValueError("repository must be a native string")
         self._reader = GitHubApi(
             repository=repository, token=token, api_url="https://api.github.com"
         )
@@ -183,7 +194,7 @@ class GitHubWorkApi:
                 f"issues/{issue_number}/comments",
                 query={"per_page": "100", "page": str(page)},
             )
-            if not isinstance(response, list) or len(response) > 100:
+            if type(response) is not list or len(response) > 100:
                 raise RuntimeError("Issue comment page has invalid size or shape")
             if page > _MAX_TASK_ISSUE_COMMENTS // 100:
                 if response:
@@ -204,6 +215,27 @@ class GitHubWorkApi:
         return classify_ancestry(_mapping(payload, "compare"))
 
 
+def _native_rows(value: Any, name: str) -> list[Any]:
+    if type(value) is not list:
+        raise ValueError(f"{name} must be a native list")
+    return value
+
+
+def _branch_snapshot(value: Any) -> tuple[BranchInfo, ...]:
+    if type(value) is not tuple:
+        raise ValueError("branch roster must be a native tuple")
+    for branch in value:
+        if (
+            type(branch) is not BranchInfo
+            or type(branch.name) is not str
+            or not branch.name
+            or type(branch.protected) is not bool
+        ):
+            raise ValueError("branch identity/protection must be native")
+        _sha(branch.sha, "branch SHA")
+    return value
+
+
 def build_inventory(
     api: GitHubWorkApi,
     *,
@@ -211,8 +243,13 @@ def build_inventory(
     include_workflow_refs: bool = False,
 ) -> dict[str, Any]:
     """Make a deterministic, non-authoritative snapshot. Never return delete eligibility."""
+    repository = api.repository
+    if type(repository) is not str:
+        raise ValueError("repository must be a native string")
     default = api.repository_default_branch()
-    branches = api.branches()
+    if type(default) is not str or not default:
+        raise ValueError("default branch must be a native nonempty string")
+    branches = _branch_snapshot(api.branches())
     main_candidates = [branch for branch in branches if branch.name == default]
     if len(main_candidates) != 1:
         raise RuntimeError("default branch is absent or ambiguous")
@@ -226,9 +263,9 @@ def build_inventory(
     pulls: list[dict[str, Any]] = []
     pull_identities: list[tuple[int, str, str, str, str | None]] = []
     seen_pr_numbers: set[int] = set()
-    for item in api.open_pulls():
+    for item in _native_rows(api.open_pulls(), "open PR roster"):
         number, head_sha, base_name, base_sha, head_name = _pull_identity(
-            item, api.repository
+            item, repository
         )
         if number in seen_pr_numbers:
             raise RuntimeError(f"duplicate open PR number: {number}")
@@ -267,11 +304,11 @@ def build_inventory(
     seen_issue_ids: set[int] = set()
     seen_issue_node_ids: set[str] = set()
     seen_comment_ids: set[int] = set()
-    for item in api.open_issues():
+    for item in _native_rows(api.open_issues(), "open Issue roster"):
         issue = _mapping(item, "open Issue")
         if "pull_request" in issue:
             continue
-        identity = _issue_identity(issue, api.repository)
+        identity = _issue_identity(issue, repository)
         issue_number = identity[0]
         if issue_number in issue_identities:
             raise RuntimeError(f"duplicate open Issue number: {issue_number}")
@@ -305,15 +342,19 @@ def build_inventory(
     # The second/third Issue reads and full comment reread catch ordinary
     # changes before publication, but are not an atomic GitHub snapshot.
     if sorted(pull_identities) != sorted(
-        _pull_identity(item, api.repository) for item in api.open_pulls()
+        _pull_identity(item, repository)
+        for item in _native_rows(api.open_pulls(), "open PR roster")
     ):
         raise RuntimeError("open PR refs changed during inventory")
     expected_issues = sorted(issue_identities.values())
 
     def reread_issue_identities() -> list[tuple[int, int, str, str, int, str]]:
         rows = [
-            _issue_identity(issue, api.repository)
-            for issue in (_mapping(item, "open Issue") for item in api.open_issues())
+            _issue_identity(issue, repository)
+            for issue in (
+                _mapping(item, "open Issue")
+                for item in _native_rows(api.open_issues(), "open Issue roster")
+            )
             if "pull_request" not in issue
         ]
         if len(rows) != len(set(row[0] for row in rows)):
@@ -330,7 +371,7 @@ def build_inventory(
             )
     if reread_issue_identities() != expected_issues:
         raise RuntimeError("open Issue roster or metadata changed during inventory")
-    if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
+    if tuple(sorted(_branch_snapshot(api.branches()), key=lambda b: b.name)) != tuple(
         sorted(branches, key=lambda b: b.name)
     ):
         raise RuntimeError("branch tips or protection changed during inventory")
@@ -340,13 +381,17 @@ def build_inventory(
         workflow_refs = stable_workflow_branch_refs(
             api, known_branch_names=frozenset(branch_tips)
         )
-        if tuple(sorted(api.branches(), key=lambda b: b.name)) != tuple(
-            sorted(branches, key=lambda b: b.name)
-        ):
+        if tuple(
+            sorted(_branch_snapshot(api.branches()), key=lambda b: b.name)
+        ) != tuple(sorted(branches, key=lambda b: b.name)):
             raise RuntimeError("branch tips or protection changed during workflow scan")
 
-    if api.repository_default_branch() != default:
+    final_default = api.repository_default_branch()
+    if type(final_default) is not str or final_default != default:
         raise RuntimeError("repository default branch changed during inventory")
+    final_repository = api.repository
+    if type(final_repository) is not str or final_repository != repository:
+        raise RuntimeError("repository identity changed during inventory")
 
     observed_names = set(open_names) | task_branches | set(workflow_refs)
     branch_rows = []
@@ -375,7 +420,7 @@ def build_inventory(
 
     report: dict[str, Any] = {
         "schema": "github_work_inventory_v1",
-        "repository": api.repository,
+        "repository": repository,
         "main_sha": main_sha,
         "open_issue_count": open_issues,
         "open_pr_count": len(pulls),

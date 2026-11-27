@@ -20,7 +20,7 @@ class InvalidExperimentStateError(ControlledExperimentError, RuntimeError):
 
 
 class PublishedArtifactCleanupError(InvalidExperimentStateError):
-    """Publication committed, but private staging cleanup failed; never retry."""
+    """Publication may have committed, but post-publication checks failed; never retry."""
 
 
 class UncontrolledDeltaError(ControlledExperimentError, ValueError):

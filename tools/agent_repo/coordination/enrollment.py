@@ -90,6 +90,11 @@ def prepare_enrollment_projection(
 ) -> EnrollmentProjection:
     """Reject inconsistent snapshots; never grant authority to persist them."""
 
+    # Subclass hooks must not replace the contract digest or lease identity.
+    if type(packet) is not TaskPacket:
+        raise ValueError("packet must be a TaskPacket")
+    if type(lease) is not LeaseRecord:
+        raise ValueError("lease must be a LeaseRecord")
     if type(status) is not TaskStatusRecord:
         raise ValueError("status must be a TaskStatusRecord")
     _require_sha(current_main_sha, "current_main_sha")

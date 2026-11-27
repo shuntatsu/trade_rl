@@ -156,9 +156,9 @@ def audit_task_enrollment(
     completeness or exclusion of an ABA update between reads.
     """
     if (
-        not isinstance(packet, TaskPacket)
-        or not isinstance(lease, LeaseRecord)
-        or not isinstance(status, TaskStatusRecord)
+        type(packet) is not TaskPacket
+        or type(lease) is not LeaseRecord
+        or type(status) is not TaskStatusRecord
     ):
         raise ValueError("Task, lease and status must use their native contracts")
     if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository):

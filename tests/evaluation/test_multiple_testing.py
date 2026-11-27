@@ -12,6 +12,7 @@ from trade_rl.evaluation.comparison.multiple_testing import (
     probabilistic_sharpe_ratio,
     sharpe_moments_from_returns,
     sharpe_z_statistic,
+    validate_sharpe_moments,
 )
 
 EULER_GAMMA = 0.5772156649015329
@@ -347,3 +348,73 @@ def test_z_statistic_orders_where_the_psr_saturates() -> None:
     assert probabilistic_sharpe_ratio(0.6, 100_000, 0.0, 3.0) == 1.0
     assert high > low > 8.0
     assert sharpe_z_statistic(0.1, 100, 0.0, 3.0, 0.1) == 0.0
+
+
+# --- overflow-safe Pearson bound and scale-invariant moments --------------
+
+
+@pytest.mark.parametrize("skew", [1e155, -1e155, 1e200, -1e200, 1.7976931348623157e308])
+@pytest.mark.parametrize("kurtosis", [3.0, 1e300, 1.7976931348623157e308])
+def test_impossible_pearson_moments_with_overflowing_floor_are_refused(
+    skew: float, kurtosis: float
+) -> None:
+    # 1 + skew**2 overflows to inf; a NaN comparison used to let these through.
+    with pytest.raises(ValueError, match="non-excess"):
+        validate_sharpe_moments(0.0, 20, skew, kurtosis)
+    with pytest.raises(ValueError, match="non-excess"):
+        probabilistic_sharpe_ratio(0.0, 20, skew, kurtosis)
+    with pytest.raises(ValueError, match="non-excess"):
+        SharpeMoments(0.0, 20, skew, kurtosis)
+
+
+def test_ordinary_pearson_moments_are_still_accepted() -> None:
+    assert validate_sharpe_moments(0.0, 20, 1.0, 3.0) == (0.0, 20, 1.0, 3.0)
+    assert validate_sharpe_moments(0.1, 20, 0.0, 1.0) == (0.1, 20, 0.0, 1.0)
+
+
+_SYMMETRIC_SCALES = (5e-324, 1e-310, 1e-200, 1e-100, 1.0, 1e100, 1e200, 1e307, 1e308)
+
+
+@pytest.mark.parametrize("scale", _SYMMETRIC_SCALES)
+def test_symmetric_two_point_returns_have_exact_moments_at_any_scale(
+    scale: float,
+) -> None:
+    moments = sharpe_moments_from_returns([-scale, scale])
+    assert moments.n_obs == 2
+    assert moments.sharpe == 0.0
+    assert moments.skew == 0.0
+    assert moments.kurtosis == pytest.approx(1.0, abs=1e-12)
+
+
+@pytest.mark.parametrize(
+    "scale", [1e-200, 1e-100, 1e-10, 1.0, 1e10, 1e100, 1e200, 1e307]
+)
+def test_asymmetric_returns_have_scale_invariant_moments(scale: float) -> None:
+    # (0, 0, 0, 4) * c: sample SR 1/2, population skew 2/sqrt(3), kurtosis 7/3.
+    moments = sharpe_moments_from_returns([0.0, 0.0, 0.0, 4.0 * scale])
+    assert moments.sharpe == pytest.approx(0.5, rel=1e-12)
+    assert moments.skew == pytest.approx(2.0 / math.sqrt(3.0), rel=1e-12)
+    assert moments.kurtosis == pytest.approx(7.0 / 3.0, rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    "returns",
+    [
+        [0.0, 0.0, 0.0],
+        [0.0, -0.0],
+        [3e-300, 3e-300, 3e-300],
+        [1e300, 1e300],
+        [5e-324, 5e-324],
+        [1.0, 1.0 + 1e-15, 1.0, 1.0 + 1e-15],
+        [1e100, 1e100 * (1.0 + 1e-14), 1e100],
+        [1.0, math.nan],
+        [1.0, math.inf],
+        [-math.inf, 1.0],
+        [1.7976931348623157e308, math.inf],
+    ],
+)
+def test_degenerate_or_non_finite_returns_are_refused_with_value_error(
+    returns: list[float],
+) -> None:
+    with pytest.raises(ValueError):
+        sharpe_moments_from_returns(returns)

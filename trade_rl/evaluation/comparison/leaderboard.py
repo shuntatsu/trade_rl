@@ -16,12 +16,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from numbers import Real
-from statistics import fmean
+from statistics import variance
 
 from trade_rl.evaluation.comparison.multiple_testing import (
     expected_maximum_sharpe,
     probabilistic_sharpe_ratio,
+    require_finite_real,
     sharpe_z_statistic,
 )
 from trade_rl.evaluation.comparison.trial_ledger import (
@@ -90,8 +90,14 @@ class FamilyLeaderboard:
 
 
 def _sample_variance(values: list[float]) -> float:
-    mean = fmean(values)
-    return math.fsum((item - mean) ** 2 for item in values) / (len(values) - 1)
+    # statistics.variance uses exact rational intermediates for float inputs.
+    try:
+        result = variance(values)
+    except (OverflowError, ValueError) as exc:
+        raise TrialLedgerError("trial_sr_variance is not representable") from exc
+    if result == 0.0 and any(item != values[0] for item in values):
+        raise TrialLedgerError("trial_sr_variance underflows to zero")
+    return result
 
 
 def build_family_leaderboard(
@@ -110,8 +116,9 @@ def build_family_leaderboard(
       COMPLETED trials. With fewer than two COMPLETED trials the caller must
       supply ``trial_sr_variance``; nothing is invented. Supplying it while
       two or more trials have completed is ambiguous and refused. FAILED and
-      ABANDONED trials have no SR, so ``V`` understates the dispersion that
-      the full trial set would have shown.
+      ABANDONED trials have no SR, so the direction of any dispersion bias
+      relative to all trials is unknown. A variance that overflows or a
+      nonzero variance that rounds to zero is refused.
 
     Every COMPLETED trial is scored with the same ``N``, ``V`` and expected
     maximum SR but its own ``n_obs``, skew and kurtosis. The function refuses
@@ -149,9 +156,12 @@ def build_family_leaderboard(
                 "fewer than two completed trials: supply trial_sr_variance explicitly"
             )
         supplied: object = trial_sr_variance
-        if isinstance(supplied, bool) or not isinstance(supplied, Real):
-            raise TrialLedgerError("trial_sr_variance must be a finite number")
-        variance = float(supplied)
+        try:
+            variance = require_finite_real(supplied, name="trial_sr_variance")
+        except ValueError as exc:
+            raise TrialLedgerError(str(exc)) from exc
+        if variance == 0.0 and supplied != 0:
+            raise TrialLedgerError("trial_sr_variance underflows to zero")
         source = VarianceSource.SUPPLIED
     if not math.isfinite(variance) or variance < 0.0:
         raise TrialLedgerError("trial_sr_variance must be finite and non-negative")

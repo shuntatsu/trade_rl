@@ -1,0 +1,760 @@
+"""Read-only status report for single-use research stage claims.
+
+The report lists which pre-registered stages were claimed or consumed, their
+decision labels and due dates. It never emits performance data (P&L, returns,
+Sharpe, drawdown, equity, positions): continuous performance between interim
+stages would be peeking. Result files are read through an explicit allowlist;
+every other field is dropped before any output is built.
+
+This is orientation only, not an authorization gate or an atomic ledger snapshot.
+The POSIX reader uses no-follow directory descriptors. All formats go to stdout;
+the tool has no filesystem output path.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import re
+import stat
+import sys
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any, BinaryIO, Callable, Sequence
+
+from trade_rl.artifacts.canonical import strict_json_loads
+from trade_rl.artifacts.stage_claim import StageClaim, _open_root
+from trade_rl.artifacts.verified_file import open_regular_binary
+
+SCHEMA_VERSION = "stage_claims_status_v1"
+NO_PERFORMANCE_NOTICE = (
+    "This report contains no performance data. It lists stage claim state, "
+    "decision labels, digests and dates only."
+)
+
+CLAIMED = "CLAIMED"
+RESULT_RECORDED = "RESULT_RECORDED"
+INVALID = "INVALID"
+NOT_CLAIMED = "NOT_CLAIMED"
+
+# Only these result fields may enter the report. Other JSON members are parsed
+# but never emitted; labels remain protocol-defined, not authenticated.
+RESULT_ALLOWLIST = ("stage", "label", "protocol_digest", "result_sha256")
+
+_STAGE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_LABEL = re.compile(r"[A-Z][A-Z0-9_]{0,79}")
+_LEGACY_CLAIM = re.compile(r"([A-Z][A-Z0-9_]{0,63})\.claim")
+_LEGACY_RESULT = re.compile(r"((?:stage-)?[A-Z][A-Z0-9_]{0,63})\.result\.json")
+_V1_CLAIM = re.compile(r"stage-([A-Z][A-Z0-9_]{0,63})\.claim")
+_COMMENT_CLAIM = re.compile(r"comment-([1-9][0-9]{0,18})-([1-9][0-9]{0,18})\.claim")
+_V1_SCHEMA = "single_use_stage_claim_v1"
+_MAX_CLAIM_BYTES = 64 * 1024
+_MAX_RESULT_BYTES = 8 * 1024 * 1024
+_MAX_DEPTH = 4
+_MAX_ENTRIES = 5000
+
+
+@dataclass(slots=True)
+class _Claim:
+    stage: str
+    protocol_digest: str
+    commit: str
+    repository_id: int | None
+    comment_id: int
+    claimed_at: str
+    schema: str
+
+
+@dataclass(slots=True)
+class _Result:
+    stage: str
+    label: str
+    protocol_digest: str
+    result_sha256: str
+    recorded_at: str
+
+
+@dataclass(slots=True)
+class _Group:
+    location: str
+    stage: str
+    claim: _Claim | None = None
+    result: _Result | None = None
+    comments: list[tuple[str, _Claim]] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat()
+
+
+def _file_identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _bounded_read(
+    handle: BinaryIO, limit: int, expected: os.stat_result | None = None
+) -> tuple[bytes, os.stat_result]:
+    before = os.fstat(handle.fileno())
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise ValueError("not a single-link regular file")
+    if expected is not None and _file_identity(before) != _file_identity(expected):
+        raise ValueError("file changed before reading")
+    if before.st_size > limit:
+        raise ValueError("file exceeds the size limit")
+    data = handle.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("file exceeds the size limit")
+    if len(data) != before.st_size or _file_identity(
+        os.fstat(handle.fileno())
+    ) != _file_identity(before):
+        raise ValueError("file changed during reading")
+    return data, before
+
+
+def _read_regular(
+    directory: int, name: str, limit: int, expected: os.stat_result
+) -> tuple[bytes, os.stat_result]:
+    """Read a held directory's leaf, refusing symlinks and replaced files."""
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+    )
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data, info = _bounded_read(handle, limit, expected)
+        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        if _file_identity(current) != _file_identity(info):
+            raise ValueError("file changed during reading")
+        return data, info
+    finally:
+        os.close(descriptor)
+
+
+def _json_object(data: bytes) -> dict[str, Any]:
+    try:
+        value = strict_json_loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise ValueError("not valid UTF-8 JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("JSON document is not an object")
+    return value
+
+
+# The writer emits extended ISO timestamps at microsecond resolution. A
+# fractional tail is harmless only when every digit beyond six is zero.
+_CLAIM_TIMESTAMP = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:[.,][0-9]{1,6}0*)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])"
+)
+
+
+def _parse_claim(data: bytes, expected_stage: str | None) -> _Claim:
+    """Validate a claim marker, reusing StageClaim's field validation."""
+    body = _json_object(data)
+    schema = body.get("schema_version")
+    if schema is None:
+        # Frozen legacy format: authorization_comment_id and no repository id.
+        keys = {
+            "stage",
+            "protocol_digest",
+            "commit",
+            "authorization_comment_id",
+            "claimed_at",
+        }
+        comment_id = body.get("authorization_comment_id")
+        repository_id = 1  # placeholder: legacy markers carry no repository id
+        label = "legacy"
+    elif schema == _V1_SCHEMA:
+        keys = {
+            "schema_version",
+            "stage",
+            "protocol_digest",
+            "commit",
+            "repository_id",
+            "comment_id",
+            "claimed_at",
+        }
+        comment_id = body.get("comment_id")
+        repository_id = body.get("repository_id")  # type: ignore[assignment]
+        label = _V1_SCHEMA
+    else:
+        raise ValueError("unknown claim schema")
+    if set(body) != keys:
+        raise ValueError("claim fields differ from the schema")
+    stamp = body["claimed_at"]
+    if type(stamp) is not str:
+        raise ValueError("claim timestamp is not a string")
+    try:
+        if _CLAIM_TIMESTAMP.fullmatch(stamp) is None:
+            raise ValueError("claim timestamp must be exact")
+        claimed_at = datetime.fromisoformat(stamp)
+        validated = StageClaim(
+            stage=body["stage"],
+            protocol_digest=body["protocol_digest"],
+            commit=body["commit"],
+            repository_id=repository_id,
+            comment_id=comment_id,  # type: ignore[arg-type]
+            claimed_at=claimed_at,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid claim field") from exc
+    if expected_stage is not None and validated.stage != expected_stage:
+        raise ValueError("claim stage differs from its file name")
+    return _Claim(
+        validated.stage,
+        validated.protocol_digest,
+        validated.commit,
+        validated.repository_id if label == _V1_SCHEMA else None,
+        validated.comment_id,
+        _iso(validated.claimed_at),
+        label,
+    )
+
+
+def _parse_result(data: bytes, expected_stage: str, info: os.stat_result) -> _Result:
+    """Extract only allowlisted fields and the opened file's timestamp."""
+    body = _json_object(data)
+    picked = {key: body.get(key) for key in RESULT_ALLOWLIST}
+    stage, label = picked["stage"], picked["label"]
+    protocol, digest = picked["protocol_digest"], picked["result_sha256"]
+    if type(stage) is not str or not _STAGE.fullmatch(stage):
+        raise ValueError("result stage is missing or malformed")
+    if stage != expected_stage:
+        raise ValueError("result stage differs from its file name")
+    if type(label) is not str or not _LABEL.fullmatch(label):
+        raise ValueError("result label is missing or malformed")
+    if type(protocol) is not str or not _HEX64.fullmatch(protocol):
+        raise ValueError("result protocol digest is missing or malformed")
+    if type(digest) is not str or not _HEX64.fullmatch(digest):
+        raise ValueError("result digest is missing or malformed")
+    recorded = datetime.fromtimestamp(info.st_mtime, UTC)
+    return _Result(stage, label, protocol, digest, _iso(recorded))
+
+
+def _scan(root: Path) -> tuple[list[_Group], list[dict[str, Any]]]:
+    """Return per-(directory, stage) groups and unattributable invalid files."""
+    groups: dict[tuple[str, str], _Group] = {}
+    loose: list[dict[str, Any]] = []
+    seen = 0
+
+    def group(location: str, stage: str) -> _Group:
+        key = (location, stage)
+        if key not in groups:
+            groups[key] = _Group(location, stage)
+        return groups[key]
+
+    def walk(directory: int, location: str, depth: int) -> None:
+        nonlocal seen
+        # Bound the roster while enumerating; never sort an unbounded list or
+        # present a partial scan as evidence that a stage is unclaimed.
+        names: list[str] = []
+        with os.scandir(directory) as children:
+            for child in children:
+                seen += 1
+                if seen > _MAX_ENTRIES:
+                    raise ValueError("ledger entry limit exceeded")
+                names.append(child.name)
+        for name in sorted(names):
+            try:
+                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except OSError:
+                loose.append(_loose(location, "", "file cannot be inspected"))
+                continue
+            if stat.S_ISLNK(info.st_mode):
+                loose.append(_loose(location, "", "symlink is not followed"))
+            elif stat.S_ISDIR(info.st_mode):
+                if not _HEX64.fullmatch(name):
+                    loose.append(_loose(location, "", "foreign directory"))
+                    continue
+                if depth >= _MAX_DEPTH:
+                    raise ValueError("ledger directory depth limit exceeded")
+                child_location = f"{location}/{name}" if location else name
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory,
+                )
+                try:
+                    opened = os.fstat(descriptor)
+                    if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                        raise ValueError("ledger directory identity changed")
+                    walk(descriptor, child_location, depth + 1)
+                finally:
+                    os.close(descriptor)
+            elif stat.S_ISREG(info.st_mode):
+                _classify(directory, name, location, info)
+            else:
+                loose.append(_loose(location, "", "not a regular file"))
+
+    def _classify(
+        directory: int, name: str, location: str, info: os.stat_result
+    ) -> None:
+        v1 = _V1_CLAIM.fullmatch(name)
+        legacy = _LEGACY_CLAIM.fullmatch(name)
+        comment = _COMMENT_CLAIM.fullmatch(name)
+        result = _LEGACY_RESULT.fullmatch(name)
+        try:
+            if v1 or legacy:
+                stage = (v1 or legacy).group(1)  # type: ignore[union-attr]
+                entry = group(location, stage)
+                entry.files.append(name)
+                data, _ = _read_regular(directory, name, _MAX_CLAIM_BYTES, info)
+                claim = _parse_claim(data, stage)
+                if (v1 is not None) != (claim.schema == _V1_SCHEMA):
+                    raise ValueError("claim schema differs from its file name")
+                if entry.claim is not None:
+                    raise ValueError("duplicate stage claim marker")
+                entry.claim = claim
+            elif comment:
+                data, _ = _read_regular(directory, name, _MAX_CLAIM_BYTES, info)
+                claim = _parse_claim(data, None)
+                entry = group(location, claim.stage)
+                entry.files.append(name)
+                if claim.schema != _V1_SCHEMA:
+                    entry.problems.append("comment marker has the wrong schema")
+                elif (comment.group(1), comment.group(2)) != (
+                    str(claim.repository_id),
+                    str(claim.comment_id),
+                ):
+                    entry.problems.append(
+                        "comment marker identity differs from its name"
+                    )
+                else:
+                    entry.comments.append((name, claim))
+            elif result:
+                stage = result.group(1).removeprefix("stage-")
+                entry = group(location, stage)
+                entry.files.append(name)
+                data, observed = _read_regular(directory, name, _MAX_RESULT_BYTES, info)
+                parsed = _parse_result(data, stage, observed)
+                if entry.result is not None:
+                    raise ValueError("duplicate result marker")
+                entry.result = parsed
+            else:
+                loose.append(_loose(location, "", "foreign file"))
+        except (OSError, ValueError, OverflowError) as exc:
+            reason = str(exc) if isinstance(exc, ValueError) else "file cannot be read"
+            stage_name = _stage_from_name(name)
+            if stage_name is None:
+                loose.append(_loose(location, "", reason))
+            else:
+                group(location, stage_name).problems.append(f"{name}: {reason}")
+
+    with _open_root(root.absolute()) as directory:
+        walk(directory, "", 0)
+    return [groups[key] for key in sorted(groups)], loose
+
+
+def _stage_from_name(name: str) -> str | None:
+    for pattern in (_V1_CLAIM, _LEGACY_CLAIM):
+        match = pattern.fullmatch(name)
+        if match:
+            return match.group(1)
+    match = _LEGACY_RESULT.fullmatch(name)
+    if match:
+        return match.group(1).removeprefix("stage-")
+    return None
+
+
+def _loose(location: str, name: str, reason: str) -> dict[str, Any]:
+    return {
+        "location": location,
+        "stage": None,
+        "state": INVALID,
+        "file": name,
+        "reason": reason,
+    }
+
+
+def _entry_for(item: _Group) -> dict[str, Any]:
+    claim, result = item.claim, item.result
+    problems = list(item.problems)
+    namespace = item.location.rsplit("/", 1)[-1]
+    if claim is None and not problems:
+        problems.append("result or comment marker without a stage claim")
+    if claim is not None and result is not None:
+        if result.protocol_digest != claim.protocol_digest:
+            problems.append("result protocol digest differs from the claim")
+    if claim is not None and _HEX64.fullmatch(namespace):
+        if claim.protocol_digest != namespace:
+            problems.append("claim digest differs from its digest-named directory")
+    if claim is not None:
+        if claim.schema == _V1_SCHEMA:
+            if len(item.comments) != 1:
+                problems.append("v1 stage requires exactly one matching comment marker")
+            elif item.comments[0][1] != claim:
+                problems.append("comment marker identity differs from the stage claim")
+        elif item.comments:
+            problems.append("legacy claim cannot have a v1 comment marker")
+    entry: dict[str, Any] = {
+        "location": item.location,
+        "stage": item.stage,
+        "state": INVALID,
+        "protocol_digest": claim.protocol_digest if claim else None,
+        "commit": claim.commit if claim else None,
+        "comment_id": claim.comment_id if claim else None,
+        "claimed_at": claim.claimed_at if claim else None,
+        "result_recorded_at": None,
+        "result_label": None,
+        "result_sha256": None,
+        "files": sorted(item.files),
+        "reason": "; ".join(problems) if problems else None,
+    }
+    if problems:
+        return entry
+    entry["state"] = CLAIMED if result is None else RESULT_RECORDED
+    if result is not None:
+        entry["result_recorded_at"] = result.recorded_at
+        entry["result_label"] = result.label
+        entry["result_sha256"] = result.result_sha256
+    return entry
+
+
+def _apply_schedule(
+    ledgers: list[dict[str, Any]],
+    schedule: dict[str, dict[str, date]],
+    today: date,
+) -> set[str]:
+    """Annotate only protocols with one unambiguous observed ledger scope."""
+    # An unreadable or invalid input could hide a claim for any scheduled
+    # protocol. Do not infer absence from the remaining inputs in that case.
+    if any(
+        ledger["error"] is not None
+        or any(entry["state"] == INVALID for entry in ledger["entries"])
+        for ledger in ledgers
+    ):
+        return set()
+    observed: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for index, ledger in enumerate(ledgers):
+        for entry in ledger["entries"]:
+            digest = entry.get("protocol_digest")
+            if digest in schedule:
+                observed.setdefault(digest, []).append((index, entry))
+    matched: set[str] = set()
+    for digest, observations in sorted(observed.items()):
+        scopes = {(index, entry["location"]) for index, entry in observations}
+        if len(scopes) != 1:
+            # The schedule has no root identity; choosing one would silently
+            # turn a partial observation into an apparent absence or due date.
+            continue
+        index, location = next(iter(scopes))
+        matched.add(digest)
+        claimed = {entry["stage"]: entry for _, entry in observations}
+        for stage, due in sorted(schedule[digest].items()):
+            existing = claimed.get(stage)
+            if existing is not None:
+                existing["earliest_allowed"] = due.isoformat()
+                continue
+            days = (due - today).days
+            ledgers[index]["entries"].append(
+                {
+                    "location": location,
+                    "stage": stage,
+                    "state": NOT_CLAIMED,
+                    "protocol_digest": digest,
+                    "commit": None,
+                    "comment_id": None,
+                    "claimed_at": None,
+                    "result_recorded_at": None,
+                    "result_label": None,
+                    "result_sha256": None,
+                    "files": [],
+                    "reason": None,
+                    "earliest_allowed": due.isoformat(),
+                    "days_until_due": days,
+                    "schedule_status": (
+                        "NOT_YET_DUE"
+                        if days > 0
+                        else "DUE_TODAY"
+                        if days == 0
+                        else "OVERDUE"
+                    ),
+                }
+            )
+    return matched
+
+
+def _sort_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        entry["location"],
+        entry["stage"] or "",
+        entry.get("file") or "",
+        entry["state"],
+    )
+
+
+def build_report(
+    ledgers: Sequence[Path],
+    schedule: dict[str, dict[str, date]] | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Build the allowlisted status report. `today` is injectable for tests."""
+    scheduled = schedule or {}
+    reference = today if today is not None else datetime.now(UTC).date()
+    out: list[dict[str, Any]] = []
+    for ledger in ledgers:
+        try:
+            groups, loose = _scan(ledger)
+        except (OSError, ValueError):
+            out.append(
+                {
+                    "path": str(ledger),
+                    "error": (
+                        "ledger is not a readable real directory or scan is incomplete"
+                    ),
+                    "entries": [],
+                }
+            )
+            continue
+        entries = [_entry_for(item) for item in groups]
+        entries.extend(loose)
+        out.append({"path": str(ledger), "error": None, "entries": entries})
+    matched = _apply_schedule(out, scheduled, reference) if scheduled else set()
+    for ledger_report in out:
+        entries = ledger_report["entries"]
+        for entry in entries:
+            entry.setdefault("earliest_allowed", None)
+            entry.setdefault("days_until_due", None)
+            entry.setdefault("schedule_status", None)
+            entry.setdefault("protocol_digest", None)
+            entry.setdefault("commit", None)
+            entry.setdefault("comment_id", None)
+            entry.setdefault("claimed_at", None)
+            entry.setdefault("result_recorded_at", None)
+            entry.setdefault("result_label", None)
+            entry.setdefault("result_sha256", None)
+            entry.setdefault("files", [])
+            entry.setdefault("reason", None)
+            entry.setdefault("file", None)
+        entries.sort(key=_sort_key)
+    report: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "notice": NO_PERFORMANCE_NOTICE,
+        "as_of": reference.isoformat() if scheduled else None,
+        "ledgers": out,
+        "schedule_unmatched_protocols": sorted(set(scheduled) - matched),
+    }
+    return report
+
+
+def render_json(report: dict[str, Any]) -> str:
+    return json.dumps(report, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
+
+
+def _short(value: str | None) -> str:
+    return value[:12] if value else "-"
+
+
+def _due_text(entry: dict[str, Any]) -> str:
+    if entry["earliest_allowed"] is None:
+        return "-"
+    days = entry["days_until_due"]
+    if days is None:
+        return entry["earliest_allowed"]
+    if days < 0:
+        return f"{entry['earliest_allowed']} (overdue {-days}d)"
+    return f"{entry['earliest_allowed']} (in {days}d)"
+
+
+_COLUMNS = (
+    ("STAGE", lambda e: e["stage"] or "-"),
+    ("STATE", lambda e: e["state"]),
+    ("PROTOCOL", lambda e: _short(e["protocol_digest"])),
+    ("CLAIMED_AT", lambda e: e["claimed_at"] or "-"),
+    ("RESULT_AT", lambda e: e["result_recorded_at"] or "-"),
+    ("LABEL", lambda e: e["result_label"] or "-"),
+    ("DUE", _due_text),
+)
+
+
+def _cells(entry: dict[str, Any]) -> list[str]:
+    cells = []
+    for _, getter in _COLUMNS:
+        cells.append(_clean(getter(entry)))
+    return cells
+
+
+def _clean(text: str) -> str:
+    return "".join(ch if ch.isprintable() else "?" for ch in str(text))
+
+
+def render_text(report: dict[str, Any]) -> str:
+    lines = [f"NOTICE: {report['notice']}"]
+    for ledger in report["ledgers"]:
+        lines.append("")
+        lines.append(f"Ledger: {_clean(ledger['path'])}")
+        if ledger["error"]:
+            lines.append(f"  ERROR: {ledger['error']}")
+            continue
+        entries = ledger["entries"]
+        if not entries:
+            lines.append("  (no stage claim files found)")
+            continue
+        header = ["LOCATION", *[name for name, _ in _COLUMNS]]
+        rows = [[_clean(e["location"] or ".")] + _cells(e) for e in entries]
+        widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
+        for row in [header, *rows]:
+            lines.append(
+                "  " + "  ".join(cell.ljust(width) for cell, width in zip(row, widths))
+            )
+        for entry in entries:
+            if entry["state"] == INVALID:
+                name = entry["stage"] or entry["file"] or "?"
+                where = entry["location"] or "."
+                lines.append(
+                    f"  INVALID {_clean(where)}/{_clean(name)}: "
+                    f"{_clean(entry['reason'] or '')}"
+                )
+        digests = sorted(
+            {e["protocol_digest"] for e in entries if e["protocol_digest"]}
+        )
+        for digest in digests:
+            lines.append(f"  protocol {digest}")
+        for entry in entries:
+            if entry["result_sha256"]:
+                lines.append(
+                    f"  result {_clean(entry['stage'])} sha256 {entry['result_sha256']}"
+                )
+    if report["schedule_unmatched_protocols"]:
+        lines.append("")
+        lines.append(
+            "Schedule protocols not uniquely matched in a valid scan: "
+            + ", ".join(report["schedule_unmatched_protocols"])
+        )
+    lines.append("")
+    lines.append(f"NOTICE: {report['notice']}")
+    return "\n".join(lines) + "\n"
+
+
+_CSS = (
+    "body{font-family:system-ui,sans-serif;margin:1.5rem;color:#111;background:#fff}"
+    "table{border-collapse:collapse;margin:.5rem 0 1.5rem}"
+    "th,td{border:1px solid #888;padding:.25rem .5rem;text-align:left;"
+    "font-size:.9rem}th{background:#eee}code{font-size:.85rem}"
+    ".notice{border:2px solid #333;padding:.5rem;font-weight:bold}"
+    ".INVALID{background:#fdd}.CLAIMED{background:#ffd}"
+    ".RESULT_RECORDED{background:#dfd}.NOT_CLAIMED{background:#eef}"
+)
+
+
+def render_html(report: dict[str, Any]) -> str:
+    esc = html.escape
+    parts = [
+        "<!DOCTYPE html>",
+        '<html lang="en"><head><meta charset="utf-8">',
+        '<meta http-equiv="Content-Security-Policy" '
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">",
+        "<title>Stage claims status</title>",
+        f"<style>{_CSS}</style></head><body>",
+        "<h1>Stage claims status</h1>",
+        f'<p class="notice">{esc(report["notice"])}</p>',
+    ]
+    for ledger in report["ledgers"]:
+        parts.append(f"<h2>Ledger: <code>{esc(_clean(ledger['path']))}</code></h2>")
+        if ledger["error"]:
+            parts.append(f"<p>ERROR: {esc(ledger['error'])}</p>")
+            continue
+        if not ledger["entries"]:
+            parts.append("<p>No stage claim files found.</p>")
+            continue
+        parts.append("<table><tr><th>LOCATION</th>")
+        parts.extend(f"<th>{esc(name)}</th>" for name, _ in _COLUMNS)
+        parts.append("<th>RESULT_SHA256</th><th>NOTE</th></tr>")
+        for entry in ledger["entries"]:
+            cells = [_clean(entry["location"] or "."), *_cells(entry)]
+            cells.append(_clean(entry["result_sha256"] or "-"))
+            note = entry["reason"] or ""
+            if entry["file"]:
+                note = f"{entry['file']}: {note}"
+            cells.append(_clean(note))
+            body = "".join(f"<td>{esc(c)}</td>" for c in cells)
+            parts.append(f'<tr class="{esc(entry["state"])}">{body}</tr>')
+        parts.append("</table>")
+        digests = sorted(
+            {e["protocol_digest"] for e in ledger["entries"] if e["protocol_digest"]}
+        )
+        for digest in digests:
+            parts.append(f"<p>Protocol digest: <code>{esc(digest)}</code></p>")
+    if report["schedule_unmatched_protocols"]:
+        parts.append(
+            "<p>Schedule protocols not uniquely matched in a valid scan: "
+            + esc(", ".join(report["schedule_unmatched_protocols"]))
+            + "</p>"
+        )
+    parts.append(f"<p>{esc(report['notice'])}</p></body></html>")
+    return "\n".join(parts) + "\n"
+
+
+def _calendar_date(value: str) -> date:
+    """Accept only the declared UTC calendar-date spelling, not other ISO forms."""
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("date must be YYYY-MM-DD")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("invalid UTC calendar date") from error
+
+
+def load_schedule(path: Path) -> dict[str, dict[str, date]]:
+    """Parse {protocol_digest: {STAGE: 'YYYY-MM-DD'}}; reject anything else."""
+    with open_regular_binary(path, field="stage schedule") as handle:
+        data, _ = _bounded_read(handle, _MAX_CLAIM_BYTES)
+    body = _json_object(data)
+    schedule: dict[str, dict[str, date]] = {}
+    for digest, stages in body.items():
+        if not _HEX64.fullmatch(digest) or not isinstance(stages, dict):
+            raise ValueError("schedule protocol key must be a 64-hex digest object")
+        schedule[digest] = {}
+        for stage, due in stages.items():
+            if not _STAGE.fullmatch(stage) or type(due) is not str:
+                raise ValueError("schedule stage must map a stage name to a date")
+            schedule[digest][stage] = _calendar_date(due)
+    return schedule
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    today: Callable[[], date] | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m tools.stage_claims_status",
+        description="Read-only stage claim status. " + NO_PERFORMANCE_NOTICE,
+    )
+    parser.add_argument("ledgers", nargs="+", type=Path, metavar="LEDGER_DIR")
+    parser.add_argument("--schedule", type=Path, help="JSON: protocol -> stage -> date")
+    formats = parser.add_mutually_exclusive_group()
+    formats.add_argument("--json", action="store_true", help="deterministic JSON")
+    formats.add_argument("--html", action="store_true", help="static HTML on stdout")
+    parser.add_argument("--as-of", help="override today's date (YYYY-MM-DD)")
+    args = parser.parse_args(argv)
+    schedule: dict[str, dict[str, date]] | None = None
+    try:
+        if args.schedule is not None:
+            schedule = load_schedule(args.schedule)
+        if args.as_of is not None:
+            reference = _calendar_date(args.as_of)
+        else:
+            reference = (today or (lambda: datetime.now(UTC).date()))()
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    report = build_report(args.ledgers, schedule, reference)
+    renderer = render_html if args.html else render_json if args.json else render_text
+    sys.stdout.write(renderer(report))
+    return 1 if any(item["error"] for item in report["ledgers"]) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

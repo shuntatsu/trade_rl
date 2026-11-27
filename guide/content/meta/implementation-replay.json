@@ -178,7 +178,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "e6e3117694931a3e4c2887d04dbab922018ac3eaf2123c0373755d51b219467d",
+      "source_sha256": "ee3d01442d361cda11eeb6bc9608a6d56fdd699c082fee7ac53ac8d31253f1a9",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。",
       "variables": [],

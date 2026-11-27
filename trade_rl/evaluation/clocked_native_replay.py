@@ -60,7 +60,9 @@ class ClockedNativeReplayResult:
     replay: SharedCashPortfolioReplayResult
 
 
-def _verify_group(dataset: MarketDataset, group: ClockedNativeFeatureGroup) -> None:
+def _verify_group(
+    dataset: MarketDataset, group: ClockedNativeFeatureGroup
+) -> np.ndarray:
     if type(dataset) is not MarketDataset or not dataset.identity_verified:
         raise ValueError(
             "native decision schedule requires a verified Dataset identity"
@@ -127,9 +129,12 @@ def _verify_group(dataset: MarketDataset, group: ClockedNativeFeatureGroup) -> N
         raise ValueError("native decision group must match one bound overlay group")
     closes = group.sources[0].raw.timestamps
     starts, ends = clock.interval_bounds(closes)
-    first = int(dataset.timestamps[0].astype(np.int64))
-    last = int(dataset.timestamps[-1].astype(np.int64))
-    step = int(dataset.timestamps[1].astype(np.int64)) - first
+    # MarketDataset admits exact coarser datetime64 units and preserves
+    # their dtype. Its constructor already checked lossless ns conversion.
+    fine = dataset.timestamps.astype("datetime64[ns]").view(np.int64)
+    first = int(fine[0])
+    last = int(fine[-1])
+    step = int(fine[1]) - first
     for start, end in zip(starts.view(np.int64), ends.view(np.int64), strict=True):
         lo, hi = int(start), int(end)
         if (lo - first) % step or (hi - first) % step or hi - lo <= step:
@@ -152,6 +157,7 @@ def _verify_group(dataset: MarketDataset, group: ClockedNativeFeatureGroup) -> N
         )
         if actual != source.expected_source_digest:
             raise ValueError("native decision source digest mismatch")
+    return fine
 
 
 def _expired(clock: NativeBarClock, close_ns: int, decision_ns: int) -> bool:
@@ -187,14 +193,13 @@ def clocked_native_decision_schedule(
     Only raw publication is gated; the current as-of feature masks, warm-up
     and staleness still belong to the overlay and the policy.
     """
-    _verify_group(dataset, group)
+    fine = _verify_group(dataset, group)
     if (
         type(start_index) is not int
         or type(stop_index) is not int
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("invalid native decision window")
-    fine = dataset.timestamps.view(np.int64)
     closes = group.sources[0].raw.timestamps.view(np.int64)
     # Every source already passed the same complete clock/grid and pin checks.
     published = closes.copy()

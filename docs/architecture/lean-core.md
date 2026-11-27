@@ -1221,7 +1221,9 @@ For each declared coarse close, the latest receipt over the whole group
 determines the earliest possible actor time. Pick the first fine close at or
 after that receipt (an exact timestamp tie follows the existing close/
 next-open convention). A one-nanosecond delay moves the decision to a later
-fine close. Never schedule an earlier warm-up bar, catch up a missed
+fine close. The admitted fine Dataset timestamp unit is normalized to exact
+nanoseconds before grid or receipt comparisons; valid coarser-unit storage
+does not change the schedule or accounting. Never schedule an earlier warm-up bar, catch up a missed
 decision at window start, or act at/after the next declared coarse close.
 Fixed elapsed and UTC-week expiry use exact elapsed nanoseconds; UTC-month
 expiry uses the next calendar month, not 30 days. Outside-window and expired

@@ -357,3 +357,70 @@ def test_declared_receipt_in_terminal_reserve_does_not_call_policy():
     assert result.policy_decision_indices == ()
     assert result.replay.book.exact_quantities == (0, 0)
     assert result.replay.returns.values == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("unit", ["h", "s", "ms", "us"])
+def test_fine_timestamp_units_preserve_publication_schedule(unit):
+    from trade_rl.data.identity import parse_identity_json
+
+    dataset, group = _group()
+    expected = scheduling.clocked_native_decision_schedule(
+        dataset, group, start_index=0, stop_index=dataset.n_bars - 1
+    )
+    alternate = replace(
+        dataset,
+        identity_payload_json=None,
+        timestamps=dataset.timestamps.astype(f"datetime64[{unit}]"),
+    ).with_content_identity(parse_identity_json(dataset.identity_payload_json))
+    assert alternate.identity_verified
+    assert alternate.timestamps.dtype == np.dtype(f"datetime64[{unit}]")
+    actual = scheduling.clocked_native_decision_schedule(
+        alternate, group, start_index=0, stop_index=alternate.n_bars - 1
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("unit", ["s", "ms"])
+def test_fine_timestamp_units_preserve_actual_actor_and_ledger(unit):
+    from trade_rl.data.identity import parse_identity_json
+
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+    alternate = replace(
+        dataset,
+        identity_payload_json=None,
+        timestamps=dataset.timestamps.astype(f"datetime64[{unit}]"),
+    ).with_content_identity(parse_identity_json(dataset.identity_payload_json))
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            assert snapshot.timestamp_ns == int(
+                np.datetime64("2024-01-04T03:00:00", "ns").astype(np.int64)
+            )
+            return PortfolioTargetProposal((0.3, 0.0))
+
+    def run(data):
+        return scheduling.run_clocked_native_portfolio_replay(
+            data,
+            Policy(),
+            decision_group=group,
+            start_index=first,
+            stop_index=first + 9,
+            initial_capital=1000,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                allow_short=False,
+                processing_bar_volume_capacity=False,
+                partial_fill_carry=False,
+                fee_rate=0.001,
+            ),
+            capture_ledger_evidence=True,
+        )
+
+    expected, actual = run(dataset), run(alternate)
+    assert actual.slots == expected.slots
+    assert actual.policy_decision_indices == expected.policy_decision_indices
+    assert actual.replay.returns.values == expected.replay.returns.values
+    assert actual.replay.book.cash == expected.replay.book.cash
+    assert actual.replay.book.total_cost == expected.replay.book.total_cost
+    assert actual.replay.book.exact_quantities == expected.replay.book.exact_quantities

@@ -36,6 +36,8 @@ from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.native_transition import (
+    PendingContinuationStatus,
+    _validate_pending_continuation_config,
     execute_native_target_transition,
     validate_risk_execution_compatibility,
 )
@@ -261,7 +263,7 @@ class SharedCashReplayResult:
 
 @dataclass(frozen=True, slots=True)
 class SharedCashPortfolioReplayDecision:
-    """One full-vector portfolio proposal and its native risk result."""
+    """One actor or no-new-intent proposal and its native risk result."""
 
     index: int
     proposal_weights: tuple[float, ...]
@@ -269,9 +271,10 @@ class SharedCashPortfolioReplayDecision:
     risk_reasons: tuple[str, ...]
     requested_hold_symbols: tuple[int, ...]
     effective_hold_symbols: tuple[int, ...]
+    pending_continuation_status: PendingContinuationStatus | None = None
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "effective_hold_symbols": self.effective_hold_symbols,
             "index": self.index,
             "proposal_weights": self.proposal_weights,
@@ -279,6 +282,9 @@ class SharedCashPortfolioReplayDecision:
             "risk_reasons": self.risk_reasons,
             "target_weights": self.target_weights,
         }
+        if self.pending_continuation_status is not None:
+            payload["pending_continuation_status"] = self.pending_continuation_status
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +294,7 @@ class SharedCashPortfolioReplayLedgerEvidence:
     intervals: SharedCashReplayLedgerEvidence
     decisions: tuple[SharedCashPortfolioReplayDecision, ...]
     exposure_evidence: ReplayExposureEvidence | None = None
+    scheduled_actor_indices: tuple[int, ...] | None = None
 
     def to_mapping(self) -> dict[str, object]:
         payload = self.intervals.to_mapping()
@@ -299,6 +306,35 @@ class SharedCashPortfolioReplayLedgerEvidence:
         if self.exposure_evidence is not None:
             payload["schema_version"] = EXPOSURE_LEDGER_SCHEMA
             payload["pre_interval_exposure"] = self.exposure_evidence.to_mapping()
+        if self.scheduled_actor_indices is not None:
+            if self.exposure_evidence is not None:
+                raise ValueError("sparse actor ledger does not admit exposure evidence")
+            planned = self.scheduled_actor_indices
+            if (
+                type(planned) is not tuple
+                or any(type(idx) is not int for idx in planned)
+                or tuple(sorted(set(planned))) != planned
+            ):
+                raise ValueError("invalid sparse actor ledger schedule")
+            planned_set = frozenset(planned)
+            actual = tuple(
+                d.index for d in self.decisions if d.pending_continuation_status is None
+            )
+            if actual != tuple(
+                d.index for d in self.decisions if d.index in planned_set
+            ) or any(
+                d.pending_continuation_status
+                not in (None, "continued", "risk_fallback", "hold")
+                for d in self.decisions
+            ):
+                raise ValueError("sparse actor ledger decisions differ from schedule")
+            payload["schema_version"] = "shared_cash_portfolio_replay_ledger_v3"
+            payload["scheduled_actor_indices"] = planned
+            payload["actor_decision_indices"] = actual
+        elif any(d.pending_continuation_status is not None for d in self.decisions):
+            raise ValueError(
+                "pending continuation evidence requires sparse actor ledger"
+            )
         return payload
 
 
@@ -885,6 +921,7 @@ def _run_shared_cash_replay_core(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     _portfolio_policy: PortfolioPolicy | None = None,
+    _actor_decision_indices: tuple[int, ...] | None = None,
     _exposure_rows: list[PreIntervalMarkEvidence] | None = None,
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
@@ -998,6 +1035,25 @@ def _run_shared_cash_replay_core(
         settle_terminal_position=settle_terminal_position,
         terminal_reserve_bars=terminal_reserve_bars,
     )
+    sparse_actor_indices: frozenset[int] | None = None
+    if _actor_decision_indices is not None:
+        if not portfolio_mode or not settle_terminal_position:
+            raise ValueError(
+                "sparse actor schedule requires portfolio terminal settlement"
+            )
+        if (
+            type(_actor_decision_indices) is not tuple
+            or any(
+                type(idx) is not int or not start_index <= idx < agent_stop_index
+                for idx in _actor_decision_indices
+            )
+            or tuple(sorted(set(_actor_decision_indices))) != _actor_decision_indices
+        ):
+            raise ValueError(
+                "actor decision indices must be unique increasing native integers in the actor window"
+            )
+        _validate_pending_continuation_config(resolved_execution_cost)
+        sparse_actor_indices = frozenset(_actor_decision_indices)
     roster_symbol_indices = tuple(range(dataset.n_symbols))
     _require_available_marks_at_row(
         dataset,
@@ -1077,7 +1133,13 @@ def _run_shared_cash_replay_core(
         interval_index: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
         emergency_flatten_mask: np.ndarray | None = None,
-    ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
+        no_new_intent: bool = False,
+    ) -> tuple[
+        RiskConstrainedTarget,
+        ExecutionResult,
+        tuple[int, ...],
+        PendingContinuationStatus | None,
+    ]:
         nonlocal active_order_remainders, book, terminal_order_reasons
         _require_available_marks_at_row(
             dataset,
@@ -1111,10 +1173,19 @@ def _run_shared_cash_replay_core(
                 mark_prices=tuple(float(value) for value in book.mark_prices),
                 contract_multipliers=tuple(float(value) for value in multipliers),
             )
+        continuation_status: PendingContinuationStatus | None = None
         if portfolio_session is not None:
             if interval_index != portfolio_session.current_index:
                 raise RuntimeError("portfolio session index differs from replay")
-            if emergency_flatten_mask is None:
+            if no_new_intent:
+                if emergency_flatten_mask is not None or hold_current_quantity_symbols:
+                    raise RuntimeError(
+                        "pending continuation cannot be a target or terminal transition"
+                    )
+                risk_target, execution, effective_holds, continuation_status = (
+                    portfolio_session.advance_without_new_intent()
+                )
+            elif emergency_flatten_mask is None:
                 risk_target, execution, effective_holds = portfolio_session.advance(
                     proposal_weights,
                     hold_current_quantity_symbols=hold_current_quantity_symbols,
@@ -1125,6 +1196,8 @@ def _run_shared_cash_replay_core(
                 )
         else:
             assert executor is not None
+            if no_new_intent:
+                raise RuntimeError("pending continuation requires a portfolio session")
             risk_target, execution, effective_holds = execute_native_target_transition(
                 executor,
                 book,
@@ -1211,7 +1284,7 @@ def _run_shared_cash_replay_core(
             _exposure_rows.append(exposure_row)
         book = execution.book
         returns.append(execution.interval_net_return)
-        return risk_target, execution, effective_holds
+        return risk_target, execution, effective_holds, continuation_status
 
     while index < agent_stop_index:
         _require_available_marks_at_row(
@@ -1223,54 +1296,84 @@ def _run_shared_cash_replay_core(
         if portfolio_mode:
             assert _portfolio_policy is not None
             assert portfolio_session is not None
-            snapshot = build_portfolio_decision_snapshot(
-                dataset,
-                index=index,
-                agent_stop_index=agent_stop_index,
-                book=portfolio_session.book,
-                active_orders=portfolio_session.active_orders,
-                risk_config=risk_controller.config,
-            )
-            proposal = _portfolio_policy.decide_portfolio(snapshot)
-            if not isinstance(proposal, PortfolioTargetProposal):
-                raise TypeError(
-                    "portfolio policy must return a PortfolioTargetProposal"
-                )
-            # Reconstruct the DTO so even an instance modified through low-level
-            # means is checked before the shared executor can mutate its book.
-            proposal = PortfolioTargetProposal(
-                target_weights=proposal.target_weights,
-                hold_current_quantity_symbols=(proposal.hold_current_quantity_symbols),
-            )
-            if len(proposal.target_weights) != dataset.n_symbols:
-                raise ValueError("portfolio target vector must match dataset symbols")
-            if any(
-                symbol_index >= dataset.n_symbols
-                for symbol_index in proposal.hold_current_quantity_symbols
-            ):
-                raise ValueError("portfolio HOLD symbols must be in the symbol roster")
-            if any(
-                proposal.target_weights[symbol_index]
-                != snapshot.account.weights[symbol_index]
-                for symbol_index in proposal.hold_current_quantity_symbols
-            ):
-                raise ValueError("portfolio HOLD target must equal current book weight")
-
             decision_index = index
             quantities_before = tuple(float(value) for value in book.quantities)
-            constrained, execution, effective_holds = execute_and_record(
-                np.asarray(proposal.target_weights, dtype=np.float64),
-                interval_index=decision_index,
-                hold_current_quantity_symbols=(proposal.hold_current_quantity_symbols),
-            )
+            if sparse_actor_indices is not None and index not in sparse_actor_indices:
+                constrained, execution, effective_holds, continuation_status = (
+                    execute_and_record(
+                        book.weights,
+                        interval_index=decision_index,
+                        no_new_intent=True,
+                    )
+                )
+                assert continuation_status is not None
+                assert constrained.proposal_weights is not None
+                recorded_proposal = tuple(
+                    float(value) for value in constrained.proposal_weights
+                )
+                requested_holds = (
+                    () if continuation_status == "continued" else roster_symbol_indices
+                )
+            else:
+                snapshot = build_portfolio_decision_snapshot(
+                    dataset,
+                    index=index,
+                    agent_stop_index=agent_stop_index,
+                    book=portfolio_session.book,
+                    active_orders=portfolio_session.active_orders,
+                    risk_config=risk_controller.config,
+                )
+                proposal = _portfolio_policy.decide_portfolio(snapshot)
+                if not isinstance(proposal, PortfolioTargetProposal):
+                    raise TypeError(
+                        "portfolio policy must return a PortfolioTargetProposal"
+                    )
+                # Reconstruct the DTO so even an instance modified through low-level
+                # means is checked before the shared executor can mutate its book.
+                proposal = PortfolioTargetProposal(
+                    target_weights=proposal.target_weights,
+                    hold_current_quantity_symbols=(
+                        proposal.hold_current_quantity_symbols
+                    ),
+                )
+                if len(proposal.target_weights) != dataset.n_symbols:
+                    raise ValueError(
+                        "portfolio target vector must match dataset symbols"
+                    )
+                if any(
+                    symbol_index >= dataset.n_symbols
+                    for symbol_index in proposal.hold_current_quantity_symbols
+                ):
+                    raise ValueError(
+                        "portfolio HOLD symbols must be in the symbol roster"
+                    )
+                if any(
+                    proposal.target_weights[symbol_index]
+                    != snapshot.account.weights[symbol_index]
+                    for symbol_index in proposal.hold_current_quantity_symbols
+                ):
+                    raise ValueError(
+                        "portfolio HOLD target must equal current book weight"
+                    )
+
+                constrained, execution, effective_holds, continuation_status = (
+                    execute_and_record(
+                        np.asarray(proposal.target_weights, dtype=np.float64),
+                        interval_index=decision_index,
+                        hold_current_quantity_symbols=proposal.hold_current_quantity_symbols,
+                    )
+                )
+                recorded_proposal = proposal.target_weights
+                requested_holds = proposal.hold_current_quantity_symbols
             portfolio_decisions.append(
                 SharedCashPortfolioReplayDecision(
                     index=decision_index,
-                    proposal_weights=proposal.target_weights,
+                    proposal_weights=recorded_proposal,
                     target_weights=tuple(float(value) for value in constrained.weights),
                     risk_reasons=constrained.reasons,
-                    requested_hold_symbols=proposal.hold_current_quantity_symbols,
+                    requested_hold_symbols=requested_holds,
                     effective_hold_symbols=effective_holds,
+                    pending_continuation_status=continuation_status,
                 )
             )
             for symbol_index in range(dataset.n_symbols):
@@ -1412,7 +1515,7 @@ def _run_shared_cash_replay_core(
         )
         decision_index = index
         pre_execution_book = book
-        constrained, execution, effective_hold_symbols = execute_and_record(
+        constrained, execution, effective_hold_symbols, _ = execute_and_record(
             proposal_weights,
             interval_index=decision_index,
             hold_current_quantity_symbols=exact_hold_symbols,
@@ -1492,7 +1595,7 @@ def _run_shared_cash_replay_core(
             emergency_flatten_mask[list(roster_symbol_indices)] = (
                 book.quantities[list(roster_symbol_indices)] != 0.0
             )
-            _, execution, _ = execute_and_record(
+            _, execution, _, _ = execute_and_record(
                 flat_proposal,
                 interval_index=index,
                 emergency_flatten_mask=emergency_flatten_mask,
@@ -1623,6 +1726,7 @@ def run_shared_portfolio_replay(
     settle_terminal_position: bool = False,
     capture_ledger_evidence: bool = False,
     capture_exposure_evidence: bool = False,
+    actor_decision_indices: tuple[int, ...] | None = None,
     terminal_reserve_bars: int | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     hold_unchanged_risk_target: bool = False,
@@ -1648,6 +1752,11 @@ def run_shared_portfolio_replay(
     An optional fill_cash_observer receives separate actual order-fill cash
     and cost transitions after each successful native execution invocation.
     It excludes carry and non-order settlements; failure aborts replay.
+    Explicit actor_decision_indices schedules only those actual fine actor
+    indices and uses risk-checked no-new-intent continuation on the other
+    actor intervals. Terminal settlement is required; sparse v3 ledger rows
+    distinguish actual actor calls from continuation and risk fallback.
+    Exposure evidence v2 is not combined with this opt-in mode.
     Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
@@ -1667,6 +1776,8 @@ def run_shared_portfolio_replay(
         capture_exposure_evidence and capture_ledger_evidence is not True
     ):
         raise ValueError("exposure evidence requires explicit ledger capture")
+    if actor_decision_indices is not None and capture_exposure_evidence:
+        raise ValueError("sparse actor schedule does not admit exposure evidence")
     exposure_rows: list[PreIntervalMarkEvidence] | None = (
         [] if capture_exposure_evidence else None
     )
@@ -1684,6 +1795,7 @@ def run_shared_portfolio_replay(
         settle_terminal_position=settle_terminal_position,
         capture_ledger_evidence=capture_ledger_evidence,
         _portfolio_policy=policy,
+        _actor_decision_indices=actor_decision_indices,
         _exposure_rows=exposure_rows,
         terminal_reserve_bars=terminal_reserve_bars,
         insolvency_valuation=insolvency_valuation,
@@ -1698,6 +1810,7 @@ def run_shared_portfolio_replay(
         else SharedCashPortfolioReplayLedgerEvidence(
             intervals=result.ledger_evidence,
             decisions=decisions,
+            scheduled_actor_indices=actor_decision_indices,
             exposure_evidence=(
                 None
                 if exposure_rows is None

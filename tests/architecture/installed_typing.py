@@ -73,6 +73,7 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         risk=PreTradeRisk(PreTradeRiskConfig()), capture_ledger_evidence=True,
     ), SharedCashPortfolioReplayResult)
     assert_type(result.ledger_evidence, SharedCashPortfolioReplayLedgerEvidence | None)
+    assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, settle_terminal_position=True, actor_decision_indices=(0,)), SharedCashPortfolioReplayResult)
     if result.ledger_evidence is not None:
         assert_type(result.ledger_evidence.exposure_evidence, ReplayExposureEvidence | None)
     assert_type(mean_pre_interval_gross_from_ledger(b"", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2), float)
@@ -93,7 +94,7 @@ def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
     assert_type(clocked_native_decision_schedule(market, group, start_index=0, stop_index=2), tuple[NativePublicationSlot, ...])
     scheduled = assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig()), ClockedNativeReplayResult)
-    assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig(), execution_mode="linear_carry", terminal_reserve_bars=1), ClockedNativeReplayResult)
+    assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig(), execution_mode="linear_carry", terminal_reserve_bars=1, continue_pending_orders=True), ClockedNativeReplayResult)
     assert_type(scheduled.replay, SharedCashPortfolioReplayResult)
     assert_type(scheduled.policy_decision_indices, tuple[int, ...])
     assert_type(scheduled.slots, tuple[NativePublicationSlot, ...])

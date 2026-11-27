@@ -146,7 +146,7 @@ Task18の人工native経路は、凍結した単純リターン予測・費用�
 
 `run_shared_portfolio_replay`はsimulation-ownedな
 `SharedPortfolioSession`を呼び出すopt-in batch consumerです。eligibleなnative
-barごとにpolicyを一度だけ呼びます。sessionは同じ`MarketExecutor`・実際に返された
+barごとに既定ではpolicyを一度だけ呼びます。sessionは同じ`MarketExecutor`・実際に返された
 `BookState`・native indexを次の呼び出しへ引き継ぎ、各numeric targetを共通risk・
 execution・accounting経路へ渡します。公開book viewはdetached cloneです。
 `strategies/portfolio_observation.py`が現在の`MarketDataset` row、`BookState`、
@@ -160,6 +160,8 @@ future rowやopaque order IDはpolicy入力に含めません。これは完全�
 提供するものではなく、free/reserved cashも合成しません。
 
 policyは各symbolのtarget weightをすべて返します。明示的なexact-quantity HOLDも指定できますが、そのweightがhard-risk適用後も変わらない場合だけ既存数量を維持します。riskがtargetを縮小した場合は通常どおり実行され、latency-aware actor boundary後のterminal intervalはsessionのrisk-owned emergency flattenが処理します。observer/transition failure後はexecution stateが進んでいる可能性があるため、sessionを再試行できません。このsnapshotは観測したaccountとpending-order factsであり、free/reserved cashや完全なMarkov stateを合成しません。
+
+明示的に判断するfine barを指定すると、それ以外の区間は新しいactor判断なしで進みます。決定論的な非レバレッジの成行注文に限り、現在の保有・残注文の全約定後・銘柄ごとの部分約定による最大露出をリスク検査します。許容される残注文は元のID・数量・約定可能時刻を維持し、許容されなければ通常のHOLD取消・リスク縮小を行います。新しいv3台帳で予定・実際のactor indexと判断のない区間を区別し、既定のv1/v2台帳は変えません。現在markによる検査は将来の約定価格でのリスクを保証せず、終端決済の残高検査も必要です。
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
 

@@ -304,10 +304,35 @@ out-of-roster symbol indices. Optional limit, stop, or submission-reference
 prices use their existing presence flags; absent values are encoded as zero
 with a zero flag. This keeps all-`None` legacy snapshots encodable without
 inventing missing price facts.
-This
-numeric path has its own `shared_cash_portfolio_replay_ledger_v1` action schema;
-the existing intent replay result and ledger schemas remain unchanged. This seam
-does not change PPO's per-symbol training path or establish an economic result.
+This numeric path defaults to `shared_cash_portfolio_replay_ledger_v1`.
+An explicit increasing tuple of native fine-bar `actor_decision_indices`
+requires terminal settlement and calls the actor only at those rows.
+`SharedPortfolioSession.advance_without_new_intent` advances every other
+actor-window row without a fresh policy target. It uses deterministic,
+unlevered cross-margin MARKET with previous-bar capacity. One compatible
+native GTC order per symbol may continue with its original ID, submission,
+eligibility and exact residual (including repeated no-fill observations).
+The decision-close risk check uses current holdings and the residual endpoint
+at current marks/equity, rounding residual exposure outward, and also the
+simultaneous maximum absolute exposure of each symbol's current and endpoint
+weights, since independent fills may transiently increase gross. The existing
+risk owner must leave all three vectors unchanged; otherwise ordinary exact
+HOLD/cancellation and hard-risk correction take precedence. With no active
+order, the ordinary risk-constrained HOLD path applies. This conservatively
+checks continued orders at decision close; it does not guarantee future-open
+exposure, venue reservation or the order in which simultaneous fills occur.
+Native fill admission, actual quantities, partial remainder/expiry, carry,
+fees, risk-owned terminal flatten and observer failure poisoning remain with
+the existing executor. Scheduled actor calls still use normal target
+reconciliation, including explicit HOLD cancellation or replacement.
+The actor snapshot window/countdown still counts fine intervals, not sparse
+calls. Opt-in `shared_cash_portfolio_replay_ledger_v3` binds the planned
+schedule and observed actor indices; dense pre-terminal decision rows label
+non-actor steps as continued, risk_fallback, or hold (a HOLD request can still
+be constrained by hard risk). It does not combine with v2 exposure evidence
+or admit v3 into the existing pinned v1 artifact readers. Default v1/v2 and
+legacy intent ledger bytes remain unchanged. This seam does not change PPO's
+training/checkpoint contract or establish an economic result.
 
 `evaluation/runs/portfolio_family_comparison.py` is an opt-in in-memory
 coordinator for four fixed families: explicit cash, built-in Trend, a
@@ -1240,8 +1265,8 @@ staleness remain the existing as-of overlay and policy's responsibility.
 
 `run_clocked_native_portfolio_replay` reuses the common shared replay on every
 fine interval. It calls the supplied policy only on admitted slots, proposes
-exact-quantity HOLD otherwise, and leaves hard risk and terminal flattening
-to the native owner. The default execution_mode="strict_spot" retains
+exact-quantity HOLD otherwise by default, and leaves hard risk and terminal
+flattening to the native owner. The default execution_mode="strict_spot" retains
 deterministic, unlevered long-only strict spot cash and no fine funding
 events. Explicit execution_mode="linear_carry" uses the same shared
 signed-position cross-margin engine with gross leverage limit at most one
@@ -1264,18 +1289,24 @@ These are discrete bar-model assumptions: the arrays do not prove actual
 event timestamps, execution-time financing, or provider authenticity.
 An intrabar or multi-event funding source requires a separate contract.
 
-Both modes require deterministic MARKET, zero additional order latency,
-previous-bar capacity, no pending partial-fill carry, and available,
-active and tradable fine marks throughout the replay range. The native
+Both modes require deterministic MARKET, previous-bar capacity, and available,
+active and tradable fine marks throughout the replay range. The default still
+requires zero additional latency and no pending partial-fill carry. Explicit
+`continue_pending_orders=True` selects the shared sparse actor v3 path above,
+requires cross margin and admits fine-bar order latency and the configured
+native partial-fill carry behavior; it does not recall the coarse actor or
+refresh the original order's quantity/eligibility on off-schedule rows. The native
 terminal reserve is excluded from the actor window. An optional
 `terminal_reserve_bars` counts fine execution intervals, not coarse decisions;
-its native positive-integer value can extend the existing default of one
-interval and must leave at least one actor interval. The schedule and shared
+its native positive-integer value can extend the native default of latency
+plus one interval (one under the default zero-latency mode) and must leave
+at least one actor interval. The schedule and shared
 replay use the same native reserve calculation. No policy calls occur in
 the reserved tail, even when a new coarse receipt arrives. The common
 terminal flatten path attempts settlement on each reserved interval under
-the same risk and previous-bar capacity, with no pending partial-fill
-carry. This is not a guarantee of a flat final book. Borrow denial can
+the same risk, previous-bar capacity and configured remainder policy.
+The terminal path reconciles to flat, not to an old pending entry. This is
+not a guarantee of a flat final book. Borrow denial can
 prevent new shorts; insufficient liquidity or termination can prevent
 actual settlement. Inspect the returned book and ledger. Planned slots and observed actor calls are
 distinct facts. Returns/fees/carry remain on the fine execution cadence;
@@ -1285,6 +1316,6 @@ from the signed native path, and Dataset identity binds the declared
 economic arrays; retain the mode/config and captured ledger as evidence.
 The same augmented Dataset can serve multiple policies without repeating
 feature construction. This does not admit native calendar-month execution,
-additional order latency or persistent pending orders, leveraged margin
-or intrabar funding, RL checkpoint migration, provider authentication
+non-MARKET pending orders, leveraged margin or intrabar funding, RL
+checkpoint migration, provider authentication
 or economic authorization.

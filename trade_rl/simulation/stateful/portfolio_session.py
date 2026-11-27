@@ -21,7 +21,10 @@ from trade_rl.simulation.execution import (
     MarketExecutor,
 )
 from trade_rl.simulation.native_transition import (
+    PendingContinuationStatus,
+    _execute_native_pending_transition,
     _validate_native_target_request,
+    _validate_pending_continuation_config,
     execute_native_target_transition,
     validate_risk_execution_compatibility,
 )
@@ -262,6 +265,47 @@ class SharedPortfolioSession:
             emergency_flatten_mask=None,
         )
 
+    def advance_without_new_intent(
+        self,
+    ) -> tuple[
+        RiskConstrainedTarget,
+        ExecutionResult,
+        tuple[int, ...],
+        PendingContinuationStatus,
+    ]:
+        """Advance without resubmitting an old target.
+
+        Continue compatible outstanding MARKET orders only if current-mark
+        exposure remains risk-admissible, including independent partial
+        fills. Otherwise use the ordinary risk-constrained exact-HOLD path.
+        No new actor decision, future price input or liquidity bypass.
+        """
+        if not self.can_decide:
+            raise RuntimeError("portfolio session is not accepting actor decisions")
+        _validate_pending_continuation_config(self._executor.cost)
+        index = self._current_index
+        for row in (index, index + 1):
+            _require_available_marks_at_row(
+                self._dataset,
+                row_index=row,
+                selected_symbol_indices=tuple(range(self._dataset.n_symbols)),
+                held_quantities=self._book.quantities,
+            )
+        try:
+            risk_target, execution, effective_holds, status = (
+                _execute_native_pending_transition(
+                    self._executor,
+                    self._book,
+                    self._risk,
+                    start_index=index,
+                    hold_unchanged_risk_target=self._hold_unchanged_risk_target,
+                )
+            )
+        except BaseException:
+            self._poisoned = True
+            raise
+        return (*self._finish_advance(risk_target, execution, effective_holds), status)
+
     def settle_next_interval(
         self,
     ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
@@ -317,6 +361,14 @@ class SharedPortfolioSession:
             # observer or downstream invariant raises; never permit a retry.
             self._poisoned = True
             raise
+        return self._finish_advance(risk_target, execution, effective_holds)
+
+    def _finish_advance(
+        self,
+        risk_target: RiskConstrainedTarget,
+        execution: ExecutionResult,
+        effective_holds: tuple[int, ...],
+    ) -> tuple[RiskConstrainedTarget, ExecutionResult, tuple[int, ...]]:
         self._book = execution.book
         self._current_index = execution.next_index
         detached_execution = replace(execution, book=execution.book.clone())

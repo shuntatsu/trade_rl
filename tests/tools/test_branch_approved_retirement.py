@@ -207,7 +207,115 @@ def test_real_backup_ref_and_object_verification(tmp_path: Path) -> None:
         hygiene._verify_approved_20261127_backup(repo, ((name, oid),))
 
 
-@pytest.mark.parametrize("mode", ["preview", "apply", "drift", "post-drift", "limit"])
+def test_fixed_scope_has_sixteen_unique_nonzero_ref_identities() -> None:
+    main = hygiene._APPROVED_20261127_MAIN
+    cloud = hygiene._APPROVED_20261127_CLOUD
+    successor = hygiene._APPROVED_20261127_SUCCESSOR
+    assert len(main) == 9 and len(cloud) == 7
+    refs = (*main, *cloud, successor)
+    assert len({name for name, _ in refs}) == len(refs)
+    assert len({oid for _, oid in refs}) == len(refs)
+    assert all(hygiene._is_nonzero_oid(oid) for _, oid in refs)
+    assert all(name != "main" for name, _ in refs)
+
+
+def test_backup_rejects_corrupted_reachable_blob(tmp_path: Path) -> None:
+    import subprocess
+    import zlib
+
+    repo = tmp_path / "backup.git"
+    subprocess.run(
+        ["git", "init", "--bare", str(repo)], check=True, capture_output=True
+    )
+    cmd = ["git", f"--git-dir={repo}"]
+    blob = subprocess.check_output(
+        [*cmd, "hash-object", "-w", "--stdin"], input="good", text=True
+    ).strip()
+    tree = subprocess.check_output(
+        [*cmd, "mktree"], input=f"100644 blob {blob}\tdata\n", text=True
+    ).strip()
+    commit = subprocess.check_output(
+        [
+            *cmd,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit-tree",
+            tree,
+            "-m",
+            "synthetic",
+        ],
+        text=True,
+    ).strip()
+    name = "research/synthetic"
+    subprocess.run(
+        [*cmd, "update-ref", "refs/remotes/origin/" + name, commit], check=True
+    )
+    hygiene._verify_approved_20261127_backup(repo, ((name, commit),))
+    loose = repo / "objects" / blob[:2] / blob[2:]
+    loose.chmod(0o600)
+    loose.write_bytes(zlib.compress(b"blob 4\x00evil"))
+    with pytest.raises(RuntimeError, match="backup Git"):
+        hygiene._verify_approved_20261127_backup(repo, ((name, commit),))
+
+
+@pytest.mark.parametrize("relative", ["refs", "objects/info"])
+def test_backup_rejects_redirected_metadata(tmp_path: Path, relative: str) -> None:
+    import subprocess
+
+    repo = tmp_path / "backup.git"
+    subprocess.run(
+        ["git", "init", "--bare", str(repo)], check=True, capture_output=True
+    )
+    target = repo / relative
+    external = tmp_path / "external"
+    target.rename(external)
+    try:
+        target.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    with pytest.raises(ValueError, match="local"):
+        hygiene._verify_approved_20261127_backup(repo, ())
+
+
+def test_approved_mode_rejects_git_repository_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    api = hygiene.GitHubApi(
+        repository="shuntatsu/trade_rl",
+        token="synthetic",
+        api_url="https://api.github.com",
+    )
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path))
+    monkeypatch.setattr(api, "repository_default_branch", lambda: "main")
+    monkeypatch.setattr(
+        hygiene,
+        "require_retirement_origin",
+        lambda: pytest.fail("must reject before Git or further API operations"),
+    )
+    with pytest.raises(ValueError, match="GIT_"):
+        hygiene.run_approved_20261127_retirement(
+            api, apply=True, backup_git_dir=tmp_path, max_deletes=16
+        )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "preview",
+        "apply",
+        "drift",
+        "post-drift",
+        "limit",
+        "new-open-pr",
+        "new-workflow",
+        "post-open-pr",
+        "post-workflow",
+        "source-mismatch",
+    ],
+)
 def test_execution_keeps_unselected_and_uses_fresh_roster(
     roster: tuple[hygiene.BranchInfo, ...],
     monkeypatch: pytest.MonkeyPatch,
@@ -247,7 +355,11 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
     monkeypatch.setattr(
         hygiene.subprocess,
         "check_output",
-        lambda args: Path(hygiene.__file__).read_bytes(),
+        lambda args: (
+            b"wrong source"
+            if mode == "source-mismatch"
+            else Path(hygiene.__file__).read_bytes()
+        ),
     )
     monkeypatch.setattr(api, "repository_default_branch", lambda: "main")
     monkeypatch.setattr(
@@ -256,8 +368,24 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
         lambda: (hygiene.MergedPullRequestSource(M1_NAME, AUDIT),),
     )
     monkeypatch.setattr(api, "consolidated_pr_source_refs", lambda *a, **kw: ())
-    monkeypatch.setattr(api, "open_pull_request_refs", lambda: ())
-    monkeypatch.setattr(api, "active_workflow_branch_names", lambda: frozenset())
+    branch_reads = 0
+
+    def opened():
+        if (mode == "new-open-pr" and branch_reads >= 2) or (
+            mode == "post-open-pr" and branch_reads >= 3
+        ):
+            return (hygiene.OpenPullRequestRefs(M1_NAME, AUDIT, "main", MAIN),)
+        return ()
+
+    def running():
+        if (mode == "new-workflow" and branch_reads >= 2) or (
+            mode == "post-workflow" and branch_reads >= 3
+        ):
+            return frozenset((CLOUD_NAME,))
+        return frozenset()
+
+    monkeypatch.setattr(api, "open_pull_request_refs", opened)
+    monkeypatch.setattr(api, "active_workflow_branch_names", running)
 
     deleted_batches = []
     expected_remaining = tuple(b for b in roster if b.name not in {M1_NAME, CLOUD_NAME})
@@ -269,7 +397,13 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
             roster if mode == "post-drift" else expected_remaining,
         )
     )
-    monkeypatch.setattr(api, "branches", lambda: next(rosters))
+
+    def branches():
+        nonlocal branch_reads
+        branch_reads += 1
+        return next(rosters)
+
+    monkeypatch.setattr(api, "branches", branches)
     monkeypatch.setattr(
         api,
         "delete_branches_with_leases",
@@ -284,10 +418,19 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
             max_deletes=1 if mode == "limit" else 16,
         )
 
-    if mode in {"drift", "limit", "post-drift"}:
+    if mode in {
+        "drift",
+        "limit",
+        "post-drift",
+        "new-open-pr",
+        "new-workflow",
+        "post-open-pr",
+        "post-workflow",
+        "source-mismatch",
+    }:
         with pytest.raises((RuntimeError, ValueError)):
             run()
-        assert len(deleted_batches) == (1 if mode == "post-drift" else 0)
+        assert len(deleted_batches) == (1 if mode.startswith("post-") else 0)
     else:
         planned, deleted = run()
         assert {b.name for b in planned} == {M1_NAME, CLOUD_NAME}
@@ -297,7 +440,10 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
         else:
             assert deleted == ()
             assert deleted_batches == []
-    assert backup_calls == [(tmp_path, ((CLOUD_NAME, CLOUD), (ANCHOR, SUCCESSOR)))]
+    if mode == "source-mismatch":
+        assert backup_calls == []
+    else:
+        assert backup_calls == [(tmp_path, ((CLOUD_NAME, CLOUD), (ANCHOR, SUCCESSOR)))]
 
 
 @pytest.mark.parametrize(

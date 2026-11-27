@@ -1047,9 +1047,10 @@ def _verify_approved_20261127_backup(
     ):
         if path.exists() or path.is_symlink():
             raise ValueError("backup must not depend on alternate or shallow history")
-    if (backup / "objects/pack").is_symlink() or any(
-        (backup / "objects/pack").glob("*.promisor")
-    ):
+    if any(
+        (backup / relative).is_symlink()
+        for relative in ("objects/info", "objects/pack", "refs")
+    ) or any((backup / "objects/pack").glob("*.promisor")):
         raise ValueError("backup must contain local objects")
     # Do not inherit object-directory, alternate, or config overrides from the
     # caller. This verifies a local copy, not off-site durability.
@@ -1076,13 +1077,13 @@ def _verify_approved_20261127_backup(
                 [*command, "cat-file", "-e", f"{sha}^{{commit}}"], env=env, check=True
             )
         subprocess.run(
-            [*command, "fsck", "--connectivity-only", "--no-dangling", "--no-progress"],
+            [*command, "fsck", "--full", "--no-dangling", "--no-progress"],
             env=env,
             check=True,
             capture_output=True,
         )
     except subprocess.CalledProcessError as error:
-        raise RuntimeError("backup Git connectivity/ref verification failed") from error
+        raise RuntimeError("backup Git integrity/ref verification failed") from error
 
 
 def run_approved_20261127_retirement(
@@ -1093,6 +1094,28 @@ def run_approved_20261127_retirement(
     max_deletes: int,
 ) -> tuple[tuple[BranchInfo, ...], tuple[str, ...]]:
     """One bounded atomic batch, with current-main source and exact readback."""
+    # Ref and object reads must refer to the checkout containing this module,
+    # not another repository selected via Git environment overrides.
+    if Path.cwd().resolve() != Path(__file__).resolve().parents[1]:
+        raise ValueError("approved retirement requires the source repository root")
+    if any(
+        key.startswith("GIT_CONFIG")
+        or key
+        in {
+            "GIT_DIR",
+            "GIT_COMMON_DIR",
+            "GIT_WORK_TREE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_INDEX_FILE",
+            "GIT_NAMESPACE",
+            "GIT_REPLACE_REF_BASE",
+            "GIT_SHALLOW_FILE",
+            "GIT_GRAFT_FILE",
+        }
+        for key in os.environ
+    ):
+        raise ValueError("approved retirement rejects GIT_ repository/config overrides")
     if (
         api._repository != "shuntatsu/trade_rl"
         or api._api_url != "https://api.github.com"
@@ -1155,6 +1178,14 @@ def run_approved_20261127_retirement(
         raise ValueError("approved exact scope exceeds max-deletes")
     if _unique_branch_readback(api.branches()) != before:
         raise RuntimeError("branch/main/successor changed during approved proof")
+    # A ref lease cannot fence the creation of PR or workflow references.
+    # Observe activity again after the final branch snapshot and reject drift.
+    # Manual operator quiescence is still necessary: these APIs are not atomic.
+    if (
+        frozenset(api.open_pull_request_refs()) != frozenset(opened)
+        or api.active_workflow_branch_names() != running
+    ):
+        raise RuntimeError("PR/workflow activity changed during approved proof")
     if not apply or not selected:
         return selected, ()
     api.delete_branches_with_leases(selected)
@@ -1166,6 +1197,12 @@ def run_approved_20261127_retirement(
         raise RuntimeError(
             "approved post-delete readback differs: "
             + _readback_differences(expected, after)
+        )
+    post_opened = api.open_pull_request_refs()
+    post_running = api.active_workflow_branch_names()
+    if frozenset(post_opened) != frozenset(opened) or post_running != running:
+        raise RuntimeError(
+            "PR/workflow activity changed after approved delete; no automatic retry"
         )
     return selected, tuple(branch.name for branch in selected)
 

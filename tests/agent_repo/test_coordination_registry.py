@@ -194,3 +194,33 @@ def test_registry_rejects_nonlist_entries_invalid_utf8_and_nonbytes() -> None:
 
     with pytest.raises(ValueError, match="must be bytes"):
         parse_registry_bytes("{}".encode().decode())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("entries", [{}, "", b"", set(), None])
+def test_registry_rejects_malformed_direct_entry_rosters(entries: object) -> None:
+    with pytest.raises(ValueError, match="entries must be an ordered list or tuple"):
+        CoordinatorRegistry(REPOSITORY, entries)  # type: ignore[arg-type]
+
+
+def test_registry_snapshots_valid_ordered_entry_list() -> None:
+    entries = [_projection("T1067-02"), _projection("T1067-01")]
+    registry = CoordinatorRegistry(REPOSITORY, entries)  # type: ignore[arg-type]
+    expected = CoordinatorRegistry(REPOSITORY, tuple(entries))
+    entries.clear()
+    assert registry.canonical_bytes() == expected.canonical_bytes()
+    assert parse_registry_bytes(registry.canonical_bytes()) == registry
+
+
+def test_registry_rejects_spoofed_roster_type_before_iteration() -> None:
+    class EqualToAnything(type):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        __hash__ = type.__hash__
+
+    class MalformedRoster(metaclass=EqualToAnything):
+        def __iter__(self):
+            pytest.fail("malformed registry roster must not be iterated")
+
+    with pytest.raises(ValueError, match="entries must be an ordered list or tuple"):
+        CoordinatorRegistry(REPOSITORY, MalformedRoster())  # type: ignore[arg-type]

@@ -68,13 +68,14 @@ def test_context_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
     external = tmp_path.parent / f"{tmp_path.name}-external-package"
     external.mkdir()
     _write(external, "module.py", "VALUE = 1\n")
+    # Preserve the direct context-path guard even if a link appears after build.
+    index = SourceIndex.build(tmp_path)
     _symlink(
         tmp_path / "trade_rl" / "linked",
         external,
         target_is_directory=True,
     )
 
-    index = SourceIndex.build(tmp_path)
     with pytest.raises(ValueError, match="symlink|repository"):
         index.context("trade_rl/linked/module.py")
 

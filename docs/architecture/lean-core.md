@@ -548,6 +548,8 @@ strategyのlogical intentから作る `desired_quantity` はrisk適用前のprop
 
 P&Lの正本は `MarketExecutor + BookState` の一経路である。
 
+執行費用による資産枯渇は、正の実費用が執行直前の評価資産額以上の場合に判定する。固定の通貨単位epsilonを差し引いて、まだ正の残存資産がある口座や真のゼロ費用を費用枯渇扱いしない。執行後の実際の非正資産に対する既存のinsolvency判定は維持する。
+
 ### Opt-in strict spot cash execution
 
 `MarketExecutor` / `SharedPortfolioSession` /

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -53,3 +55,41 @@ def test_split_dividend_and_delisting_settlement_reconcile() -> None:
     )
     assert proceeds == pytest.approx(400.0)
     assert book.quantities[0] == 0.0
+
+
+@pytest.mark.parametrize("capital", [Fraction(1024), Fraction(1, 2**45)])
+@pytest.mark.parametrize(
+    "fee_fraction",
+    [
+        Fraction(0),
+        Fraction(1, 4),
+        Fraction(2**52 - 1, 2**52),
+        Fraction(1),
+        Fraction(5, 4),
+    ],
+)
+def test_execution_cost_exhaustion_requires_actual_fee_to_consume_equity(
+    capital: Fraction, fee_fraction: Fraction
+) -> None:
+    # A cash-only cost leg has an exact independent oracle in both scales.
+    # All values here are dyadic, so this is not a decimal rounding dispute.
+    fee = capital * fee_fraction
+    expected_equity = capital - fee
+    book = BookState.zero(1, float(capital), np.array([1.0]))
+    book.execute(
+        fill_prices=np.array([1.0]),
+        target_quantities=np.array([0.0]),
+        cost_amount=float(fee),
+        turnover=0.0,
+    )
+    assert book.cash == float(expected_equity)
+    assert book.portfolio_value == float(expected_equity)
+    assert book.total_cost == float(fee)
+    assert book.fill_count == 0
+    assert book.insolvent is (expected_equity <= 0)
+    expected_reason = (
+        EconomicTerminationReason.EXECUTION_COST_EXHAUSTION
+        if expected_equity <= 0
+        else None
+    )
+    assert book.termination_reason is expected_reason

@@ -880,7 +880,9 @@ class BookState:
         self.fill_count += fill_count
         if fill_count:
             self.rebalance_events += 1
-        if cost_amount >= max(value_before, 0.0) - _TOLERANCE:
+        # An absolute currency epsilon can exceed a positive account's entire
+        # equity. Exhaustion is a comparison of the actual represented amounts.
+        if cost_amount > 0.0 and cost_amount >= max(value_before, 0.0):
             self.terminate(EconomicTerminationReason.EXECUTION_COST_EXHAUSTION)
         self._refresh_economic_state()
         self._update_drawdown()

@@ -490,7 +490,7 @@ raw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquire
 
 ### `artifacts`
 
-汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。`atomic_rename_directory`はstaging directoryの同一filesystem **no-replace** rename（Linux `renameat2(RENAME_NOREPLACE)`、macOS `renamex_np(RENAME_EXCL)`、Windows既存先拒否）を使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。未対応環境はfail-closedとし、通常POSIX renameやcopy fallbackでatomic性と排他性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
+汎用のcanonical encoding、digest、atomic publication primitive、verified fileを持つ。 `canonical.strict_json_loads` はこれを使用するDataset・Run・Study・EvidenceSet・bootstrapのJSON読込で、重複member（escape aliasを含む）、非有限数（float overflowを含む）、UTF-8で表現できない単独surrogate code pointをkey/valueの全階層で拒否する。正常な補助平面文字（正しいescape pairを含む）、JSON表記の空白・順序、既存canonical bytesは維持する。schema、digest、ファイルadmission、資源上限の検証はcallerの責務であり、このdecoderだけで全JSON入口やPython直接構築の正当性を保証しない。`atomic_rename_directory`はstaging directoryの同一filesystem **no-replace** rename（Linux `renameat2(RENAME_NOREPLACE)`、macOS `renamex_np(RENAME_EXCL)`、Windows既存先拒否）を使い、Windowsの一時的なpermission errorだけをsource/target再確認付きで有界retryする。未対応環境はfail-closedとし、通常POSIX renameやcopy fallbackでatomic性と排他性を弱めない。market data、strategy、evaluation等のupper layerを知らない。
 
 ### `data`
 

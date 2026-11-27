@@ -1033,7 +1033,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.data.features.clocked_overlay` | `ClockedNativeSource`, `ClockedNativeFeatureGroup`, `clocked_native_source_digest`, `append_clocked_native_features`, `append_clocked_native_feature_groups` |
 | `trade_rl.data.features.divergence` | `DivergenceConfig`, `DivergenceEvent`, `DivergenceSignals`, `detect_divergences` |
 | `trade_rl.data.features.indicators.divergence_bank` | `build_divergence_bank`, `DIVERGENCE_INDICATOR_SPECS`, `DEFAULT_DIVERGENCE_INDICATORS` |
-| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud` |
+| `trade_rl.data.features.indicators.ichimoku_cloud` | `VisibleCloud`, `visible_ichimoku_cloud`, `VisibleCloudEvents`, `visible_ichimoku_events`, `AlignedVisibleCloud`, `align_visible_ichimoku_cloud` |
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
@@ -1228,6 +1228,25 @@ and availability delays, before serving a decision. No new 3d/weekly Dataset
 or execution-clock support follows merely from row arithmetic. Research
 owns timeframe composition, strategy thresholds, rosters and trial contexts.
 The original source-bound research branch is not modified by this API.
+
+The opt-in visible-cloud publication API consumes exact `NativeRawMarketSeries`
+with an explicit `NativeBarClock` and `InstrumentContract`.
+`visible_ichimoku_events` validates a complete native close grid and the
+instrument lifetime, reuses the existing displaced cloud arithmetic,
+and attaches the maximum declared receipt timestamp over every required
+bar from `t - displacement - max(periods) + 1` through visible row `t`.
+Invalid events have NaN prices and NaT availability; a valid event is not
+necessarily available at its close. `align_visible_ichimoku_cloud` aligns both
+spans through the shared batched publication frontier in one pass after one
+cloud calculation. It selects the latest published native close as of the
+decision row, applies the decision lifetime/active mask and explicit
+elapsed-hour staleness limit measured from that visible close, and returns
+NaN prices where unavailable. It admits fixed, UTC-week and UTC-month
+feature clocks, not new execution clocks. The existing `VisibleCloud`
+and unshifted `FeatureSpec` identities, values and serialization contracts
+are unchanged. Callers must independently bind the native source, periods,
+clock and decision grid to their own evidence before persisting or using
+the result; no provider authenticity or research authority is established.
 
 
 `trade_rl/py.typed` (PEP 561) はinline annotationの配布を明示する。

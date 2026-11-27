@@ -105,7 +105,8 @@ def test_exact_zero_variance_is_allowed(variance: float | Fraction) -> None:
 
 
 @pytest.mark.parametrize(
-    "variance", [math.ulp(0.0), Fraction.from_float(math.ulp(0.0)), 0.01, Fraction(1, 100)]
+    "variance",
+    [math.ulp(0.0), Fraction.from_float(math.ulp(0.0)), 0.01, Fraction(1, 100)],
 )
 def test_positive_representable_variance_keeps_penalty(
     variance: float | Fraction,

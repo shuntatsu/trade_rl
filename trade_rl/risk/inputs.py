@@ -15,6 +15,7 @@ from trade_rl.data._timestamps import (
     _NANOSECONDS_PER_DAY,
     _datetime64_values_to_ns_exact,
 )
+from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 
 
@@ -314,6 +315,14 @@ class RollingPortfolioRiskInputsProvider:
         start = max(1, index - self.config.lookback_bars + 1)
         durations_ns: tuple[int, ...] | None = None
         clock = self.native_clock
+        if (
+            isinstance(dataset, MarketDataset)
+            and dataset.native_calendar_month
+            and clock != dataset.native_clock
+        ):
+            raise ValueError(
+                "calendar month risk inputs require the matching native clock"
+            )
         if clock is None:
             available_at = dataset.available_at
             if available_at is None or np.any(

@@ -27,6 +27,7 @@ def native_fixed_return_payload(
     if (
         type(dataset) is not MarketDataset
         or dataset.native_clock is None
+        or dataset.native_calendar_month
         or not dataset.identity_verified
         or not isinstance(dataset.periods_per_year, Fraction)
     ):

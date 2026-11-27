@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,9 +19,11 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.session_returns import run_session_elapsed_portfolio_replay
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
+from trade_rl.simulation.objectives.clock import SessionFinancialClockContract
 
 if TYPE_CHECKING:
     from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
@@ -117,6 +120,23 @@ def run_published_portfolio_inference_replay(
         expected_checkpoint_sha256=expected_checkpoint_sha256,
         runtime_env=validation_env,
     )
+    if isinstance(bound.clock, SessionFinancialClockContract):
+        session_replay = run_session_elapsed_portfolio_replay(
+            dataset,
+            policy,
+            start_index=start_index,
+            stop_index=stop_index,
+            expected_boundaries_ns=bound.clock.boundaries_ns,
+            expected_nominal_bar_seconds=bound.clock.nominal_bar_seconds,
+            initial_capital=resolved_capital,
+            execution_cost=execution_cost,
+            risk=PreTradeRisk(risk_config),
+        )
+        return artifact, (
+            session_replay
+            if capture_ledger_evidence
+            else replace(session_replay, ledger_evidence=None)
+        )
     replay_result = run_shared_portfolio_replay(
         dataset,
         policy,

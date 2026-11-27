@@ -237,3 +237,8 @@ loaderはtyped inputからexecution policyとruntime/windowの条件を再構成
 | strategyごとに会計を変える | 戦略比較が同一条件でなくなる |
 | costを複数箇所で引く | 二重課金になる |
 | 約定前stateを次バーへ持つ | portfolio状態とP&Lが食い違う |
+
+
+明示sessionの実経過時間評価は `run_session_elapsed_portfolio_replay` を使います。呼出元が独立に確定した初期markと全processing closeのUTCナノ秒列、nominal barの秒数を、検証済みSESSION Datasetへ照合してから既存の共有Spot replayを一度実行します。欠損を休場とみなして補完せず、venue calendarの真正性は別の責務です。休場時間と取引足のcash carryは既存会計に残し、全区間完了・未処理注文なし・exact flatを要求します。専用 `SessionElapsedReturnSeries` は休場も含めた実経過年数と各intervalのdurationで年率化し、別payloadにDatasetと境界列を束縛します。名目年率・旧paired/seed統計・OOS結合への暗黙変換は拒否します。既存session replayの既定値は不変です。
+
+同じ明示sessionの共有Spot PPOには `SessionFinancialClockContract` を使います。独立に宣言した秒単位のUTC境界列とnominal processing bar秒数、実経過horizonを金融objectiveに束縛し、構築・reset・fit・推論読込で同じ完全windowとSpot会計条件を再検査します。観測の経過比率は実時刻で計算し、GAEとrollout/latency/終端予約は観測step単位、gamma=1のequity deltaは既存sessionを使います。clock・transform・forward binding・training contextには専用schemaを使い、同じDatasetでも固定足モデルとの取り違えや途中時刻の改変を拒否します。固定/月足の保存形式は変更せず、既存16MiBのmetadata上限を超えるsession contextはattempt確保前に拒否します。paired artifact replayは同じsession elapsed経路で終端完了を要求します。固定scenario-v2・four-family、session short/先物、実venue calendar取得・任意のsession内約定経路は未対応です。

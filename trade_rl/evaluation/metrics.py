@@ -8,11 +8,15 @@ from fractions import Fraction
 from statistics import fmean
 
 from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
-from trade_rl.evaluation.native_annualization import evaluate_native_bar_annualization
+from trade_rl.evaluation.native_annualization import (
+    evaluate_native_bar_annualization,
+    evaluate_session_elapsed_annualization,
+)
 from trade_rl.evaluation.series import (
     CalendarMonthReturnSeries,
     ReturnKind,
     ReturnSeries,
+    SessionElapsedReturnSeries,
     _finite_annualization,
 )
 
@@ -95,7 +99,14 @@ def evaluate_performance(
             raise ValueError(f"{field_name} must be a non-negative integer")
 
     values = returns.values
-    if isinstance(returns, CalendarMonthReturnSeries):
+    if isinstance(returns, SessionElapsedReturnSeries):
+        total_return = compound_return(values)
+        native = evaluate_session_elapsed_annualization(
+            values, boundaries_ns=returns.boundaries_ns
+        )
+        sharpe, sortino = native.sharpe, native.sortino
+        periods: int | Fraction = native.periods_per_year
+    elif isinstance(returns, CalendarMonthReturnSeries):
         total_return = compound_return(values)
         native = evaluate_native_bar_annualization(
             values,
@@ -103,7 +114,7 @@ def evaluate_performance(
             closes=returns.closes,
         )
         sharpe, sortino = native.sharpe, native.sortino
-        periods: int | Fraction = native.periods_per_year
+        periods = native.periods_per_year
     else:
         frequency = _finite_annualization(returns, label="performance")
         total_return = compound_return(values)

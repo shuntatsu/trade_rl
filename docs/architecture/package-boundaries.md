@@ -487,7 +487,7 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。`PortfolioRi
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
 `objectives/` は新規Study向けのpureな `CapitalContract`、`ObjectiveContract`、
-`FinancialClockContract`、`CalendarMonthFinancialClockContract`、`BoundObjectiveClock` と固定資本の
+`FinancialClockContract`、`CalendarMonthFinancialClockContract`、`SessionFinancialClockContract`、`BoundObjectiveClock` と固定資本の
 `net_equity_increment` を所有する。値を受け取ってobjective identityを宣言するだけで、
 ledger、replay、selection、study executionを実装しない。入力のequityは既存の
 after-cost accounting ownerが供給する。objective subpackageはsimulation root facadeへ
@@ -1042,7 +1042,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
-| `trade_rl.simulation.objectives` | `CapitalContract`, `ObjectiveContract`, `FinancialClockContract`, `CalendarMonthFinancialClockContract`, `BoundObjectiveClock` (explicit fixed or UTC-calendar financial window; no execution authority) |
+| `trade_rl.simulation.objectives` | `CapitalContract`, `ObjectiveContract`, `FinancialClockContract`, `CalendarMonthFinancialClockContract`, `SessionFinancialClockContract`, `BoundObjectiveClock` (explicit fixed, UTC-calendar or caller-declared session financial window; no execution authority) |
 | `trade_rl.simulation.training_identity` | `training_execution_config_payload`, `training_execution_config_digest`, `training_risk_config_payload`, `training_risk_config_digest` (full legacy training config identity) |
 | `trade_rl.data.timestamps` | `utc_timestamp_ns` (exact native scalar UTC timestamp) |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |
@@ -1051,6 +1051,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.simulation.diagnostics.fill_cash` | `NativeFillCashRecord`, `NativeFillCashObservation` (opt-in native order-fill cash observer) |
 | `trade_rl.evaluation.strict_spot_cash_path` | `StrictSpotCashPathEvidence`, `verify_strict_spot_cash_path` (restricted source-backed cash-path audit) |
 | `trade_rl.evaluation.replay` | `run_shared_portfolio_replay`, `SharedCashPortfolioReplayResult`, `SharedCashPortfolioReplayLedgerEvidence` |
+| `trade_rl.evaluation.session_returns` / `trade_rl.evaluation.series` / `trade_rl.evaluation.native_annualization` | `run_session_elapsed_portfolio_replay`, `session_elapsed_return_payload`, `load_session_elapsed_return_payload` / `SessionElapsedReturnSeries` / `evaluate_session_elapsed_annualization` (explicit caller-established session grid and duration evidence; existing shared replay) |
 | `trade_rl.evaluation.clocked_native_replay` | `NativePublicationSlot`, `ClockedNativeReplayResult`, `clocked_native_decision_schedule`, `run_clocked_native_portfolio_replay` (publication-gated decisions on a verified fine-grid overlay; strict spot or explicit single-close-event linear carry) |
 | `trade_rl.evaluation.replay_exposure` | `ReplayExposureEvidence`, `PreIntervalMarkEvidence`, `mean_pre_interval_gross_from_ledger` |
 | `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |

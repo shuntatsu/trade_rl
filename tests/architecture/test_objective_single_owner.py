@@ -20,7 +20,11 @@ CONTRACT_OWNERS = {
         {"CapitalContract", "ObjectiveContract", "net_equity_increment"}
     ),
     "clock.py": frozenset(
-        {"FinancialClockContract", "CalendarMonthFinancialClockContract"}
+        {
+            "FinancialClockContract",
+            "CalendarMonthFinancialClockContract",
+            "SessionFinancialClockContract",
+        }
     ),
     "binding.py": frozenset({"BoundObjectiveClock"}),
 }

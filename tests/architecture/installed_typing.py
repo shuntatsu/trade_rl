@@ -26,7 +26,9 @@ from trade_rl.data.timestamps import utc_timestamp_ns
 from trade_rl.data.features.clocked_overlay import ClockedNativeFeatureGroup, ClockedNativeSource, append_clocked_native_feature_groups
 from trade_rl.data.native_clock import NativeBarClock
 from trade_rl.data.build.native_spot import build_native_calendar_month_spot_dataset
-from trade_rl.evaluation.series import CalendarMonthReturnSeries
+from trade_rl.evaluation.series import CalendarMonthReturnSeries, SessionElapsedReturnSeries
+from trade_rl.evaluation.session_returns import run_session_elapsed_portfolio_replay, session_elapsed_return_payload, load_session_elapsed_return_payload
+from trade_rl.evaluation.native_annualization import NativeAnnualization, evaluate_session_elapsed_annualization
 from trade_rl.evaluation.native_calendar_returns import native_calendar_month_return_payload, load_native_calendar_month_return_payload
 from trade_rl.data.features.indicators.ichimoku_cloud import AlignedVisibleCloud, VisibleCloud, VisibleCloudEvents, align_visible_ichimoku_cloud, visible_ichimoku_cloud, visible_ichimoku_events
 from trade_rl.evaluation.replay import (
@@ -42,12 +44,14 @@ from trade_rl.evaluation.runs.external_provenance import (
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
-from trade_rl.simulation.objectives import CalendarMonthFinancialClockContract, BoundObjectiveClock, ObjectiveContract
+from trade_rl.simulation.objectives import CalendarMonthFinancialClockContract, SessionFinancialClockContract, BoundObjectiveClock, ObjectiveContract
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.training_identity import (
     training_execution_config_payload, training_execution_config_digest,
     training_risk_config_payload, training_risk_config_digest,
 )
+from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
+from trade_rl.strategies.rl.portfolio_transform import PortfolioObservationTransform, fit_portfolio_observation_transform
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot, PortfolioPolicy, PortfolioTargetProposal,
 )
@@ -110,6 +114,25 @@ def month(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarCl
         assert_type(result.returns.exact_elapsed_years, Fraction)
         payload = native_calendar_month_return_payload(market, result.returns, start_index=0)
         assert_type(load_native_calendar_month_return_payload(market, payload), CalendarMonthReturnSeries)
+def session_elapsed(market: MarketDataset, boundaries: tuple[int, ...]) -> None:
+    result = assert_type(run_session_elapsed_portfolio_replay(market, policy, start_index=0, stop_index=2, expected_boundaries_ns=boundaries, expected_nominal_bar_seconds=3600, initial_capital=1000., execution_cost=ExecutionCostConfig()), SharedCashPortfolioReplayResult)
+    if isinstance(result.returns, SessionElapsedReturnSeries):
+        assert_type(result.returns.exact_elapsed_years, Fraction)
+        assert_type(result.returns.boundaries_ns, tuple[int, ...])
+        payload = session_elapsed_return_payload(market, result.returns, start_index=0)
+        assert_type(load_session_elapsed_return_payload(market, payload), SessionElapsedReturnSeries)
+        assert_type(evaluate_session_elapsed_annualization(result.returns.values, boundaries_ns=result.returns.boundaries_ns), NativeAnnualization)
+def fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
+    env = assert_type(SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry=True), SharedPortfolioGymEnv)
+    assert_type(env.native_fixed_linear_carry, bool)
+    transform = assert_type(fit_portfolio_observation_transform(env), PortfolioObservationTransform)
+    assert_type(transform.native_fixed_linear_carry, bool)
+def session_learning_clock(objective: ObjectiveContract, boundaries: tuple[int, ...]) -> None:
+    clock = assert_type(SessionFinancialClockContract(boundaries_ns=boundaries, nominal_bar_seconds=3600, economic_horizon_seconds=7200, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1"), SessionFinancialClockContract)
+    assert_type(BoundObjectiveClock(objective, clock), BoundObjectiveClock)
+    assert_type(clock.decision_interval_seconds, None)
+    assert_type(clock.boundaries_ns, tuple[int, ...])
+    assert_type(clock.digest, str)
 def month_learning_clock(objective: ObjectiveContract) -> None:
     clock = assert_type(CalendarMonthFinancialClockContract(economic_horizon_months=2, economic_horizon_seconds=5184000, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1"), CalendarMonthFinancialClockContract)
     assert_type(BoundObjectiveClock(objective, clock), BoundObjectiveClock)
@@ -190,6 +213,12 @@ def bad_cloud(raw: RawMarketSeries, native: NativeRawMarketSeries, clock: Native
 def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
+def bad_session(market: MarketDataset) -> None:
+    SessionFinancialClockContract(boundaries_ns=[0,1,2], nominal_bar_seconds=1, economic_horizon_seconds=2, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1")  # expect: arg-type
+    run_session_elapsed_portfolio_replay(market, policy, start_index=0, stop_index=2, expected_boundaries_ns=[0,1,2], expected_nominal_bar_seconds=3600, initial_capital=1000., execution_cost=ExecutionCostConfig())  # expect: arg-type
+    evaluate_session_elapsed_annualization((0.01,), boundaries_ns=("0","1"))  # expect: arg-type
+def bad_fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
+    SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry="yes")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type

@@ -510,3 +510,111 @@ def test_heartbeat_accepts_later_instant_with_earlier_wall_clock() -> None:
     assert renewed.expires_at.astimezone(UTC) == later.astimezone(UTC) + TTL
     with pytest.raises(ValueError, match="monotonic"):
         heartbeat(renewed, head_sha=HEAD_SHA, observed_at=first)
+
+
+class _ForgedFenceText(str):
+    def __format__(self, format_spec: str) -> str:
+        return "unexpected/branch"
+
+    def strip(self, chars: str | None = None) -> str:
+        return "unexpected/owner"
+
+
+@pytest.mark.parametrize(
+    ("task_id", "owner"),
+    [
+        (_ForgedFenceText("T500-03"), "agent-a"),
+        ("T500-03", _ForgedFenceText("agent-a")),
+    ],
+)
+def test_lease_branch_rejects_non_native_fence_text(task_id: str, owner: str) -> None:
+    with pytest.raises(ValueError, match="task_id|owner"):
+        lease_branch_name(task_id, 3, owner)
+
+
+class _TrapFenceText(str):
+    def __format__(self, spec):
+        pytest.fail("must not format foreign fence")
+
+    def strip(self, chars=None):
+        pytest.fail("must not strip foreign fence")
+
+    def lower(self):
+        pytest.fail("must not lowercase foreign fence")
+
+    def endswith(self, suffix, *args):
+        pytest.fail("must not inspect foreign fence")
+
+    def __contains__(self, value):
+        pytest.fail("must not inspect foreign fence")
+
+    def __eq__(self, other):
+        pytest.fail("must not compare foreign fence")
+
+    def __ne__(self, other):
+        pytest.fail("must not compare foreign fence")
+
+
+@pytest.mark.parametrize("field", ["task_id", "owner"])
+def test_lease_fence_type_is_checked_before_text_hooks(field):
+    values = dict(task_id="T500-03", owner="agent-a", epoch=1)
+    values[field] = _TrapFenceText(values[field])
+    with pytest.raises(ValueError, match=field):
+        lease_branch_name(**values)
+
+
+class _EqualFenceText(str):
+    def __eq__(self, other):
+        # The all-zero sentinel must remain distinguishable from an identity.
+        return not (type(other) is str and other == "0" * 40)
+
+    def __ne__(self, other):
+        return not self == other
+
+
+@pytest.mark.parametrize(
+    "field", ["lease_branch", "base_sha", "task_contract_digest", "head_sha"]
+)
+def test_lease_record_rejects_forged_identity(field):
+    old = grant_lease(_packet(), "agent-a", epoch=1, now=NOW, ttl=TTL)
+    value = (
+        "b" * 40
+        if field in {"base_sha", "head_sha"}
+        else "b" * 64
+        if field == "task_contract_digest"
+        else "agent/other/e0001-agent-a"
+    )
+    with pytest.raises(ValueError, match=field):
+        replace(old, **{field: _EqualFenceText(value)})
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("task_id", "OTHER"),
+        ("observed_branch", "agent/other/e0001-agent-a"),
+        ("observed_head_sha", "b" * 40),
+    ],
+)
+def test_malformed_reconciliation_cannot_regrant_expired_lease(field, value):
+    packet = _packet()
+    old = grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)
+    kwargs = dict(
+        task_id=packet.task_id,
+        expired_epoch=old.epoch,
+        observed_branch=old.lease_branch,
+        observed_head_sha=HEAD_SHA,
+        decision=ReconciliationDecision.REASSIGN,
+    )
+    kwargs[field] = _EqualFenceText(value)
+    with pytest.raises(ValueError, match=field):
+        observed = LeaseReconciliation(**kwargs)
+        grant_lease(
+            packet,
+            "agent-b",
+            epoch=2,
+            now=NOW + TTL,
+            ttl=TTL,
+            previous=old,
+            reconciliation=observed,
+        )

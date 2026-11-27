@@ -51,3 +51,51 @@ def test_oracle_objects_are_not_coerced_to_bool_or_compared() -> None:
             )
             is False
         )
+
+
+class _HiddenChildren(dict):
+    def values(self):
+        return ()
+
+
+class _ForgedCompleteChildren(dict):
+    def values(self):
+        return (TaskStatus(TaskPhase.COMPLETE),)
+
+
+class _TrapChildren(dict):
+    def values(self):
+        pytest.fail("must not enumerate a foreign child roster")
+
+
+@pytest.mark.parametrize(
+    "roster",
+    [
+        _HiddenChildren(child=TaskStatus(TaskPhase.VERIFICATION)),
+        _ForgedCompleteChildren(child=TaskStatus(TaskPhase.VERIFICATION)),
+        _TrapChildren(child=TaskStatus(TaskPhase.VERIFICATION)),
+    ],
+)
+def test_parent_completion_rejects_foreign_child_roster(roster):
+    assert not parent_completion_allowed(
+        roster, parent_acceptance_satisfied=True, parent_invariants_satisfied=True
+    )
+
+
+def test_parent_completion_rejects_foreign_child_status():
+    class ForgedStatus:
+        @property
+        def phase(self):
+            return TaskPhase.COMPLETE
+
+        @property
+        def condition(self):
+            from tools.agent_repo.coordination.model import TaskCondition
+
+            return TaskCondition.HEALTHY
+
+    assert not parent_completion_allowed(
+        {"child": ForgedStatus()},
+        parent_acceptance_satisfied=True,
+        parent_invariants_satisfied=True,
+    )

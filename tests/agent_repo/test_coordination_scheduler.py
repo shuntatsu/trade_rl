@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import UserString, deque
+from typing import Any
+
 import pytest
 
 from tools.agent_repo.coordination.conflicts import ConflictLevel, classify_conflict
@@ -441,3 +444,36 @@ def test_single_ready_task_accepts_supported_resource_namespace(namespace: str) 
         (packet,), {"ONE": _healthy(TaskPhase.READY)}, leased_task_ids=()
     ) == ("ONE",)
     assert packet.canonical_payload()["resource_keys"] == [f"{namespace}:resource"]
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["AB", UserString("AB"), b"", {"AB": False}, None, ["AB", 1]],
+)
+def test_scheduler_rejects_malformed_lease_roster(invalid: Any) -> None:
+    packets = (_packet("A"), _packet("B"), _packet("AB"))
+    statuses = {packet.task_id: _healthy(TaskPhase.READY) for packet in packets}
+    with pytest.raises(ValueError, match="lease"):
+        ready_tasks(packets, statuses, leased_task_ids=invalid)
+
+
+@pytest.mark.parametrize(
+    "roster", [("AB",), ["AB"], {"AB"}, frozenset({"AB"}), deque(["AB"])]
+)
+def test_scheduler_preserves_whole_leased_id(roster: Any) -> None:
+    packets = (_packet("A"), _packet("B"), _packet("AB"))
+    statuses = {packet.task_id: _healthy(TaskPhase.READY) for packet in packets}
+    assert ready_tasks(packets, statuses, leased_task_ids=roster) == ("A", "B")
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_scheduler_rejects_missing_status_even_for_leased_task(reverse: bool) -> None:
+    packets = (_packet("AB"), _packet("A"))
+    if reverse:
+        packets = tuple(reversed(packets))
+    with pytest.raises(ValueError, match="status"):
+        ready_tasks(
+            packets,
+            {"A": _healthy(TaskPhase.READY)},
+            leased_task_ids=("AB",),
+        )

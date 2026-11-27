@@ -27,9 +27,8 @@ def _ecosystem_sections(source: str | None = None) -> dict[str, str]:
     for line in source.splitlines()[2:]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        assert line.startswith("    ") or ECOSYSTEM_PATTERN.fullmatch(line), (
-            f"noncanonical update layout: {line}"
-        )
+        if not line.startswith("    ") and ECOSYSTEM_PATTERN.fullmatch(line) is None:
+            raise AssertionError(f"noncanonical update layout: {line}")
     matches = list(ECOSYSTEM_PATTERN.finditer(source))
     names = [match.group(1) for match in matches]
     assert names == ["github-actions", "uv", "npm", "docker-compose"]
@@ -125,13 +124,13 @@ def test_uv_hold_rejects_noncanonical_or_enabled_limit(replacement: str) -> None
     "suffix",
     [
         '  - {package-ecosystem: uv, directory: "/other", '
-        'schedule: {interval: weekly}, open-pull-requests-limit: 1}\n',
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}\n",
         'updates: [{package-ecosystem: uv, directory: "/", '
-        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
         '"updates": [{package-ecosystem: uv, directory: "/", '
-        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
         '---\nversion: 2\nupdates: [{package-ecosystem: uv, directory: "/", '
-        'schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n',
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
     ],
 )
 def test_update_roster_refuses_hidden_entries(suffix: str) -> None:

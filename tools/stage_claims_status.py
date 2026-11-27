@@ -151,6 +151,14 @@ def _json_object(data: bytes) -> dict[str, Any]:
     return value
 
 
+# The writer emits extended ISO timestamps at microsecond resolution. A
+# fractional tail is harmless only when every digit beyond six is zero.
+_CLAIM_TIMESTAMP = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:[.,][0-9]{1,6}0*)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])"
+)
+
+
 def _parse_claim(data: bytes, expected_stage: str | None) -> _Claim:
     """Validate a claim marker, reusing StageClaim's field validation."""
     body = _json_object(data)
@@ -188,6 +196,8 @@ def _parse_claim(data: bytes, expected_stage: str | None) -> _Claim:
     if type(stamp) is not str:
         raise ValueError("claim timestamp is not a string")
     try:
+        if _CLAIM_TIMESTAMP.fullmatch(stamp) is None:
+            raise ValueError("claim timestamp must be exact")
         claimed_at = datetime.fromisoformat(stamp)
         validated = StageClaim(
             stage=body["stage"],

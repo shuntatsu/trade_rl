@@ -391,3 +391,226 @@ def test_matching_null_run_and_artifact_heads_are_not_exact_commits() -> None:
         artifact["workflow_run"]["head_sha"] = "0" * 40
     with pytest.raises(ValueError, match="SHA"):
         _observe(api)
+
+
+class _ForgedText(str):
+    def __eq__(self, other: object) -> bool:
+        # Preserve the existing null-SHA rejection check so the real equality
+        # defect, rather than that unrelated guard, is the failure oracle.
+        return not (type(other) is str and other == "0" * 40)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return super().__hash__()
+
+
+class _CasefoldTrap(str):
+    def casefold(self) -> str:
+        raise AssertionError("foreign repository casefold called")
+
+
+@pytest.mark.parametrize(
+    ("key", "forged"),
+    [
+        ("head_sha", _ForgedText("b" * 40)),
+        ("head_branch", _ForgedText("wrong/branch")),
+    ],
+)
+def test_artifact_origin_rejects_foreign_identity(key: str, forged: str) -> None:
+    api = FakeGet()
+    api.artifacts[0]["workflow_run"][key] = forged  # type: ignore[index]
+    with pytest.raises(ValueError, match="artifact workflow identity"):
+        _observe(api)
+
+
+def test_artifact_run_rejects_foreign_sha_even_when_it_forges_readback() -> None:
+    api = FakeGet()
+    api.run["head_sha"] = _ForgedText("b" * 40)
+    api.next_run = {**api.run, "head_sha": SHA}
+    with pytest.raises(ValueError, match="run head SHA"):
+        _observe(api)
+
+
+def test_artifact_repo_argument_rejects_foreign_casefold_before_reads() -> None:
+    api = FakeGet()
+    with pytest.raises(ValueError, match="expected_repository"):
+        observe_workflow_artifacts(
+            api, expected_repository=_CasefoldTrap(REPOSITORY), run_id=RUN
+        )
+    assert api.calls == []
+
+
+def test_artifact_repo_response_rejects_foreign_casefold() -> None:
+    api = FakeGet()
+    api.repo["full_name"] = _CasefoldTrap(REPOSITORY)
+    with pytest.raises(ValueError, match="repository identity"):
+        _observe(api)
+
+
+@pytest.mark.parametrize(
+    ("key", "foreign"),
+    [
+        ("node_id", _ForgedText("A_1")),
+        ("name", _ForgedText("repeated-name")),
+        ("digest", _ForgedText("sha256:" + "c" * 64)),
+    ],
+)
+def test_artifact_metadata_rejects_foreign_text(key: str, foreign: str) -> None:
+    api = FakeGet()
+    api.artifacts[0][key] = foreign
+    message = (
+        "artifact digest is malformed"
+        if key == "digest"
+        else f"artifact {key} must be non-empty text"
+    )
+    with pytest.raises(ValueError, match=message):
+        _observe(api)
+
+
+def test_artifact_native_repository_case_insensitive_control() -> None:
+    api = FakeGet()
+    result = observe_workflow_artifacts(
+        api, expected_repository=REPOSITORY.upper(), run_id=RUN
+    )
+    assert result["artifact_count"] == 2
+    assert result["cleanup_authorized"] is False
+
+
+class _CompareTrap(str):
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("foreign equality called")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("foreign inequality called")
+
+
+@pytest.mark.parametrize("key", ["head_branch", "head_sha"])
+def test_artifact_origin_refuses_before_foreign_comparison(key: str) -> None:
+    api = FakeGet()
+    api.artifacts[0]["workflow_run"][key] = _CompareTrap(  # type: ignore[index]
+        BRANCH if key == "head_branch" else SHA
+    )
+    with pytest.raises(ValueError, match="artifact workflow identity"):
+        _observe(api)
+
+
+def test_artifact_run_refuses_before_foreign_sha_comparison() -> None:
+    api = FakeGet()
+    api.run["head_sha"] = _CompareTrap(SHA)
+    with pytest.raises(ValueError, match="run head SHA"):
+        _observe(api)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("head_sha", _CompareTrap(SHA), "run head SHA"),
+        ("head_branch", _CompareTrap(BRANCH), "run head branch"),
+        ("updated_at", _CompareTrap("2026-11-02T10:30:39Z"), "run updated_at"),
+    ],
+)
+def test_run_readback_refuses_foreign_text(
+    field: str, value: str, message: str
+) -> None:
+    api = FakeGet()
+    api.next_run = {**api.run, field: value}
+    with pytest.raises(ValueError, match=message):
+        _observe(api)
+    assert api.run_reads == api.scans == 2
+
+
+def test_repository_readback_refuses_foreign_node_id() -> None:
+    api = FakeGet()
+    api.next_repo = {**api.repo, "node_id": _CompareTrap("R_123")}
+    with pytest.raises(ValueError, match="repository node id"):
+        _observe(api)
+    assert api.repo_reads == api.run_reads == api.scans == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("node_id", _CompareTrap("A_1"), "artifact node_id"),
+        ("name", _CompareTrap("repeated-name"), "artifact name"),
+        ("digest", _CompareTrap("sha256:" + "c" * 64), "artifact digest"),
+    ],
+)
+def test_artifact_metadata_refuses_before_foreign_comparison(
+    field: str, value: str, message: str
+) -> None:
+    api = FakeGet()
+    api.artifacts[0][field] = value
+    with pytest.raises(ValueError, match=message):
+        _observe(api)
+
+
+class _MappingTrap(dict[str, object]):
+    def get(self, *args, **kwargs):
+        raise AssertionError("foreign object lookup called")
+
+
+class _RowsTrap(list[object]):
+    def __len__(self):
+        raise AssertionError("foreign list length called")
+
+    def __iter__(self):
+        raise AssertionError("foreign list iteration called")
+
+
+class _ForeignKey(str):
+    pass
+
+
+class _ForeignResponse(FakeGet):
+    def __init__(self, location: str):
+        super().__init__()
+        self.location = location
+
+    def _request_json(self, method, suffix, *, query=None):
+        raw = super()._request_json(method, suffix, query=query)
+        location = self.location
+        if suffix == "":
+            if location == "repo":
+                return _MappingTrap(raw)
+            if location == "repo_key":
+                return {
+                    _ForeignKey(key) if key == "full_name" else key: value
+                    for key, value in raw.items()
+                }
+        elif suffix == f"actions/runs/{RUN}":
+            if location == "run":
+                return _MappingTrap(raw)
+            if location in ("repository", "head_repository"):
+                raw[location] = _MappingTrap(raw[location])
+        elif suffix == f"actions/runs/{RUN}/artifacts":
+            if location == "page":
+                return _MappingTrap(raw)
+            if location == "rows":
+                raw["artifacts"] = _RowsTrap(raw["artifacts"])
+            elif location == "artifact":
+                raw["artifacts"][0] = _MappingTrap(raw["artifacts"][0])
+            elif location == "origin":
+                row = raw["artifacts"][0]
+                row["workflow_run"] = _MappingTrap(row["workflow_run"])
+        return raw
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "repo",
+        "repo_key",
+        "run",
+        "repository",
+        "head_repository",
+        "page",
+        "rows",
+        "artifact",
+        "origin",
+    ],
+)
+def test_observation_refuses_foreign_json_containers(location: str) -> None:
+    with pytest.raises(ValueError, match="native JSON|artifact pagination"):
+        _observe(_ForeignResponse(location))

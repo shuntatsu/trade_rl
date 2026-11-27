@@ -20,6 +20,8 @@ from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 from trade_rl.data.source import RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
+# Bound temporary base-row arrays independently of the history length.
+_ALIGNMENT_BATCH_ROWS = 8192
 
 
 def _utc_datetime64(value: datetime) -> np.datetime64:
@@ -220,33 +222,54 @@ def _align_events(
     if valid_indices.size == 0:
         return values, available, age_hours, staleness
 
-    event_time_ns = raw.timestamps.astype("datetime64[ns]").astype(np.int64)
-    availability_ns = event_available_at.astype("datetime64[ns]").astype(np.int64)
+    event_time_ns = raw.timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
+    availability_ns = event_available_at.astype("datetime64[ns]", copy=False).view(
+        np.int64
+    )
     order = valid_indices[np.argsort(availability_ns[valid_indices], kind="stable")]
-    base_ns = base_timestamps.astype("datetime64[ns]").astype(np.int64)
+    publication_ns = availability_ns[order]
+    # RawMarketSeries close times are strictly increasing, so the largest
+    # event index among the published prefix is the latest *close*, not
+    # necessarily the most recently received event.
+    latest_by_publication = np.maximum.accumulate(order)
+    base_ns = base_timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
 
-    cursor = 0
-    latest_index: int | None = None
-    for base_index, timestamp_ns in enumerate(base_ns):
-        while cursor < len(order) and availability_ns[order[cursor]] <= timestamp_ns:
-            candidate = int(order[cursor])
-            if (
-                latest_index is None
-                or event_time_ns[candidate] > event_time_ns[latest_index]
-            ):
-                latest_index = candidate
-            cursor += 1
-        if latest_index is None or not base_active[base_index]:
+    previous_frontier = np.iinfo(np.int64).min
+    for begin in range(0, len(base_ns), _ALIGNMENT_BATCH_ROWS):
+        end = min(begin + _ALIGNMENT_BATCH_ROWS, len(base_ns))
+        times = base_ns[begin:end]
+        # The legacy cursor never retreats, even for an inactive row.
+        # Explicit-clock callers already validate strictly increasing times.
+        frontier = np.maximum.accumulate(times)
+        np.maximum(frontier, previous_frontier, out=frontier)
+        previous_frontier = frontier[-1]
+        ranks = np.searchsorted(publication_ns, frontier, side="right")
+        active_rows = np.flatnonzero(
+            (ranks > 0) & np.asarray(base_active[begin:end], dtype=np.bool_)
+        )
+        if not active_rows.size:
             continue
-        age = float(int(timestamp_ns) - int(event_time_ns[latest_index])) / _NS_PER_HOUR
-        if age < -1e-12:
+        selected = latest_by_publication[ranks[active_rows] - 1]
+        observed = times[active_rows]
+        event_close = event_time_ns[selected]
+        # Subtract ordered signed timestamps in uint64: the mathematical
+        # magnitude may exceed int64, including across the Unix epoch.
+        # Convert that exact magnitude to float only after the subtraction.
+        age = (
+            np.maximum(observed, event_close).view(np.uint64)
+            - np.minimum(observed, event_close).view(np.uint64)
+        ).astype(np.float64)
+        age[observed < event_close] *= -1.0
+        age /= _NS_PER_HOUR
+        if np.any(age < -1e-12):
             raise ValueError("native feature event appears before its event timestamp")
-        normalized_staleness = min(age / spec.max_staleness_hours, 1.0)
-        age_hours[base_index] = age
-        staleness[base_index] = normalized_staleness
-        if age <= spec.max_staleness_hours + 1e-12:
-            values[base_index] = event_values[latest_index]
-            available[base_index] = True
+        rows = begin + active_rows
+        age_hours[rows] = age
+        with np.errstate(over="ignore"):
+            staleness[rows] = np.minimum(age / spec.max_staleness_hours, 1.0)
+        fresh = age <= spec.max_staleness_hours + 1e-12
+        values[rows[fresh]] = event_values[selected[fresh]]
+        available[rows[fresh]] = True
 
     return values, available, age_hours, staleness
 

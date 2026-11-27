@@ -83,6 +83,8 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
         assert_type(result.ledger_evidence.exposure_evidence, ReplayExposureEvidence | None)
     assert_type(mean_pre_interval_gross_from_ledger(b"", expected_ledger_digest="a"*64, expected_dataset_id="b"*64, expected_execution_policy_digest="c"*64, expected_symbols=("A",), expected_start_index=0, expected_stop_index=2), float)
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
+    assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=True, native_fixed_linear_carry=True), str)
+    assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, settle_terminal_position=True, native_fixed_linear_carry=True), SharedCashPortfolioReplayResult)
 def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: Path, package: Path) -> None:
     source = assert_type(ExternalPackageInput(core, wheel, package), ExternalPackageInput)
     other = ExternalPackageInput(research, wheel, package)
@@ -190,6 +192,7 @@ def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """
 )

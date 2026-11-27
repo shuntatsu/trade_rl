@@ -72,6 +72,8 @@ globalのmarket return平均・標準偏差は、そのバーで利用できる�
 
 native sourceの時点整列では、判断時点までに公開されたeventのうち最も新しいcloseを選びます。長期履歴は固定サイズの基準足chunkに分けて処理し、遅れて公開された古いeventで最新値を巻き戻さず、利用可能時刻・経過時間・鮮度の数値契約を保ちます。
 
+一目均衡表は従来の固定期間を維持しつつ、明示設定で転換線・基準線・先行スパンBの期間を足の本数で指定できます。可視雲の変位を使う場合は、判断行より過去の計算値を使う方式を明示し、最長の必要窓から判断行までの欠損・取引可能性・公開時刻を検査します。設定を変えると新しいDataset識別子になります。
+
 1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。

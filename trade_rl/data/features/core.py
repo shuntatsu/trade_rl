@@ -14,6 +14,7 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.features.indicators._ichimoku_windows import (
     _configured_ichimoku_events,
+    _rolling_extrema,
 )
 from trade_rl.data.features.numerics import (
     portable_correlation,
@@ -206,6 +207,8 @@ def _stochastic_d(
     usable: np.ndarray,
     lookback: int,
     smoothing: int,
+    *,
+    linear_extrema: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     values = np.zeros_like(close, dtype=np.float64)
     valid = np.zeros_like(usable, dtype=np.bool_)
@@ -218,10 +221,37 @@ def _stochastic_d(
         # Compute each trailing K once, then keep the same portable fsum
         # mean for every D window. No repeated K computation per D event.
         ks = np.empty(size - lookback + 1, dtype=np.float64)
-        for offset, index in enumerate(range(start + lookback - 1, stop)):
-            first = index - lookback + 1
-            highest = float(np.max(high[first : index + 1]))
-            lowest = float(np.min(low[first : index + 1]))
+        segment_high, segment_low = high[start:stop], low[start:stop]
+        # Only ordinary finite positive price arrays use the shared monotonic
+        # window. Keep the legacy reduction for implicit profiles and inputs
+        # outside that domain (including signed zero and nonfinite values).
+        if (
+            linear_extrema
+            and type(high) is np.ndarray
+            and type(low) is np.ndarray
+            and high.dtype in (np.dtype("float32"), np.dtype("float64"))
+            and low.dtype in (np.dtype("float32"), np.dtype("float64"))
+            and np.isfinite(segment_high).all()
+            and np.isfinite(segment_low).all()
+            and np.all(segment_high > 0.0)
+            and np.all(segment_low > 0.0)
+        ):
+            extrema = (
+                (start + index, highest, lowest)
+                for index, highest, lowest in _rolling_extrema(
+                    segment_high, segment_low, lookback
+                )
+            )
+        else:
+            extrema = (
+                (
+                    index,
+                    float(np.max(high[index - lookback + 1 : index + 1])),
+                    float(np.min(low[index - lookback + 1 : index + 1])),
+                )
+                for index in range(start + lookback - 1, stop)
+            )
+        for offset, (index, highest, lowest) in enumerate(extrema):
             spread = highest - lowest
             ratio = 0.5 if spread <= _EPSILON else (close[index] - lowest) / spread
             ks[offset] = 2.0 * ratio - 1.0
@@ -522,6 +552,7 @@ def calculate_feature_events(
             _STOCHASTIC_SMOOTH
             if spec.stochastic_smoothing_period is None
             else spec.stochastic_smoothing_period,
+            linear_extrema=spec.stochastic_smoothing_period is not None,
         )
     elif kind is FeatureKind.ATR_PCT:
         values, valid, source_start = _atr(high, low, close, usable, spec.lookback)

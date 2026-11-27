@@ -312,6 +312,7 @@ def run_clocked_native_portfolio_replay(
     capture_ledger_evidence: bool = False,
     execution_mode: Literal["strict_spot", "linear_carry"] = "strict_spot",
     terminal_reserve_bars: int | None = None,
+    continue_pending_orders: bool = False,
 ) -> ClockedNativeReplayResult:
     """Run sparse actor calls while the canonical engine advances every fine bar.
 
@@ -322,8 +323,11 @@ def run_clocked_native_portfolio_replay(
     inputs. Funding applies after the row's open fills, never before them.
     This is a declared discrete linear model, not exchange-specific event
     timing, leverage or provider admission. Both modes require deterministic
-    unlevered MARKET, zero additional latency, previous-bar capacity and no
-    pending partial-fill carry. Hard risk may override off-schedule exact HOLD;
+    unlevered MARKET and previous-bar capacity. The default refuses additional
+    latency and partial-fill carry. Explicit continue_pending_orders=True
+    admits cross-margin fine-bar latency and pending MARKET residuals using
+    the shared no-new-intent transition; the coarse policy is not recalled.
+    Hard risk may override off-schedule exact HOLD or cancel pending exposure;
     the terminal tail attempts flattening. An explicit terminal_reserve_bars
     counts fine execution intervals, extends the native default, and excludes
     those intervals from the coarse actor schedule. It does not guarantee
@@ -335,20 +339,30 @@ def run_clocked_native_portfolio_replay(
     if type(mode) is not str or mode not in ("strict_spot", "linear_carry"):
         raise ValueError("invalid clocked native execution_mode")
     strict_spot = mode == "strict_spot"
+    if type(continue_pending_orders) is not bool:
+        raise ValueError("continue_pending_orders must be boolean")
     if type(execution_cost) is not ExecutionCostConfig or (
         execution_cost.order_type != "market"
-        or execution_cost.order_latency_bars != 0
-        or execution_cost.partial_fill_carry
+        or (
+            not continue_pending_orders
+            and (
+                execution_cost.order_latency_bars != 0
+                or execution_cost.partial_fill_carry
+            )
+        )
         or execution_cost.processing_bar_volume_capacity
         or (strict_spot and execution_cost.allow_short)
-        or (not strict_spot and execution_cost.margin_mode != "cross")
+        or (
+            (not strict_spot or continue_pending_orders)
+            and execution_cost.margin_mode != "cross"
+        )
         or execution_cost.max_leverage > 1.0
         or execution_cost.collateral_haircut != 1.0
         or execution_cost.slippage_std != 0.0
         or execution_cost.tail_slippage_probability != 0.0
     ):
         raise ValueError(
-            "scheduled replay requires deterministic unlevered MARKET without pending carry; "
+            "scheduled replay requires deterministic unlevered MARKET; pending carry requires explicit opt-in; "
             "strict spot is long-only and linear carry requires cross margin"
         )
     if type(dataset) is not MarketDataset:
@@ -414,6 +428,15 @@ def run_clocked_native_portfolio_replay(
         settle_terminal_position=True,
         terminal_reserve_bars=terminal_reserve_bars,
         strict_spot_cash=strict_spot,
+        actor_decision_indices=(
+            tuple(
+                slot.decision_index
+                for slot in slots
+                if slot.status == "scheduled" and slot.decision_index is not None
+            )
+            if continue_pending_orders
+            else None
+        ),
         capture_ledger_evidence=capture_ledger_evidence,
     )
     return ClockedNativeReplayResult(

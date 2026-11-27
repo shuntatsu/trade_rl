@@ -645,3 +645,61 @@ def test_extended_terminal_reserve_signed_positions_and_terminal_funding():
     assert extended.replay.book.exact_quantities == (0, 0)
     assert extended.replay.book.funding_pnl == pytest.approx(6.0)
     assert b.active_order_remainders == ()
+
+
+def test_linear_carry_pending_latency_charges_only_post_fill_funding():
+    dataset, group, decision, stop = _fixture()
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            assert snapshot.index == decision
+            return PortfolioTargetProposal((0.25, -0.25))
+
+    result = run_clocked_native_portfolio_replay(
+        dataset,
+        Policy(),
+        decision_group=group,
+        start_index=decision - 3,
+        stop_index=stop,
+        initial_capital=1000.0,
+        execution_cost=_cost(
+            order_latency_bars=2, fee_rate=0.0, borrow_rate_multiplier=0.0
+        ),
+        execution_mode="linear_carry",
+        continue_pending_orders=True,
+        capture_ledger_evidence=True,
+    )
+    assert result.policy_decision_indices == (decision,)
+    ledger = result.replay.ledger_evidence
+    assert ledger is not None
+    funding = {decision + 1: 0.0, decision + 2: 3.5, stop: 0.0}
+    previous = 1000.0
+    cash = 1000.0
+    for row in ledger.intervals.intervals:
+        idx = row.next_index
+        held = decision + 2 <= idx < decision + 5
+        cash += funding.get(idx, 0.0)
+        assert tuple(Fraction(q) for q in row.exact_quantities_after) == (
+            (Fraction(5, 4), Fraction(-5, 16)) if held else (0, 0)
+        )
+        assert row.cash_after == pytest.approx(cash)
+        assert row.portfolio_value_after == pytest.approx(cash)
+        assert row.interval_funding == pytest.approx(funding.get(idx, 0.0))
+        assert row.interval_net_return == pytest.approx(cash / previous - 1, abs=1e-12)
+        previous = cash
+    fills = [
+        e
+        for row in ledger.intervals.intervals
+        for e in row.order_events
+        if e.event_type == "filled"
+    ]
+    assert [(e.processing_index, e.symbol_index) for e in fills] == [
+        (decision + 2, 0),
+        (decision + 2, 1),
+        (decision + 5, 0),
+        (decision + 5, 1),
+    ]
+    assert result.replay.book.exact_quantities == (0, 0)
+    assert result.replay.book.funding_pnl == pytest.approx(3.5)
+    assert result.replay.book.cash == pytest.approx(1003.5)
+    assert ledger.intervals.active_order_remainders == ()

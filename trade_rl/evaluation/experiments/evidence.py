@@ -18,8 +18,7 @@ from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data import (
     MarketDataset,
     PublishedDatasetArtifact,
-    inspect_published_market_dataset_artifact,
-    load_market_dataset_artifact,
+    load_published_market_dataset_artifact,
 )
 from trade_rl.evaluation.experiments.contracts import ResolvedRunConfig, StudyPlan
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
@@ -29,7 +28,6 @@ from trade_rl.evaluation.runs import (
     LoadedCandidateRun,
     build_candidate_run_provenance,
     execute_candidate_run,
-    inspect_candidate_run_artifact,
     load_candidate_run_artifact,
     publish_candidate_run,
     resolve_candidate_run_spec,
@@ -231,8 +229,7 @@ def _verify_plan_inputs(
     except ValueError as error:
         raise ArtifactIntegrityError(str(error)) from error
 
-    artifact = inspect_published_market_dataset_artifact(dataset_root)
-    dataset = load_market_dataset_artifact(dataset_root)
+    artifact, dataset = load_published_market_dataset_artifact(dataset_root)
     if dataset.dataset_id != plan.dataset_id:
         raise ArtifactIntegrityError("Study dataset identity mismatch")
     if artifact.schema_version != plan.dataset_artifact_schema:
@@ -706,9 +703,8 @@ def execute_evidence_set(
                 raise ArtifactIntegrityError(
                     "EvidenceSet Run dataset identity mismatch"
                 )
-            identity = inspect_candidate_run_artifact(run_root)
             loaded_runs[seed] = loaded
-            run_digests.append((seed, identity.artifact_digest))
+            run_digests.append((seed, loaded.artifact_digest))
 
         if normalized_contract is None or seedless_contract is None:
             raise ArtifactIntegrityError("EvidenceSet contains no seed Runs")
@@ -856,10 +852,9 @@ def load_evidence_set(
         run_root = runs_root / f"seed-{seed}"
         try:
             loaded = load_candidate_run_artifact(run_root)
-            identity = inspect_candidate_run_artifact(run_root)
         except ValueError as error:
             raise ArtifactIntegrityError(str(error)) from error
-        if identity.artifact_digest != expected_digests[seed]:
+        if loaded.artifact_digest != expected_digests[seed]:
             raise ArtifactIntegrityError("EvidenceSet Run artifact digest mismatch")
         if (
             loaded.provenance.get("research_context_digest")

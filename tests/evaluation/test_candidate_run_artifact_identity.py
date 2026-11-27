@@ -332,3 +332,38 @@ def test_candidate_public_reader_refuses_trailing_npy_bytes(
     with pytest.raises(ValueError, match="byte extent"):
         reader(root)
     assert path.read_bytes() == original
+
+
+def test_loaded_semantic_digest_binds_original_snapshot_not_replaced_files(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "artifact"
+    _write_root(root, compressed=True)
+    loaded = load_candidate_run_artifact(root)
+    expected = inspect_candidate_run_artifact(root)
+    assert loaded.artifact_digest == expected.artifact_digest
+    # Preserve the historical digest encoding, independently reconstructing
+    # its payload from the actual primitive fixture.
+    from hashlib import sha256
+
+    values = np.asarray([0.0, 0.01, -0.02], dtype=np.float64)
+    assert loaded.artifact_digest == content_digest(
+        {
+            "schema_version": "candidate_run_artifact_identity_v1",
+            "summary": _summary(),
+            "returns": [
+                {
+                    "key": "symbol_0_strategy_0",
+                    "dtype": values.dtype.str,
+                    "shape": [3],
+                    "sha256": sha256(values.tobytes()).hexdigest(),
+                }
+            ],
+            "provenance": _provenance(),
+        }
+    )
+    np.savez(root / "returns.npz", symbol_0_strategy_0=values + 0.1)
+    assert loaded.artifact_digest == expected.artifact_digest
+    assert (
+        inspect_candidate_run_artifact(root).artifact_digest != expected.artifact_digest
+    )

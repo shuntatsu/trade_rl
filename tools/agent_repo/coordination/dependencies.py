@@ -80,6 +80,8 @@ class DependencyGraph:
             if dependency.kind is not DependencyKind.HARD:
                 continue
             status = statuses.get(dependency.task_id)
+            if status is not None and type(status) is not TaskStatus:
+                raise ValueError("dependency checks require native TaskStatus records")
             if status is None or status.condition is not TaskCondition.HEALTHY:
                 return False
             if _PHASE_ORDER[status.phase] < _PHASE_ORDER[dependency.requires_phase]:
@@ -120,6 +122,8 @@ class DependencyGraph:
             if dependency.kind is not DependencyKind.INTEGRATION:
                 continue
             status = statuses.get(dependency.task_id)
+            if status is not None and type(status) is not TaskStatus:
+                raise ValueError("dependency checks require native TaskStatus records")
             if (
                 status is None
                 or status.condition is not TaskCondition.HEALTHY

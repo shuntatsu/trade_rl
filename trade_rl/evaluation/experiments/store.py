@@ -361,8 +361,19 @@ def _unlink_owned_staging_file(path: Path, identity: tuple[int, int] | None) -> 
     return True
 
 
+class _StudyStorageSyncError(OSError):
+    """An operational sync failure, not a malformed staging inventory."""
+
+
+def _sync_study_descriptor(descriptor: int) -> None:
+    try:
+        os.fsync(descriptor)
+    except OSError as error:
+        raise _StudyStorageSyncError(*error.args) from error
+
+
 def _snapshot_pinned_staging_contents(
-    descriptor: int,
+    descriptor: int, *, sync_before_return: bool = False
 ) -> tuple[tuple[str, str, int, str], ...]:
     """Inventory a held directory, rejecting links and unstable file reads.
 
@@ -385,6 +396,9 @@ def _snapshot_pinned_staging_contents(
                         "Study staging inventory exceeds safe entry limit"
                     )
                 visit(directory_fd, prefix, depth, entry.name)
+        # Flush child file data and directory entries before their parent.
+        if sync_before_return:
+            _sync_study_descriptor(directory_fd)
 
     def visit(directory_fd: int, prefix: str, depth: int, name: str) -> None:
         if name in (".", ".."):
@@ -435,6 +449,8 @@ def _snapshot_pinned_staging_contents(
                 with os.fdopen(os.dup(child), "rb") as handle:
                     for block in iter(lambda: handle.read(1024 * 1024), b""):
                         digest.update(block)
+                if sync_before_return:
+                    _sync_study_descriptor(child)
                 finished = os.fstat(child)
                 current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
                 if (
@@ -473,7 +489,7 @@ def _snapshot_pinned_staging_contents(
             walk(directory_fd, "", 0)
         finally:
             os.close(directory_fd)
-    except ArtifactIntegrityError:
+    except (ArtifactIntegrityError, _StudyStorageSyncError):
         raise
     except (OSError, ValueError) as error:
         raise ArtifactIntegrityError(
@@ -853,10 +869,36 @@ class StudyStore:
         self,
         relative: str | Path,
         builder: Callable[[Path], None],
+        *,
+        sync_before_return: bool = False,
     ) -> Path:
-        """Build and publish under the Study-wide mutation lock."""
+        """Build and publish under the Study-wide mutation lock.
 
+        Opt-in Linux absolute-root direct-child publication syncs the staged files and
+        directories before rename and the held Study root after verification.
+        The caller must establish a durable, stable root/ancestor chain
+        beforehand. Successful fsync calls do not prove physical power-loss
+        durability. A post-rename sync failure is non-retryable.
+        """
+        if type(sync_before_return) is not bool:
+            raise ValueError("sync_before_return must be boolean")
         checked = self._relative_path(relative)
+        if sync_before_return and sys.platform != "linux":
+            raise ValueError("synced directory publication requires Linux")
+        if sync_before_return and (
+            not self.root.is_absolute() or len(checked.parts) != 1
+        ):
+            raise ValueError(
+                "synced directory publication requires an absolute root and direct child"
+            )
+        if sync_before_return and any(
+            path.is_symlink() for path in (self.root, *self.root.parents)
+        ):
+            # An internally trusted stage FD is a valid builder capability,
+            # not a durable external publication root.
+            raise ValueError(
+                "synced directory publication requires a stable unlinked root"
+            )
         with self.mutation_lock():
             if any(
                 checked == pending
@@ -869,12 +911,18 @@ class StudyStore:
                 )
             self._pending_directories.add(checked)
             try:
-                return self._publish_directory_once_locked(checked, builder)
+                return self._publish_directory_once_locked(
+                    checked, builder, sync_before_return=sync_before_return
+                )
             finally:
                 self._pending_directories.discard(checked)
 
     def _publish_directory_once_locked(
-        self, relative: Path, builder: Callable[[Path], None]
+        self,
+        relative: Path,
+        builder: Callable[[Path], None],
+        *,
+        sync_before_return: bool = False,
     ) -> Path:
         """The exclusive writer lock spans builder, rename and inode check."""
 
@@ -948,7 +996,7 @@ class StudyStore:
                             pinned_staging, staging_descriptor
                         )
                         completed_inventory = _snapshot_pinned_staging_contents(
-                            staging_descriptor
+                            staging_descriptor, sync_before_return=sync_before_return
                         )
                     else:
                         # Portable static checks cannot prevent leaf swaps.
@@ -1020,10 +1068,31 @@ class StudyStore:
                 try:
                     check_parent()
                     check_root()
+                    if sync_before_return:
+                        root_fd = _open_directory_descriptor_nofollow(pinned_root)
+                        try:
+                            sync_fd = os.open(
+                                ".",
+                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                dir_fd=root_fd,
+                            )
+                            try:
+                                _sync_study_descriptor(sync_fd)
+                            finally:
+                                os.close(sync_fd)
+                        finally:
+                            os.close(root_fd)
+                        check_parent()
+                        check_root()
                 except ArtifactIntegrityError as error:
                     raise PublishedArtifactCleanupError(
                         f"Study directory may have been published into a "
                         f"detached parent: {relative}; do not retry publication"
+                    ) from error
+                except OSError as error:
+                    raise PublishedArtifactCleanupError(
+                        f"Study directory may be published but parent sync failed: "
+                        f"{relative}; do not retry publication"
                     ) from error
         return target
 

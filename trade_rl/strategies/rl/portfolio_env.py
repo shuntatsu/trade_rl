@@ -122,10 +122,13 @@ class SharedPortfolioGymEnv(gym.Env):
         execution_cost: ExecutionCostConfig,
         risk_config: PreTradeRiskConfig,
         market_order_profile: MarketOrderProfile | None = None,
+        native_fixed_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
     ) -> None:
         super().__init__()
+        if type(native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
         if not isinstance(bound, BoundObjectiveClock):
@@ -188,6 +191,7 @@ class SharedPortfolioGymEnv(gym.Env):
         self.market_order_profile = market_order_profile
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
+        self._native_fixed_linear_carry = native_fixed_linear_carry
         self._native_execution_dataset = (
             dataset if dataset.native_clock is not None else None
         )
@@ -240,6 +244,11 @@ class SharedPortfolioGymEnv(gym.Env):
         self._capturing_execution_observations: (
             list[StatefulExecutionObservation] | None
         ) = None
+
+    @property
+    def native_fixed_linear_carry(self) -> bool:
+        """Immutable opt-in to the declared signed fixed-grid execution model."""
+        return self._native_fixed_linear_carry
 
     @staticmethod
     def _validate_financial_window(
@@ -325,6 +334,7 @@ class SharedPortfolioGymEnv(gym.Env):
             native_calendar_month=isinstance(
                 self.bound.clock, CalendarMonthFinancialClockContract
             ),
+            native_fixed_linear_carry=self.native_fixed_linear_carry,
         )
         if self.dataset.native_clock is not None:
             _require_risk_execution_limits(
@@ -338,7 +348,9 @@ class SharedPortfolioGymEnv(gym.Env):
                 raise ValueError(
                     "native Gym financial clock must match the Dataset window"
                 ) from error
-            if self.dataset.native_calendar_month and (
+            if (
+                self.dataset.native_calendar_month or self.native_fixed_linear_carry
+            ) and (
                 self.bound.objective.terminal_valuation != "settled"
                 or not self.bound.clock.terminal_profit_aligned
                 or self.bound.objective.capital.account_mode != "shared_portfolio"
@@ -350,7 +362,12 @@ class SharedPortfolioGymEnv(gym.Env):
                 <= self.start_index
             ):
                 raise ValueError(
-                    "calendar month Gym objective or terminal window differs"
+                    (
+                        "calendar month"
+                        if self.dataset.native_calendar_month
+                        else "native fixed linear carry"
+                    )
+                    + " Gym objective or terminal window differs"
                 )
 
     def reset(
@@ -375,6 +392,7 @@ class SharedPortfolioGymEnv(gym.Env):
             execution_observer=self.execution_observer,
             execution_trace_observer=self._capture_execution_trace,
             native_calendar_month=self.dataset.native_calendar_month,
+            native_fixed_linear_carry=self.native_fixed_linear_carry,
         )
         self._session = session
         self._episode_done = False

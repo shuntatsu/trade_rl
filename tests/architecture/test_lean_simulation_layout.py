@@ -18,6 +18,7 @@ EXPECTED_ROOT_FILES = {
     "quantities.py",
     "training_identity.py",
     "depth.py",
+    "depth_calibration.py",
 }
 
 EXPECTED_PACKAGE_FILES = {

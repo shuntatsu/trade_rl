@@ -96,6 +96,7 @@ trade_rl/
 │   ├── accounting.py
 │   ├── bar_path.py
 │   ├── depth.py
+│   ├── depth_calibration.py
 │   ├── diagnostics/
 │   ├── execution.py
 │   ├── liquidity.py
@@ -532,6 +533,22 @@ The shared-cash replay's explicit exact-quantity HOLD is carried through
 `targets/execution.py` to reconciliation, which accepts it only when its target
 weight exactly matches the current book weight; it cancels residual orders without
 resizing the native quantity. Ordinary weight targets use the existing path.
+
+`depth_calibration.py` is a pure, exact-arithmetic bound calculator for cumulative
+depth-band snapshots (such as Binance `bookDepth`). The caller builds immutable
+`DepthBandSnapshot` values; the module imports no store or integration, fits
+nothing, and is not re-exported from the simulation facade. For a market order
+of quote notional Q it derives distribution-free bounds on the marginal fill
+distance and on the notional-weighted average distance from mid (the upper bound
+puts each band's liquidity at its outer edge; the lower bound is an unattained
+infimum), reports `BeyondObservedDepth` instead of extrapolating, aggregates
+type-1 quantiles over snapshots, finds the exact capacity at a cost threshold,
+and classifies an assumed cost as below, within, above, unresolvable or beyond
+depth. Band data cannot resolve the spread or the impact of an order that fits
+inside the first band, so such assumptions are `UNRESOLVABLE`, never validated.
+Inputs outside the documented numeric domain are refused with a `ValueError` that
+does not echo the value. It authorizes no economic experiment or profitability
+claim.
 
 ### `strategies`
 

@@ -123,3 +123,78 @@ def test_capacity_refuses_foreign_snapshot() -> None:
     snapshot = _ForeignSnapshot(TIME, bands, bands)
     with pytest.raises(ValueError, match="DepthBandSnapshot"):
         depth_capacity([snapshot], side="buy", quantile=1, max_average_cost_bps=100)
+
+
+class _ForeignSide(str):
+    def __eq__(self, other):
+        return True
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize("side", [_ForeignSide("hold"), []], ids=["foreign", "list"])
+def test_query_refuses_invalid_side(side) -> None:
+    bands = (DepthBand(1, 10),)
+    snapshot = DepthBandSnapshot(TIME, bands, bands)
+    with pytest.raises(ValueError, match="side"):
+        order_cost_bounds(snapshot, side=side, notional=1)
+    with pytest.raises(ValueError, match="side"):
+        calibrate_depth_costs([snapshot], notionals=[1], quantiles=[1], sides=[side])
+    with pytest.raises(ValueError, match="side"):
+        depth_capacity([snapshot], side=side, quantile=1, max_average_cost_bps=100)
+    cal = calibrate_depth_costs([snapshot], notionals=[1], quantiles=[1])
+    with pytest.raises(ValueError, match="side"):
+        cal.cell(side=side, notional=1)
+
+
+@pytest.mark.parametrize("hour", [True, 1.0, _ForeignInt(1)])
+def test_query_refuses_non_native_hour(hour) -> None:
+    bands = (DepthBand(1, 10),)
+    snapshot = DepthBandSnapshot(TIME.replace(hour=1), bands, bands)
+    cal = calibrate_depth_costs(
+        [snapshot], notionals=[1], quantiles=[1], by_utc_hour=True
+    )
+    with pytest.raises(ValueError, match="hour_utc"):
+        cal.cell(side="buy", notional=1, hour_utc=hour)
+    with pytest.raises(ValueError, match="hour_utc"):
+        depth_capacity(
+            [snapshot],
+            side="buy",
+            quantile=1,
+            max_average_cost_bps=100,
+            hour_utc=hour,
+        )
+
+
+def test_native_query_keys_still_work() -> None:
+    bands = (DepthBand(1, 10),)
+    snapshot = DepthBandSnapshot(TIME.replace(hour=1), bands, bands)
+    cal = calibrate_depth_costs(
+        [snapshot], notionals=[1], quantiles=[1], by_utc_hour=True
+    )
+    assert cal.cell(side="buy", notional=1, hour_utc=1).snapshot_count == 1
+    assert cal.cell(side="sell", notional=1).snapshot_count == 1
+    assert (
+        depth_capacity(
+            [snapshot], side="buy", quantile=1, max_average_cost_bps=100, hour_utc=1
+        ).capacity_notional
+        == 10
+    )
+
+
+class _ForeignBool:
+    @property
+    def __class__(self):
+        return bool
+
+
+def test_query_refuses_foreign_grouping_flag() -> None:
+    bands = (DepthBand(1, 10),)
+    snapshot = DepthBandSnapshot(TIME, bands, bands)
+    with pytest.raises(ValueError, match="boolean"):
+        calibrate_depth_costs(
+            [snapshot],
+            notionals=[1],
+            quantiles=[1],
+            by_utc_hour=_ForeignBool(),  # type: ignore[arg-type]
+        )

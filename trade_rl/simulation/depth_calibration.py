@@ -42,8 +42,10 @@ The classifier and existing-cell lookups intentionally compare exact values
 outside the magnitude and Fraction bit limits, including derived bounds;
 the conversion/type/finite and Decimal/integer guards still apply. Finite
 float assumed costs are accepted. These comparisons do not admit inputs to
-the bounded solver or grid. Numeric and band tuple subclasses are refused before conversion or indexing.
-Calculation entry points require native DepthBandSnapshot instances.
+the bounded solver or grid. Numeric and band tuple subclasses are refused
+before conversion or indexing. Calculation entry points require native
+DepthBandSnapshot instances. Side and UTC-hour keys use native str and int
+respectively (or None for the overall UTC-hour group).
 Numeric validation errors name the offending field, never its value.
 
 Derivation of the bounds
@@ -53,16 +55,20 @@ Model: the book is a measure ``mu`` of resting quote notional over the distance
 market order of quote notional ``Q <= N_m`` consumes the nearest ``Q`` units of
 ``mu``. Let ``d(u)`` be the distance of the ``u``-th unit of notional (the
 quantile function of ``mu``), and ``N_0 = 0``, ``p_0 = 0``. For ``u`` in
-``(N_{j-1}, N_j]`` the unit lies within ``p_j`` (``mu([0, p_j]) = N_j >= u``)
-and strictly beyond ``p_{j-1}`` (``mu([0, p_{j-1}]) = N_{j-1} < u``), so
+``(N_{j-1}, N_j]`` the unit lies within ``p_j`` (``mu([0, p_j]) = N_j >= u``).
+For ``j >= 2`` it lies strictly beyond ``p_{j-1}`` because
+``mu([0, p_{j-1}]) = N_{j-1} < u``. In the first band the model permits
+zero distance, so
 
-    p_{j-1} < d(u) <= p_j.
+    0 <= d(u) <= p_1                    (j = 1)
+    p_{j-1} < d(u) <= p_j               (j >= 2).
 
 Let ``k`` be the smallest band with ``N_k >= Q``.
 
 * Marginal (worst) fill distance: ``d(Q) <= p_k`` (upper bound) and
   ``d(Q) > p_{k-1}`` (lower bound; an infimum that is approached, not
-  attained). For ``Q <= N_1`` the lower bound is ``0``.
+  attained) for ``Q > N_1``. For ``Q <= N_1`` the lower bound is ``0``
+  and can be attained in the abstract measure model.
 * Average cost ``A(Q) = (1/Q) * integral_0^Q d(u) du``. Integrating the
   pointwise bounds gives
 
@@ -72,9 +78,10 @@ Let ``k`` be the smallest band with ``N_k >= Q``.
   ``A_upper`` is attained by the adversarial placement that puts all notional
   of band ``j`` exactly at its outer edge ``p_j`` (consistent with every
   ``N_j``), so no smaller valid upper bound exists. ``A_lower`` is the
-  infimum approached by placing each band's notional just beyond its inner
-  edge. The tests enumerate every discretised placement on small examples and
-  confirm both statements.
+  infimum approached by placing each later band's notional just beyond its
+  inner edge and first-band liquidity at zero. The zero lower bound is
+  attainable in the abstract model; positive lower bounds are not attained.
+  The tests enumerate discretised placements on small examples.
 * All four bounds are non-decreasing in ``Q`` (an average of a non-decreasing
   step function is non-decreasing).
 
@@ -232,8 +239,8 @@ class DepthBandSnapshot:
     ``DepthBand(percentage, cumulative_notional)`` with percentages in percent
     of mid. Native tuples of native ``DepthBand`` or plain tuple pairs and
     native exact numbers are required. Construction accepts native aware
-    datetimes with zero UTC offset,
-    samples the offset once and stores a native UTC datetime. It refuses
+    datetimes with zero UTC offset, samples the offset once and stores a native
+    UTC datetime. It refuses
     non-UTC or naive times, non-finite or out-of-range values, non-positive
     or non-increasing percentages, and negative or decreasing notionals.
     """
@@ -262,17 +269,23 @@ class DepthBandSnapshot:
 
 
 def _require_side(side: object) -> None:
-    if side not in _SIDES:
+    if type(side) is not str or side not in _SIDES:
         raise ValueError("side must be 'buy' or 'sell'")
+
+
+def _require_hour(hour_utc: int | None) -> None:
+    if hour_utc is not None and (type(hour_utc) is not int or not 0 <= hour_utc <= 23):
+        raise ValueError("hour_utc must be an integer within 0..23")
 
 
 @dataclass(frozen=True, slots=True)
 class OrderCostBounds:
     """Bounds in bps of mid for one order inside the observed depth.
 
-    ``*_lower_bps`` are infima that are approached but not attained. The bounds
-    exclude fees. ``within_first_band`` flags ``Q <= N_1``, where the data
-    cannot resolve spread or impact (lower bounds are zero).
+    Positive ``*_lower_bps`` are unattained infima; a zero lower bound can
+    be attained in the abstract model. The bounds exclude fees.
+    ``within_first_band`` flags ``Q <= N_1``, where the data cannot resolve
+    spread or impact (lower bounds are zero).
     """
 
     side: Side
@@ -495,6 +508,8 @@ class DepthCostCalibration:
     def cell(
         self, *, side: Side, notional: Exact, hour_utc: int | None = None
     ) -> CalibrationCell:
+        _require_side(side)
+        _require_hour(hour_utc)
         wanted = _exact(notional, "notional", bounded=False)
         for entry in self.cells:
             if (
@@ -590,10 +605,10 @@ def _strictly_increasing(
 
 def _validated_sides(sides: Iterable[Side]) -> tuple[Side, ...]:
     resolved = tuple(sides)
-    if not resolved or len(set(resolved)) != len(resolved):
-        raise ValueError("sides must be non-empty and unique")
     for side in resolved:
         _require_side(side)
+    if not resolved or len(set(resolved)) != len(resolved):
+        raise ValueError("sides must be non-empty and unique")
     return resolved
 
 
@@ -682,7 +697,7 @@ def calibrate_depth_costs(
     grid = _strictly_increasing(notionals, "notionals", upper_one=False)
     levels = _strictly_increasing(quantiles, "quantiles", upper_one=True)
     chosen = _validated_sides(sides)
-    if not isinstance(by_utc_hour, bool):
+    if type(by_utc_hour) is not bool:
         raise ValueError("by_utc_hour must be a boolean")
     cells: list[CalibrationCell] = []
     for side in chosen:
@@ -756,12 +771,7 @@ def depth_capacity(
     threshold = _exact(max_average_cost_bps, "max_average_cost_bps", allow_float=True)
     if threshold < 0:
         raise ValueError("max_average_cost_bps must be non-negative")
-    if hour_utc is not None and (
-        isinstance(hour_utc, bool)
-        or not isinstance(hour_utc, int)
-        or not 0 <= hour_utc <= 23
-    ):
-        raise ValueError("hour_utc must be an integer within 0..23")
+    _require_hour(hour_utc)
     selected = [
         _normalise(s.bands_for(side))
         for s in resolved

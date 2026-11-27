@@ -540,12 +540,14 @@ depth-band snapshots (such as Binance `bookDepth`). The caller builds immutable
 and normalized to immutable UTC without retaining caller-owned timezone state.
 Native exact numbers and native band tuples/pairs are required; numeric and
 tuple subclasses are refused before conversion or indexing. Calculation entry
-points also refuse snapshot subclasses. The module imports no store or integration, fits nothing, and is not
-re-exported from the simulation facade. For a market order
+points also refuse snapshot subclasses. Side keys are native strings, UTC-hour
+keys are native integers in 0..23 (or None), and invalid keys are refused before
+hashing or comparison. The module imports no store or integration, fits nothing,
+and is not re-exported from the simulation facade. For a market order
 of quote notional Q it derives distribution-free bounds on the marginal fill
 distance and on the notional-weighted average distance from mid (the upper bound
-puts each band's liquidity at its outer edge; the lower bound is an unattained
-infimum), reports `BeyondObservedDepth` instead of extrapolating, aggregates
+puts each band's liquidity at its outer edge; positive lower bounds are
+unattained infima and zero can be attained in the abstract model), reports `BeyondObservedDepth` instead of extrapolating, aggregates
 type-1 quantiles over snapshots, finds the exact capacity at a cost threshold,
 refuses a positive selected capacity outside the public bounded notional domain
 rather than rounding or returning a value the query APIs cannot consume,

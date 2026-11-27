@@ -140,10 +140,7 @@ def test_create_study_rejects_nondefault_forecast_horizon_before_dataset_io(
         raise AssertionError("dataset resolution must not run for a 72-hour Study")
 
     monkeypatch.setattr(
-        workflow_module, "inspect_published_market_dataset_artifact", forbid_dataset_io
-    )
-    monkeypatch.setattr(
-        workflow_module, "load_market_dataset_artifact", forbid_dataset_io
+        workflow_module, "load_published_market_dataset_artifact", forbid_dataset_io
     )
 
     with pytest.raises(

@@ -35,13 +35,9 @@ def test_run_candidate_artifact_delegates_through_run_core(
     published = SimpleNamespace(root=tmp_path / "published")
     order: list[str] = []
 
-    def inspect(path):
-        order.append("inspect")
-        return dataset_artifact
-
     def load_dataset(path):
         order.append("load_dataset")
-        return dataset
+        return dataset_artifact, dataset
 
     def load_config(path):
         order.append("load_config")
@@ -75,8 +71,9 @@ def test_run_candidate_artifact_delegates_through_run_core(
         assert run_provenance["research_context_digest"] == "f" * 64
         return published
 
-    monkeypatch.setattr(candidate, "inspect_published_market_dataset_artifact", inspect)
-    monkeypatch.setattr(candidate, "load_market_dataset_artifact", load_dataset)
+    monkeypatch.setattr(
+        candidate, "load_published_market_dataset_artifact", load_dataset
+    )
     monkeypatch.setattr(candidate, "load_candidate_run_config", load_config)
     monkeypatch.setattr(candidate, "resolve_candidate_run_spec", resolve)
     monkeypatch.setattr(candidate, "build_candidate_run_provenance", provenance)
@@ -92,7 +89,6 @@ def test_run_candidate_artifact_delegates_through_run_core(
 
     assert actual is published
     assert order == [
-        "inspect",
         "load_dataset",
         "load_config",
         "resolve",
@@ -111,16 +107,14 @@ def test_run_candidate_artifact_rejects_provenance_drift_before_publish(
 
     monkeypatch.setattr(
         candidate,
-        "inspect_published_market_dataset_artifact",
-        lambda path: SimpleNamespace(
-            schema_version="market_dataset_artifact_v3",
-            artifact_digest="e" * 64,
+        "load_published_market_dataset_artifact",
+        lambda path: (
+            SimpleNamespace(
+                schema_version="market_dataset_artifact_v3",
+                artifact_digest="e" * 64,
+            ),
+            SimpleNamespace(dataset_id="d" * 64),
         ),
-    )
-    monkeypatch.setattr(
-        candidate,
-        "load_market_dataset_artifact",
-        lambda path: SimpleNamespace(dataset_id="d" * 64),
     )
     monkeypatch.setattr(candidate, "load_candidate_run_config", lambda path: object())
     monkeypatch.setattr(

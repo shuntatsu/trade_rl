@@ -213,6 +213,9 @@ class SharedPortfolioGymEnv(gym.Env):
         self.market_order_profile = market_order_profile
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
+        self._native_fixed_dataset = (
+            dataset if dataset.native_clock is not None else None
+        )
         self._validate_native_fixed_window()
         n_symbols = dataset.n_symbols
         n_features = len(dataset.feature_names)
@@ -263,9 +266,23 @@ class SharedPortfolioGymEnv(gym.Env):
             list[StatefulExecutionObservation] | None
         ) = None
 
+    def _require_native_fixed_binding(self) -> None:
+        # Bind the mode to the original immutable Dataset. A mutable Gym
+        # attribute must not disable native admission by selecting a legacy
+        # Dataset with a copied ID, or enter native mode after construction.
+        if (
+            self._native_fixed_dataset is not None
+            or self.dataset.native_clock is not None
+        ) and self.dataset is not self._native_fixed_dataset:
+            raise ValueError(
+                "native fixed Gym requires its original verified Dataset identity; "
+                "create a fresh environment for a different Dataset"
+            )
+
     def _validate_native_fixed_window(self) -> None:
         # Constructor admission is repeated by the fit and bundle-load
         # boundaries because a Gym environment's attributes are mutable.
+        self._require_native_fixed_binding()
         _preflight_native_fixed_execution_window(
             self.dataset,
             self.execution_cost,
@@ -285,6 +302,7 @@ class SharedPortfolioGymEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
         if options:
             raise ValueError("reset options are not supported")
+        self._require_native_fixed_binding()
         super().reset(seed=seed)
         session = SharedPortfolioSession(
             self.dataset,

@@ -246,6 +246,42 @@ def test_native_gym_preflights_even_the_terminal_processing_row(mutation, messag
         _environment(dataset)
 
 
+def test_native_gym_rejects_legacy_replacement_with_copied_identity_before_fit(
+    tmp_path, monkeypatch
+):
+    env = _environment(_native_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    env.dataset = replace(
+        _dataset(n_bars=8),
+        dataset_id=env.dataset.dataset_id,
+        identity_payload_json=None,
+    )
+    assert env.dataset.native_clock is None
+    attempt = tmp_path / "attempt"
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("legacy replacement reached optional runtime import")
+
+    monkeypatch.setattr(portfolio_training.importlib, "import_module", forbidden)
+    with pytest.raises(ValueError, match="verified Dataset identity"):
+        fit_shared_portfolio_ppo(
+            env, transform=transform, output_root=attempt, config=_config()
+        )
+    assert not attempt.exists() and env._session is None
+
+
+def test_native_gym_rejects_legacy_replacement_before_direct_reset() -> None:
+    env = _environment(_native_dataset())
+    env.dataset = replace(
+        _dataset(n_bars=8),
+        dataset_id=env.dataset.dataset_id,
+        identity_payload_json=None,
+    )
+    with pytest.raises(ValueError, match="verified Dataset identity"):
+        env.reset()
+    assert env._session is None
+
+
 def test_native_training_revalidates_replaced_dataset_before_attempt_or_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -721,3 +721,42 @@ def test_foreign_sha_never_reaches_comparison(location: str) -> None:
     with pytest.raises(ValueError, match="exact Git SHA"):
         _inspect(e)
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        ("inventory", "schema"),
+        ("inventory", "repository"),
+        ("inventory", "task_scope"),
+        ("attempts", "schema"),
+        ("attempts", "scope"),
+        ("attempts", "job_source"),
+        ("attempts", "head_branch"),
+        ("artifacts", "schema"),
+        ("artifacts", "scope"),
+        ("artifacts", "repository"),
+        ("artifacts", "head_branch"),
+    ],
+)
+@pytest.mark.parametrize("same_text", [False, True])
+def test_reconciliation_rejects_foreign_identity_text(
+    section: str, field: str, same_text: bool
+) -> None:
+    calls: list[str] = []
+
+    class ForeignText(str):
+        def __eq__(self, other: object) -> bool:
+            calls.append("eq")
+            return True
+
+        def __ne__(self, other: object) -> bool:
+            calls.append("ne")
+            return False
+
+    e = _evidence()
+    row = e[section] if section == "inventory" else e[section][0]  # type: ignore[index]
+    row[field] = ForeignText(row[field] if same_text else "foreign")  # type: ignore[index]
+    with pytest.raises(ValueError):
+        _inspect(e)
+    assert calls == []

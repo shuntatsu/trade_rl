@@ -17,11 +17,14 @@ Per archive:
    only unseen keys are inserted. A changed value for an existing key rolls the
    transaction back, is recorded as a conflict and aborts the run: nothing is ever
    overwritten.
+
+The opt-in USD-M daily ``metrics`` and ``bookDepth`` kinds follow exactly the same steps;
+their natural keys are the ``create_time`` and the ``(timestamp, percentage)`` pair.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -35,8 +38,10 @@ from trade_rl.integrations.market_store.checksum import (
 from trade_rl.integrations.market_store.contracts import (
     ArchiveKind,
     ArchiveSpec,
+    BookDepthRow,
     FundingRow,
     KlineRow,
+    OpenInterestMetricRow,
     StoreMarket,
     ms_from_utc,
 )
@@ -44,8 +49,10 @@ from trade_rl.integrations.market_store.embargo import EmbargoPolicy
 from trade_rl.integrations.market_store.parse import (
     SkippedPlaceholder,
     StoreKlineAdmission,
+    parse_book_depth_archive,
     parse_funding_archive,
     parse_kline_archive,
+    parse_open_interest_metrics_archive,
 )
 from trade_rl.integrations.market_store.plan import IngestionPlan
 
@@ -220,26 +227,48 @@ class IngestStore(Protocol):
         self, instrument_id: int, source_id: int, rows: Sequence[FundingRow]
     ) -> int: ...
 
+    def existing_open_interest_metrics(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[int, OpenInterestMetricRow]: ...
+
+    def insert_open_interest_metrics(
+        self,
+        instrument_id: int,
+        source_id: int,
+        rows: Sequence[OpenInterestMetricRow],
+    ) -> int: ...
+
+    def existing_book_depth(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[tuple[int, int], BookDepthRow]: ...
+
+    def insert_book_depth(
+        self, instrument_id: int, source_id: int, rows: Sequence[BookDepthRow]
+    ) -> int: ...
+
     def record_conflicts(
         self, run_id: int, conflicts: Sequence[ConflictRecord]
     ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
-class Diff[RowT]:
-    new: tuple[tuple[int, RowT], ...]
+class Diff[KeyT: Hashable, RowT]:
+    new: tuple[tuple[KeyT, RowT], ...]
     identical: int
-    conflicts: tuple[tuple[int, str, str, str], ...]
+    conflicts: tuple[tuple[KeyT, str, str, str], ...]
 
 
 def _text(value: object) -> str:
     return str(value)
 
 
-def diff_rows[RowT: (KlineRow, FundingRow)](
-    existing: Mapping[int, RowT],
-    incoming: Sequence[tuple[int, RowT]],
-) -> Diff[RowT]:
+def diff_rows[
+    KeyT: Hashable,
+    RowT: (KlineRow, FundingRow, OpenInterestMetricRow, BookDepthRow),
+](
+    existing: Mapping[KeyT, RowT],
+    incoming: Sequence[tuple[KeyT, RowT]],
+) -> Diff[KeyT, RowT]:
     """Classify incoming rows against stored rows by exact value equality.
 
     ``Decimal`` equality ignores trailing zeros, so ``1.50`` and ``1.5`` are the same
@@ -247,8 +276,8 @@ def diff_rows[RowT: (KlineRow, FundingRow)](
     never modified.
     """
 
-    new: list[tuple[int, RowT]] = []
-    conflicts: list[tuple[int, str, str, str]] = []
+    new: list[tuple[KeyT, RowT]] = []
+    conflicts: list[tuple[KeyT, str, str, str]] = []
     identical = 0
     for key, row in incoming:
         stored = existing.get(key)
@@ -267,24 +296,44 @@ def diff_rows[RowT: (KlineRow, FundingRow)](
     return Diff(tuple(new), identical, tuple(conflicts))
 
 
+_CONFLICT_KINDS: dict[ArchiveKind, str] = {
+    ArchiveKind.KLINES: "kline",
+    ArchiveKind.FUNDING_RATE: "funding_rate",
+    ArchiveKind.METRICS: "open_interest_metric",
+    ArchiveKind.BOOK_DEPTH: "book_depth",
+}
+
+
 def _conflict_records(
-    spec: ArchiveSpec, diff: Diff[KlineRow] | Diff[FundingRow]
+    spec: ArchiveSpec,
+    diff: Diff[int, KlineRow]
+    | Diff[int, FundingRow]
+    | Diff[int, OpenInterestMetricRow]
+    | Diff[tuple[int, int], BookDepthRow],
 ) -> list[ConflictRecord]:
-    kind = "kline" if spec.kind is ArchiveKind.KLINES else "funding_rate"
-    return [
-        ConflictRecord(
-            kind=kind,
-            market=spec.market,
-            symbol=spec.symbol,
-            source_url=spec.url,
-            bar_interval=spec.interval,
-            key_time_ms=key,
-            column=column,
-            existing=before,
-            incoming=after,
+    records: list[ConflictRecord] = []
+    for key, column, before, after in diff.conflicts:
+        key_time_ms: int
+        if isinstance(key, tuple):
+            # bookDepth: the band is part of the natural key, so it names the column
+            key_time_ms = key[0]
+            column = f"{column}@percentage={key[1]}"
+        else:
+            key_time_ms = key
+        records.append(
+            ConflictRecord(
+                kind=_CONFLICT_KINDS[spec.kind],
+                market=spec.market,
+                symbol=spec.symbol,
+                source_url=spec.url,
+                bar_interval=spec.interval,
+                key_time_ms=key_time_ms,
+                column=column,
+                existing=before,
+                incoming=after,
+            )
         )
-        for key, column, before, after in diff.conflicts
-    ]
+    return records
 
 
 class _Refused(Exception):
@@ -369,6 +418,8 @@ def _ingest_archive(
     end_ms = ms_from_utc(spec.period_end)
     kline_rows: list[KlineRow] = []
     funding_rows: list[FundingRow] = []
+    metric_rows: list[OpenInterestMetricRow] = []
+    depth_rows: list[BookDepthRow] = []
     skipped: tuple[SkippedPlaceholder, ...] = ()
     if spec.kind is ArchiveKind.KLINES:
         parsed_klines = parse_kline_archive(
@@ -380,9 +431,17 @@ def _ingest_archive(
         kline_rows = parsed_klines.rows
         skipped = parsed_klines.placeholders
         row_count = len(kline_rows)
-    else:
+    elif spec.kind is ArchiveKind.FUNDING_RATE:
         funding_rows = parse_funding_archive(archive.body, spec, embargo=embargo)
         row_count = len(funding_rows)
+    elif spec.kind is ArchiveKind.METRICS:
+        metric_rows = parse_open_interest_metrics_archive(
+            archive.body, spec, embargo=embargo
+        )
+        row_count = len(metric_rows)
+    else:
+        depth_rows = parse_book_depth_archive(archive.body, spec, embargo=embargo)
+        row_count = len(depth_rows)
 
     try:
         with store.transaction():
@@ -412,7 +471,7 @@ def _ingest_archive(
                     [row for _, row in kline_diff.new],
                 )
                 identical = kline_diff.identical
-            else:
+            elif spec.kind is ArchiveKind.FUNDING_RATE:
                 stored_funding = store.existing_funding(instrument_id, start_ms, end_ms)
                 funding_diff = diff_rows(
                     stored_funding,
@@ -424,6 +483,33 @@ def _ingest_archive(
                     instrument_id, source_id, [row for _, row in funding_diff.new]
                 )
                 identical = funding_diff.identical
+            elif spec.kind is ArchiveKind.METRICS:
+                stored_metrics = store.existing_open_interest_metrics(
+                    instrument_id, start_ms, end_ms
+                )
+                metrics_diff = diff_rows(
+                    stored_metrics,
+                    [(row.create_time_ms, row) for row in metric_rows],
+                )
+                if metrics_diff.conflicts:
+                    raise _Refused(_conflict_records(spec, metrics_diff))
+                inserted = store.insert_open_interest_metrics(
+                    instrument_id, source_id, [row for _, row in metrics_diff.new]
+                )
+                identical = metrics_diff.identical
+            else:
+                stored_depth = store.existing_book_depth(
+                    instrument_id, start_ms, end_ms
+                )
+                depth_diff = diff_rows(
+                    stored_depth, [(row.key, row) for row in depth_rows]
+                )
+                if depth_diff.conflicts:
+                    raise _Refused(_conflict_records(spec, depth_diff))
+                inserted = store.insert_book_depth(
+                    instrument_id, source_id, [row for _, row in depth_diff.new]
+                )
+                identical = depth_diff.identical
     except _Refused as refused:
         counts.conflicts += len(refused.conflicts)
         store.record_conflicts(run_id, refused.conflicts)

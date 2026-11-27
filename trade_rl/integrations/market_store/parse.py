@@ -1,4 +1,4 @@
-"""Exact parsing of Binance Vision kline and funding-rate archives.
+"""Exact parsing of Binance Vision kline, funding-rate, metrics and bookDepth archives.
 
 Prices, quantities and rates stay :class:`~decimal.Decimal` read from the archive text,
 never floats. Every row is checked against the sealed-window embargo before anything
@@ -9,12 +9,22 @@ zero-volume placeholder candle Binance published for the spot ``1h`` bar opening
 2020-12-21 14:00 UTC (see :func:`is_known_exchange_placeholder`). It is never stored,
 never silently dropped (it is returned and counted), and every other malformed row
 still raises :class:`ArchiveContentError`.
+
+The opt-in USD-M daily ``metrics`` and ``bookDepth`` archives are parsed far more
+strictly than klines (no placeholder is recognised): the header must be exactly the one
+observed in the public archives, every row must have exactly that many columns, numbers
+must be plain finite decimals, timestamps must be ``YYYY-MM-DD HH:MM:SS`` UTC inside the
+archive's own day, and a repeated key refuses the whole archive. Row order in the file
+is not trusted (a real ``metrics`` archive is not time-ordered); rows are returned
+sorted.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Final
@@ -43,8 +53,11 @@ from trade_rl.integrations.binance.vision import (
 from trade_rl.integrations.market_store.contracts import (
     ArchiveKind,
     ArchiveSpec,
+    BookDepthRow,
     FundingRow,
     KlineRow,
+    OpenInterestMetricRow,
+    PeriodKind,
     StoreMarket,
     ms_from_utc,
 )
@@ -362,7 +375,163 @@ def parse_funding_archive(
     return result
 
 
+#: The exact header of a public USD-M daily ``metrics`` archive (observed 2024-03-15).
+METRICS_HEADER: Final = (
+    "create_time",
+    "symbol",
+    "sum_open_interest",
+    "sum_open_interest_value",
+    "count_toptrader_long_short_ratio",
+    "sum_toptrader_long_short_ratio",
+    "count_long_short_ratio",
+    "sum_taker_long_short_vol_ratio",
+)
+#: The exact header of a public USD-M daily ``bookDepth`` archive (observed 2024-03-15).
+BOOK_DEPTH_HEADER: Final = ("timestamp", "percentage", "depth", "notional")
+_DAILY_TIMESTAMP: Final = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"
+)
+_PLAIN_DECIMAL: Final = re.compile(r"^-?[0-9]+(?:\.[0-9]+)?$")
+_PLAIN_INTEGER: Final = re.compile(r"^-?[0-9]+$")
+_MAX_ABS_PERCENTAGE: Final = 100
+
+
+def _strict_decimal(value: str, *, field: str, url: str) -> Decimal:
+    """A plain decimal literal only: no exponent, plus sign, NaN, inf or whitespace."""
+
+    if _PLAIN_DECIMAL.fullmatch(value) is None:
+        raise ArchiveContentError(f"{url}: invalid {field}: {value!r}")
+    return Decimal(value)
+
+
+def _non_negative(value: str, *, field: str, url: str, at: str) -> Decimal:
+    parsed = _strict_decimal(value, field=field, url=url)
+    if parsed < 0:
+        raise ArchiveContentError(f"{url}: negative {field} at {at}: {value!r}")
+    return parsed
+
+
+def _daily_timestamp_ms(value: str, *, field: str, url: str) -> int:
+    """``YYYY-MM-DD HH:MM:SS`` (UTC, as the public archives write it) to epoch ms."""
+
+    if _DAILY_TIMESTAMP.fullmatch(value) is None:
+        raise ArchiveContentError(f"{url}: invalid {field}: {value!r}")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    except ValueError as error:
+        raise ArchiveContentError(f"{url}: invalid {field}: {value!r}") from error
+    return ms_from_utc(parsed)
+
+
+def _daily_derivatives_rows(
+    payload: bytes,
+    spec: ArchiveSpec,
+    *,
+    kind: ArchiveKind,
+    header: tuple[str, ...],
+) -> list[list[str]]:
+    if spec.kind is not kind:
+        raise ValueError(f"spec is not a {kind.value} archive")
+    if (
+        spec.market is not StoreMarket.USDS_M
+        or spec.period_kind is not PeriodKind.DAILY
+    ):
+        raise ValueError(f"{kind.value} archives are USD-M daily only")
+    rows = _rows(payload, url=spec.url)
+    if not rows:
+        return []
+    if tuple(rows[0]) != header:
+        raise ArchiveContentError(
+            f"{spec.url}: unexpected {kind.value} header {tuple(rows[0])!r}"
+        )
+    body = rows[1:]
+    for raw in body:
+        if len(raw) != len(header):
+            raise ArchiveContentError(
+                f"{spec.url}: {kind.value} row has {len(raw)} columns, "
+                f"expected {len(header)}"
+            )
+    return body
+
+
+def _check_in_period(
+    timestamp_ms: int, spec: ArchiveSpec, *, embargo: EmbargoPolicy, field: str
+) -> None:
+    embargo.check_ms(timestamp_ms, context=f"{spec.url} {field}")
+    start_ms = ms_from_utc(spec.period_start)
+    if not start_ms <= timestamp_ms < ms_from_utc(spec.period_end):
+        raise ArchiveContentError(
+            f"{spec.url}: row at {timestamp_ms} lies outside the archive period"
+        )
+
+
+def parse_open_interest_metrics_archive(
+    payload: bytes, spec: ArchiveSpec, *, embargo: EmbargoPolicy
+) -> list[OpenInterestMetricRow]:
+    """Parse a verified USD-M daily ``metrics`` archive into exact rows, ascending."""
+
+    body = _daily_derivatives_rows(
+        payload, spec, kind=ArchiveKind.METRICS, header=METRICS_HEADER
+    )
+    parsed: dict[int, OpenInterestMetricRow] = {}
+    for raw in body:
+        created_ms = _daily_timestamp_ms(raw[0], field="create_time", url=spec.url)
+        _check_in_period(created_ms, spec, embargo=embargo, field="create_time")
+        if raw[1] != spec.symbol:
+            raise ArchiveContentError(
+                f"{spec.url}: row symbol {raw[1]!r} does not match {spec.symbol!r}"
+            )
+        if created_ms in parsed:
+            raise ArchiveContentError(
+                f"{spec.url}: duplicate create_time {raw[0]!r} in one archive"
+            )
+        values = [
+            _non_negative(
+                raw[index], field=METRICS_HEADER[index], url=spec.url, at=raw[0]
+            )
+            for index in range(2, 8)
+        ]
+        parsed[created_ms] = OpenInterestMetricRow(created_ms, *values)
+    return [parsed[key] for key in sorted(parsed)]
+
+
+def parse_book_depth_archive(
+    payload: bytes, spec: ArchiveSpec, *, embargo: EmbargoPolicy
+) -> list[BookDepthRow]:
+    """Parse a verified USD-M daily ``bookDepth`` archive into exact rows, ascending."""
+
+    body = _daily_derivatives_rows(
+        payload, spec, kind=ArchiveKind.BOOK_DEPTH, header=BOOK_DEPTH_HEADER
+    )
+    parsed: dict[tuple[int, int], BookDepthRow] = {}
+    for raw in body:
+        stamp_ms = _daily_timestamp_ms(raw[0], field="timestamp", url=spec.url)
+        _check_in_period(stamp_ms, spec, embargo=embargo, field="timestamp")
+        if _PLAIN_INTEGER.fullmatch(raw[1]) is None:
+            raise ArchiveContentError(f"{spec.url}: invalid percentage: {raw[1]!r}")
+        percentage = int(raw[1])
+        if percentage == 0 or abs(percentage) > _MAX_ABS_PERCENTAGE:
+            raise ArchiveContentError(
+                f"{spec.url}: percentage band {percentage} is not a signed band"
+            )
+        key = (stamp_ms, percentage)
+        if key in parsed:
+            raise ArchiveContentError(
+                f"{spec.url}: duplicate (timestamp, percentage) {raw[0]!r}, "
+                f"{percentage} in one archive"
+            )
+        parsed[key] = BookDepthRow(
+            timestamp_ms=stamp_ms,
+            percentage=percentage,
+            depth=_non_negative(raw[2], field="depth", url=spec.url, at=raw[0]),
+            notional=_non_negative(raw[3], field="notional", url=spec.url, at=raw[0]),
+        )
+    return [parsed[key] for key in sorted(parsed)]
+
+
 __all__ = [
+    "BOOK_DEPTH_HEADER",
+    "METRICS_HEADER",
     "KNOWN_PLACEHOLDER_INTERVAL",
     "KNOWN_PLACEHOLDER_MARKET",
     "KNOWN_PLACEHOLDER_OPEN_MS",
@@ -371,7 +540,9 @@ __all__ = [
     "SkippedPlaceholder",
     "StoreKlineAdmission",
     "is_known_exchange_placeholder",
+    "parse_book_depth_archive",
     "parse_funding_archive",
     "parse_kline_archive",
+    "parse_open_interest_metrics_archive",
     "validate_kline",
 ]

@@ -917,7 +917,7 @@ The comparator can opt in to forecast-versus-zero diagnostics. It calls the same
 
 Bot CLIの`--signal-feature`はDatasetの一意なfeature名を実行前に解決し、対応する`signal_index`をbaseline、cash、全candidate、全walk-forward foldへ固定する。未指定時は従来の0列目を維持する。公開tuning/comparison APIも同じindexを明示でき、boolean・負値・非整数・source Dataset範囲外のindexはchannel追加やreplay前に拒否する。configのindexとDataset identityがfeature semanticsをbindする。channel戦略とconstant/cash controlは従来どおり各自の入力・intent契約を使い、この指定でchannel定義やcontrolを変更しない。
 
-上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。`MarketDataset` と `ReturnSeries` の `periods_per_year` はpositive integerであり、booleanやfractional/non-finite frequencyは拒否する。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
+上限付きparameter searchは各parameter axisをまたぐdeterministic sampleを使い、grid先頭のprefixだけに偏らない。`BotReport` のreturn interval数、positive rate、profit factorはbar interval単位のmetricsであり、closed-trade metricsとは呼ばない。Sharpe annualizationはreturn seriesのperiod metadataを使う。legacy integer-clockの `periods_per_year` はpositive integerとし、booleanやfloat frequencyは拒否する。native fixed clockの `MarketDataset` はexecution clockに一致するexact `Fraction` を要求し、`ReturnSeries` は正の有限なbinary64表現を持つnonintegral `Fraction` を別契約で受理する（elapsed_yearsとの混在不可）。legacy nominal integerとelapsed_yearsの構築時検証を維持し、共通performance / paired / seed robustnessはそれらから導出した実効年率時計がbinary64で有限・正であることを計算前に要求する。累積wealth・return、分散、ratio等のoverflowで非有限な成功結果を発行しない。正当な既存の積・統計式・年率許容差は変更しない。`--mode compare` は全期間のin-sample diagnostic rankingであり、holdout selectionではない。baseline P&Lがほぼzeroの場合、relative improvement percentageはundefinedとして報告する。
 
 CLIは既存の `--dataset` directoryまたは明示的な `--demo` のどちらかを要求する。省略時や明示されたpathが存在しない・directoryでない場合は入力errorとして終了し、optimize/compareをsynthetic demo dataへ暗黙にフォールバックしない。
 
@@ -1242,14 +1242,23 @@ First-stage execution admits only identity-verified deterministic unlevered long
 ### Publication-gated native decisions on a real fine execution grid
 
 `trade_rl.evaluation.clocked_native_replay` is an opt-in composition, not a
-second executor or a relaxation of the coarse v8 mark-admission rule. Build
-the existing clocked feature overlay once on a verified continuous fine-grid
-Dataset; choose one exact bound group for the decision clock. All selected
-group symbols must have the same complete native close grid and strict
-`NativeRawMarketSeries` receipt arrays, with the actual raw pins, clock and
-feature definition matching the overlay identity. Identity is content
-binding, not source/provider authentication. The fine execution grid must
-contain actual complete source bars; coarse OHLC is never disaggregated.
+second executor or a relaxation of the coarse v8 mark-admission rule. Choose
+one exact bound decision group from either the existing clocked feature
+overlay on a verified continuous fine-grid Dataset or the existing v8
+native fixed spot builder. The overlay retains its larger and aligned
+interval restriction. For v8 native fixed spot builds, an independently
+pinned larger feature clock need not nest in the actual 3d/fixed7d/UTC-week
+execution grid: for example, a calendar-month close on Thursday may become
+actionable at Monday's actual close, not at an invented Thursday execution
+row. Match the build configuration digest, execution clock, feature and
+instrument rosters and selected raw source pins. All selected group symbols
+must share a complete native close grid and strict `NativeRawMarketSeries`
+receipt arrays. Every decision interval must be longer than the execution
+interval. Identity is content binding, not source/provider authentication.
+The fine execution grid contains actual complete source bars; coarse OHLC
+is never disaggregated. The existing Dataset/return identities, exact
+rational annualization, fee and terminal settlement owners stay unchanged.
+V8 scheduled replay admits only strict spot, not linear carry.
 
 For each declared coarse close, the latest receipt over the whole group
 determines the earliest possible actor time. Pick the first fine close at or
@@ -1263,7 +1272,7 @@ Fixed elapsed and UTC-week expiry use exact elapsed nanoseconds; UTC-month
 expiry uses the next calendar month, not 30 days. Outside-window and expired
 slots are explicit, with the actor window taking precedence. This gates raw
 bar publication; feature-specific warm-up, dependency readiness, masks and
-staleness remain the existing as-of overlay and policy's responsibility.
+staleness remain the existing as-of builder/overlay and policy's responsibility.
 
 `run_clocked_native_portfolio_replay` reuses the common shared replay on every
 fine interval. It calls the supplied policy only on admitted slots, proposes
@@ -1316,7 +1325,7 @@ sparse actor calls do not change annualization or the meaning of existing
 artifacts. The runtime execution-policy digest distinguishes strict spot
 from the signed native path, and Dataset identity binds the declared
 economic arrays; retain the mode/config and captured ledger as evidence.
-The same augmented Dataset can serve multiple policies without repeating
+The same bound Dataset can serve multiple policies without repeating
 feature construction. This does not admit native calendar-month execution,
 non-MARKET pending orders, leveraged margin or intrabar funding, RL
 checkpoint migration, provider authentication

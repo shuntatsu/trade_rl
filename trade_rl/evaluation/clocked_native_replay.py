@@ -1,6 +1,6 @@
 """Publication-gated coarse decisions on actual fine-grid native replay.
 
-The existing overlay owns causal feature values and the shared replay owns
+The existing builders/overlay own causal features and the shared replay owns
 every execution, risk, and accounting transition. No coarse OHLC is expanded
 into fabricated execution bars.
 """
@@ -22,6 +22,7 @@ from trade_rl.data.features.clocked_overlay import (
 from trade_rl.data.identity import parse_identity_json
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
+from trade_rl.data.native_execution_clock import execution_clock_payload
 from trade_rl.data.source import NativeRawMarketSeries
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
@@ -60,27 +61,25 @@ class ClockedNativeReplayResult:
     replay: SharedCashPortfolioReplayResult
 
 
-def _verify_group(
-    dataset: MarketDataset, group: ClockedNativeFeatureGroup
-) -> np.ndarray:
-    if type(dataset) is not MarketDataset or not dataset.identity_verified:
-        raise ValueError(
-            "native decision schedule requires a verified Dataset identity"
-        )
-    if (
-        dataset.native_clock is not None
-        or dataset.calendar_kind is not MarketCalendarKind.CONTINUOUS
-        or not dataset.regular_cadence
-    ):
-        raise ValueError(
-            "native decision schedule requires a continuous fine execution grid"
-        )
-    if type(group) is not ClockedNativeFeatureGroup:
-        raise ValueError("expected a declared native feature group")
-    if tuple(source.contract.symbol for source in group.sources) != dataset.symbols:
-        raise ValueError("native decision group roster differs from Dataset")
-    assert dataset.identity_payload_json is not None
-    identity = parse_identity_json(dataset.identity_payload_json)
+def _decision_group_payload(group: ClockedNativeFeatureGroup) -> dict[str, object]:
+    clock = group.clock
+    return {
+        "clock": {
+            "kind": clock.kind.value,
+            "fixed_seconds": clock.fixed_seconds,
+            "fixed_anchor_ns": None
+            if clock.fixed_anchor is None
+            else int(clock.fixed_anchor.astype(np.int64)),
+        },
+        "specs": tuple(spec.canonical_payload() for spec in group.specs),
+    }
+
+
+def _verify_overlay_binding(
+    dataset: MarketDataset,
+    group: ClockedNativeFeatureGroup,
+    identity: dict[str, object],
+) -> None:
     overlay = identity.get("clocked_native_overlay")
     if (
         not isinstance(overlay, dict)
@@ -99,19 +98,7 @@ def _verify_group(
         or content_digest(definition) != dataset.feature_config_digest
     ):
         raise ValueError("native overlay identity is inconsistent")
-    clock = group.clock
-    expected_group = canonical_json_bytes(
-        {
-            "clock": {
-                "kind": clock.kind.value,
-                "fixed_seconds": clock.fixed_seconds,
-                "fixed_anchor_ns": None
-                if clock.fixed_anchor is None
-                else int(clock.fixed_anchor.astype(np.int64)),
-            },
-            "specs": tuple(spec.canonical_payload() for spec in group.specs),
-        }
-    )
+    expected_group = canonical_json_bytes(_decision_group_payload(group))
     expected_pins = canonical_json_bytes(
         tuple(
             {"symbol": source.contract.symbol, "sha256": source.expected_source_digest}
@@ -127,6 +114,91 @@ def _verify_group(
         != 1
     ):
         raise ValueError("native decision group must match one bound overlay group")
+
+
+def _verify_native_fixed_binding(
+    dataset: MarketDataset,
+    group: ClockedNativeFeatureGroup,
+    identity: dict[str, object],
+) -> None:
+    """Match the existing v8 spot builder's independent source roster."""
+    assert dataset.native_clock is not None
+    config = identity.get("config")
+    if (
+        not isinstance(config, dict)
+        or config.get("schema_version") != "native_fixed_spot_build_v1"
+        or content_digest(config) != dataset.feature_config_digest
+        or config.get("execution_clock")
+        != execution_clock_payload(dataset.native_clock)
+    ):
+        raise ValueError("native fixed decision schedule requires the bound spot build")
+    features = config.get("features")
+    if (
+        not isinstance(features, list)
+        or any(not isinstance(spec, dict) for spec in features)
+        or tuple(spec.get("name") for spec in features) != dataset.feature_names
+        or canonical_json_bytes(config.get("global_feature_names"))
+        != canonical_json_bytes(dataset.global_feature_names)
+    ):
+        raise ValueError("native fixed build feature roster differs from Dataset")
+    groups = config.get("groups")
+    pins = identity.get("feature_source_digests")
+    if (
+        not isinstance(groups, list)
+        or not isinstance(pins, list)
+        or len(groups) != len(pins)
+        or not groups
+        or any(
+            not isinstance(roster, list) or len(roster) != dataset.n_symbols
+            for roster in pins
+        )
+    ):
+        raise ValueError("native fixed feature source binding is inconsistent")
+    if canonical_json_bytes(identity.get("instruments")) != canonical_json_bytes(
+        tuple(source.contract.canonical_payload() for source in group.sources)
+    ):
+        raise ValueError(
+            "native fixed decision group instrument contracts differ from build"
+        )
+    expected_group = canonical_json_bytes(_decision_group_payload(group))
+    expected_pins = tuple(source.expected_source_digest for source in group.sources)
+    if (
+        sum(
+            canonical_json_bytes(definition) == expected_group
+            and tuple(roster) == expected_pins
+            for definition, roster in zip(groups, pins, strict=True)
+        )
+        != 1
+    ):
+        raise ValueError("native decision group must match one bound spot build group")
+
+
+def _verify_group(
+    dataset: MarketDataset, group: ClockedNativeFeatureGroup
+) -> np.ndarray:
+    if type(dataset) is not MarketDataset or not dataset.identity_verified:
+        raise ValueError(
+            "native decision schedule requires a verified Dataset identity"
+        )
+    if (
+        dataset.calendar_kind is not MarketCalendarKind.CONTINUOUS
+        or not dataset.regular_cadence
+    ):
+        raise ValueError(
+            "native decision schedule requires a continuous fine execution grid"
+        )
+    if type(group) is not ClockedNativeFeatureGroup:
+        raise ValueError("expected a declared native feature group")
+    if tuple(source.contract.symbol for source in group.sources) != dataset.symbols:
+        raise ValueError("native decision group roster differs from Dataset")
+    assert dataset.identity_payload_json is not None
+    identity = parse_identity_json(dataset.identity_payload_json)
+    native_fixed = dataset.native_clock is not None
+    if native_fixed:
+        _verify_native_fixed_binding(dataset, group, identity)
+    else:
+        _verify_overlay_binding(dataset, group, identity)
+    clock = group.clock
     closes = group.sources[0].raw.timestamps
     starts, ends = clock.interval_bounds(closes)
     # MarketDataset admits exact coarser datetime64 units and preserves
@@ -137,9 +209,11 @@ def _verify_group(
     step = int(fine[1]) - first
     for start, end in zip(starts.view(np.int64), ends.view(np.int64), strict=True):
         lo, hi = int(start), int(end)
-        if (lo - first) % step or (hi - first) % step or hi - lo <= step:
+        if hi - lo <= step or (
+            not native_fixed and ((lo - first) % step or (hi - first) % step)
+        ):
             raise ValueError(
-                "native decision clock must be larger and aligned to fine grid"
+                "native decision clock must be larger and, for overlays, aligned to fine grid"
             )
     if int(ends[-1].astype(np.int64)) > last:
         raise ValueError("native decision source exceeds fine Dataset")
@@ -190,6 +264,9 @@ def clocked_native_decision_schedule(
     fine close is at/after the next coarse close, the event expires, even when
     the newer bar has not yet arrived. No catch-up at window start and no
     invented fills. Earlier warm-up events outside the fine grid do not act.
+    Native fixed spot builds also admit independently pinned larger clocks
+    whose boundaries need not coincide with the execution grid. Legacy
+    overlays retain their aligned-clock admission.
     Only raw publication is gated; the current as-of feature masks, warm-up
     and staleness still belong to the overlay and the policy.
     """
@@ -332,7 +409,9 @@ def run_clocked_native_portfolio_replay(
     counts fine execution intervals, extends the native default, and excludes
     those intervals from the coarse actor schedule. It does not guarantee
     settlement or override capacity. Inspect actual settlement.
-    Delayed/unavailable fine bars and intrabar carry are not admitted.
+    Native fixed spot builds retain their spot-only execution restrictions
+    and exact rational annualization. Delayed/unavailable fine bars and
+    intrabar carry are not admitted.
     This is a software contract, not execution authority.
     """
     mode: object = execution_mode
@@ -367,6 +446,8 @@ def run_clocked_native_portfolio_replay(
         )
     if type(dataset) is not MarketDataset:
         raise TypeError("expected a MarketDataset")
+    if dataset.native_clock is not None and not strict_spot:
+        raise ValueError("native fixed scheduled replay requires strict spot")
     if not callable(getattr(policy, "decide_portfolio", None)):
         raise TypeError("portfolio policy must define decide_portfolio")
     if (

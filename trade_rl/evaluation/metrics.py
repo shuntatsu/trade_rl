@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from statistics import fmean
 
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.evaluation.series import ReturnKind, ReturnSeries, _finite_annualization
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +36,10 @@ def compound_return(values: tuple[float, ...]) -> float:
     wealth = 1.0
     for value in values:
         wealth *= 1.0 + value
-    return wealth - 1.0
+    total_return = wealth - 1.0
+    if not math.isfinite(total_return):
+        raise ValueError("compound return must be finite")
+    return total_return
 
 
 def _max_drawdown(values: tuple[float, ...]) -> float:
@@ -85,21 +88,32 @@ def evaluate_performance(
             raise ValueError(f"{field_name} must be a non-negative integer")
 
     values = returns.values
-    mean = fmean(values)
-    variance = fmean((value - mean) ** 2 for value in values)
-    standard_deviation = math.sqrt(variance)
-    annualization = math.sqrt(returns.annualization_periods_per_year)
-    sharpe = (
-        mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
-    )
-    downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
-    sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0
+    frequency = _finite_annualization(returns, label="performance")
+    total_return = compound_return(values)
+    try:
+        mean = fmean(values)
+        variance = fmean((value - mean) ** 2 for value in values)
+        standard_deviation = math.sqrt(variance)
+        annualization = math.sqrt(frequency)
+        sharpe = (
+            mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
+        )
+        downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
+        sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0
+    except OverflowError as exc:
+        raise ValueError("performance metrics must be finite") from exc
+    max_drawdown = _max_drawdown(values)
+    if not all(
+        math.isfinite(value)
+        for value in (mean, variance, downside_rms, sharpe, sortino, max_drawdown)
+    ):
+        raise ValueError("performance metrics must be finite")
 
     return PerformanceMetrics(
-        total_return=compound_return(values),
+        total_return=total_return,
         sharpe=sharpe,
         sortino=sortino,
-        max_drawdown=_max_drawdown(values),
+        max_drawdown=max_drawdown,
         turnover_total=turnover,
         total_cost=cost,
         funding_pnl=funding_pnl,
@@ -112,6 +126,6 @@ def evaluate_performance(
         periods_per_year=(
             returns.periods_per_year
             if isinstance(returns.periods_per_year, Fraction)
-            else int(round(returns.annualization_periods_per_year))
+            else int(round(frequency))
         ),
     )

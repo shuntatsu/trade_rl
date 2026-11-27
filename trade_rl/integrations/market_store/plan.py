@@ -12,12 +12,17 @@ store policy on top:
   published or that would reach the embargo boundary is *skipped and reported*,
   never fetched;
 * an archive whose period reaches the embargo boundary is never planned, including a
-  monthly archive straddling the boundary (its in-bounds days are planned daily).
+  monthly archive straddling the boundary (its in-bounds days are planned daily);
+* the opt-in kinds ``metrics`` and ``bookDepth`` exist only as USD-M **daily** archives:
+  one per symbol and UTC day in ``[start, today)``, never for spot or monthly periods,
+  and (like every archive) never past the embargo boundary. The default ``kinds`` stay
+  klines and funding rates, so a plan without the opt-in is byte-for-byte unchanged.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -26,7 +31,12 @@ from trade_rl.integrations.binance import (
     vision_funding_url,
     vision_kline_url,
 )
+from trade_rl.integrations.market_store.archive_url import (
+    vision_daily_derivatives_url,
+)
 from trade_rl.integrations.market_store.contracts import (
+    DAILY_USDS_M_ONLY_KINDS,
+    DEFAULT_ARCHIVE_KINDS,
     ArchiveKind,
     ArchiveSpec,
     PeriodKind,
@@ -70,9 +80,10 @@ class IngestionPlan:
     embargo: EmbargoPolicy
     specs: tuple[ArchiveSpec, ...]
     skipped: tuple[PlanSkip, ...]
+    kinds: tuple[ArchiveKind, ...] = DEFAULT_ARCHIVE_KINDS
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "archives": [spec.to_dict() for spec in self.specs],
             "archives_planned": len(self.specs),
             "closed_from": self.embargo.start.isoformat(),
@@ -85,6 +96,11 @@ class IngestionPlan:
             "start": self.start.isoformat(),
             "universe": self.universe.to_dict(),
         }
+        if self.kinds != DEFAULT_ARCHIVE_KINDS:
+            # recorded only for an explicit opt-in, so default plans/runs keep the
+            # exact request document they always had
+            payload["kinds"] = [kind.value for kind in self.kinds]
+        return payload
 
 
 def _utc_day(value: datetime, *, field: str) -> datetime:
@@ -157,6 +173,97 @@ def _kline_specs(
     return specs
 
 
+def _funding_specs(
+    specs: list[ArchiveSpec],
+    skipped: list[PlanSkip],
+    market: StoreMarket,
+    symbol: str,
+    *,
+    start: datetime,
+    end: datetime,
+    monthly_end: datetime,
+) -> None:
+    month = _month_start(start)
+    while month < end:
+        following = _next_month(month)
+        if following <= end and following <= monthly_end:
+            url = vision_funding_url(market.binance, symbol, month)
+            specs.append(
+                ArchiveSpec(
+                    kind=ArchiveKind.FUNDING_RATE,
+                    market=market,
+                    symbol=symbol,
+                    interval=None,
+                    period_kind=PeriodKind.MONTHLY,
+                    period_start=month,
+                    period_end=following,
+                    url=url,
+                    checksum_url=f"{url}.CHECKSUM",
+                )
+            )
+        else:
+            reason = (
+                "funding rates exist only as monthly archives and this "
+                "month is not complete and published inside the range"
+            )
+            skipped.append(
+                PlanSkip(
+                    ArchiveKind.FUNDING_RATE,
+                    market,
+                    symbol,
+                    month,
+                    following,
+                    reason,
+                )
+            )
+        month = following
+
+
+def _daily_derivatives_specs(
+    kind: ArchiveKind,
+    market: StoreMarket,
+    symbol: str,
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[ArchiveSpec]:
+    specs: list[ArchiveSpec] = []
+    day = start
+    while day < end:
+        url = vision_daily_derivatives_url(kind, market, symbol, day)
+        specs.append(
+            ArchiveSpec(
+                kind=kind,
+                market=market,
+                symbol=symbol,
+                interval=None,
+                period_kind=PeriodKind.DAILY,
+                period_start=day,
+                period_end=day + timedelta(days=1),
+                url=url,
+                checksum_url=f"{url}.CHECKSUM",
+            )
+        )
+        day += timedelta(days=1)
+    return specs
+
+
+def _checked_kinds(
+    kinds: Sequence[ArchiveKind], universe: Universe
+) -> tuple[ArchiveKind, ...]:
+    resolved = tuple(ArchiveKind(kind) for kind in kinds)
+    if not resolved or len(set(resolved)) != len(resolved):
+        raise ValueError("kinds must be a non-empty list without duplicates")
+    opt_in = [kind for kind in resolved if kind in DAILY_USDS_M_ONLY_KINDS]
+    if opt_in and StoreMarket.USDS_M not in universe.markets:
+        names = ", ".join(kind.value for kind in opt_in)
+        raise ValueError(
+            f"{names} archives exist only for USD-M futures, but the universe has "
+            "no usds_m market"
+        )
+    return resolved
+
+
 def plan_ingestion(
     universe: Universe,
     *,
@@ -165,9 +272,11 @@ def plan_ingestion(
     now: datetime,
     embargo: EmbargoPolicy | None = None,
     monthly_publication_lag: timedelta = DEFAULT_MONTHLY_PUBLICATION_LAG,
+    kinds: Sequence[ArchiveKind] = DEFAULT_ARCHIVE_KINDS,
 ) -> IngestionPlan:
     """Plan every archive for ``[start, end)``; never reads the network or a clock."""
 
+    planned_kinds = _checked_kinds(kinds, universe)
     policy = EmbargoPolicy.enforced() if embargo is None else embargo
     start_utc = _utc_day(start, field="start")
     end_utc = _utc_day(end, field="end")
@@ -186,52 +295,40 @@ def plan_ingestion(
     if effective_end > start_utc:
         for market in universe.markets:
             for symbol in universe.symbols:
-                specs.extend(
-                    _kline_specs(
+                if ArchiveKind.KLINES in planned_kinds:
+                    specs.extend(
+                        _kline_specs(
+                            market,
+                            symbol,
+                            universe.interval,
+                            start=start_utc,
+                            end=effective_end,
+                            monthly_end=monthly_end,
+                        )
+                    )
+                if market is not StoreMarket.USDS_M:
+                    continue
+                if ArchiveKind.FUNDING_RATE in planned_kinds:
+                    _funding_specs(
+                        specs,
+                        skipped,
                         market,
                         symbol,
-                        universe.interval,
                         start=start_utc,
                         end=effective_end,
                         monthly_end=monthly_end,
                     )
-                )
-                if market is not StoreMarket.USDS_M:
-                    continue
-                month = _month_start(start_utc)
-                while month < effective_end:
-                    following = _next_month(month)
-                    if following <= effective_end and following <= monthly_end:
-                        url = vision_funding_url(market.binance, symbol, month)
-                        specs.append(
-                            ArchiveSpec(
-                                kind=ArchiveKind.FUNDING_RATE,
-                                market=market,
-                                symbol=symbol,
-                                interval=None,
-                                period_kind=PeriodKind.MONTHLY,
-                                period_start=month,
-                                period_end=following,
-                                url=url,
-                                checksum_url=f"{url}.CHECKSUM",
-                            )
-                        )
-                    else:
-                        reason = (
-                            "funding rates exist only as monthly archives and this "
-                            "month is not complete and published inside the range"
-                        )
-                        skipped.append(
-                            PlanSkip(
-                                ArchiveKind.FUNDING_RATE,
+                for kind in planned_kinds:
+                    if kind in DAILY_USDS_M_ONLY_KINDS:
+                        specs.extend(
+                            _daily_derivatives_specs(
+                                kind,
                                 market,
                                 symbol,
-                                month,
-                                following,
-                                reason,
+                                start=start_utc,
+                                end=effective_end,
                             )
                         )
-                    month = following
     for spec in specs:
         policy.check_archive_end(spec.period_end, url=spec.url)
     return IngestionPlan(
@@ -241,6 +338,7 @@ def plan_ingestion(
         embargo=policy,
         specs=tuple(specs),
         skipped=tuple(skipped),
+        kinds=planned_kinds,
     )
 
 

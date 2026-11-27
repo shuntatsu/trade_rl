@@ -236,13 +236,16 @@ def expected_maximum_sharpe(n_trials: int, trial_sr_variance: float) -> float:
     For ``n_trials == 1`` the formula's ``Phi^-1(0)`` is undefined; this
     function returns ``0.0`` by convention because a single trial involves no
     selection, which makes the deflated ratio equal the plain PSR against zero.
-    A zero ``trial_sr_variance`` likewise returns ``0.0``.
+    A zero ``trial_sr_variance`` likewise returns ``0.0``. A nonzero real
+    variance that rounds to zero is refused rather than dropping the penalty.
     """
 
     n = _integer(n_trials, name="n_trials", minimum=1, maximum=MAX_TRIAL_COUNT)
     variance = require_finite_real(trial_sr_variance, name="trial_sr_variance")
     if variance < 0.0:
         raise ValueError("trial_sr_variance must be non-negative")
+    if variance == 0.0 and trial_sr_variance != 0:
+        raise ValueError("trial_sr_variance underflows to zero")
     if n == 1 or variance == 0.0:
         return 0.0
     # Phi^-1(1 - p) = -Phi^-1(p); the lower tail stays accurate for tiny p.

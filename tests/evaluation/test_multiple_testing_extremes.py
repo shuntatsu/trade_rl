@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import sys
+from fractions import Fraction
 
 import pytest
 
@@ -75,3 +76,39 @@ def test_existing_statistical_formula_oracles() -> None:
     assert deflated_sharpe_ratio(0.1, 250, -0.5, 4.0, 10, 0.04) == pytest.approx(
         0.0004870784890680868, abs=1e-12
     )
+
+
+@pytest.mark.parametrize("n_trials", [1, 2, 10**15])
+@pytest.mark.parametrize("variance", [Fraction(1, 10**400), Fraction(-1, 10**400)])
+def test_expected_maximum_refuses_nonzero_variance_that_rounds_to_zero(
+    n_trials: int, variance: Fraction
+) -> None:
+    assert variance != 0 and float(variance) == 0.0
+    with pytest.raises(ValueError, match="trial_sr_variance"):
+        expected_maximum_sharpe(n_trials, variance)
+
+
+@pytest.mark.parametrize("n_trials", [1, 2, 10**15])
+@pytest.mark.parametrize("variance", [Fraction(1, 10**400), Fraction(-1, 10**400)])
+def test_dsr_refuses_nonzero_variance_that_rounds_to_zero(
+    n_trials: int, variance: Fraction
+) -> None:
+    with pytest.raises(ValueError, match="trial_sr_variance"):
+        deflated_sharpe_ratio(0.1, 100, 0.0, 3.0, n_trials, variance)
+
+
+@pytest.mark.parametrize("variance", [0.0, -0.0, Fraction(0)])
+def test_exact_zero_variance_is_allowed(variance: float | Fraction) -> None:
+    assert expected_maximum_sharpe(2, variance) == 0.0
+    expected = probabilistic_sharpe_ratio(0.1, 100, 0.0, 3.0)
+    assert deflated_sharpe_ratio(0.1, 100, 0.0, 3.0, 2, variance) == expected
+
+
+@pytest.mark.parametrize(
+    "variance", [math.ulp(0.0), Fraction.from_float(math.ulp(0.0)), 0.01, Fraction(1, 100)]
+)
+def test_positive_representable_variance_keeps_penalty(
+    variance: float | Fraction,
+) -> None:
+    assert expected_maximum_sharpe(2, variance) > 0.0
+    assert expected_maximum_sharpe(1, variance) == 0.0

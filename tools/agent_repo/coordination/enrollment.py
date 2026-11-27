@@ -7,6 +7,7 @@ cannot authenticate their source, prove roster completeness, or implement CAS.
 from __future__ import annotations
 
 import re
+from collections import UserString
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,7 +22,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _require_sha(value: str, field: str) -> None:
-    if not isinstance(value, str) or not _SHA_RE.fullmatch(value) or value == "0" * 40:
+    if type(value) is not str or not _SHA_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{field} must be an exact nonzero 40-character Git SHA")
 
 
@@ -129,10 +130,12 @@ def validate_enrollment_transition(
 ) -> None:
     """Validate one local Task-record transition without granting persistence."""
 
-    if isinstance(enumerated_task_ids, (str, bytes)):
+    if not isinstance(enumerated_task_ids, Sequence) or isinstance(
+        enumerated_task_ids, (str, UserString, bytes, bytearray, memoryview)
+    ):
         raise ValueError("registry roster is malformed or duplicated")
     task_ids = tuple(enumerated_task_ids)
-    if any(not isinstance(task, str) or not task for task in task_ids):
+    if any(type(task) is not str or not task for task in task_ids):
         raise ValueError("registry roster is malformed or duplicated")
     if len(set(task_ids)) != len(task_ids):
         raise ValueError("registry roster is malformed or duplicated")

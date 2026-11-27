@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import UserString
 from collections.abc import Collection, Mapping, Sequence
 from graphlib import CycleError, TopologicalSorter
 
@@ -86,7 +87,7 @@ class DependencyGraph:
         """Return whether evidence dependencies permit verification/completion."""
 
         if not isinstance(evidence_task_ids, Collection) or isinstance(
-            evidence_task_ids, (str, bytes, bytearray, memoryview, Mapping)
+            evidence_task_ids, (str, UserString, bytes, bytearray, memoryview, Mapping)
         ):
             raise ValueError("evidence_task_ids must be a collection of explicit IDs")
         snapshot = tuple(evidence_task_ids)

@@ -26,9 +26,9 @@ class DashboardSnapshot:
     stale_reason: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.task_id.strip():
+        if type(self.task_id) is not str or not self.task_id.strip():
             raise ValueError("task_id must be non-empty")
-        if not self.title.strip():
+        if type(self.title) is not str or not self.title.strip():
             raise ValueError("title must be non-empty")
         object.__setattr__(self, "phase", TaskPhase(self.phase))
         object.__setattr__(self, "condition", TaskCondition(self.condition))
@@ -40,7 +40,7 @@ class DashboardSnapshot:
             "stale_reason",
         ):
             value = getattr(self, field_name)
-            if value is not None and not value.strip():
+            if value is not None and (type(value) is not str or not value.strip()):
                 raise ValueError(f"{field_name} must be non-empty when provided")
 
 
@@ -64,13 +64,20 @@ def render_dashboard(
     main_sha: str,
     snapshots: Sequence[DashboardSnapshot],
 ) -> str:
-    """Render a deterministic non-authoritative operator summary."""
+    """Render native DashboardSnapshot records as a non-authoritative summary."""
 
-    if not parent_title.strip():
+    if type(parent_title) is not str or not parent_title.strip():
         raise ValueError("parent_title must be non-empty")
-    if not _FULL_SHA_RE.fullmatch(main_sha) or main_sha == "0" * 40:
+    if (
+        type(main_sha) is not str
+        or not _FULL_SHA_RE.fullmatch(main_sha)
+        or main_sha == "0" * 40
+    ):
         raise ValueError("main_sha must be a nonzero lowercase 40-hex Git SHA")
-    ordered = sorted(snapshots, key=lambda snapshot: snapshot.task_id)
+    snapshot_roster = tuple(snapshots)
+    if any(type(snapshot) is not DashboardSnapshot for snapshot in snapshot_roster):
+        raise ValueError("dashboard requires native DashboardSnapshot records")
+    ordered = sorted(snapshot_roster, key=lambda snapshot: snapshot.task_id)
     if len({snapshot.task_id for snapshot in ordered}) != len(ordered):
         raise ValueError("dashboard contains duplicate task_id")
 

@@ -13,7 +13,9 @@ from trade_rl.simulation.depth_calibration import (
     DepthBand,
     DepthBandSnapshot,
     OrderCostBounds,
+    calibrate_depth_costs,
     classify_assumed_cost,
+    depth_capacity,
     order_cost_bounds,
 )
 
@@ -95,3 +97,29 @@ def test_native_depth_band_still_supported() -> None:
     bound = order_cost_bounds(snapshot, side="sell", notional=Fraction(1))
     assert isinstance(bound, OrderCostBounds)
     assert bound.average_upper_bps == 100
+
+
+class _ForeignSnapshot(DepthBandSnapshot):
+    def bands_for(self, side):
+        return (DepthBand(Decimal(-1), Decimal(10)),)
+
+
+def test_order_refuses_foreign_snapshot() -> None:
+    bands = (DepthBand(Decimal(1), Decimal(10)),)
+    snapshot = _ForeignSnapshot(TIME, bands, bands)
+    with pytest.raises(ValueError, match="DepthBandSnapshot"):
+        order_cost_bounds(snapshot, side="buy", notional=1)
+
+
+def test_calibration_refuses_foreign_snapshot() -> None:
+    bands = (DepthBand(Decimal(1), Decimal(10)),)
+    snapshot = _ForeignSnapshot(TIME, bands, bands)
+    with pytest.raises(ValueError, match="DepthBandSnapshot"):
+        calibrate_depth_costs([snapshot], notionals=[1], quantiles=[1])
+
+
+def test_capacity_refuses_foreign_snapshot() -> None:
+    bands = (DepthBand(Decimal(1), Decimal(10)),)
+    snapshot = _ForeignSnapshot(TIME, bands, bands)
+    with pytest.raises(ValueError, match="DepthBandSnapshot"):
+        depth_capacity([snapshot], side="buy", quantile=1, max_average_cost_bps=100)

@@ -43,6 +43,7 @@ outside the magnitude and Fraction bit limits, including derived bounds;
 the conversion/type/finite and Decimal/integer guards still apply. Finite
 float assumed costs are accepted. These comparisons do not admit inputs to
 the bounded solver or grid. Numeric and band tuple subclasses are refused before conversion or indexing.
+Calculation entry points require native DepthBandSnapshot instances.
 Numeric validation errors name the offending field, never its value.
 
 Derivation of the bounds
@@ -337,7 +338,7 @@ def order_cost_bounds(
     Buys consume ``ask_bands``; sells consume ``bid_bands``. Returns
     :class:`BeyondObservedDepth` when ``notional`` exceeds the outermost band.
     """
-    if not isinstance(snapshot, DepthBandSnapshot):
+    if type(snapshot) is not DepthBandSnapshot:
         raise ValueError("snapshot must be a DepthBandSnapshot")
     quantity = _require_notional(notional, "notional")
     bands = _normalise(snapshot.bands_for(side))
@@ -538,7 +539,7 @@ def _validated_snapshots(
         raise ValueError("snapshots must not be empty")
     previous: datetime | None = None
     for snapshot in resolved:
-        if not isinstance(snapshot, DepthBandSnapshot):
+        if type(snapshot) is not DepthBandSnapshot:
             raise ValueError("snapshots must be DepthBandSnapshot values")
         if previous is not None and snapshot.time <= previous:
             raise ValueError("snapshot times must be strictly increasing")

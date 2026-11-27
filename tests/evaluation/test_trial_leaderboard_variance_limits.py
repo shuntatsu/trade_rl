@@ -96,7 +96,9 @@ def test_unrepresentable_supplied_variance_refuses(
 ) -> None:
     with pytest.raises(TrialLedgerError, match="trial_sr_variance"):
         build_family_leaderboard(
-            _ledger(values), "family", trial_sr_variance=supplied  # type: ignore[arg-type]
+            _ledger(values),
+            "family",
+            trial_sr_variance=supplied,  # type: ignore[arg-type]
         )
 
 
@@ -106,7 +108,9 @@ def test_representable_supplied_variance_unchanged(
     values: list[float], supplied: int | Fraction
 ) -> None:
     board = build_family_leaderboard(
-        _ledger(values), "family", trial_sr_variance=supplied  # type: ignore[arg-type]
+        _ledger(values),
+        "family",
+        trial_sr_variance=supplied,  # type: ignore[arg-type]
     )
     assert board.variance_source is VarianceSource.SUPPLIED
     assert board.trial_sr_variance == float(supplied)

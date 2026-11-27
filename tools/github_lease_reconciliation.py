@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def _object(value: object, label: str) -> Mapping[str, Any]:
+def _object(value: object, label: str) -> dict[str, Any]:
     if type(value) is not dict or any(type(key) is not str for key in value):
         raise ValueError(f"{label} must be a native mapping with native string keys")
     return value
@@ -63,7 +63,7 @@ def _false(value: Mapping[str, Any], *keys: str) -> None:
 def _unique_strings(value: object, label: str) -> list[str]:
     names: list[str] = []
     for name in _rows(value, label):
-        if not isinstance(name, str) or type(name) is not str or not name.strip():
+        if type(name) is not str or not name.strip():
             raise ValueError(f"{label} is malformed, duplicated or unordered")
         names.append(name)
     if len(set(names)) != len(names) or names != sorted(names):

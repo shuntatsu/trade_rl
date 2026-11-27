@@ -580,6 +580,7 @@ def _validate_inputs(
         raise TypeError("config must be a SharedPortfolioPPOConfig")
     if env._session is not None:
         raise ValueError("environment must not have been reset before training")
+    env._validate_native_fixed_window()
     transform.validate_environment(env)
     if config.n_steps != env.bound.clock.rollout_steps:
         raise ValueError("n_steps must match the bound financial clock rollout_steps")

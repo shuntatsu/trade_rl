@@ -797,6 +797,26 @@ def test_foreign_reconciliation_objects_rejected_before_hooks(
             calls.append("contains")
             return super().__contains__(key)
 
+        def keys(self):
+            calls.append("keys")
+            return super().keys()
+
+        def items(self):
+            calls.append("items")
+            return super().items()
+
+        def values(self):
+            calls.append("values")
+            return super().values()
+
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+        def __bool__(self):
+            calls.append("bool")
+            return super().__len__() != 0
+
     class ForeignKey(str):
         def __hash__(self):
             calls.append("hash")
@@ -851,6 +871,14 @@ def test_foreign_reconciliation_sequences_rejected_before_hooks(
             calls.append("len")
             return super().__len__()
 
+        def __getitem__(self, key):
+            calls.append("getitem")
+            return super().__getitem__(key)
+
+        def __bool__(self):
+            calls.append("bool")
+            return super().__len__() != 0
+
     class ForeignTuple(tuple):
         def __iter__(self):
             calls.append("iter")
@@ -859,6 +887,14 @@ def test_foreign_reconciliation_sequences_rejected_before_hooks(
         def __len__(self):
             calls.append("len")
             return super().__len__()
+
+        def __getitem__(self, key):
+            calls.append("getitem")
+            return super().__getitem__(key)
+
+        def __bool__(self):
+            calls.append("bool")
+            return super().__len__() != 0
 
     e = _evidence()
     parent = e
@@ -874,8 +910,41 @@ def test_foreign_reconciliation_sequences_rejected_before_hooks(
     assert calls == []
 
 
-def test_native_tuple_reconciliation_rosters_remain_supported() -> None:
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("inventory", "branches"),
+        ("inventory", "pull_requests"),
+        ("inventory", "unfinished_workflow_branches"),
+        ("attempts",),
+        ("artifacts",),
+        ("attempts", 0, "jobs"),
+        ("artifacts", 0, "artifacts"),
+    ],
+)
+def test_native_tuple_reconciliation_rosters_remain_supported(
+    path: tuple[str | int, ...],
+) -> None:
     e = _evidence()
-    e["attempts"] = tuple(e["attempts"])  # type: ignore[arg-type]
-    e["artifacts"] = tuple(e["artifacts"])  # type: ignore[arg-type]
-    assert _inspect(e)["decision"] == "HOLD"
+    expected = _inspect(e)
+    parent = e
+    for part in path[:-1]:
+        parent = parent[part]  # type: ignore[index]
+    parent[path[-1]] = tuple(parent[path[-1]])  # type: ignore[index, arg-type]
+    assert _inspect(e) == expected
+
+
+def test_foreign_workflow_branch_class_hook_never_runs() -> None:
+    calls: list[str] = []
+
+    class ForeignBranch:
+        @property
+        def __class__(self):
+            calls.append("__class__")
+            raise RuntimeError("foreign class hook executed")
+
+    e = _evidence()
+    e["inventory"]["unfinished_workflow_branches"] = [ForeignBranch()]  # type: ignore[index]
+    with pytest.raises(ValueError, match="unfinished workflow branches"):
+        _inspect(e)
+    assert calls == []

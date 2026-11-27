@@ -25,6 +25,7 @@ from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     _preflight_native_fixed_execution_window,
 )
+from trade_rl.simulation.native_transition import _require_risk_execution_limits
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
@@ -271,6 +272,10 @@ class SharedPortfolioGymEnv(gym.Env):
             start_index=self.start_index,
             stop_index=self.stop_index,
         )
+        if self.dataset.native_clock is not None:
+            _require_risk_execution_limits(
+                self.risk_config, float(self.execution_cost.max_leverage)
+            )
 
     def reset(
         self,

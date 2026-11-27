@@ -462,6 +462,16 @@ def _require_native_fixed_execution_cost(cost: ExecutionCostConfig) -> None:
         )
 
 
+def _require_execution_margin_roster(
+    dataset: MarketDataset, cost: ExecutionCostConfig
+) -> None:
+    if cost.margin_mode == "isolated" and dataset.n_symbols != 1:
+        raise ValueError(
+            "isolated margin requires a per-symbol collateral ledger; "
+            "only single-asset execution is supported"
+        )
+
+
 def _preflight_native_fixed_execution_window(
     dataset: MarketDataset,
     cost: ExecutionCostConfig,
@@ -475,6 +485,7 @@ def _preflight_native_fixed_execution_window(
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
     _require_native_fixed_execution_cost(cost)
+    _require_execution_margin_roster(dataset, cost)
     _require_native_fixed_execution_rows(
         dataset, start_index=start_index, stop_index=stop_index
     )
@@ -519,11 +530,7 @@ class MarketExecutor:
         )
         self._validate_strict_spot_configuration()
         self.insolvency_valuation = insolvency_valuation
-        if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
-            raise ValueError(
-                "isolated margin requires a per-symbol collateral ledger; "
-                "only single-asset execution is supported"
-            )
+        _require_execution_margin_roster(self.dataset, self.cost)
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self.market_order_profile = market_order_profile
         if execution_observer is not None and not callable(execution_observer):

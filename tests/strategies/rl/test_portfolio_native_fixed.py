@@ -162,6 +162,44 @@ def test_native_gym_rejects_unsupported_execution_before_reset(changes) -> None:
 
 
 @pytest.mark.parametrize(
+    "changes,message",
+    [
+        ({"margin_mode": "isolated"}, "isolated margin"),
+        ({"max_leverage": 0.5}, "risk exposure limits"),
+    ],
+)
+def test_native_gym_rejects_incompatible_roster_and_risk_before_reset(changes, message):
+    with pytest.raises(ValueError, match=message):
+        _environment(_native_dataset(), cost=replace(_cost(), **changes))
+
+
+@pytest.mark.parametrize(
+    "changes,message",
+    [
+        ({"margin_mode": "isolated"}, "isolated margin"),
+        ({"max_leverage": 0.5}, "risk exposure limits"),
+    ],
+)
+def test_native_training_revalidates_incompatible_execution_before_import(
+    tmp_path, monkeypatch, changes, message
+):
+    env = _environment(_native_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    env.execution_cost = replace(env.execution_cost, **changes)
+    attempt = tmp_path / "attempt"
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("incompatible native execution reached optional runtime import")
+
+    monkeypatch.setattr(portfolio_training.importlib, "import_module", forbidden)
+    with pytest.raises(ValueError, match=message):
+        fit_shared_portfolio_ppo(
+            env, transform=transform, output_root=attempt, config=_config()
+        )
+    assert not attempt.exists() and env._session is None
+
+
+@pytest.mark.parametrize(
     "mutation,message",
     [
         ("late", "unavailable"),

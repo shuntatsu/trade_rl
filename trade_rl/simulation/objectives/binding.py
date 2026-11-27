@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.simulation.objectives.clock import FinancialClockContract
+from trade_rl.simulation.objectives.clock import (
+    CalendarMonthFinancialClockContract,
+    FinancialClockContract,
+    _calendar_month_endpoint,
+)
 from trade_rl.simulation.objectives.contract import ObjectiveContract
 
 
@@ -17,13 +21,17 @@ class BoundObjectiveClock:
     """
 
     objective: ObjectiveContract
-    clock: FinancialClockContract
+    clock: FinancialClockContract | CalendarMonthFinancialClockContract
 
     def __post_init__(self) -> None:
         if not isinstance(self.objective, ObjectiveContract):
             raise ValueError("objective must be an ObjectiveContract")
-        if not isinstance(self.clock, FinancialClockContract):
-            raise ValueError("clock must be a FinancialClockContract")
+        if not isinstance(
+            self.clock, (FinancialClockContract, CalendarMonthFinancialClockContract)
+        ):
+            raise ValueError(
+                "clock must be a FinancialClockContract or calendar month clock"
+            )
         elapsed = (
             self.objective.evaluation_stop_exclusive - self.objective.evaluation_start
         )
@@ -33,9 +41,21 @@ class BoundObjectiveClock:
                 "evaluation period must equal the declared economic horizon"
             )
 
+        if isinstance(self.clock, CalendarMonthFinancialClockContract) and (
+            _calendar_month_endpoint(
+                self.objective.evaluation_start, self.clock.economic_horizon_months
+            )
+            != self.objective.evaluation_stop_exclusive
+        ):
+            raise ValueError("calendar month horizon differs from its objective window")
+
     def payload(self) -> dict[str, object]:
         return {
-            "schema": "bound_objective_clock_v1",
+            "schema": (
+                "bound_calendar_month_objective_clock_v1"
+                if isinstance(self.clock, CalendarMonthFinancialClockContract)
+                else "bound_objective_clock_v1"
+            ),
             "objective_contract_digest": self.objective.digest,
             "financial_clock_digest": self.clock.digest,
         }

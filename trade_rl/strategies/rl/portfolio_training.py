@@ -20,6 +20,10 @@ from trade_rl.strategies.rl.portfolio_episode_journal import (
     PortfolioEpisodeJournalWrapper,
 )
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
+    _CARRY_TRAINING_CONTEXT_SCHEMA,
+    _PORTFOLIO_METADATA_MAX_BYTES,
+    _SESSION_TRAINING_CONTEXT_SCHEMA,
+    _TRAINING_CONTEXT_SCHEMA,
     _space_descriptor,
     capture_portfolio_source_runtime,
 )
@@ -580,7 +584,7 @@ def _validate_inputs(
         raise TypeError("config must be a SharedPortfolioPPOConfig")
     if env._session is not None:
         raise ValueError("environment must not have been reset before training")
-    env._validate_native_fixed_window()
+    env._validate_native_learning_window()
     transform.validate_environment(env)
     if config.n_steps != env.bound.clock.rollout_steps:
         raise ValueError("n_steps must match the bound financial clock rollout_steps")
@@ -652,7 +656,13 @@ def fit_shared_portfolio_ppo(
     }
     profile = env.market_order_profile
     training_context: dict[str, object] = {
-        "schema": "shared_portfolio_training_context_v1",
+        "schema": (
+            _SESSION_TRAINING_CONTEXT_SCHEMA
+            if transform.session_boundaries_ns
+            else _CARRY_TRAINING_CONTEXT_SCHEMA
+            if env.native_fixed_linear_carry
+            else _TRAINING_CONTEXT_SCHEMA
+        ),
         "training_context_digest": context_digest,
         "context": context,
         "transform": transform.to_payload(),
@@ -711,6 +721,12 @@ def fit_shared_portfolio_ppo(
         "rollouts_directory": "rollouts",
         "checkpoints_directory": "checkpoints",
     }
+
+    if (
+        transform.session_boundaries_ns
+        and len(canonical_json_bytes(training_context)) > _PORTFOLIO_METADATA_MAX_BYTES
+    ):
+        raise ValueError("session training context exceeds the metadata size limit")
 
     # Reserve only after every preflight/context capture has succeeded. This
     # keeps an import/provenance failure from consuming an empty attempt root.

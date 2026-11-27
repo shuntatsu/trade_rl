@@ -73,7 +73,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py tools/ci_test_shard.py tools/uv_advisory_audit.py tools/stage_claims_status.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py tools/ci_test_shard.py tools/uv_advisory_audit.py tools/stage_claims_status.py tools/worktree_hygiene.py
 
       - name: Coordination disposable CAS smoke
         run: |
@@ -200,7 +200,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Repository tooling types
-        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py tools/ci_test_shard.py tools/uv_advisory_audit.py tools/stage_claims_status.py
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py tools/independent_research_review.py tools/github_lease_reconciliation.py tools/github_coordination_disposable_e2e.py tools/github_coordination_enrollment_audit.py tools/github_coordination_enrollment_transaction.py tools/prospective_evidence_publication.py tools/docs_source_consistency.py tools/ci_test_shard.py tools/uv_advisory_audit.py tools/stage_claims_status.py tools/worktree_hygiene.py
 
       - name: Download completed shard receipts
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317

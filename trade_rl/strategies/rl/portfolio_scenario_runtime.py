@@ -16,6 +16,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
+from trade_rl.simulation.objectives.clock import SessionFinancialClockContract
 from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
     _space_descriptor,
@@ -133,6 +134,23 @@ def create_portfolio_scenario_runtime_binding_v2(
         raise TypeError("training_bound must be exactly BoundObjectiveClock")
     if type(runtime_env) is not SharedPortfolioGymEnv:
         raise TypeError("runtime_env must be exactly SharedPortfolioGymEnv")
+    if transform.session_boundaries_ns or isinstance(
+        runtime_env.bound.clock, SessionFinancialClockContract
+    ):
+        raise ValueError("session scenario inference requires a new scenario schema")
+    if transform.native_fixed_linear_carry or runtime_env.native_fixed_linear_carry:
+        raise ValueError(
+            "native fixed linear carry scenario inference requires a new scenario schema"
+        )
+    native_interval_seconds = runtime_env.bound.clock.decision_interval_seconds
+    if (
+        native_interval_seconds is None
+        or training_bound.clock.decision_interval_seconds is None
+        or transform.native_interval_seconds is None
+    ):
+        raise ValueError(
+            "calendar month scenario inference requires a new scenario schema"
+        )
     if type(scenario) is not PortfolioRuntimeExecutionScenarioV2:
         raise TypeError("scenario must be exactly PortfolioRuntimeExecutionScenarioV2")
     if type(training_context) is not dict:
@@ -149,7 +167,7 @@ def create_portfolio_scenario_runtime_binding_v2(
     if require_unreset and runtime_env._session is not None:
         raise ValueError("runtime_env must not have been reset before bundle loading")
     if require_unreset:
-        runtime_env._validate_native_fixed_window()
+        runtime_env._validate_native_learning_window()
 
     context = _strict_object(training_context["context"], field="training context")
     financial = _strict_object(
@@ -291,7 +309,7 @@ def create_portfolio_scenario_runtime_binding_v2(
         runtime_agent_stop_index=runtime_agent_stop,
         runtime_start_ns=_datetime_ns(runtime_env.bound.objective.evaluation_start),
         runtime_horizon_seconds=runtime_env.bound.clock.economic_horizon_seconds,
-        native_interval_seconds=runtime_env.bound.clock.decision_interval_seconds,
+        native_interval_seconds=native_interval_seconds,
     )
 
 

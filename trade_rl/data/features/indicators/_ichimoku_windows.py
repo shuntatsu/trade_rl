@@ -1,9 +1,10 @@
-"""Shared low-level Ichimoku window arithmetic; no alignment dependencies."""
+"""Shared trailing price windows and Ichimoku arithmetic; no alignment dependencies."""
 
 from __future__ import annotations
 
 import math
 from collections import deque
+from collections.abc import Iterator
 
 import numpy as np
 
@@ -15,9 +16,10 @@ def _midpoint(upper: float, lower: float) -> float:
     return 0.5 * total if math.isfinite(total) else 0.5 * upper + 0.5 * lower
 
 
-def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.ndarray:
-    """Compute trailing midpoints in amortized linear time."""
-    result = np.full(len(high), np.nan)
+def _rolling_extrema(
+    high: np.ndarray, low: np.ndarray, period: int
+) -> Iterator[tuple[int, float, float]]:
+    """Yield trailing extrema with each row entering and leaving each deque once."""
     upper: deque[tuple[int, float]] = deque()
     lower: deque[tuple[int, float]] = deque()
     for i, (hi, lo) in enumerate(zip(high, low, strict=True)):
@@ -33,7 +35,14 @@ def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.nda
         upper.append((i, high_value))
         lower.append((i, low_value))
         if i >= period - 1:
-            result[i] = _midpoint(upper[0][1], lower[0][1])
+            yield i, upper[0][1], lower[0][1]
+
+
+def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.ndarray:
+    """Compute trailing midpoints in amortized linear time."""
+    result = np.full(len(high), np.nan)
+    for i, upper, lower in _rolling_extrema(high, low, period):
+        result[i] = _midpoint(upper, lower)
     return result
 
 

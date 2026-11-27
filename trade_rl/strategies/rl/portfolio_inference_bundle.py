@@ -24,7 +24,11 @@ from trade_rl.artifacts.verified_file import (
     verified_private_copy,
 )
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
-from trade_rl.simulation.objectives.clock import FinancialClockContract
+from trade_rl.simulation.objectives.clock import (
+    CalendarMonthFinancialClockContract,
+    FinancialClockContract,
+    SessionFinancialClockContract,
+)
 from trade_rl.simulation.objectives.contract import CapitalContract, ObjectiveContract
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
@@ -38,6 +42,9 @@ from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_transform import (
     PortfolioObservationRuntimeBinding,
     PortfolioObservationTransform,
+    _datetime_ns,
+    _native_timestamp_ns_after,
+    _session_clock_boundaries,
 )
 
 _SOURCE_MODULES = (
@@ -84,6 +91,11 @@ _SOURCE_MODULES = (
 _SOURCE_SCOPE = "selected direct execution, context and policy owners; not a complete transitive closure"
 _TRAINING_SCHEMA = "shared_portfolio_ppo_training_v1"
 _TRAINING_CONTEXT_SCHEMA = "shared_portfolio_training_context_v1"
+_CARRY_TRAINING_CONTEXT_SCHEMA = (
+    "shared_portfolio_fixed_linear_carry_training_context_v1"
+)
+_SESSION_TRAINING_CONTEXT_SCHEMA = "shared_portfolio_session_training_context_v1"
+_PORTFOLIO_METADATA_MAX_BYTES = 16 * 1024 * 1024
 _BUNDLE_SCHEMA = "shared_portfolio_inference_bundle_v1"
 _BUNDLE_FILES = {
     "training_context.json",
@@ -144,7 +156,8 @@ def _validate_portfolio_snapshot_window(
     runtime_start_index: int,
     runtime_agent_stop_index: int,
     runtime_start_ns: int,
-    native_interval_seconds: int,
+    native_interval_seconds: int | None,
+    session_boundaries_ns: tuple[int, ...] = (),
 ) -> None:
     if (
         snapshot.symbols != symbols
@@ -158,11 +171,13 @@ def _validate_portfolio_snapshot_window(
         or snapshot.remaining_decisions != runtime_agent_stop_index - snapshot.index
     ):
         raise ValueError("snapshot decision window differs from the bound policy")
+    offset = snapshot.index - runtime_start_index
     expected_timestamp_ns = (
-        runtime_start_ns
-        + (snapshot.index - runtime_start_index)
-        * native_interval_seconds
-        * 1_000_000_000
+        session_boundaries_ns[offset]
+        if session_boundaries_ns
+        else _native_timestamp_ns_after(
+            runtime_start_ns, offset, native_interval_seconds
+        )
     )
     if snapshot.timestamp_ns != expected_timestamp_ns:
         raise ValueError("snapshot timestamp differs from the bound policy clock")
@@ -207,6 +222,7 @@ class PortfolioInferencePolicy:
             runtime_agent_stop_index=binding.runtime_agent_stop_index,
             runtime_start_ns=binding.runtime_start_ns,
             native_interval_seconds=binding.native_interval_seconds,
+            session_boundaries_ns=binding.session_boundaries_ns,
         )
         raw_observation = encode_portfolio_decision_snapshot(snapshot)
         action = self.predict(raw_observation)
@@ -360,8 +376,8 @@ def _read_canonical_json(
 ) -> tuple[dict[str, object], bytes]:
     require_sha256(expected_digest, field=f"{field}.expected_digest")
     with open_regular_binary(path, field=field) as handle:
-        payload = handle.read(16 * 1024 * 1024 + 1)
-    if len(payload) > 16 * 1024 * 1024:
+        payload = handle.read(_PORTFOLIO_METADATA_MAX_BYTES + 1)
+    if len(payload) > _PORTFOLIO_METADATA_MAX_BYTES:
         raise ValueError(f"{field} exceeds the metadata size limit")
     if hashlib.sha256(payload).hexdigest() != expected_digest:
         raise ValueError(f"{field} digest mismatch")
@@ -370,7 +386,7 @@ def _read_canonical_json(
 
 
 def _decode_canonical_json(payload: bytes, *, field: str) -> dict[str, object]:
-    if len(payload) > 16 * 1024 * 1024:
+    if len(payload) > _PORTFOLIO_METADATA_MAX_BYTES:
         raise ValueError(f"{field} exceeds the metadata size limit")
 
     def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -395,7 +411,7 @@ def _decode_canonical_json(payload: bytes, *, field: str) -> dict[str, object]:
 
 def _read_unpinned_json(path: Path, *, field: str) -> dict[str, object]:
     with open_regular_binary(path, field=field) as handle:
-        payload = handle.read(16 * 1024 * 1024 + 1)
+        payload = handle.read(_PORTFOLIO_METADATA_MAX_BYTES + 1)
     return _decode_canonical_json(payload, field=field)
 
 
@@ -526,8 +542,99 @@ def _objective_from_payload(value: object) -> ObjectiveContract:
     return result
 
 
-def _clock_from_payload(value: object) -> FinancialClockContract:
+def _clock_from_payload(
+    value: object,
+) -> (
+    FinancialClockContract
+    | CalendarMonthFinancialClockContract
+    | SessionFinancialClockContract
+):
     clock = _strict_object(value, field="financial_clock")
+    if clock.get("schema") == "session_financial_clock_v1":
+        _exact_keys(
+            clock,
+            {
+                "schema",
+                "boundaries_ns",
+                "nominal_bar_seconds",
+                "economic_horizon_seconds",
+                "rollout_steps",
+                "gamma",
+                "gae_lambda",
+                "reward_schema",
+            },
+            field="session financial_clock",
+        )
+        boundaries = clock["boundaries_ns"]
+        if type(boundaries) is not list or any(type(x) is not int for x in boundaries):
+            raise ValueError("session financial clock requires integer boundaries")
+        if (
+            type(clock["reward_schema"]) is not str
+            or clock["reward_schema"] != "equity_delta_v1"
+        ):
+            raise ValueError("session clock reward schema is unsupported")
+        session = SessionFinancialClockContract(
+            boundaries_ns=tuple(boundaries),
+            nominal_bar_seconds=_strict_int(
+                clock["nominal_bar_seconds"], field="nominal_bar_seconds", minimum=1
+            ),
+            economic_horizon_seconds=_strict_int(
+                clock["economic_horizon_seconds"],
+                field="economic_horizon_seconds",
+                minimum=1,
+            ),
+            rollout_steps=_strict_int(
+                clock["rollout_steps"], field="rollout_steps", minimum=1
+            ),
+            gamma=_strict_number(clock["gamma"], field="gamma"),
+            gae_lambda=_strict_number(clock["gae_lambda"], field="gae_lambda"),
+            reward_schema="equity_delta_v1",
+        )
+        if canonical_json_bytes(session.payload()) != canonical_json_bytes(clock):
+            raise ValueError("session financial clock typed payload is not canonical")
+        return session
+    if clock.get("schema") == "calendar_month_financial_clock_v1":
+        _exact_keys(
+            clock,
+            {
+                "schema",
+                "economic_horizon_months",
+                "economic_horizon_seconds",
+                "rollout_steps",
+                "gamma",
+                "gae_lambda",
+                "reward_schema",
+            },
+            field="calendar month financial_clock",
+        )
+        if (
+            type(clock["reward_schema"]) is not str
+            or clock["reward_schema"] != "equity_delta_v1"
+        ):
+            raise ValueError("calendar month clock reward schema is unsupported")
+        monthly = CalendarMonthFinancialClockContract(
+            economic_horizon_months=_strict_int(
+                clock["economic_horizon_months"],
+                field="economic_horizon_months",
+                minimum=1,
+            ),
+            economic_horizon_seconds=_strict_int(
+                clock["economic_horizon_seconds"],
+                field="economic_horizon_seconds",
+                minimum=1,
+            ),
+            rollout_steps=_strict_int(
+                clock["rollout_steps"], field="rollout_steps", minimum=1
+            ),
+            gamma=_strict_number(clock["gamma"], field="gamma"),
+            gae_lambda=_strict_number(clock["gae_lambda"], field="gae_lambda"),
+            reward_schema="equity_delta_v1",
+        )
+        if canonical_json_bytes(monthly.payload()) != canonical_json_bytes(clock):
+            raise ValueError(
+                "calendar month financial clock typed payload is not canonical"
+            )
+        return monthly
     _exact_keys(
         clock,
         {
@@ -613,8 +720,14 @@ def _validated_training_context(
         },
         field="training_context",
     )
-    if context["schema"] != _TRAINING_CONTEXT_SCHEMA:
+    if context["schema"] not in (
+        _TRAINING_CONTEXT_SCHEMA,
+        _CARRY_TRAINING_CONTEXT_SCHEMA,
+        _SESSION_TRAINING_CONTEXT_SCHEMA,
+    ):
         raise ValueError("training context schema differs")
+    native_fixed_linear_carry = context["schema"] == _CARRY_TRAINING_CONTEXT_SCHEMA
+    session_context = context["schema"] == _SESSION_TRAINING_CONTEXT_SCHEMA
     declared_context = _strict_object(
         context["context"], field="training_context.context"
     )
@@ -690,6 +803,8 @@ def _validated_training_context(
     objective = _objective_from_payload(context["objective"])
     clock = _clock_from_payload(context["financial_clock"])
     bound = BoundObjectiveClock(objective, clock)
+    if session_context != isinstance(clock, SessionFinancialClockContract):
+        raise ValueError("session training context differs from its financial clock")
     if (
         objective.digest != context["objective_digest"]
         or clock.digest != context["financial_clock_digest"]
@@ -699,8 +814,14 @@ def _validated_training_context(
         or len(objective.capital.initial_equities) != 1
         or objective.capital.initial_equities[0] != initial_capital
         or clock.terminal_profit_aligned is False
-        or clock.economic_horizon_seconds
-        != (stop - start) * clock.decision_interval_seconds
+        or (
+            len(clock.boundaries_ns) - 1 != stop - start
+            if isinstance(clock, SessionFinancialClockContract)
+            else clock.economic_horizon_months != stop - start
+            if isinstance(clock, CalendarMonthFinancialClockContract)
+            else clock.economic_horizon_seconds
+            != (stop - start) * clock.decision_interval_seconds
+        )
     ):
         raise ValueError(
             "typed objective/clock binding differs from the training declaration"
@@ -714,6 +835,11 @@ def _validated_training_context(
         or transform.bound_digest != bound.digest
         or transform.objective_digest != objective.digest
         or transform.clock_digest != clock.digest
+        or transform.session_boundaries_ns != _session_clock_boundaries(bound)
+        or transform.native_fixed_linear_carry != native_fixed_linear_carry
+        or transform.native_interval_seconds != clock.decision_interval_seconds
+        or transform.economic_horizon_seconds != clock.economic_horizon_seconds
+        or transform.objective_start_ns != _datetime_ns(objective.evaluation_start)
         or transform.source_dataset_id != declared_context["dataset_id"]
         or transform.symbols != tuple(symbols)
         or transform.feature_names != tuple(features)
@@ -1690,7 +1816,7 @@ def _validate_runtime_environment(
         raise TypeError("runtime_env must be a SharedPortfolioGymEnv")
     if runtime_env._session is not None:
         raise ValueError("runtime_env must not have been reset before bundle loading")
-    runtime_env._validate_native_fixed_window()
+    runtime_env._validate_native_learning_window()
     financial = _strict_object(
         training_context["financial_context"], field="financial_context"
     )

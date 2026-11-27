@@ -10,9 +10,13 @@ from typing import Literal, Sequence
 import numpy as np
 
 from trade_rl._array_snapshot import checked_array_input
-from trade_rl._validation import require_sha256
+from trade_rl._validation import (
+    _ordered_ns_durations,
+    _require_nominal_session_seconds,
+    require_sha256,
+)
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
     MarketOrderProfile,
@@ -283,6 +287,7 @@ def _runtime_execution_policy_digest(
     insolvency_valuation: Literal["floor_zero", "retain_debt"],
     funding_price_rate_present: bool,
     strict_spot_cash: bool,
+    native_fixed_linear_carry: bool = False,
 ) -> str:
     """Single owner of the historical native digest composition."""
     if market_order_profile_digest is not None:
@@ -332,7 +337,35 @@ def _runtime_execution_policy_digest(
                 "unaffordable_fill": "no_fill",
             }
         )
+    if native_fixed_linear_carry:
+        digest = content_digest(
+            {
+                "schema_version": "native_fixed_linear_carry_execution_v1",
+                "base_policy_digest": digest,
+                "funding_semantics": "single_declared_close_event_post_open_fill",
+                "borrow_semantics": "post_open_short_mark_actual_act365f",
+            }
+        )
     return digest
+
+
+def _require_native_fixed_linear_carry_cost(cost: ExecutionCostConfig) -> None:
+    if (
+        type(cost) is not ExecutionCostConfig
+        or cost.order_type != "market"
+        or cost.margin_mode != "cross"
+        or cost.processing_bar_volume_capacity
+        or cost.max_leverage > 1.0
+        or cost.collateral_haircut != 1.0
+        or cost.slippage_std != 0.0
+        or cost.tail_slippage_probability != 0.0
+        or cost.order_latency_bars != 0
+        or cost.partial_fill_carry
+    ):
+        raise ValueError(
+            "native fixed linear carry requires deterministic unlevered cross-margin "
+            "MARKET orders, previous-bar capacity, zero latency and no partial-fill carry"
+        )
 
 
 def runtime_execution_policy_digest(
@@ -343,6 +376,7 @@ def runtime_execution_policy_digest(
     market_order_profile_digest: str | None = None,
     insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
     strict_spot_cash: bool = False,
+    native_fixed_linear_carry: bool = False,
 ) -> str:
     """Compute native execution identity from independently admitted metadata.
 
@@ -362,6 +396,14 @@ def runtime_execution_policy_digest(
         raise ValueError("funding_price_rate_present must be boolean")
     if type(strict_spot_cash) is not bool:
         raise ValueError("strict_spot_cash must be boolean")
+    if type(native_fixed_linear_carry) is not bool:
+        raise ValueError("native_fixed_linear_carry must be boolean")
+    if native_fixed_linear_carry:
+        if strict_spot_cash or not funding_price_rate_present:
+            raise ValueError(
+                "native fixed linear carry requires explicit event-price rates and excludes strict Spot"
+            )
+        _require_native_fixed_linear_carry_cost(cost)
     mode: object = insolvency_valuation
     if type(mode) is not str or mode not in (
         "floor_zero",
@@ -393,6 +435,7 @@ def runtime_execution_policy_digest(
         insolvency_valuation=insolvency_valuation,
         funding_price_rate_present=funding_price_rate_present,
         strict_spot_cash=strict_spot_cash,
+        native_fixed_linear_carry=native_fixed_linear_carry,
     )
 
 
@@ -480,24 +523,136 @@ def _require_execution_margin_roster(
         )
 
 
-def _preflight_native_fixed_execution_window(
+def _require_calendar_month_spot_roster(dataset: MarketDataset) -> None:
+    if dataset.native_calendar_month and (
+        any(
+            unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+            for unit in dataset.volume_units
+        )
+        or np.any(dataset.contract_multipliers != 1.0)
+    ):
+        raise ValueError(
+            "calendar month execution requires unit-multiplier Spot volume"
+        )
+
+
+def _preflight_session_spot_execution_window(
+    dataset: MarketDataset,
+    execution_cost: ExecutionCostConfig,
+    *,
+    start_index: int,
+    stop_index: int,
+    expected_boundaries_ns: tuple[int, ...],
+    expected_nominal_bar_seconds: int,
+) -> tuple[int, ...]:
+    """Match a caller-established session grid before entering Spot execution."""
+    if (
+        type(dataset) is not MarketDataset
+        or dataset.calendar_kind is not MarketCalendarKind.SESSION
+        or dataset.native_clock is not None
+        or not dataset.identity_verified
+    ):
+        raise ValueError("expected a verified declared session Dataset")
+    if (
+        type(start_index) is not int
+        or type(stop_index) is not int
+        or not 0 <= start_index < stop_index < dataset.n_bars
+    ):
+        raise ValueError("invalid session elapsed execution window")
+    boundaries = tuple(
+        int(x) for x in dataset.timestamps[start_index : stop_index + 1].view(np.int64)
+    )
+    durations = _ordered_ns_durations(expected_boundaries_ns)
+    if boundaries != expected_boundaries_ns:
+        raise ValueError("session Dataset differs from the expected boundary sequence")
+    _require_nominal_session_seconds(expected_nominal_bar_seconds, durations)
+    if dataset.bar_hours != expected_nominal_bar_seconds / 3600:
+        raise ValueError("session nominal processing duration differs from the Dataset")
+    if type(execution_cost) is not ExecutionCostConfig:
+        raise ValueError("expected explicit session execution cost")
+    try:
+        _require_native_execution_cost(dataset, execution_cost)
+    except ValueError as error:
+        raise ValueError(
+            "session elapsed replay requires deterministic unlevered long-only MARKET with previous-bar capacity"
+        ) from error
+    span = slice(start_index, stop_index + 1)
+    processed = slice(start_index + 1, stop_index + 1)
+    price_rate = dataset.funding_price_rate
+    if (
+        any(
+            unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+            for unit in dataset.volume_units
+        )
+        or np.any(dataset.resolved_array("contract_multipliers") != 1.0)
+        or np.any(~dataset.resolved_array("information_available")[span])
+        or np.any(
+            dataset.resolved_array("available_at")[span]
+            > dataset.timestamps[span, None]
+        )
+        or np.any(~dataset.resolved_array("asset_active")[span])
+        or np.any(~dataset.tradable[span])
+        or np.any(dataset.resolved_array("funding_event_count")[processed])
+        or np.any(dataset.funding_rate[processed] != 0.0)
+        or (price_rate is not None and np.any(price_rate[processed] != 0.0))
+        or np.any(dataset.resolved_array("dividend")[processed] != 0.0)
+        or np.any(dataset.resolved_array("split_factor")[processed] != 1.0)
+        or np.any(dataset.resolved_array("cash_rate")[processed] < 0.0)
+    ):
+        raise ValueError(
+            "session elapsed replay requires complete available Spot rows without funding or corporate actions"
+        )
+    _require_execution_margin_roster(dataset, execution_cost)
+    return boundaries
+
+
+def _require_native_fixed_linear_carry_dataset(dataset: MarketDataset) -> None:
+    if (
+        dataset.native_clock is None
+        or dataset.native_calendar_month
+        or dataset.funding_price_rate is None
+        or any(unit is not VolumeUnit.CONTRACTS for unit in dataset.volume_units)
+    ):
+        raise ValueError(
+            "native fixed linear carry requires an explicit fixed contract-unit Dataset "
+            "with event-price rates, not Spot or a calendar month"
+        )
+
+
+def _preflight_native_learning_execution_window(
     dataset: MarketDataset,
     cost: ExecutionCostConfig,
     *,
     start_index: int,
     stop_index: int,
+    native_calendar_month: bool = False,
+    native_fixed_linear_carry: bool = False,
 ) -> None:
     """Refuse unsupported native learning inputs before reserving work."""
-    if dataset.native_calendar_month:
+    if (
+        type(native_calendar_month) is not bool
+        or native_calendar_month != dataset.native_calendar_month
+    ):
         raise ValueError("calendar month execution is not supported by fixed-clock Gym")
+    if type(native_fixed_linear_carry) is not bool:
+        raise ValueError("native_fixed_linear_carry must be boolean")
+    if native_fixed_linear_carry:
+        _require_native_fixed_linear_carry_dataset(dataset)
     if dataset.native_clock is None:
         return
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
-    _require_native_execution_cost(dataset, cost)
+    _require_calendar_month_spot_roster(dataset)
+    if native_fixed_linear_carry:
+        _require_native_fixed_linear_carry_cost(cost)
+    else:
+        _require_native_execution_cost(dataset, cost)
     _require_execution_margin_roster(dataset, cost)
     _require_native_fixed_execution_rows(
-        dataset, start_index=start_index, stop_index=stop_index
+        dataset,
+        start_index=start_index,
+        stop_index=stop_index,
+        native_fixed_linear_carry=native_fixed_linear_carry,
     )
 
 
@@ -522,6 +677,7 @@ class MarketExecutor:
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         strict_spot_cash: bool = False,
         native_calendar_month: bool = False,
+        native_fixed_linear_carry: bool = False,
         fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
         if (
@@ -531,16 +687,14 @@ class MarketExecutor:
             raise ValueError(
                 "calendar month execution requires explicit matching opt-in"
             )
-        if native_calendar_month and (
-            any(
-                unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
-                for unit in dataset.volume_units
-            )
-            or np.any(dataset.contract_multipliers != 1.0)
-        ):
-            raise ValueError(
-                "calendar month execution requires unit-multiplier Spot volume"
-            )
+        if type(native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
+        if native_fixed_linear_carry:
+            if strict_spot_cash:
+                raise ValueError("native fixed linear carry excludes strict Spot")
+            _require_native_fixed_linear_carry_dataset(dataset)
+        _require_calendar_month_spot_roster(dataset)
+        self._native_fixed_linear_carry = native_fixed_linear_carry
         self.dataset = dataset
         self._native_fixed_dataset = (
             dataset if dataset.native_clock is not None else None
@@ -553,8 +707,8 @@ class MarketExecutor:
         self._validate_native_fixed_configuration()
         if type(strict_spot_cash) is not bool:
             raise ValueError("strict_spot_cash must be boolean")
-        self._strict_spot_cash = (
-            strict_spot_cash or self._native_fixed_dataset is not None
+        self._strict_spot_cash = strict_spot_cash or (
+            self._native_fixed_dataset is not None and not native_fixed_linear_carry
         )
         self._validate_strict_spot_configuration()
         self.insolvency_valuation = insolvency_valuation
@@ -581,6 +735,7 @@ class MarketExecutor:
                 tuple[str, ...],
                 str,
                 str | None,
+                bool,
                 bool,
             ]
             | None
@@ -615,6 +770,11 @@ class MarketExecutor:
         """Opt-in cash-only native order admission (not venue spot attestation)."""
         return self._strict_spot_cash
 
+    @property
+    def native_fixed_linear_carry(self) -> bool:
+        """Declared discrete fixed-grid contract-unit carry, not venue admission."""
+        return self._native_fixed_linear_carry
+
     def _validate_native_fixed_configuration(self) -> None:
         if (
             self._native_fixed_dataset is not None
@@ -626,7 +786,10 @@ class MarketExecutor:
                 "native fixed execution requires a fresh executor for a different Dataset"
             )
         if self.dataset.native_clock is not None:
-            _require_native_execution_cost(self.dataset, self.cost)
+            if self.native_fixed_linear_carry:
+                _require_native_fixed_linear_carry_cost(self.cost)
+            else:
+                _require_native_execution_cost(self.dataset, self.cost)
 
     def _validate_strict_spot_configuration(self) -> None:
         if self.strict_spot_cash and (
@@ -1417,6 +1580,7 @@ class MarketExecutor:
             self.insolvency_valuation,
             funding_semantics,
             self.strict_spot_cash,
+            self.native_fixed_linear_carry,
         )
         previous_inputs = self._execution_policy_digest_cache_inputs
         cached_digest = self._execution_policy_digest_cache
@@ -1430,6 +1594,7 @@ class MarketExecutor:
             and previous_inputs[4] == self.insolvency_valuation
             and previous_inputs[5] == funding_semantics
             and previous_inputs[6] == self.strict_spot_cash
+            and previous_inputs[7] == self.native_fixed_linear_carry
         ):
             return cached_digest
 
@@ -1444,6 +1609,7 @@ class MarketExecutor:
             insolvency_valuation=self.insolvency_valuation,
             funding_price_rate_present=funding_semantics is not None,
             strict_spot_cash=self.strict_spot_cash,
+            native_fixed_linear_carry=self.native_fixed_linear_carry,
         )
 
         self._execution_policy_digest_cache_inputs = cache_inputs

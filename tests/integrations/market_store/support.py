@@ -20,10 +20,13 @@ from pathlib import Path
 
 from trade_rl.integrations.market_store.checksum import ChecksumEvidence
 from trade_rl.integrations.market_store.contracts import (
+    ArchiveKind,
     ArchiveSpec,
+    BookDepthRow,
     EmbargoState,
     FundingRow,
     KlineRow,
+    OpenInterestMetricRow,
     StoredExchangeInfo,
     StoreMarket,
     WarmupRun,
@@ -205,6 +208,72 @@ def funding_csv_rows(
     return rows
 
 
+def _format_utc(timestamp_ms: int) -> str:
+    return utc_from_ms(timestamp_ms).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def metrics_csv_rows(
+    symbol: str, start_ms: int, end_ms: int, *, value_bump: int = 0
+) -> list[list[str]]:
+    """Deterministic 5-minute ``metrics`` rows in the observed public layout.
+
+    The real archives are not time-ordered, so the rows are emitted in a fixed
+    shuffled order (every second row reversed) to keep that property under test.
+    """
+
+    rows = [
+        [
+            "create_time",
+            "symbol",
+            "sum_open_interest",
+            "sum_open_interest_value",
+            "count_toptrader_long_short_ratio",
+            "sum_toptrader_long_short_ratio",
+            "count_long_short_ratio",
+            "sum_taker_long_short_vol_ratio",
+        ]
+    ]
+    body: list[list[str]] = []
+    for index, stamp_ms in enumerate(range(start_ms, end_ms, 300_000)):
+        open_interest = 80_000 + index + value_bump
+        body.append(
+            [
+                _format_utc(stamp_ms),
+                symbol,
+                f"{Decimal(open_interest) + Decimal('0.043'):.16f}",
+                f"{Decimal(open_interest) * Decimal('71500.25'):.16f}",
+                f"{Decimal(1) + Decimal(index % 90) / Decimal(100):.8f}",
+                f"{Decimal(1) + Decimal(index % 50) / Decimal(100):.8f}",
+                f"{Decimal(1) + Decimal(index % 70) / Decimal(100):.8f}",
+                f"{Decimal(index % 280 + 1) / Decimal(100):.8f}",
+            ]
+        )
+    rows.extend(body[1::2][::-1] + body[0::2])
+    return rows
+
+
+def book_depth_csv_rows(
+    start_ms: int, end_ms: int, *, step_seconds: int = 600, value_bump: int = 0
+) -> list[list[str]]:
+    """Deterministic ``bookDepth`` rows: 10 signed bands per sub-minute-offset snapshot."""
+
+    rows = [["timestamp", "percentage", "depth", "notional"]]
+    for index, stamp_ms in enumerate(
+        range(start_ms + 9_000, end_ms, step_seconds * 1000)
+    ):
+        for band in (-5, -4, -3, -2, -1, 1, 2, 3, 4, 5):
+            depth = Decimal(1000 + index * 3 + abs(band) * 500 + value_bump)
+            rows.append(
+                [
+                    _format_utc(stamp_ms),
+                    str(band),
+                    f"{depth + Decimal('0.101'):.8f}",
+                    f"{depth * Decimal('71500.5'):.8f}",
+                ]
+            )
+    return rows
+
+
 def zip_csv(rows: Sequence[Sequence[str]], *, member: str = "data.csv") -> bytes:
     text = "\n".join(",".join(row) for row in rows) + "\n"
     buffer = io.BytesIO()
@@ -251,6 +320,10 @@ def archive_bytes(spec: ArchiveSpec, **kwargs: object) -> bytes:
 
     start_ms = ms_from_utc(spec.period_start)
     end_ms = ms_from_utc(spec.period_end)
+    if spec.kind is ArchiveKind.METRICS:
+        return zip_csv(metrics_csv_rows(spec.symbol, start_ms, end_ms, **kwargs))  # type: ignore[arg-type]
+    if spec.kind is ArchiveKind.BOOK_DEPTH:
+        return zip_csv(book_depth_csv_rows(start_ms, end_ms, **kwargs))  # type: ignore[arg-type]
     if spec.interval is None:
         return zip_csv(funding_csv_rows(start_ms, end_ms))
     return zip_csv(
@@ -326,6 +399,8 @@ class MemoryStore:
         self.sources: dict[str, dict[str, object]] = {}
         self.klines: dict[tuple[int, str, int], KlineRow] = {}
         self.funding: dict[tuple[int, int], FundingRow] = {}
+        self.metrics: dict[tuple[int, int], OpenInterestMetricRow] = {}
+        self.depth: dict[tuple[int, int, int], BookDepthRow] = {}
         self.runs: dict[int, dict[str, object]] = {}
         self.conflicts: list[ConflictRecord] = []
         self.exchange_info: list[StoredExchangeInfo] = []
@@ -358,11 +433,23 @@ class MemoryStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        saved = (dict(self.sources), dict(self.klines), dict(self.funding))
+        saved = (
+            dict(self.sources),
+            dict(self.klines),
+            dict(self.funding),
+            dict(self.metrics),
+            dict(self.depth),
+        )
         try:
             yield
         except BaseException:
-            self.sources, self.klines, self.funding = saved
+            (
+                self.sources,
+                self.klines,
+                self.funding,
+                self.metrics,
+                self.depth,
+            ) = saved
             raise
 
     def ensure_instrument(self, market: StoreMarket, symbol: str) -> int:
@@ -453,6 +540,47 @@ class MemoryStore:
             self.funding[key] = row
         return len(rows)
 
+    def existing_open_interest_metrics(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[int, OpenInterestMetricRow]:
+        return {
+            key[1]: row
+            for key, row in self.metrics.items()
+            if key[0] == instrument_id and start_ms <= key[1] < end_ms
+        }
+
+    def insert_open_interest_metrics(
+        self,
+        instrument_id: int,
+        source_id: int,
+        rows: Sequence[OpenInterestMetricRow],
+    ) -> int:
+        for row in rows:
+            key = (instrument_id, row.create_time_ms)
+            if key in self.metrics:
+                raise AssertionError("primary key violation")
+            self.metrics[key] = row
+        return len(rows)
+
+    def existing_book_depth(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[tuple[int, int], BookDepthRow]:
+        return {
+            (key[1], key[2]): row
+            for key, row in self.depth.items()
+            if key[0] == instrument_id and start_ms <= key[1] < end_ms
+        }
+
+    def insert_book_depth(
+        self, instrument_id: int, source_id: int, rows: Sequence[BookDepthRow]
+    ) -> int:
+        for row in rows:
+            key = (instrument_id, row.timestamp_ms, row.percentage)
+            if key in self.depth:
+                raise AssertionError("primary key violation")
+            self.depth[key] = row
+        return len(rows)
+
     def record_conflicts(
         self, run_id: int, conflicts: Sequence[ConflictRecord]
     ) -> None:
@@ -536,12 +664,14 @@ __all__ = [
     "FakeFetcher",
     "MemoryStore",
     "archive_bytes",
+    "book_depth_csv_rows",
     "checksum_file",
     "exchange_info_bytes",
     "fetcher_for",
     "file_backed_build",
     "funding_csv_rows",
     "kline_csv_rows",
+    "metrics_csv_rows",
     "month_after",
     "populate_vision_cache",
     "stored_exchange_info",

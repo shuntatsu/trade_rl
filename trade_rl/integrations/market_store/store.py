@@ -24,16 +24,21 @@ from trade_rl.integrations.market_store.checksum import ChecksumEvidence
 from trade_rl.integrations.market_store.contracts import (
     MARKET_STORE_URL_ENV,
     ArchiveSpec,
+    BookDepthRow,
     EmbargoState,
     FundingRow,
     KlineRow,
+    OpenInterestMetricRow,
     StoredExchangeInfo,
     StoreMarket,
     WarmupRun,
     ms_from_utc,
     utc_from_ms,
 )
-from trade_rl.integrations.market_store.embargo import EmbargoPolicy
+from trade_rl.integrations.market_store.embargo import (
+    EmbargoPolicy,
+    checked_read_range,
+)
 from trade_rl.integrations.market_store.ingest import (
     ConflictRecord,
     IngestError,
@@ -45,6 +50,7 @@ from trade_rl.integrations.market_store.rules import SymbolRule
 _MIGRATION_NAME: Final = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
 _MIGRATION_LOCK: Final = 810_000_001
 _INGEST_LOCK: Final = 810_000_002
+_SYMBOL: Final = re.compile(r"[A-Z0-9]{3,32}")
 
 
 class MigrationError(RuntimeError):
@@ -198,6 +204,41 @@ def _funding_from_row(row: Sequence[Any]) -> FundingRow:
         mark_price=row[2],
         interval_hours=None if row[3] is None else int(row[3]),
     )
+
+
+_METRIC_COLUMNS: Final = (
+    "create_time, sum_open_interest, sum_open_interest_value, "
+    "count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, "
+    "count_long_short_ratio, sum_taker_long_short_vol_ratio"
+)
+_BOOK_DEPTH_COLUMNS: Final = "snapshot_time, percentage, depth, notional"
+
+
+def _metric_from_row(row: Sequence[Any]) -> OpenInterestMetricRow:
+    return OpenInterestMetricRow(
+        create_time_ms=ms_from_utc(row[0]),
+        sum_open_interest=row[1],
+        sum_open_interest_value=row[2],
+        count_toptrader_long_short_ratio=row[3],
+        sum_toptrader_long_short_ratio=row[4],
+        count_long_short_ratio=row[5],
+        sum_taker_long_short_vol_ratio=row[6],
+    )
+
+
+def _book_depth_from_row(row: Sequence[Any]) -> BookDepthRow:
+    return BookDepthRow(
+        timestamp_ms=ms_from_utc(row[0]),
+        percentage=int(row[1]),
+        depth=row[2],
+        notional=row[3],
+    )
+
+
+def _checked_symbol(symbol: str) -> str:
+    if not isinstance(symbol, str) or _SYMBOL.fullmatch(symbol) is None:
+        raise ValueError(f"invalid symbol: {symbol!r}")
+    return symbol
 
 
 class PostgresMarketStore:
@@ -478,6 +519,84 @@ class PostgresMarketStore:
             )
         return len(rows)
 
+    def existing_open_interest_metrics(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[int, OpenInterestMetricRow]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_METRIC_COLUMNS} FROM open_interest_metrics "
+                "WHERE instrument_id = %s AND create_time >= %s AND create_time < %s "
+                "ORDER BY create_time",
+                (instrument_id, utc_from_ms(start_ms), utc_from_ms(end_ms)),
+            )
+            rows = [_metric_from_row(row) for row in cursor.fetchall()]
+        return {row.create_time_ms: row for row in rows}
+
+    def insert_open_interest_metrics(
+        self,
+        instrument_id: int,
+        source_id: int,
+        rows: Sequence[OpenInterestMetricRow],
+    ) -> int:
+        if not rows:
+            return 0
+        with self._connection.cursor() as cursor:
+            cursor.executemany(
+                f"INSERT INTO open_interest_metrics (instrument_id, source_id, "
+                f"{_METRIC_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [
+                    (
+                        instrument_id,
+                        source_id,
+                        utc_from_ms(row.create_time_ms),
+                        row.sum_open_interest,
+                        row.sum_open_interest_value,
+                        row.count_toptrader_long_short_ratio,
+                        row.sum_toptrader_long_short_ratio,
+                        row.count_long_short_ratio,
+                        row.sum_taker_long_short_vol_ratio,
+                    )
+                    for row in rows
+                ],
+            )
+        return len(rows)
+
+    def existing_book_depth(
+        self, instrument_id: int, start_ms: int, end_ms: int
+    ) -> dict[tuple[int, int], BookDepthRow]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_BOOK_DEPTH_COLUMNS} FROM book_depth "
+                "WHERE instrument_id = %s AND snapshot_time >= %s "
+                "AND snapshot_time < %s ORDER BY snapshot_time, percentage",
+                (instrument_id, utc_from_ms(start_ms), utc_from_ms(end_ms)),
+            )
+            rows = [_book_depth_from_row(row) for row in cursor.fetchall()]
+        return {row.key: row for row in rows}
+
+    def insert_book_depth(
+        self, instrument_id: int, source_id: int, rows: Sequence[BookDepthRow]
+    ) -> int:
+        if not rows:
+            return 0
+        with self._connection.cursor() as cursor:
+            cursor.executemany(
+                f"INSERT INTO book_depth (instrument_id, source_id, "
+                f"{_BOOK_DEPTH_COLUMNS}) VALUES (%s, %s, %s, %s, %s, %s)",
+                [
+                    (
+                        instrument_id,
+                        source_id,
+                        utc_from_ms(row.timestamp_ms),
+                        row.percentage,
+                        row.depth,
+                        row.notional,
+                    )
+                    for row in rows
+                ],
+            )
+        return len(rows)
+
     def record_conflicts(
         self, run_id: int, conflicts: Sequence[ConflictRecord]
     ) -> None:
@@ -646,6 +765,61 @@ class PostgresMarketStore:
                 (market.value, symbol, utc_from_ms(start_ms), utc_from_ms(end_ms)),
             )
             return [_funding_from_row(row) for row in cursor.fetchall()]
+
+    def read_open_interest_metrics(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        embargo: EmbargoPolicy | None = None,
+    ) -> tuple[OpenInterestMetricRow, ...]:
+        """USD-M 5-minute open-interest snapshots with ``start <= create_time < end``.
+
+        Read-only and embargo-checked: an ``end`` past the FS1 warm-up span (or past the
+        sealed window, always) is refused before any query. Rows are ascending and exact.
+        """
+
+        start_utc, end_utc = checked_read_range(start, end, policy=embargo)
+        name = _checked_symbol(symbol)
+        columns = ", ".join("m." + c.strip() for c in _METRIC_COLUMNS.split(","))
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {columns} FROM open_interest_metrics m "
+                "JOIN instruments i USING (instrument_id) "
+                "WHERE i.exchange = 'binance' AND i.market = 'usds_m' AND i.symbol = %s "
+                "AND m.create_time >= %s AND m.create_time < %s ORDER BY m.create_time",
+                (name, start_utc, end_utc),
+            )
+            return tuple(_metric_from_row(row) for row in cursor.fetchall())
+
+    def read_book_depth(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        embargo: EmbargoPolicy | None = None,
+    ) -> tuple[BookDepthRow, ...]:
+        """USD-M bookDepth bands with ``start <= timestamp < end``, ascending.
+
+        Read-only and embargo-checked exactly like :meth:`read_open_interest_metrics`;
+        ordered by snapshot time then signed percentage.
+        """
+
+        start_utc, end_utc = checked_read_range(start, end, policy=embargo)
+        name = _checked_symbol(symbol)
+        columns = ", ".join("b." + c.strip() for c in _BOOK_DEPTH_COLUMNS.split(","))
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {columns} FROM book_depth b "
+                "JOIN instruments i USING (instrument_id) "
+                "WHERE i.exchange = 'binance' AND i.market = 'usds_m' AND i.symbol = %s "
+                "AND b.snapshot_time >= %s AND b.snapshot_time < %s "
+                "ORDER BY b.snapshot_time, b.percentage",
+                (name, start_utc, end_utc),
+            )
+            return tuple(_book_depth_from_row(row) for row in cursor.fetchall())
 
     def load_exchange_info(
         self, market: StoreMarket, sha256: str | None = None

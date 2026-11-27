@@ -19,7 +19,13 @@ CONTRACT_OWNERS = {
     "contract.py": frozenset(
         {"CapitalContract", "ObjectiveContract", "net_equity_increment"}
     ),
-    "clock.py": frozenset({"FinancialClockContract"}),
+    "clock.py": frozenset(
+        {
+            "FinancialClockContract",
+            "CalendarMonthFinancialClockContract",
+            "SessionFinancialClockContract",
+        }
+    ),
     "binding.py": frozenset({"BoundObjectiveClock"}),
 }
 FINANCIAL_SYMBOLS = frozenset().union(*CONTRACT_OWNERS.values())

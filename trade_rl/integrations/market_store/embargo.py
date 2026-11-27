@@ -149,6 +149,28 @@ class EmbargoPolicy:
             raise self._refusal("the range", sealed=False, context=context)
 
 
+def checked_read_range(
+    start: datetime, end: datetime, *, policy: EmbargoPolicy | None = None
+) -> tuple[datetime, datetime]:
+    """Validate a half-open read range ``[start, end)`` and apply the embargo to it.
+
+    Both bounds must be timezone-aware and ``start < end``; an ``end`` past a closed
+    span is refused exactly like a requested ingest range, so a query can never ask the
+    store for FS1 warm-up or sealed-window data. Returns the bounds in UTC.
+    """
+
+    resolved = EmbargoPolicy.enforced() if policy is None else policy
+    for name, value in (("start", start), ("end", end)):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{name} must be timezone-aware")
+    start_utc = start.astimezone(UTC)
+    end_utc = end.astimezone(UTC)
+    if end_utc <= start_utc:
+        raise ValueError("end must be later than start")
+    resolved.check_range_end(end_utc, what="requested read range")
+    return start_utc, end_utc
+
+
 __all__ = [
     "FS1_WARMUP_START",
     "FS1_WARMUP_START_MS",
@@ -158,4 +180,5 @@ __all__ = [
     "EmbargoPolicy",
     "Fs1WarmupSpanError",
     "SealedWindowEmbargoError",
+    "checked_read_range",
 ]

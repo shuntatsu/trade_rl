@@ -23,10 +23,15 @@ from trade_rl.risk.pretrade import (
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
-    _preflight_native_fixed_execution_window,
+    _preflight_native_learning_execution_window,
+    _preflight_session_spot_execution_window,
 )
 from trade_rl.simulation.native_transition import _require_risk_execution_limits
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
+from trade_rl.simulation.objectives.clock import (
+    CalendarMonthFinancialClockContract,
+    SessionFinancialClockContract,
+)
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
     PendingOrder,
@@ -121,10 +126,13 @@ class SharedPortfolioGymEnv(gym.Env):
         execution_cost: ExecutionCostConfig,
         risk_config: PreTradeRiskConfig,
         market_order_profile: MarketOrderProfile | None = None,
+        native_fixed_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
     ) -> None:
         super().__init__()
+        if type(native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
         if not isinstance(bound, BoundObjectiveClock):
@@ -168,33 +176,7 @@ class SharedPortfolioGymEnv(gym.Env):
         if risk_config.drawdown_stop > objective.maximum_drawdown:
             raise ValueError("risk drawdown stop exceeds the objective maximum")
 
-        timestamps = tuple(
-            _market_timestamp_ns(dataset, index)
-            for index in range(resolved_start, resolved_stop + 1)
-        )
-        intervals_ns = tuple(
-            current - previous
-            for previous, current in zip(timestamps[:-1], timestamps[1:], strict=True)
-        )
-        if not intervals_ns or any(interval <= 0 for interval in intervals_ns):
-            raise ValueError("dataset timestamps must increase across the window")
-        if len(set(intervals_ns)) != 1 or intervals_ns[0] % 1_000_000_000:
-            raise ValueError("dataset window must use one regular whole-second cadence")
-        native_interval = intervals_ns[0] // 1_000_000_000
-        if (
-            clock.decision_interval_seconds != native_interval
-            or clock.execution_interval_seconds != native_interval
-            or clock.reward_interval_seconds != native_interval
-        ):
-            raise ValueError("financial clock must match one native interval per step")
-        if timestamps[0] != _utc_datetime_ns(objective.evaluation_start):
-            raise ValueError("objective start must match the dataset start row")
-        if timestamps[-1] != _utc_datetime_ns(objective.evaluation_stop_exclusive):
-            raise ValueError("objective stop must match the dataset stop row")
-        if clock.economic_horizon_seconds != (
-            (resolved_stop - resolved_start) * native_interval
-        ):
-            raise ValueError("financial horizon must match the native index window")
+        self._validate_financial_window(dataset, resolved_start, resolved_stop, bound)
         agent_stop = resolved_stop - execution_cost.order_latency_bars - 1
         if agent_stop <= resolved_start:
             raise ValueError(
@@ -213,10 +195,16 @@ class SharedPortfolioGymEnv(gym.Env):
         self.market_order_profile = market_order_profile
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
-        self._native_fixed_dataset = (
-            dataset if dataset.native_clock is not None else None
+        self._native_fixed_linear_carry = native_fixed_linear_carry
+        self._session_elapsed_mode = isinstance(
+            bound.clock, SessionFinancialClockContract
         )
-        self._validate_native_fixed_window()
+        self._native_execution_dataset = (
+            dataset
+            if dataset.native_clock is not None or self._session_elapsed_mode
+            else None
+        )
+        self._validate_native_learning_window()
         n_symbols = dataset.n_symbols
         n_features = len(dataset.feature_names)
         n_global_features = len(dataset.global_feature_names)
@@ -266,58 +254,164 @@ class SharedPortfolioGymEnv(gym.Env):
             list[StatefulExecutionObservation] | None
         ) = None
 
-    def _require_native_fixed_binding(self) -> None:
+    @property
+    def native_fixed_linear_carry(self) -> bool:
+        """Immutable opt-in to the declared signed fixed-grid execution model."""
+        return self._native_fixed_linear_carry
+
+    @staticmethod
+    def _validate_financial_window(
+        dataset: MarketDataset, start: int, stop: int, bound: BoundObjectiveClock
+    ) -> None:
+        clock = bound.clock
+        objective = bound.objective
+        monthly = isinstance(clock, CalendarMonthFinancialClockContract)
+        if monthly != dataset.native_calendar_month:
+            raise ValueError(
+                "calendar month execution is not supported by fixed-clock Gym; requires matching calendar month Dataset and clock"
+            )
+        if not 0 <= start < stop < dataset.n_bars:
+            raise ValueError("financial window is outside the Dataset")
+        start_ns = _market_timestamp_ns(dataset, start)
+        stop_ns = _market_timestamp_ns(dataset, stop)
+        native_interval_ns = _market_timestamp_ns(dataset, start + 1) - start_ns
+        # Native Dataset construction already validates a complete immutable
+        # grid. Legacy datasets retain the full regular-window check.
+        if dataset.native_clock is None and not isinstance(
+            clock, SessionFinancialClockContract
+        ):
+            timestamps = tuple(
+                _market_timestamp_ns(dataset, index) for index in range(start, stop + 1)
+            )
+            intervals_ns = tuple(
+                current - previous
+                for previous, current in zip(
+                    timestamps[:-1], timestamps[1:], strict=True
+                )
+            )
+            if not intervals_ns or any(interval <= 0 for interval in intervals_ns):
+                raise ValueError("dataset timestamps must increase across the window")
+            if len(set(intervals_ns)) != 1:
+                raise ValueError(
+                    "dataset window must use one regular whole-second cadence"
+                )
+        if isinstance(clock, SessionFinancialClockContract):
+            actual = tuple(
+                int(x) for x in dataset.timestamps[start : stop + 1].view(np.int64)
+            )
+            if actual != clock.boundaries_ns:
+                raise ValueError(
+                    "session financial clock boundaries differ from the Dataset"
+                )
+        elif monthly:
+            assert isinstance(clock, CalendarMonthFinancialClockContract)
+            if clock.economic_horizon_months != stop - start:
+                raise ValueError("calendar month horizon must match the Dataset window")
+        else:
+            if native_interval_ns <= 0 or native_interval_ns % 1_000_000_000:
+                raise ValueError(
+                    "dataset window must use one regular whole-second cadence"
+                )
+            native_interval = native_interval_ns // 1_000_000_000
+            if (
+                clock.decision_interval_seconds != native_interval
+                or clock.execution_interval_seconds != native_interval
+                or clock.reward_interval_seconds != native_interval
+            ):
+                raise ValueError(
+                    "financial clock must match one native interval per step"
+                )
+        if start_ns != _utc_datetime_ns(objective.evaluation_start):
+            raise ValueError("objective start must match the dataset start row")
+        if stop_ns != _utc_datetime_ns(objective.evaluation_stop_exclusive):
+            raise ValueError("objective stop must match the dataset stop row")
+        if clock.economic_horizon_seconds * 1_000_000_000 != stop_ns - start_ns:
+            raise ValueError("financial horizon must match the native index window")
+
+    def _require_native_execution_binding(self) -> None:
         # Bind the mode to the original immutable Dataset. A mutable Gym
         # attribute must not disable native admission by selecting a legacy
         # Dataset with a copied ID, or enter native mode after construction.
         if (
-            self._native_fixed_dataset is not None
+            self._native_execution_dataset is not None
             or self.dataset.native_clock is not None
-        ) and self.dataset is not self._native_fixed_dataset:
+        ) and self.dataset is not self._native_execution_dataset:
             raise ValueError(
                 "native fixed Gym requires its original verified Dataset identity; "
                 "create a fresh environment for a different Dataset"
             )
 
-    def _validate_native_fixed_window(self) -> None:
+    def _validate_native_learning_window(self) -> None:
         # Recheck admission at reset, fit and bundle loading because the
         # Gym environment's configuration attributes are mutable.
-        self._require_native_fixed_binding()
-        _preflight_native_fixed_execution_window(
-            self.dataset,
-            self.execution_cost,
-            start_index=self.start_index,
-            stop_index=self.stop_index,
-        )
-        if self.dataset.native_clock is not None:
+        self._require_native_execution_binding()
+        clock = self.bound.clock
+        if self._session_elapsed_mode != isinstance(
+            clock, SessionFinancialClockContract
+        ):
+            raise ValueError(
+                "session financial clock mode cannot change within an environment"
+            )
+        if isinstance(clock, SessionFinancialClockContract):
+            if self.native_fixed_linear_carry or self.market_order_profile is not None:
+                raise ValueError(
+                    "session learning requires Spot without a separate order profile"
+                )
+            _preflight_session_spot_execution_window(
+                self.dataset,
+                self.execution_cost,
+                start_index=self.start_index,
+                stop_index=self.stop_index,
+                expected_boundaries_ns=clock.boundaries_ns,
+                expected_nominal_bar_seconds=clock.nominal_bar_seconds,
+            )
+        else:
+            _preflight_native_learning_execution_window(
+                self.dataset,
+                self.execution_cost,
+                start_index=self.start_index,
+                stop_index=self.stop_index,
+                native_calendar_month=isinstance(
+                    self.bound.clock, CalendarMonthFinancialClockContract
+                ),
+                native_fixed_linear_carry=self.native_fixed_linear_carry,
+            )
+        if self.dataset.native_clock is not None or self._session_elapsed_mode:
             _require_risk_execution_limits(
                 self.risk_config, float(self.execution_cost.max_leverage)
             )
-            # The native Dataset grid is immutable and complete. Match the
-            # current indices to the declared financial window before any
-            # session, training attempt, or checkpoint loading is admitted.
-            start_ns = _market_timestamp_ns(self.dataset, self.start_index)
-            stop_ns = _market_timestamp_ns(self.dataset, self.stop_index)
-            next_ns = _market_timestamp_ns(self.dataset, self.start_index + 1)
-            interval_ns = next_ns - start_ns
-            objective = self.bound.objective
-            clock = self.bound.clock
-            horizon_ns = clock.economic_horizon_seconds * 1_000_000_000
-            if (
-                start_ns != _utc_datetime_ns(objective.evaluation_start)
-                or stop_ns != _utc_datetime_ns(objective.evaluation_stop_exclusive)
-                or any(
-                    seconds * 1_000_000_000 != interval_ns
-                    for seconds in (
-                        clock.decision_interval_seconds,
-                        clock.execution_interval_seconds,
-                        clock.reward_interval_seconds,
-                    )
+            try:
+                self._validate_financial_window(
+                    self.dataset, self.start_index, self.stop_index, self.bound
                 )
-                or horizon_ns != stop_ns - start_ns
+            except ValueError as error:
+                raise ValueError(
+                    "native Gym financial clock must match the Dataset window"
+                ) from error
+            if (
+                self.dataset.native_calendar_month
+                or self.native_fixed_linear_carry
+                or self._session_elapsed_mode
+            ) and (
+                self.bound.objective.terminal_valuation != "settled"
+                or not self.bound.clock.terminal_profit_aligned
+                or self.bound.objective.capital.account_mode != "shared_portfolio"
+                or self.initial_capital
+                != self.bound.objective.capital.total_initial_capital
+                or self.risk_config.drawdown_stop
+                > self.bound.objective.maximum_drawdown
+                or self.stop_index - self.execution_cost.order_latency_bars - 1
+                <= self.start_index
             ):
                 raise ValueError(
-                    "native fixed Gym financial clock must match the Dataset window"
+                    (
+                        "calendar month"
+                        if self.dataset.native_calendar_month
+                        else "session elapsed"
+                        if self._session_elapsed_mode
+                        else "native fixed linear carry"
+                    )
+                    + " Gym objective or terminal window differs"
                 )
 
     def reset(
@@ -328,7 +422,7 @@ class SharedPortfolioGymEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
         if options:
             raise ValueError("reset options are not supported")
-        self._validate_native_fixed_window()
+        self._validate_native_learning_window()
         super().reset(seed=seed)
         session = SharedPortfolioSession(
             self.dataset,
@@ -339,8 +433,11 @@ class SharedPortfolioGymEnv(gym.Env):
             risk=PreTradeRisk(self.risk_config),
             market_order_profile=self.market_order_profile,
             settle_terminal_position=True,
+            strict_spot_cash=self._session_elapsed_mode,
             execution_observer=self.execution_observer,
             execution_trace_observer=self._capture_execution_trace,
+            native_calendar_month=self.dataset.native_calendar_month,
+            native_fixed_linear_carry=self.native_fixed_linear_carry,
         )
         self._session = session
         self._episode_done = False

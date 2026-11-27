@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,9 +19,11 @@ from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayResult,
     run_shared_portfolio_replay,
 )
+from trade_rl.evaluation.session_returns import run_session_elapsed_portfolio_replay
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
+from trade_rl.simulation.objectives.clock import SessionFinancialClockContract
 
 if TYPE_CHECKING:
     from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
@@ -45,6 +48,7 @@ def run_published_portfolio_inference_replay(
     risk_config: PreTradeRiskConfig,
     market_order_profile: MarketOrderProfile | None,
     capture_ledger_evidence: bool,
+    native_fixed_linear_carry: bool = False,
 ) -> tuple[PublishedDatasetArtifact, SharedCashPortfolioReplayResult]:
     """Load one verified Dataset, validate one policy shell, and replay once.
 
@@ -79,6 +83,8 @@ def run_published_portfolio_inference_replay(
         market_order_profile, MarketOrderProfile
     ):
         raise TypeError("market_order_profile must be verified or None")
+    if type(native_fixed_linear_carry) is not bool:
+        raise TypeError("native_fixed_linear_carry must be a boolean")
     if type(capture_ledger_evidence) is not bool:
         raise TypeError("capture_ledger_evidence must be a boolean")
 
@@ -103,6 +109,7 @@ def run_published_portfolio_inference_replay(
         execution_cost=execution_cost,
         risk_config=risk_config,
         market_order_profile=market_order_profile,
+        native_fixed_linear_carry=native_fixed_linear_carry,
     )
     policy = load_portfolio_inference_bundle(
         bundle_root,
@@ -113,6 +120,23 @@ def run_published_portfolio_inference_replay(
         expected_checkpoint_sha256=expected_checkpoint_sha256,
         runtime_env=validation_env,
     )
+    if isinstance(bound.clock, SessionFinancialClockContract):
+        session_replay = run_session_elapsed_portfolio_replay(
+            dataset,
+            policy,
+            start_index=start_index,
+            stop_index=stop_index,
+            expected_boundaries_ns=bound.clock.boundaries_ns,
+            expected_nominal_bar_seconds=bound.clock.nominal_bar_seconds,
+            initial_capital=resolved_capital,
+            execution_cost=execution_cost,
+            risk=PreTradeRisk(risk_config),
+        )
+        return artifact, (
+            session_replay
+            if capture_ledger_evidence
+            else replace(session_replay, ledger_evidence=None)
+        )
     replay_result = run_shared_portfolio_replay(
         dataset,
         policy,
@@ -124,6 +148,8 @@ def run_published_portfolio_inference_replay(
         market_order_profile=market_order_profile,
         settle_terminal_position=True,
         capture_ledger_evidence=capture_ledger_evidence,
+        native_calendar_month=dataset.native_calendar_month,
+        native_fixed_linear_carry=native_fixed_linear_carry,
     )
     return artifact, replay_result
 

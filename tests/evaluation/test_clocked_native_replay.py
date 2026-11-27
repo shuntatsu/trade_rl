@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from tests.data.test_clocked_feature_overlay import _fixture
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.data.contracts import FeatureKind, FeatureSpec
 from trade_rl.data.features.clocked_overlay import (
     ClockedNativeFeatureGroup,
@@ -583,3 +584,161 @@ def test_fine_timestamp_units_preserve_actual_actor_and_ledger(unit):
     assert actual.replay.book.cash == expected.replay.book.cash
     assert actual.replay.book.total_cost == expected.replay.book.total_cost
     assert actual.replay.book.exact_quantities == expected.replay.book.exact_quantities
+
+
+def test_explicit_terminal_reserve_preserves_default_ledger_and_actor_window():
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            return PortfolioTargetProposal((0.3, 0.0))
+
+    def run(**kwargs):
+        return scheduling.run_clocked_native_portfolio_replay(
+            dataset,
+            Policy(),
+            decision_group=group,
+            start_index=first,
+            stop_index=first + 9,
+            initial_capital=1000,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                allow_short=False,
+                processing_bar_volume_capacity=False,
+                partial_fill_carry=False,
+            ),
+            capture_ledger_evidence=True,
+            **kwargs,
+        )
+
+    default = run()
+    explicit = run(terminal_reserve_bars=1)
+    assert explicit.slots == default.slots
+    assert explicit.policy_decision_indices == default.policy_decision_indices
+    assert explicit.replay.ledger_evidence is not None
+    assert default.replay.ledger_evidence is not None
+    assert canonical_json_bytes(
+        explicit.replay.ledger_evidence.to_mapping()
+    ) == canonical_json_bytes(default.replay.ledger_evidence.to_mapping())
+
+
+def test_extended_terminal_reserve_respects_fine_capacity_and_preserves_actor_prefix():
+    from trade_rl.data.identity import parse_identity_json
+
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+    entry = first + 3
+    terminal = first + 6
+    # Only terminal fills are constrained to one base unit per previous bar.
+    # The coarse sources are separate, pinned observations; no fine bar is
+    # invented from those observations.
+    volume = dataset.volume.copy()
+    volume[terminal : terminal + 4, 0] = 1.0
+    dataset = replace(
+        dataset, identity_payload_json=None, volume=volume
+    ).with_content_identity(parse_identity_json(dataset.identity_payload_json))
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            assert snapshot.index == entry
+            assert snapshot.agent_stop_index == terminal
+            return PortfolioTargetProposal((0.3, 0.0))
+
+    def run(stop, reserve):
+        return scheduling.run_clocked_native_portfolio_replay(
+            dataset,
+            Policy(),
+            decision_group=group,
+            start_index=first,
+            stop_index=stop,
+            initial_capital=1000,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                allow_short=False,
+                processing_bar_volume_capacity=False,
+                partial_fill_carry=False,
+            ),
+            capture_ledger_evidence=True,
+            terminal_reserve_bars=reserve,
+        )
+
+    short = run(terminal + 1, 1)
+    extended = run(terminal + 4, 4)
+    assert short.policy_decision_indices == extended.policy_decision_indices == (entry,)
+    a = short.replay.ledger_evidence.intervals
+    b = extended.replay.ledger_evidence.intervals
+    assert a.intervals == b.intervals[: len(a.intervals)]
+    assert len(b.intervals) == terminal + 4 - first
+    quantity = 300.0 / dataset.close[entry, 0]
+    assert 2 < quantity < 3
+    assert float(short.replay.book.exact_quantities[0]) == pytest.approx(quantity - 1)
+    assert extended.replay.book.exact_quantities == (0, 0)
+    assert b.active_order_remainders == ()
+    cash = 1000.0 - quantity * dataset.open[entry + 1, 0]
+    for offset, row in enumerate(b.intervals[terminal - first :]):
+        sold = min(1.0, quantity)
+        cash += sold * dataset.open[terminal + offset + 1, 0]
+        quantity -= sold
+        assert float(Fraction(row.exact_quantities_after[0])) == pytest.approx(quantity)
+        assert row.cash_after == pytest.approx(cash)
+        assert row.portfolio_value_after == pytest.approx(
+            cash + quantity * dataset.close[terminal + offset + 1, 0]
+        )
+    assert extended.replay.book.cash == pytest.approx(cash)
+
+
+@pytest.mark.parametrize("reserve", [True, 1.0, "2", np.int64(2), 0, -1, 9, 10])
+def test_invalid_explicit_terminal_reserve_refused_before_actor(reserve):
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            pytest.fail("invalid reserve reached policy")
+
+    with pytest.raises(ValueError, match="terminal"):
+        scheduling.run_clocked_native_portfolio_replay(
+            dataset,
+            Never(),
+            decision_group=group,
+            start_index=first,
+            stop_index=first + 9,
+            initial_capital=1000,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                allow_short=False,
+                processing_bar_volume_capacity=False,
+                partial_fill_carry=False,
+            ),
+            terminal_reserve_bars=reserve,
+        )
+
+
+def test_explicit_reserve_excludes_coarse_event_from_actor_window():
+    dataset, group = _group()
+    first = _index(dataset, group.sources[0].raw.timestamps[0])
+
+    class Never:
+        def decide_portfolio(self, snapshot):
+            pytest.fail("receipt in extended terminal reserve reached policy")
+
+    result = scheduling.run_clocked_native_portfolio_replay(
+        dataset,
+        Never(),
+        decision_group=group,
+        start_index=first,
+        stop_index=first + 9,
+        initial_capital=1000,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            allow_short=False,
+            processing_bar_volume_capacity=False,
+            partial_fill_carry=False,
+        ),
+        terminal_reserve_bars=6,
+    )
+    assert result.slots[0].status == "outside_window"
+    assert result.policy_decision_indices == ()
+    assert result.replay.book.exact_quantities == (0, 0)
+    assert result.replay.returns.values == (0,) * 9

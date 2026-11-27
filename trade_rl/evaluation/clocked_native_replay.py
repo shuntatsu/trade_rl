@@ -311,6 +311,7 @@ def run_clocked_native_portfolio_replay(
     risk: PreTradeRisk | None = None,
     capture_ledger_evidence: bool = False,
     execution_mode: Literal["strict_spot", "linear_carry"] = "strict_spot",
+    terminal_reserve_bars: int | None = None,
 ) -> ClockedNativeReplayResult:
     """Run sparse actor calls while the canonical engine advances every fine bar.
 
@@ -323,7 +324,10 @@ def run_clocked_native_portfolio_replay(
     timing, leverage or provider admission. Both modes require deterministic
     unlevered MARKET, zero additional latency, previous-bar capacity and no
     pending partial-fill carry. Hard risk may override off-schedule exact HOLD;
-    the terminal tail attempts flattening. Inspect actual settlement.
+    the terminal tail attempts flattening. An explicit terminal_reserve_bars
+    counts fine execution intervals, extends the native default, and excludes
+    those intervals from the coarse actor schedule. It does not guarantee
+    settlement or override capacity. Inspect actual settlement.
     Delayed/unavailable fine bars and intrabar carry are not admitted.
     This is a software contract, not execution authority.
     """
@@ -362,6 +366,7 @@ def run_clocked_native_portfolio_replay(
         stop_index=stop_index,
         execution_cost=execution_cost,
         settle_terminal_position=True,
+        terminal_reserve_bars=terminal_reserve_bars,
     )
     slots = clocked_native_decision_schedule(
         dataset, decision_group, start_index=start_index, stop_index=actor_stop
@@ -407,6 +412,7 @@ def run_clocked_native_portfolio_replay(
         execution_cost=execution_cost,
         risk=risk,
         settle_terminal_position=True,
+        terminal_reserve_bars=terminal_reserve_bars,
         strict_spot_cash=strict_spot,
         capture_ledger_evidence=capture_ledger_evidence,
     )

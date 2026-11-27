@@ -1267,7 +1267,15 @@ An intrabar or multi-event funding source requires a separate contract.
 Both modes require deterministic MARKET, zero additional order latency,
 previous-bar capacity, no pending partial-fill carry, and available,
 active and tradable fine marks throughout the replay range. The native
-terminal reserve is excluded from the actor window. Borrow denial can
+terminal reserve is excluded from the actor window. An optional
+`terminal_reserve_bars` counts fine execution intervals, not coarse decisions;
+its native positive-integer value can extend the existing default of one
+interval and must leave at least one actor interval. The schedule and shared
+replay use the same native reserve calculation. No policy calls occur in
+the reserved tail, even when a new coarse receipt arrives. The common
+terminal flatten path attempts settlement on each reserved interval under
+the same risk and previous-bar capacity, with no pending partial-fill
+carry. This is not a guarantee of a flat final book. Borrow denial can
 prevent new shorts; insufficient liquidity or termination can prevent
 actual settlement. Inspect the returned book and ledger. Planned slots and observed actor calls are
 distinct facts. Returns/fees/carry remain on the fine execution cadence;

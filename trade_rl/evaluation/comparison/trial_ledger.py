@@ -21,6 +21,7 @@ from typing import Final
 from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
 from trade_rl.evaluation.comparison.multiple_testing import (
     SharpeMoments,
+    require_finite_real,
     sharpe_moments_from_returns,
 )
 
@@ -70,13 +71,13 @@ def _text(value: object, *, name: str, max_length: int) -> str:
     return value
 
 
-def _validate_digest(value: object) -> str:
+def _validate_digest(value: object, *, name: str = "config_digest") -> str:
     if (
         not isinstance(value, str)
         or len(value) != 64
         or not frozenset(value) <= _HEX_DIGITS
     ):
-        raise TrialLedgerError("config_digest must be 64 lowercase hex characters")
+        raise TrialLedgerError(f"{name} must be 64 lowercase hex characters")
     return value
 
 
@@ -90,6 +91,11 @@ class TrialRecord:
     neither and must give a ``reason``. ``evaluation_data_label`` is optional
     free text describing the data the numbers came from; the core does not
     interpret it, and recording it makes no claim about the data's status.
+
+    Numeric values in ``returns`` follow the same rule as the statistics in
+    ``multiple_testing``: any finite ``numbers.Real`` except ``bool`` is
+    accepted and normalised to ``float``. The JSONL decoder is stricter and
+    takes only JSON floats, because it also enforces the canonical encoding.
     """
 
     trial_id: str
@@ -161,12 +167,12 @@ class TrialRecord:
                 raise TrialLedgerError("returns must be a sequence of floats")
             values: list[float] = []
             for item in raw_items:
-                if isinstance(item, bool) or not isinstance(item, (int, float)):
-                    raise TrialLedgerError("returns must contain finite real numbers")
-                number = float(item)
-                if not math.isfinite(number):
-                    raise TrialLedgerError("returns must contain finite real numbers")
-                values.append(number)
+                try:
+                    values.append(require_finite_real(item, name="return"))
+                except ValueError as exc:
+                    raise TrialLedgerError(
+                        "returns must contain finite real numbers"
+                    ) from exc
             try:
                 sharpe_moments_from_returns(values)
             except ValueError as exc:
@@ -377,7 +383,7 @@ def decode_trial_ledger_jsonl(
     if len(data) > MAX_LEDGER_BYTES:
         raise TrialLedgerError("ledger data exceeds the size limit")
     if expected_digest is not None:
-        _validate_digest(expected_digest)
+        _validate_digest(expected_digest, name="expected_digest")
     if data and not data.endswith(b"\n"):
         raise TrialLedgerError("ledger must end with a newline")
     ledger = TrialLedger()

@@ -22,6 +22,7 @@ from statistics import fmean
 from trade_rl.evaluation.comparison.multiple_testing import (
     expected_maximum_sharpe,
     probabilistic_sharpe_ratio,
+    sharpe_z_statistic,
 )
 from trade_rl.evaluation.comparison.trial_ledger import (
     TrialLedger,
@@ -52,6 +53,7 @@ class LeaderboardEntry:
     kurtosis: float
     psr_zero: float
     dsr: float
+    dsr_z: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +63,14 @@ class FamilyLeaderboard:
     ``n_trials`` counts every trial in the family, FAILED and ABANDONED
     included, because failed attempts still consumed selection freedom.
     ``ledger_digest`` binds the table to the exact ledger it was computed
-    from. Entries are ordered by descending DSR, ties broken by ``trial_id``.
+    from. Entries are ordered by descending DSR, then descending ``dsr_z``,
+    then ``trial_id``.
+
+    ``dsr`` and ``psr_zero`` are normal-CDF values and saturate to exactly
+    ``1.0`` or ``0.0`` for large ``|z|``, where distinct Sharpe ratios would
+    tie. ``dsr_z`` is the unsaturated statistic whose CDF is ``dsr`` (monotone
+    in the same ordering) and is the secondary rank key, so saturated trials
+    are still ordered by evidence strength rather than by name alone.
 
     The table makes no claim. A high DSR on data already used for development
     is not out-of-sample evidence and authorises no promotion, final test,
@@ -148,12 +157,15 @@ def build_family_leaderboard(
         raise TrialLedgerError("trial_sr_variance must be finite and non-negative")
 
     benchmark = expected_maximum_sharpe(n_trials, variance)
-    scored: list[tuple[float, str, int]] = []
+    scored: list[tuple[float, float, str, int]] = []
     rows: list[LeaderboardEntry] = []
     for record, stats in zip(completed, moments, strict=True):
         try:
             psr_zero = probabilistic_sharpe_ratio(
                 stats.sharpe, stats.n_obs, stats.skew, stats.kurtosis, 0.0
+            )
+            dsr_z = sharpe_z_statistic(
+                stats.sharpe, stats.n_obs, stats.skew, stats.kurtosis, benchmark
             )
             dsr = probabilistic_sharpe_ratio(
                 stats.sharpe, stats.n_obs, stats.skew, stats.kurtosis, benchmark
@@ -162,7 +174,7 @@ def build_family_leaderboard(
             raise TrialLedgerError(
                 f"trial {record.trial_id!r} cannot be scored: {exc}"
             ) from exc
-        scored.append((-dsr, record.trial_id, len(rows)))
+        scored.append((-dsr, -dsr_z, record.trial_id, len(rows)))
         rows.append(
             LeaderboardEntry(
                 rank=0,
@@ -176,12 +188,13 @@ def build_family_leaderboard(
                 kurtosis=stats.kurtosis,
                 psr_zero=psr_zero,
                 dsr=dsr,
+                dsr_z=dsr_z,
             )
         )
     scored.sort()
     ranked = tuple(
         replace(rows[index], rank=position)
-        for position, (_, _, index) in enumerate(scored, start=1)
+        for position, (_, _, _, index) in enumerate(scored, start=1)
     )
     return FamilyLeaderboard(
         family=family,

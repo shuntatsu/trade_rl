@@ -32,14 +32,28 @@ EULER_MASCHERONI = 0.5772156649015329
 MAX_TRIAL_COUNT = 10**15
 """Largest trial count accepted, keeping ``1/N`` well inside float range."""
 
+MAX_OBSERVATIONS = 10**15
+"""Largest ``n_obs`` accepted, keeping ``sqrt(n - 1)`` exact enough and finite."""
+
 _NORMAL = NormalDist()
 _KURTOSIS_RELATIVE_TOLERANCE = 1e-9
 
 
-def _finite_real(value: object, *, name: str) -> float:
+def require_finite_real(value: object, *, name: str) -> float:
+    """Return ``value`` as a float if it is a finite ``numbers.Real``.
+
+    This is the single numeric-acceptance rule shared with the trial ledger:
+    any ``numbers.Real`` except ``bool`` (Python and NumPy floats and ints,
+    ``Fraction``) is accepted; strings, ``None``, complex values, NaN, infinity
+    and values too large for a float are refused with ``ValueError``.
+    """
+
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a finite real number")
-    result = float(value)
+    try:
+        result = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite real number") from exc
     if not math.isfinite(result):
         raise ValueError(f"{name} must be a finite real number")
     return result
@@ -60,16 +74,16 @@ def validate_sharpe_moments(
 ) -> tuple[float, int, float, float]:
     """Validate and normalise per-period Sharpe summary statistics.
 
-    ``n_obs`` must be an integer of at least two. ``kurtosis`` is the
+    ``n_obs`` must be an integer in ``[2, MAX_OBSERVATIONS]``. ``kurtosis`` is the
     non-excess definition and, by the Pearson inequality, cannot be smaller
     than ``1 + skew**2``; an excess-kurtosis value near zero is therefore
     refused instead of being silently misread.
     """
 
-    resolved_sharpe = _finite_real(sharpe, name="sharpe")
-    resolved_n = _integer(n_obs, name="n_obs", minimum=2, maximum=None)
-    resolved_skew = _finite_real(skew, name="skew")
-    resolved_kurtosis = _finite_real(kurtosis, name="kurtosis")
+    resolved_sharpe = require_finite_real(sharpe, name="sharpe")
+    resolved_n = _integer(n_obs, name="n_obs", minimum=2, maximum=MAX_OBSERVATIONS)
+    resolved_skew = require_finite_real(skew, name="skew")
+    resolved_kurtosis = require_finite_real(kurtosis, name="kurtosis")
     floor = 1.0 + resolved_skew * resolved_skew
     if resolved_kurtosis < floor - _KURTOSIS_RELATIVE_TOLERANCE * floor:
         raise ValueError(
@@ -113,7 +127,7 @@ def sharpe_moments_from_returns(returns: Sequence[float]) -> SharpeMoments:
 
     if isinstance(returns, (str, bytes)) or not isinstance(returns, Sequence):
         raise ValueError("returns must be a sequence of finite real numbers")
-    values = [_finite_real(item, name="return") for item in returns]
+    values = [require_finite_real(item, name="return") for item in returns]
     n = len(values)
     if n < 2:
         raise ValueError("at least two return observations are required")
@@ -137,6 +151,35 @@ def sharpe_moments_from_returns(returns: Sequence[float]) -> SharpeMoments:
     )
 
 
+def sharpe_z_statistic(
+    sr: float,
+    n_obs: int,
+    skew: float,
+    kurtosis: float,
+    benchmark_sr: float = 0.0,
+) -> float:
+    """The standardised statistic whose normal CDF is the PSR.
+
+    Unlike the PSR it does not saturate at exactly 0.0 or 1.0 for large
+    magnitudes, so it keeps distinguishing strongly separated candidates.
+    Inputs and refusals are those of :func:`probabilistic_sharpe_ratio`.
+    """
+
+    sharpe, n, skew_value, kurtosis_value = validate_sharpe_moments(
+        sr, n_obs, skew, kurtosis
+    )
+    benchmark = require_finite_real(benchmark_sr, name="benchmark_sr")
+    radicand = (
+        1.0 - skew_value * sharpe + (kurtosis_value - 1.0) / 4.0 * sharpe * sharpe
+    )
+    if not math.isfinite(radicand) or radicand <= 0.0:
+        raise ValueError("PSR variance term is not positive for these inputs")
+    z = (sharpe - benchmark) * math.sqrt(n - 1) / math.sqrt(radicand)
+    if not math.isfinite(z):
+        raise ValueError("PSR statistic is not finite")
+    return z
+
+
 def probabilistic_sharpe_ratio(
     sr: float,
     n_obs: int,
@@ -156,21 +199,13 @@ def probabilistic_sharpe_ratio(
     the formula cannot represent. The result describes the supplied sample
     only; it does not correct for how many strategies were tried (see
     :func:`deflated_sharpe_ratio`).
+
+    The result is a float CDF value and saturates to exactly ``1.0`` or
+    ``0.0`` once ``|z|`` exceeds roughly 8; use :func:`sharpe_z_statistic` to
+    order values in that regime.
     """
 
-    sharpe, n, skew_value, kurtosis_value = validate_sharpe_moments(
-        sr, n_obs, skew, kurtosis
-    )
-    benchmark = _finite_real(benchmark_sr, name="benchmark_sr")
-    radicand = (
-        1.0 - skew_value * sharpe + (kurtosis_value - 1.0) / 4.0 * sharpe * sharpe
-    )
-    if not math.isfinite(radicand) or radicand <= 0.0:
-        raise ValueError("PSR variance term is not positive for these inputs")
-    z = (sharpe - benchmark) * math.sqrt(n - 1) / math.sqrt(radicand)
-    if not math.isfinite(z):
-        raise ValueError("PSR statistic is not finite")
-    return _NORMAL.cdf(z)
+    return _NORMAL.cdf(sharpe_z_statistic(sr, n_obs, skew, kurtosis, benchmark_sr))
 
 
 def expected_maximum_sharpe(n_trials: int, trial_sr_variance: float) -> float:
@@ -191,7 +226,7 @@ def expected_maximum_sharpe(n_trials: int, trial_sr_variance: float) -> float:
     """
 
     n = _integer(n_trials, name="n_trials", minimum=1, maximum=MAX_TRIAL_COUNT)
-    variance = _finite_real(trial_sr_variance, name="trial_sr_variance")
+    variance = require_finite_real(trial_sr_variance, name="trial_sr_variance")
     if variance < 0.0:
         raise ValueError("trial_sr_variance must be non-negative")
     if n == 1 or variance == 0.0:
@@ -233,11 +268,14 @@ def deflated_sharpe_ratio(
 
 __all__ = [
     "EULER_MASCHERONI",
+    "MAX_OBSERVATIONS",
     "MAX_TRIAL_COUNT",
     "SharpeMoments",
     "deflated_sharpe_ratio",
     "expected_maximum_sharpe",
     "probabilistic_sharpe_ratio",
+    "require_finite_real",
     "sharpe_moments_from_returns",
+    "sharpe_z_statistic",
     "validate_sharpe_moments",
 ]

@@ -5,11 +5,13 @@ import math
 import pytest
 
 from trade_rl.evaluation.comparison.multiple_testing import (
+    MAX_OBSERVATIONS,
     SharpeMoments,
     deflated_sharpe_ratio,
     expected_maximum_sharpe,
     probabilistic_sharpe_ratio,
     sharpe_moments_from_returns,
+    sharpe_z_statistic,
 )
 
 EULER_GAMMA = 0.5772156649015329
@@ -301,3 +303,47 @@ def test_sharpe_moments_validates_on_construction() -> None:
     with pytest.raises(ValueError, match="n_obs"):
         SharpeMoments(sharpe=0.1, n_obs=1, skew=0.0, kurtosis=3.0)
     assert SharpeMoments(sharpe=1, n_obs=10, skew=0, kurtosis=3).sharpe == 1.0
+
+
+# --- bounds, numeric acceptance and saturation ---------------------------
+
+
+@pytest.mark.parametrize("n_obs", [MAX_OBSERVATIONS + 1, 10**400])
+def test_huge_n_obs_is_a_value_error_not_overflow(n_obs: int) -> None:
+    with pytest.raises(ValueError, match="n_obs"):
+        probabilistic_sharpe_ratio(0.1, n_obs, 0.0, 3.0)
+    with pytest.raises(ValueError, match="n_obs"):
+        SharpeMoments(0.1, n_obs, 0.0, 3.0)
+    assert 0.0 <= probabilistic_sharpe_ratio(0.1, MAX_OBSERVATIONS, 0.0, 3.0) <= 1.0
+
+
+def test_huge_integers_are_refused_as_values_not_overflow() -> None:
+    with pytest.raises(ValueError, match="sharpe"):
+        probabilistic_sharpe_ratio(10**400, 100, 0.0, 3.0)
+    with pytest.raises(ValueError, match="trial_sr_variance"):
+        expected_maximum_sharpe(5, 10**400)
+    with pytest.raises(ValueError, match="return"):
+        sharpe_moments_from_returns([0.1, 10**400])
+
+
+def test_numeric_acceptance_is_finite_real_excluding_bool() -> None:
+    from decimal import Decimal
+    from fractions import Fraction
+
+    import numpy as np
+
+    expected = probabilistic_sharpe_ratio(0.25, 100, 0.0, 3.0)
+    assert probabilistic_sharpe_ratio(Fraction(1, 4), 100, 0, 3) == expected
+    assert probabilistic_sharpe_ratio(np.float64(0.25), np.int64(100), 0, 3) == expected
+    for bad in (True, "0.25", None, 1 + 0j, Decimal("0.25"), [0.25]):
+        with pytest.raises(ValueError, match="sharpe"):
+            probabilistic_sharpe_ratio(bad, 100, 0.0, 3.0)  # type: ignore[arg-type]
+
+
+def test_z_statistic_orders_where_the_psr_saturates() -> None:
+    low = sharpe_z_statistic(0.5, 100_000, 0.0, 3.0)
+    high = sharpe_z_statistic(0.6, 100_000, 0.0, 3.0)
+    assert probabilistic_sharpe_ratio(0.5, 100_000, 0.0, 3.0) == 1.0
+    assert probabilistic_sharpe_ratio(0.6, 100_000, 0.0, 3.0) == 1.0
+    assert high > low > 8.0
+    assert sharpe_z_statistic(0.1, 100, 0.0, 3.0, 0.1) == 0.0

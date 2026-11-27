@@ -122,6 +122,7 @@ EVALUATION_EXPORTS = {
     "run_lean_candidate_suite",
     "run_single_symbol_replay",
     "sharpe_moments_from_returns",
+    "sharpe_z_statistic",
     "solve_perfect_information_bound",
     "summarize_independent_folds",
     "summarize_seed_robustness",

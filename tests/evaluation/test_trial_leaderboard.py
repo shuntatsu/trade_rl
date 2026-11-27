@@ -246,3 +246,32 @@ def test_leaderboard_refuses_trial_with_non_positive_psr_variance_term() -> None
     ledger = TrialLedger([degenerate, _completed("ok", 0.1)])
     with pytest.raises(TrialLedgerError, match="'bad' cannot be scored"):
         build_family_leaderboard(ledger, "fam")
+
+
+def test_saturated_dsr_trials_are_ordered_by_z_not_by_name() -> None:
+    # Huge samples drive both DSRs to exactly 1.0; the id order is the reverse
+    # of the Sharpe order, so a trial_id-only tie break would be wrong.
+    def trial(trial_id: str, sharpe: float) -> TrialRecord:
+        return TrialRecord(
+            trial_id,
+            "fam",
+            "m",
+            DIGEST,
+            TrialStatus.COMPLETED,
+            performance=SharpeMoments(sharpe, 1_000_000, 0.0, 3.0),
+        )
+
+    ledger = TrialLedger([trial("a-weaker", 0.5), trial("z-stronger", 0.6)])
+    board = build_family_leaderboard(ledger, "fam")
+    assert [item.dsr for item in board.entries] == [1.0, 1.0]
+    assert [item.trial_id for item in board.entries] == ["z-stronger", "a-weaker"]
+    assert board.entries[0].dsr_z > board.entries[1].dsr_z > 8.0
+    assert [item.rank for item in board.entries] == [1, 2]
+
+
+def test_exact_ties_still_break_by_trial_id() -> None:
+    ledger = TrialLedger([_completed("b", 0.1), _completed("a", 0.1)])
+    assert [e.trial_id for e in build_family_leaderboard(ledger, "fam").entries] == [
+        "a",
+        "b",
+    ]

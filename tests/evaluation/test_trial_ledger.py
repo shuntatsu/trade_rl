@@ -393,8 +393,10 @@ def test_decode_detects_tampering_through_the_expected_digest() -> None:
     dropped = b"".join(data.splitlines(keepends=True)[:-1])
     with pytest.raises(TrialLedgerError, match="digest does not match"):
         decode_trial_ledger_jsonl(dropped, expected_digest=expected)
-    with pytest.raises(TrialLedgerError, match="config_digest"):
+    with pytest.raises(TrialLedgerError, match="expected_digest"):
         decode_trial_ledger_jsonl(data, expected_digest="XYZ")
+    with pytest.raises(TrialLedgerError, match="expected_digest"):
+        decode_trial_ledger_jsonl(data, expected_digest="A" * 64)
 
 
 def test_decode_rejects_oversized_input(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,3 +405,38 @@ def test_decode_rejects_oversized_input(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(module, "MAX_LEDGER_BYTES", 10)
     with pytest.raises(TrialLedgerError, match="size limit"):
         decode_trial_ledger_jsonl(b"x" * 11)
+
+
+def test_record_returns_use_the_shared_numeric_acceptance_rule() -> None:
+    from fractions import Fraction
+
+    import numpy as np
+
+    mixed = TrialRecord(
+        "m",
+        "f",
+        "x",
+        DIGEST_A,
+        TrialStatus.COMPLETED,
+        returns=(1, Fraction(1, 2), np.float64(-0.25), 0.1),  # type: ignore[arg-type]
+    )
+    assert mixed.returns == (1.0, 0.5, -0.25, 0.1)
+    assert all(type(item) is float for item in mixed.returns or ())
+    for bad in (True, "0.1", None, 10**400, math.nan):
+        with pytest.raises(TrialLedgerError, match="finite real"):
+            TrialRecord(
+                "m",
+                "f",
+                "x",
+                DIGEST_A,
+                TrialStatus.COMPLETED,
+                returns=(0.1, bad, 0.3),  # type: ignore[arg-type]
+            )
+
+
+def test_huge_n_obs_in_ledger_input_is_a_ledger_or_value_error() -> None:
+    with pytest.raises(ValueError, match="n_obs"):
+        SharpeMoments(0.1, 10**400, 0.0, 3.0)
+    huge = _line().replace('"n_obs":250', '"n_obs":' + "9" * 400)
+    with pytest.raises(TrialLedgerError, match="n_obs"):
+        decode_trial_ledger_jsonl(huge.encode())

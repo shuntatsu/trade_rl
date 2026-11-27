@@ -3,7 +3,8 @@
 Default mode is a read-only plan.  ``--apply`` removes only worktrees that are
 classified ``REMOVABLE``: clean (ignored regenerable caches excepted), merged
 into ``origin/main``, not an open PR head or branch, not locked, not
-mid-operation, free of nested worktrees and non-cache ignored data, and idle.
+mid-operation, free of nested worktrees, symlinks/junctions and non-cache
+ignored data, and idle.
 The tool never forces a removal, never deletes remote branches and never
 touches the stash.  Local branches are deleted only with
 ``--delete-local-branches`` and only via ``git branch -d``.
@@ -13,6 +14,8 @@ unreadable ``origin/main``, git errors) exits 2 and nothing is removed.  A
 failure for one worktree during ``--apply`` is reported, the others are still
 processed, and the exit code is 1; an unexpected error after removals began
 reports the actual removed count and also exits 1.
+If the rename probe cannot restore a directory, the run stops at once (exit 1),
+skips ``git worktree prune`` and prints the probe path for manual restore.
 
 Limits (heuristics, not guarantees): only a git lock, the worktree the tool
 runs in, and the idle window identify live sessions; on Windows a rename probe
@@ -25,6 +28,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -46,6 +50,7 @@ REGENERABLE_DIR_NAMES = frozenset(
 OPERATION_MARKERS = (
     "rebase-merge",
     "rebase-apply",
+    "sequencer",
     "MERGE_HEAD",
     "CHERRY_PICK_HEAD",
     "REVERT_HEAD",
@@ -61,6 +66,10 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 
 class WorktreeHygieneError(RuntimeError):
     """Fail-closed error: nothing may be removed after this is raised."""
+
+
+class ProbeRestoreError(WorktreeHygieneError):
+    """The rename probe could not put a worktree directory back; stop everything."""
 
 
 @dataclass(frozen=True)
@@ -312,16 +321,36 @@ def _operation_in_progress(worktree: Path) -> str | None:
     return ", ".join(found) if found else None
 
 
-def _scan_tree(worktree: Path) -> tuple[Path | None, float | None]:
+@dataclass(frozen=True)
+class _Scan:
+    nested: Path | None  # first nested .git (file or directory)
+    link: Path | None  # first symlink / junction / reparse point
+    newest: float | None  # newest mtime of any file or directory
+
+
+_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_link(path: str, info: os.stat_result) -> bool:
+    """Symlink, Windows junction or any other reparse point (never followed)."""
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    if getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+        return True
+    return os.path.islink(path) or os.path.isjunction(path)
+
+
+def _scan_tree(worktree: Path) -> _Scan:
     """Walk the whole worktree (ignored dirs included, root ``.git`` excluded).
 
-    Returns ``(first nested .git path or None, newest file/directory mtime)``.
+    Stops at the first nested ``.git`` or link so a KEEP verdict is cheap.  Links
+    are detected with ``lstat`` and never descended into: Git for Windows follows
+    junctions during ``git worktree remove`` and would delete their targets.
     """
 
     def fail(error: OSError) -> None:
         raise error
 
-    nested: Path | None = None
     newest: float | None = None
     root = _norm(worktree)
     for dirpath, dirnames, filenames in os.walk(worktree, onerror=fail):
@@ -330,13 +359,15 @@ def _scan_tree(worktree: Path) -> tuple[Path | None, float | None]:
             names = [name for name in names if name != ".git"]
             dirnames[:] = [name for name in dirnames if name != ".git"]
         elif ".git" in names:
-            nested = Path(dirpath) / ".git"
-            break
+            return _Scan(Path(dirpath) / ".git", None, newest)
         for entry in (".", *names):
-            mtime = os.lstat(os.path.join(dirpath, entry)).st_mtime
-            if newest is None or mtime > newest:
-                newest = mtime
-    return nested, newest
+            path = os.path.join(dirpath, entry)
+            info = os.lstat(path)
+            if entry != "." and _is_link(path, info):
+                return _Scan(None, Path(path), newest)
+            if newest is None or info.st_mtime > newest:
+                newest = info.st_mtime
+    return _Scan(None, None, newest)
 
 
 def _registered_nested(
@@ -400,17 +431,21 @@ def _classify(
     if worktree.branch is not None and worktree.branch in pr_by_branch:
         pull = pr_by_branch[worktree.branch]
         return "open-pr-branch", f"branch is the head branch of open PR #{pull.number}"
+    # Cheap checks first; the full-tree walk only runs for still-eligible worktrees.
     nested = _registered_nested(worktree, registered)
-    newest: float | None = None
-    if nested is None:
-        try:
-            nested, newest = _scan_tree(worktree.path)
-        except OSError as exc:
-            return "scan-failed", str(exc)
     if nested is not None:
-        return "contains-nested-worktree", f"nested git/worktree at {nested}"
+        return "contains-nested-worktree", f"registered worktree at {nested}"
     if status.ignored and not allow_ignored_data:
         return "ignored-data", _ignored_detail(status.ignored)
+    try:
+        scan = _scan_tree(worktree.path)
+    except OSError as exc:
+        return "scan-failed", str(exc)
+    if scan.nested is not None:
+        return "contains-nested-worktree", f"nested git entry at {scan.nested}"
+    if scan.link is not None:
+        return "contains-link", f"symlink/junction/reparse point at {scan.link}"
+    newest = scan.newest
     if newest is not None and now - newest < min_idle_seconds:
         idle_hours = max(now - newest, 0.0) / 3600.0
         return "recently-modified", f"newest file change {idle_hours:.1f}h ago"
@@ -482,12 +517,15 @@ def _recheck(
     if changes:
         return "recheck-dirty", f"{changes} change(s) appeared after planning"
     nested = _registered_nested(entry, registered)
-    if nested is None:
-        nested, _ = _scan_tree(planned.path)
     if nested is not None:
-        return "recheck-nested-worktree", f"nested git/worktree at {nested}"
+        return "recheck-nested-worktree", f"registered worktree at {nested}"
     if status.ignored and not allow_ignored_data:
         return "recheck-ignored-data", _ignored_detail(status.ignored)
+    scan = _scan_tree(planned.path)
+    if scan.nested is not None:
+        return "recheck-nested-worktree", f"nested git entry at {scan.nested}"
+    if scan.link is not None:
+        return "recheck-contains-link", f"symlink/junction at {scan.link}"
     return None
 
 
@@ -508,8 +546,9 @@ def _probe_in_use(path: Path) -> str | None:
     try:
         os.rename(probe, path)
     except OSError as exc:
-        raise WorktreeHygieneError(
-            f"probe rename back failed; the worktree is now at {probe}: {exc}"
+        raise ProbeRestoreError(
+            f"probe rename back failed; RESTORE MANUALLY: move {probe} back to "
+            f"{path} ({exc})"
         ) from exc
     return None
 
@@ -575,6 +614,8 @@ def apply_removals(
                     allow_ignored_data=allow_ignored_data,
                 )
             )
+        except ProbeRestoreError:
+            raise
         except (WorktreeHygieneError, OSError) as exc:
             out.append(ApplyResult(worktree.path, "failed", "error", str(exc)))
     return out
@@ -753,6 +794,7 @@ def main(
         return 2
     results: list[ApplyResult] = []
     errors: list[str] = []
+    restore_failed = False
     if args.apply:
         try:
             apply_removals(
@@ -762,14 +804,18 @@ def main(
                 allow_ignored_data=args.allow_ignored_data,
                 results=results,
             )
+        except ProbeRestoreError as exc:
+            errors.append(f"apply stopped, git worktree prune skipped: {exc}")
+            restore_failed = True
         except (WorktreeHygieneError, OSError) as exc:
             errors.append(f"apply stopped: {exc}")
-        try:
-            prune_error = prune_worktrees(repo_root)
-        except (WorktreeHygieneError, OSError) as exc:
-            prune_error = str(exc)
-        if prune_error:
-            errors.append(f"git worktree prune: {prune_error}")
+        if not restore_failed:
+            try:
+                prune_error = prune_worktrees(repo_root)
+            except (WorktreeHygieneError, OSError) as exc:
+                prune_error = str(exc)
+            if prune_error:
+                errors.append(f"git worktree prune: {prune_error}")
     summary = summarize(decisions, results, errors)
     if args.json:
         print(

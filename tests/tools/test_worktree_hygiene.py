@@ -617,6 +617,7 @@ def test_rename_probe_restores_directory(env: Env) -> None:
     [
         ("rebase-merge", True),
         ("rebase-apply", True),
+        ("sequencer", True),
         ("MERGE_HEAD", False),
         ("CHERRY_PICK_HEAD", False),
         ("REVERT_HEAD", False),
@@ -739,3 +740,118 @@ def test_windows_case_and_slash_variants_are_equivalent(
     found = reasons(json.loads(capsys.readouterr().out))
     assert found["MixedCase"] == "current-worktree"
     assert found["other"] == "removable"
+
+
+def make_dir_link(link: Path, target: Path) -> None:
+    """Directory junction on Windows (no privilege needed), symlink elsewhere."""
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))  # type: ignore[attr-defined,unused-ignore]
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+def _victim(env: Env) -> Path:
+    victim = env.root / "victim"
+    victim.mkdir()
+    (victim / "precious.txt").write_text("keep\n", encoding="utf-8", newline="\n")
+    return victim
+
+
+@pytest.mark.parametrize("flags", [(), ("--allow-ignored-data",)])
+def test_cache_named_link_to_outside_is_kept(
+    env: Env, capsys: pytest.CaptureFixture[str], flags: tuple[str, ...]
+) -> None:
+    """Git for Windows follows junctions on remove and deletes their targets."""
+    victim = _victim(env)
+    wt = env.add("linked")
+    make_dir_link(wt / "pkg" / "__pycache__", victim)
+    env.age(wt)
+    assert reasons(plan(env, capsys, *flags))["linked"] == "contains-link"
+    assert env.run("--apply", *flags) == 0
+    assert wt.is_dir()
+    assert (victim / "precious.txt").read_text(encoding="utf-8") == "keep\n"
+
+
+def test_link_created_between_plan_and_apply_is_kept(env: Env) -> None:
+    victim = _victim(env)
+    wt = env.add("late-link")
+    env.age(wt)
+    decisions = wh.plan_worktrees(
+        env.repo,
+        env.repo,
+        open_pulls=[],
+        origin_main_sha=wh.resolve_origin_main(env.repo),
+    )
+    make_dir_link(wt / "__pycache__", victim)
+    (result,) = wh.apply_removals(env.repo, decisions)
+    assert result.reason == "recheck-contains-link"
+    assert (victim / "precious.txt").exists() and wt.is_dir()
+
+
+def test_symlink_to_file_is_kept(env: Env, capsys: pytest.CaptureFixture[str]) -> None:
+    wt = env.add("symfile")
+    target = env.root / "outside.txt"
+    target.write_text("x\n", encoding="utf-8", newline="\n")
+    (wt / "__pycache__").mkdir()
+    try:
+        os.symlink(target, wt / "__pycache__" / "lnk")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is not permitted here")
+    env.age(wt)
+    assert reasons(plan(env, capsys, "--allow-ignored-data"))["symfile"] == (
+        "contains-link"
+    )
+    assert env.run("--apply", "--allow-ignored-data") == 0
+    assert target.exists() and wt.is_dir()
+
+
+def test_probe_restore_failure_stops_run_and_skips_prune(
+    env: Env, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = env.add("aaa")
+    second = env.add("bbb")
+    env.age(first)
+    env.age(second)
+    real_rename = os.rename
+    calls: list[str] = []
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) == first:
+            real_rename(src, dst)
+        elif Path(dst) == first:
+            raise PermissionError("cannot restore")
+        else:
+            real_rename(src, dst)
+
+    def prune(repo_root: Path) -> str | None:
+        calls.append("prune")
+        return None
+
+    monkeypatch.setattr(wh.os, "rename", rename)
+    monkeypatch.setattr(wh, "prune_worktrees", prune)
+    assert env.run("--apply") == 1
+    captured = capsys.readouterr()
+    probe = first.with_name(f"{first.name}.hygiene-probe-{os.getpid()}")
+    assert probe.is_dir() and not first.exists()
+    assert str(probe) in captured.out and "RESTORE MANUALLY" in captured.out
+    assert calls == []
+    assert second.is_dir()
+    assert "- removed: 0" in captured.out
+    real_rename(probe, first)
+
+
+def test_ignored_data_short_circuits_before_tree_walk(
+    env: Env, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("data")
+    (wt / "run.log").write_text("log\n", encoding="utf-8", newline="\n")
+    env.age(wt)
+
+    def forbidden(path: Path) -> object:
+        raise AssertionError("full-tree walk must not run for ignored-data")
+
+    monkeypatch.setattr(wh, "_scan_tree", forbidden)
+    assert reasons(plan(env, capsys))["data"] == "ignored-data"

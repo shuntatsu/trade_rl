@@ -173,8 +173,41 @@ def execute_stateful_orders(
         raise
 
 
+def _require_close_assigned_linear_funding_rows(
+    dataset: MarketDataset, span: slice
+) -> None:
+    """Validate declared single close events, not inferred intrabar timing."""
+    if dataset.funding_price_rate is None:
+        raise ValueError("linear carry requires explicit funding price-rate data")
+    count = dataset.resolved_array("funding_event_count")[span]
+    due = dataset.resolved_array("funding_due")[span]
+    rate = dataset.funding_rate[span]
+    price_rate = dataset.funding_price_rate[span]
+    if (
+        np.any(count < 0)
+        or np.any(count > 1)
+        or np.any(due != (count == 1))
+        or not np.isfinite(rate).all()
+        or not np.isfinite(price_rate).all()
+        or np.any(~due & ((rate != 0.0) | (price_rate != 0.0)))
+        or np.any((rate == 0.0) != (price_rate == 0.0))
+    ):
+        raise ValueError("linear carry requires consistent single-event funding rows")
+    nonzero = due & (rate != 0.0)
+    # A nonzero single-event rate requires a representable positive event
+    # price. Do not substitute the close or try to reconstruct event timing.
+    with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
+        implied_price = price_rate[nonzero] / rate[nonzero]
+    if not np.isfinite(implied_price).all() or np.any(implied_price <= 0.0):
+        raise ValueError("linear carry requires a finite positive funding event price")
+
+
 def _require_native_fixed_execution_rows(
-    dataset: MarketDataset, *, start_index: int, stop_index: int
+    dataset: MarketDataset,
+    *,
+    start_index: int,
+    stop_index: int,
+    native_fixed_linear_carry: bool = False,
 ) -> None:
     """Check the complete declared native window without invoking an actor.
 
@@ -204,7 +237,10 @@ def _require_native_fixed_execution_rows(
             selected_symbol_indices=tuple(range(dataset.n_symbols)),
         )
     if (
-        np.any(dataset.resolved_array("funding_event_count")[processing] != 0)
+        (
+            not native_fixed_linear_carry
+            and np.any(dataset.resolved_array("funding_event_count")[processing] != 0)
+        )
         or np.any(dataset.resolved_array("dividend")[processing] != 0.0)
         or np.any(dataset.resolved_array("split_factor")[processing] != 1.0)
         or np.any(~dataset.resolved_array("asset_active")[span])
@@ -214,6 +250,11 @@ def _require_native_fixed_execution_rows(
         raise ValueError(
             "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
         )
+    if native_fixed_linear_carry:
+        _require_close_assigned_linear_funding_rows(dataset, processing)
+        # A coarse bar cannot reconstruct a recall or replacement borrow.
+        if np.any(~dataset.resolved_array("borrow_available")[span]):
+            raise ValueError("native fixed linear carry requires available borrow")
 
 
 def _execute_stateful_orders_impl(
@@ -241,7 +282,15 @@ def _execute_stateful_orders_impl(
     executor._validate_native_fixed_configuration()
     native_fixed = dataset.native_clock is not None
     if native_fixed:
-        book.require_nonnegative_spot_cash()
+        if executor.native_fixed_linear_carry:
+            _require_native_fixed_execution_rows(
+                dataset,
+                start_index=start_index,
+                stop_index=start_index + bars,
+                native_fixed_linear_carry=True,
+            )
+        else:
+            book.require_nonnegative_spot_cash()
         all_intents = (*intents, *(order.intent for order in order_book.active_orders))
         if any(
             intent.order_type is not OrderType.MARKET
@@ -295,7 +344,7 @@ def _execute_stateful_orders_impl(
     for offset in range(bars):
         previous_index = start_index + offset
         processing_index = previous_index + 1
-        if native_fixed:
+        if native_fixed and not executor.native_fixed_linear_carry:
             _require_native_fixed_execution_rows(
                 dataset, start_index=previous_index, stop_index=processing_index
             )
@@ -319,7 +368,9 @@ def _execute_stateful_orders_impl(
                     attempted_order_ids=attempted,
                 )
         lifecycle.finish_bar(runtime, context)
-        if executor.strict_spot_cash or native_fixed:
+        if executor.strict_spot_cash or (
+            native_fixed and not executor.native_fixed_linear_carry
+        ):
             runtime.book.require_nonnegative_spot_cash()
         bars_advanced += 1
         if absorbing and runtime.book.insolvent:

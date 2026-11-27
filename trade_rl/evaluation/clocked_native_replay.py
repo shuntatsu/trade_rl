@@ -30,6 +30,9 @@ from trade_rl.evaluation.replay import (
 )
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.stateful.execution import (
+    _require_close_assigned_linear_funding_rows,
+)
 from trade_rl.simulation.stateful.portfolio_session import resolve_agent_stop_index
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot,
@@ -340,27 +343,7 @@ def _require_linear_carry_data(
     event's time or independent mark provenance. Multiple events in one
     execution interval cannot be modeled from this contract.
     """
-    if dataset.funding_price_rate is None:
-        raise ValueError("linear carry requires explicit fine funding price-rate data")
-    count = dataset.resolved_array("funding_event_count")[span]
-    due = dataset.resolved_array("funding_due")[span]
-    rate = dataset.funding_rate[span]
-    price_rate = dataset.funding_price_rate[span]
-    if (
-        np.any(count > 1)
-        or np.any(due != (count == 1))
-        or not np.isfinite(rate).all()
-        or np.any(~due & ((rate != 0.0) | (price_rate != 0.0)))
-        or np.any((rate == 0.0) != (price_rate == 0.0))
-    ):
-        raise ValueError("linear carry requires consistent single-event funding rows")
-    nonzero = due & (rate != 0.0)
-    # A nonzero single-event rate requires a representable positive event
-    # price. Do not substitute the close or try to reconstruct event timing.
-    with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
-        implied_price = price_rate[nonzero] / rate[nonzero]
-    if not np.isfinite(implied_price).all() or np.any(implied_price <= 0.0):
-        raise ValueError("linear carry requires a finite positive funding event price")
+    _require_close_assigned_linear_funding_rows(dataset, span)
     if tuple(
         source.contract.volume_unit for source in group.sources
     ) != dataset.volume_units or not np.array_equal(

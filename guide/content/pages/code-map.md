@@ -12,7 +12,7 @@
 | risk | turnover、exposure、drawdown等のhard limitを適用 | entry/exitの経済判断 |
 | simulation | fill、cost、funding、borrow、margin、`BookState`、新Study用の純粋なfinancial objective/clock宣言 | winner判断、Study実行 |
 | evaluation | Dataset / Strategy / Risk / Executionを共通評価経路へ結ぶ。研究protocolごとの適格性・勝者選択を明示する | Dataset構築、strategy runtime |
-| artifacts / research evidence | runや研究判断を再現可能な証拠として固定。directory artifactはOS側の置換禁止付きatomic renameで公開し、同時に作られた空の保存先も上書きしない。対応しない環境では公開を拒否する | strategy runtime |
+| artifacts / research evidence | runや研究判断を再現可能な証拠として固定。共通のstrict JSON decoderを使う読込では、重複キー、非有限数、UTF-8に変換できない単独サロゲートを拒否し、正常なUnicode文字とcanonical bytesを保持する。schema・digestの検証は各readerの責務。directory artifactはOS側の置換禁止付きatomic renameで公開し、同時に作られた空の保存先も上書きしない。対応しない環境では公開を拒否する | strategy runtime |
 
 ## Dependency direction
 

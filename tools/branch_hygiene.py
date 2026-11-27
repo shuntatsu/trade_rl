@@ -1047,10 +1047,34 @@ def _verify_approved_20261127_backup(
     ):
         if path.exists() or path.is_symlink():
             raise ValueError("backup must not depend on alternate or shallow history")
-    if any(
-        (backup / relative).is_symlink()
-        for relative in ("objects/info", "objects/pack", "refs")
-    ) or any((backup / "objects/pack").glob("*.promisor")):
+
+    def reject_walk_error(error: OSError) -> None:
+        raise error
+
+    for relative in (
+        "HEAD",
+        "config",
+        "config.worktree",
+        "packed-refs",
+        "commondir",
+        "objects",
+        "refs",
+        "info",
+        "reftable",
+    ):
+        if (backup / relative).is_symlink():
+            raise ValueError("backup must contain local objects and metadata")
+    for relative in ("objects", "refs", "info", "reftable"):
+        root = backup / relative
+        if root.exists():
+            for directory, dirs, files in os.walk(
+                root, followlinks=False, onerror=reject_walk_error
+            ):
+                if any(
+                    (Path(directory) / name).is_symlink() for name in (*dirs, *files)
+                ):
+                    raise ValueError("backup must contain local objects and metadata")
+    if any((backup / "objects/pack").glob("*.promisor")):
         raise ValueError("backup must contain local objects")
     # Do not inherit object-directory, alternate, or config overrides from the
     # caller. This verifies a local copy, not off-site durability.
@@ -1132,7 +1156,14 @@ def run_approved_20261127_retirement(
     if before.get("main") is None or before["main"].sha != local_main:
         raise RuntimeError("local main history differs from current GitHub ref")
     if apply and Path(__file__).read_bytes() != subprocess.check_output(
-        ["git", "--no-replace-objects", "show", f"{local_main}:tools/branch_hygiene.py"]
+        [
+            "git",
+            "--no-replace-objects",
+            "cat-file",
+            "blob",
+            f"{local_main}:tools/branch_hygiene.py",
+        ],
+        env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull},
     ):
         raise RuntimeError(
             "approved apply must execute the accepted current main source"
@@ -1155,9 +1186,9 @@ def run_approved_20261127_retirement(
         ):
             raise RuntimeError("retained Cloud successor missing or changed")
         successor_history = frozenset(_git_history("rev-list", anchor_sha).splitlines())
-        _verify_approved_20261127_backup(
-            backup_git_dir, (*cloud, _APPROVED_20261127_SUCCESSOR)
-        )
+    _verify_approved_20261127_backup(
+        backup_git_dir, (*_APPROVED_20261127_CLOUD, _APPROVED_20261127_SUCCESSOR)
+    )
     merged = api.merged_pr_source_refs()
     consolidated = api.consolidated_pr_source_refs(
         tuple(before.values()), main_sha=local_main

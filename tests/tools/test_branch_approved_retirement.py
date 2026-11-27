@@ -260,7 +260,18 @@ def test_backup_rejects_corrupted_reachable_blob(tmp_path: Path) -> None:
         hygiene._verify_approved_20261127_backup(repo, ((name, commit),))
 
 
-@pytest.mark.parametrize("relative", ["refs", "objects/info"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "refs",
+        "objects/info",
+        "objects/ab",
+        "refs/remotes/origin",
+        "HEAD",
+        "config",
+        "packed-refs",
+    ],
+)
 def test_backup_rejects_redirected_metadata(tmp_path: Path, relative: str) -> None:
     import subprocess
 
@@ -269,10 +280,15 @@ def test_backup_rejects_redirected_metadata(tmp_path: Path, relative: str) -> No
         ["git", "init", "--bare", str(repo)], check=True, capture_output=True
     )
     target = repo / relative
+    if not target.exists():
+        if relative == "packed-refs":
+            target.touch()
+        else:
+            target.mkdir(parents=True)
     external = tmp_path / "external"
     target.rename(external)
     try:
-        target.symlink_to(external, target_is_directory=True)
+        target.symlink_to(external, target_is_directory=external.is_dir())
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unavailable")
     with pytest.raises(ValueError, match="local"):
@@ -355,7 +371,7 @@ def test_execution_keeps_unselected_and_uses_fresh_roster(
     monkeypatch.setattr(
         hygiene.subprocess,
         "check_output",
-        lambda args: (
+        lambda args, **kwargs: (
             b"wrong source"
             if mode == "source-mismatch"
             else Path(hygiene.__file__).read_bytes()
@@ -468,7 +484,9 @@ def test_mode_arguments_reject_unapproved_combinations(args: list[str]) -> None:
         )
 
 
-def test_atomic_git_delete_lease_refuses_moved_source(tmp_path: Path) -> None:
+def test_atomic_git_delete_lease_refuses_moved_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Use actual Git transport locally: a stale member must not delete its peer."""
     import subprocess
 
@@ -510,48 +528,90 @@ def test_atomic_git_delete_lease_refuses_moved_source(tmp_path: Path) -> None:
         ],
         text=True,
     ).strip()
+    names = [f"fix/example-{index:02d}" for index in range(16)]
+    retained = "keep"
+    expected = {name: first for name in (*names, retained)}
+    expected[names[-1]] = second
+    subprocess.run([*cmd, "remote", "add", "origin", str(bare)], check=True)
     subprocess.run(
         [
             *cmd,
             "push",
-            str(bare),
-            first + ":refs/heads/one",
-            second + ":refs/heads/two",
+            "origin",
+            *(f"{sha}:refs/heads/{name}" for name, sha in expected.items()),
         ],
         check=True,
         capture_output=True,
     )
-    lease = [
-        *cmd,
-        "push",
-        "--atomic",
-        "--porcelain",
-        "--force-with-lease=refs/heads/one:" + first,
-        "--force-with-lease=refs/heads/two:" + first,
-        str(bare),
-        ":refs/heads/one",
-        ":refs/heads/two",
-    ]
-    failed = subprocess.run(lease, capture_output=True)
-    assert failed.returncode != 0
-    assert subprocess.check_output(
-        ["git", f"--git-dir={bare}", "rev-parse", "refs/heads/one", "refs/heads/two"],
-        text=True,
-    ).splitlines() == [first, second]
-    lease[lease.index("--force-with-lease=refs/heads/two:" + first)] = (
-        "--force-with-lease=refs/heads/two:" + second
+    monkeypatch.chdir(local)
+    monkeypatch.setattr(hygiene, "_RETIREMENT_ORIGIN_URLS", frozenset((str(bare),)))
+    api = hygiene.GitHubApi(
+        repository="shuntatsu/trade_rl",
+        token="synthetic",
+        api_url="https://api.github.com",
     )
-    subprocess.run(lease, check=True, capture_output=True)
-    assert (
-        subprocess.check_output(
-            [
-                "git",
-                f"--git-dir={bare}",
-                "for-each-ref",
-                "--format=%(refname)",
-                "refs/heads",
-            ],
-            text=True,
+
+    def read_refs():
+        return dict(
+            line.split()
+            for line in subprocess.check_output(
+                [
+                    "git",
+                    f"--git-dir={bare}",
+                    "for-each-ref",
+                    "--format=%(refname:strip=2) %(objectname)",
+                    "refs/heads",
+                ],
+                text=True,
+            ).splitlines()
         )
-        == ""
+
+    stale = tuple(hygiene.BranchInfo(name, first, False) for name in names)
+    with pytest.raises(RuntimeError, match="conditional branch deletion failed"):
+        api.delete_branches_with_leases(stale)
+    assert read_refs() == expected
+    api.delete_branches_with_leases(
+        tuple(hygiene.BranchInfo(name, expected[name], False) for name in names)
     )
+    assert read_refs() == {retained: first}
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_approved_cli_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    apply: bool,
+) -> None:
+    chosen = hygiene.BranchInfo(M1_NAME, AUDIT, False)
+    calls = []
+
+    def run(api, *, apply, backup_git_dir, max_deletes):
+        assert api._repository == "shuntatsu/trade_rl"
+        calls.append((apply, backup_git_dir, max_deletes))
+        return (chosen,), ((chosen.name,) if apply else ())
+
+    monkeypatch.setattr(hygiene, "run_approved_20261127_retirement", run)
+    summary = tmp_path / "summary.md"
+    argv = [
+        "--repository",
+        "shuntatsu/trade_rl",
+        "--token",
+        "synthetic",
+        "--retire-merged",
+        "--retire-approved-20261127",
+        "--backup-git-dir",
+        str(tmp_path),
+        "--max-deletes",
+        "16",
+        "--summary",
+        str(summary),
+    ]
+    if apply:
+        argv.append("--apply")
+    assert hygiene.main(argv) == 0
+    assert calls == [(apply, tmp_path, 16)]
+    output = summary.read_text()
+    assert output == capsys.readouterr().out
+    assert f"deleted and verified: {int(apply)}" in output
+    assert f"{'retired' if apply else 'candidate'}: {M1_NAME}={AUDIT}" in output

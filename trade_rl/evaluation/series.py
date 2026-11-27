@@ -10,7 +10,12 @@ from numbers import Integral, Real
 
 import numpy as np
 
-from trade_rl.data._timestamps import _MAX_DATETIME64_NS, _MIN_FINITE_DATETIME64_NS
+from trade_rl._validation import _ordered_ns_durations
+from trade_rl.data._timestamps import (
+    _MAX_DATETIME64_NS,
+    _MIN_FINITE_DATETIME64_NS,
+    _NANOSECONDS_PER_DAY,
+)
 from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
 from trade_rl.data.native_execution_clock import calendar_month_execution_frequency
 
@@ -109,21 +114,11 @@ class CalendarMonthReturnSeries(ReturnSeries):
             raise ValueError(
                 "calendar month return frequency does not match its intervals"
             )
-        normalized: list[float] = []
-        for raw_item in self.values:
-            item: object = raw_item
-            if isinstance(item, (bool, np.bool_)) or not isinstance(item, Real):
-                raise ValueError("calendar month returns must be real numbers")
-            try:
-                value = float(item)
-            except (OverflowError, ValueError) as exc:
-                raise ValueError("calendar month return is not representable") from exc
-            if not math.isfinite(value) or value <= -1.0:
-                raise ValueError(
-                    "calendar month returns must be finite and greater than -1"
-                )
-            normalized.append(value)
-        object.__setattr__(self, "values", tuple(normalized))
+        object.__setattr__(
+            self,
+            "values",
+            _normalize_duration_returns(self.values, label="calendar month"),
+        )
 
     @property
     def closes(self) -> np.ndarray:
@@ -148,6 +143,75 @@ class CalendarMonthReturnSeries(ReturnSeries):
             ReturnKind.BASE_BAR,
             calendar_month_execution_frequency(clock, ends),
             closes_ns=tuple(int(x) for x in ends.view(np.int64)),
+        )
+
+
+def _normalize_duration_returns(
+    values: tuple[float, ...], *, label: str
+) -> tuple[float, ...]:
+    """Strict real, finite simple-return boundary shared by duration contracts."""
+    normalized: list[float] = []
+    for raw_item in values:
+        item: object = raw_item
+        if isinstance(item, (bool, np.bool_)) or not isinstance(item, Real):
+            raise ValueError(f"{label} returns must be real numbers")
+        try:
+            value = float(item)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(f"{label} return is not representable") from exc
+        if not math.isfinite(value) or value <= -1.0:
+            raise ValueError(f"{label} returns must be finite and greater than -1")
+        normalized.append(value)
+    return tuple(normalized)
+
+
+@dataclass(frozen=True, slots=True)
+class SessionElapsedReturnSeries(ReturnSeries):
+    """One close-to-close return per declared session interval, including gaps.
+
+    The boundaries include the initial mark. Their identity does not attest
+    a venue calendar or distinguish an independently omitted session.
+    """
+
+    boundaries_ns: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        durations = _ordered_ns_durations(self.boundaries_ns)
+        if (
+            self.kind is not ReturnKind.BASE_BAR
+            or self.elapsed_years is not None
+            or type(self.periods_per_year) is not Fraction
+            or type(self.values) is not tuple
+            or len(self.values) != len(durations)
+            or self.periods_per_year != len(durations) / self.exact_elapsed_years
+        ):
+            raise ValueError("invalid session elapsed return series")
+        object.__setattr__(
+            self, "values", _normalize_duration_returns(self.values, label="session")
+        )
+
+    @property
+    def exact_elapsed_years(self) -> Fraction:
+        return Fraction(
+            self.boundaries_ns[-1] - self.boundaries_ns[0],
+            365 * _NANOSECONDS_PER_DAY,
+        )
+
+    @property
+    def annualization_periods_per_year(self) -> float:
+        raise ValueError("session elapsed returns require duration-aware annualization")
+
+    @classmethod
+    def from_boundaries(
+        cls, values: tuple[float, ...], *, boundaries_ns: tuple[int, ...]
+    ) -> SessionElapsedReturnSeries:
+        durations = _ordered_ns_durations(boundaries_ns)
+        elapsed = Fraction(sum(durations), 365 * _NANOSECONDS_PER_DAY)
+        return cls(
+            values,
+            ReturnKind.BASE_BAR,
+            len(durations) / elapsed,
+            boundaries_ns=boundaries_ns,
         )
 
 

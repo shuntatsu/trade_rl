@@ -21,6 +21,8 @@ from trade_rl.strategies.rl.portfolio_episode_journal import (
 )
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
     _CARRY_TRAINING_CONTEXT_SCHEMA,
+    _PORTFOLIO_METADATA_MAX_BYTES,
+    _SESSION_TRAINING_CONTEXT_SCHEMA,
     _TRAINING_CONTEXT_SCHEMA,
     _space_descriptor,
     capture_portfolio_source_runtime,
@@ -655,7 +657,9 @@ def fit_shared_portfolio_ppo(
     profile = env.market_order_profile
     training_context: dict[str, object] = {
         "schema": (
-            _CARRY_TRAINING_CONTEXT_SCHEMA
+            _SESSION_TRAINING_CONTEXT_SCHEMA
+            if transform.session_boundaries_ns
+            else _CARRY_TRAINING_CONTEXT_SCHEMA
             if env.native_fixed_linear_carry
             else _TRAINING_CONTEXT_SCHEMA
         ),
@@ -717,6 +721,12 @@ def fit_shared_portfolio_ppo(
         "rollouts_directory": "rollouts",
         "checkpoints_directory": "checkpoints",
     }
+
+    if (
+        transform.session_boundaries_ns
+        and len(canonical_json_bytes(training_context)) > _PORTFOLIO_METADATA_MAX_BYTES
+    ):
+        raise ValueError("session training context exceeds the metadata size limit")
 
     # Reserve only after every preflight/context capture has succeeded. This
     # keeps an import/provenance failure from consuming an empty attempt root.

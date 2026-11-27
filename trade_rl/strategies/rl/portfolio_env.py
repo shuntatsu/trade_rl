@@ -24,10 +24,14 @@ from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     _preflight_native_learning_execution_window,
+    _preflight_session_spot_execution_window,
 )
 from trade_rl.simulation.native_transition import _require_risk_execution_limits
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
-from trade_rl.simulation.objectives.clock import CalendarMonthFinancialClockContract
+from trade_rl.simulation.objectives.clock import (
+    CalendarMonthFinancialClockContract,
+    SessionFinancialClockContract,
+)
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
     PendingOrder,
@@ -192,8 +196,13 @@ class SharedPortfolioGymEnv(gym.Env):
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
         self._native_fixed_linear_carry = native_fixed_linear_carry
+        self._session_elapsed_mode = isinstance(
+            bound.clock, SessionFinancialClockContract
+        )
         self._native_execution_dataset = (
-            dataset if dataset.native_clock is not None else None
+            dataset
+            if dataset.native_clock is not None or self._session_elapsed_mode
+            else None
         )
         self._validate_native_learning_window()
         n_symbols = dataset.n_symbols
@@ -268,7 +277,9 @@ class SharedPortfolioGymEnv(gym.Env):
         native_interval_ns = _market_timestamp_ns(dataset, start + 1) - start_ns
         # Native Dataset construction already validates a complete immutable
         # grid. Legacy datasets retain the full regular-window check.
-        if dataset.native_clock is None:
+        if dataset.native_clock is None and not isinstance(
+            clock, SessionFinancialClockContract
+        ):
             timestamps = tuple(
                 _market_timestamp_ns(dataset, index) for index in range(start, stop + 1)
             )
@@ -284,7 +295,15 @@ class SharedPortfolioGymEnv(gym.Env):
                 raise ValueError(
                     "dataset window must use one regular whole-second cadence"
                 )
-        if monthly:
+        if isinstance(clock, SessionFinancialClockContract):
+            actual = tuple(
+                int(x) for x in dataset.timestamps[start : stop + 1].view(np.int64)
+            )
+            if actual != clock.boundaries_ns:
+                raise ValueError(
+                    "session financial clock boundaries differ from the Dataset"
+                )
+        elif monthly:
             assert isinstance(clock, CalendarMonthFinancialClockContract)
             if clock.economic_horizon_months != stop - start:
                 raise ValueError("calendar month horizon must match the Dataset window")
@@ -326,17 +345,38 @@ class SharedPortfolioGymEnv(gym.Env):
         # Recheck admission at reset, fit and bundle loading because the
         # Gym environment's configuration attributes are mutable.
         self._require_native_execution_binding()
-        _preflight_native_learning_execution_window(
-            self.dataset,
-            self.execution_cost,
-            start_index=self.start_index,
-            stop_index=self.stop_index,
-            native_calendar_month=isinstance(
-                self.bound.clock, CalendarMonthFinancialClockContract
-            ),
-            native_fixed_linear_carry=self.native_fixed_linear_carry,
-        )
-        if self.dataset.native_clock is not None:
+        clock = self.bound.clock
+        if self._session_elapsed_mode != isinstance(
+            clock, SessionFinancialClockContract
+        ):
+            raise ValueError(
+                "session financial clock mode cannot change within an environment"
+            )
+        if isinstance(clock, SessionFinancialClockContract):
+            if self.native_fixed_linear_carry or self.market_order_profile is not None:
+                raise ValueError(
+                    "session learning requires Spot without a separate order profile"
+                )
+            _preflight_session_spot_execution_window(
+                self.dataset,
+                self.execution_cost,
+                start_index=self.start_index,
+                stop_index=self.stop_index,
+                expected_boundaries_ns=clock.boundaries_ns,
+                expected_nominal_bar_seconds=clock.nominal_bar_seconds,
+            )
+        else:
+            _preflight_native_learning_execution_window(
+                self.dataset,
+                self.execution_cost,
+                start_index=self.start_index,
+                stop_index=self.stop_index,
+                native_calendar_month=isinstance(
+                    self.bound.clock, CalendarMonthFinancialClockContract
+                ),
+                native_fixed_linear_carry=self.native_fixed_linear_carry,
+            )
+        if self.dataset.native_clock is not None or self._session_elapsed_mode:
             _require_risk_execution_limits(
                 self.risk_config, float(self.execution_cost.max_leverage)
             )
@@ -349,7 +389,9 @@ class SharedPortfolioGymEnv(gym.Env):
                     "native Gym financial clock must match the Dataset window"
                 ) from error
             if (
-                self.dataset.native_calendar_month or self.native_fixed_linear_carry
+                self.dataset.native_calendar_month
+                or self.native_fixed_linear_carry
+                or self._session_elapsed_mode
             ) and (
                 self.bound.objective.terminal_valuation != "settled"
                 or not self.bound.clock.terminal_profit_aligned
@@ -365,6 +407,8 @@ class SharedPortfolioGymEnv(gym.Env):
                     (
                         "calendar month"
                         if self.dataset.native_calendar_month
+                        else "session elapsed"
+                        if self._session_elapsed_mode
                         else "native fixed linear carry"
                     )
                     + " Gym objective or terminal window differs"
@@ -389,6 +433,7 @@ class SharedPortfolioGymEnv(gym.Env):
             risk=PreTradeRisk(self.risk_config),
             market_order_profile=self.market_order_profile,
             settle_terminal_position=True,
+            strict_spot_cash=self._session_elapsed_mode,
             execution_observer=self.execution_observer,
             execution_trace_observer=self._capture_execution_trace,
             native_calendar_month=self.dataset.native_calendar_month,

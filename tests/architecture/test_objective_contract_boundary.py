@@ -33,6 +33,7 @@ def test_objective_subpackage_owns_contracts_without_expanding_simulation_root()
         "CapitalContract",
         "FinancialClockContract",
         "ObjectiveContract",
+        "SessionFinancialClockContract",
         "BoundObjectiveClock",
         "net_equity_increment",
     ]
@@ -44,5 +45,8 @@ def test_objective_subpackage_owns_contracts_without_expanding_simulation_root()
     assert (
         objectives.CalendarMonthFinancialClockContract
         is clock.CalendarMonthFinancialClockContract
+    )
+    assert (
+        objectives.SessionFinancialClockContract is clock.SessionFinancialClockContract
     )
     assert set(objectives.__all__).isdisjoint(simulation.__all__)

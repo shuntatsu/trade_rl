@@ -36,25 +36,22 @@ on:
       - trade_rl/artifacts/verified_file.py
       - trade_rl/strategies/portfolio_adapter.py
       - trade_rl/strategies/allocation/buy_and_hold.py
-      - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - tests/strategies/test_lightgbm_forecast.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
-      - tests/evaluation/test_forward_study_seal.py
+      - tests/evaluation/test_paper_code_identity.py
+      - trade_rl/evaluation/paper/code_identity.py
       - trade_rl/evaluation/experiments/**
-      - trade_rl/evaluation/dev_realdata_study/**
-      - trade_rl/evaluation/forward_study/**
       - trade_rl/evaluation/paper/**
       - tools/agent_repo/research_assurance.py
       - report/issue810-carry-attempt2-research-assurance-20261105.json
       - trade_rl/data/market.py
+      - trade_rl/strategies/forecasts/**
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py
       - tests/tools/test_ci_exact_pytest_counts.py
       - trade_rl/strategies/rl/**
-      - trade_rl/evaluation/learning_lab/**
       - tests/integrations/test_ppo_sb3_runtime.py
       - tests/integrations/test_a2c_sb3_runtime.py
-      - tests/evaluation/test_learning_lab_runner.py
-      - tests/evaluation/learning_lab_support.py
       - tests/strategies/test_ppo_interleaved_training.py
       - pyproject.toml
       - uv.lock
@@ -93,25 +90,22 @@ on:
       - trade_rl/artifacts/verified_file.py
       - trade_rl/strategies/portfolio_adapter.py
       - trade_rl/strategies/allocation/buy_and_hold.py
-      - tests/evaluation/test_dev_realdata_phase2_trials.py
+      - tests/strategies/test_lightgbm_forecast.py
       - tests/evaluation/test_paper_attempt2_assurance_packet.py
-      - tests/evaluation/test_forward_study_seal.py
+      - tests/evaluation/test_paper_code_identity.py
+      - trade_rl/evaluation/paper/code_identity.py
       - trade_rl/evaluation/experiments/**
-      - trade_rl/evaluation/dev_realdata_study/**
-      - trade_rl/evaluation/forward_study/**
       - trade_rl/evaluation/paper/**
       - tools/agent_repo/research_assurance.py
       - report/issue810-carry-attempt2-research-assurance-20261105.json
       - trade_rl/data/market.py
+      - trade_rl/strategies/forecasts/**
       - tools/tier_d_nonrl/tier_d_process_tree.py
       - tools/ci_exact_pytest_counts.py
       - tests/tools/test_ci_exact_pytest_counts.py
       - trade_rl/strategies/rl/**
-      - trade_rl/evaluation/learning_lab/**
       - tests/integrations/test_ppo_sb3_runtime.py
       - tests/integrations/test_a2c_sb3_runtime.py
-      - tests/evaluation/test_learning_lab_runner.py
-      - tests/evaluation/learning_lab_support.py
       - tests/strategies/test_ppo_interleaved_training.py
       - pyproject.toml
       - uv.lock
@@ -167,7 +161,7 @@ jobs:
           if ((git rev-parse HEAD) -ne $env:HEAD_SHA) { throw "Unexpected checkout" }
           uv run --no-sync python -I -c "import os, torch, stable_baselines3, sb3_contrib, lightgbm; assert os.name == 'nt'; assert torch.tensor([1, 2], device='cpu').sum().item() == 3; print(torch.__version__, stable_baselines3.__version__, sb3_contrib.__version__, lightgbm.__version__)"
 
-      - name: Execute native Windows PPO A2C and Learning Lab synthetic cases
+      - name: Execute native Windows PPO and A2C runtime cases
         run: >-
           uv run --no-sync python -m pytest -q -rs
           --junitxml="${{ runner.temp }}/m1-windows-rl.xml"
@@ -175,11 +169,9 @@ jobs:
           tests/integrations/test_ppo_sb3_runtime.py::test_untrained_real_sb3_v3_bundle_roundtrip_preserves_policy_and_contract
           tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_records_effective_steps_and_scope
           tests/integrations/test_a2c_sb3_runtime.py::test_real_cpu_a2c_fit_bundle_load_roundtrip
-          tests/evaluation/test_learning_lab_runner.py::test_native_agent_checkpoint_roundtrip_without_registry
-          tests/evaluation/test_learning_lab_runner.py::test_registry_refuses_missing_native_lock_without_mutation
 
-      - name: Require all nine native RL and registry boundary cases without skips
-        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 9
+      - name: Require all native RL cases without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-rl.xml 4
 
   windows-job-object:
     name: Windows Native Job Object
@@ -260,8 +252,8 @@ jobs:
         run: >-
           uv run --no-sync python -m pytest -q -rs
           --junitxml="${{ runner.temp }}/m1-lightgbm.xml"
-          tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_signal_ignores_the_future
-          tests/evaluation/test_dev_realdata_phase2_trials.py::test_lightgbm_trial_fits_with_the_fixed_parameters
+          tests/strategies/test_lightgbm_forecast.py::test_fit_uses_shared_causal_rows_and_one_shallow_configuration
+          tests/strategies/test_lightgbm_forecast.py::test_lightgbm_strategy_uses_shared_forecast_controller
 
       - name: Require both LightGBM cases to execute without skips
         run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-lightgbm.xml 2
@@ -303,7 +295,7 @@ jobs:
         run: |
           set -euo pipefail
           uv run --no-sync python -m pytest -q -rs --junitxml="$RUNNER_TEMP/m1-history.xml" \
-            tests/evaluation/test_forward_study_seal.py::test_the_real_checkout_identity_matches_git_when_history_is_available \
+            tests/evaluation/test_paper_code_identity.py::test_the_real_checkout_identity_matches_git_when_history_is_available \
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_the_dependency_walk_covers_the_paper_code_and_excludes_the_market_store \
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_launch_commit_runs_packet_bound_code \
             tests/evaluation/test_paper_attempt2_assurance_packet.py::test_heads_pin_the_code_as_of_the_frozen_packet_revision

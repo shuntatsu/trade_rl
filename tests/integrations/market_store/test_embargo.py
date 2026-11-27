@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.forward_study.registry import Fs1Registry
 from trade_rl.integrations.market_store import embargo as embargo_module
 from trade_rl.integrations.market_store.embargo import (
     FS1_WARMUP_START,
@@ -32,13 +31,8 @@ URL = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-123456789"
 
 
 def test_boundaries_are_the_fs1_registry_values() -> None:
-    registry = Fs1Registry()
-    assert FS1_WARMUP_START == datetime.fromisoformat(
-        registry.warmup_only_start
-    ).replace(tzinfo=UTC)
-    assert SEALED_WINDOW_START == datetime.fromisoformat(
-        registry.scoring_start
-    ).replace(tzinfo=UTC)
+    assert FS1_WARMUP_START == datetime(2026, 8, 1, tzinfo=UTC)
+    assert SEALED_WINDOW_START == datetime(2026, 11, 1, tzinfo=UTC)
     assert FS1_WARMUP_START_MS == int(FS1_WARMUP_START.timestamp() * 1_000)
     assert SEALED_WINDOW_START_MS == int(SEALED_WINDOW_START.timestamp() * 1_000)
 

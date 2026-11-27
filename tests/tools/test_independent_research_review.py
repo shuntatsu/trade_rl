@@ -43,7 +43,7 @@ def _receipt_body(payload: dict[str, object], *, digest: str | None = None) -> s
 
 
 def _pull_request() -> dict[str, object]:
-    return {"head": {"sha": HEAD_SHA}, "user": {"id": 10}}
+    return {"head": {"sha": HEAD_SHA, "ref": "fix/synthetic"}, "user": {"id": 10}}
 
 
 def _review(
@@ -729,8 +729,51 @@ def test_software_review_blocked_precedence_and_latest_actor_revocation() -> Non
 
 
 def test_missing_pull_request_author_identity_fails_closed() -> None:
-    pull = {"head": {"sha": HEAD_SHA}, "user": {"id": "10"}}
+    pull = {"head": {"sha": HEAD_SHA, "ref": "fix/synthetic"}, "user": {"id": "10"}}
 
     outcome = resolve_review_outcome(pull, [_review()], expected_head_sha=HEAD_SHA)
 
     assert outcome is ReviewOutcome.PENDING
+
+
+@pytest.mark.parametrize("legacy_receipt", [False, True])
+def test_retired_4h_research_ref_cannot_use_generic_review(
+    legacy_receipt: bool,
+) -> None:
+    review = _review() if legacy_receipt else _software_v2_review()
+    ordinary = _pull_request()
+    assert (
+        resolve_review_outcome(ordinary, [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.APPROVED
+    )
+    retired = {
+        "head": {"sha": HEAD_SHA, "ref": "research/ppo-4h-indicator-smoke"},
+        "user": {"id": 10},
+    }
+    assert (
+        resolve_review_outcome(retired, [review], expected_head_sha=HEAD_SHA)
+        is ReviewOutcome.BLOCKED
+    )
+
+
+@pytest.mark.parametrize(
+    "ref", [None, "", 1, ["fix/synthetic"], " ", " research/ppo-4h-indicator-smoke"]
+)
+def test_missing_or_invalid_review_ref_cannot_approve(ref: object) -> None:
+    pull = {"head": {"sha": HEAD_SHA, "ref": ref}, "user": {"id": 10}}
+    assert (
+        resolve_review_outcome(
+            pull, [_software_v2_review()], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.PENDING
+    )
+
+
+def test_absent_review_ref_cannot_approve() -> None:
+    pull = {"head": {"sha": HEAD_SHA}, "user": {"id": 10}}
+    assert (
+        resolve_review_outcome(
+            pull, [_software_v2_review()], expected_head_sha=HEAD_SHA
+        )
+        is ReviewOutcome.PENDING
+    )

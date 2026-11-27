@@ -21,12 +21,9 @@ import pytest
 
 from tests.evaluation.generated_market_fixture import synthetic_dataset
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.dev_realdata_study.protocol import PROTOCOL
-from trade_rl.evaluation.dev_realdata_study.runner import (
-    reconcile_ledger,
-    terminal_dust_adjusted_equity,
-)
+from trade_rl.evaluation.ledger_reconciliation import reconcile_ledger
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
+from trade_rl.evaluation.terminal_settlement import terminal_dust_adjusted_equity
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.native_transition import execute_native_target_transition
@@ -38,7 +35,6 @@ MINIMUM_NOTIONAL = 5.0
 CAPITAL = 100.0
 DROP_ROW = 8
 COST = ExecutionCostConfig(max_participation_rate=0.5)
-PROTO = dataclasses.replace(PROTOCOL, initial_capital=CAPITAL)
 
 
 def _dataset(
@@ -109,7 +105,7 @@ def _unit_cost(notional: float, dataset: MarketDataset, symbol: int) -> float:
 def test_dust_case_reconciles_as_terminal_dust_only_with_exit_cost_haircut() -> None:
     dataset = _dataset(drop=True)
     result = _replay(dataset)
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
 
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is True
@@ -126,7 +122,7 @@ def test_dust_case_reconciles_as_terminal_dust_only_with_exit_cost_haircut() -> 
     total_cost = sum(item["exit_cost_usdt"] for item in dust)
     assert report["terminal_dust_exit_cost_usdt"] == pytest.approx(total_cost)
     # cash reconciles; equity is cash plus the dust at mark MINUS the exit cost.
-    assert abs(float(report["cash_residual"])) <= PROTO.reconciliation_tolerance
+    assert abs(float(report["cash_residual"])) <= 1e-4
     assert report["terminal_equity_dust_adjusted"] == pytest.approx(
         float(report["ledger_final_equity"]) - total_cost
     )
@@ -139,7 +135,7 @@ def test_dust_case_reconciles_as_terminal_dust_only_with_exit_cost_haircut() -> 
 
 def test_dust_cannot_be_valued_without_the_cost_model() -> None:
     dataset = _dataset(drop=True)
-    report = reconcile_ledger(_replay(dataset), dataset, PROTO)
+    report = reconcile_ledger(_replay(dataset), dataset, CAPITAL)
     assert report["terminal_dust_only"] is False
     assert report["passed"] is False
 
@@ -157,7 +153,7 @@ def test_dust_requires_the_engine_to_have_rejected_the_close_for_the_minimum() -
         if event.event_type == "rejected"
     }
     assert reasons == {"below_minimum_notional"}
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_dust_only"] is True
     assert report["passed"] is True
 
@@ -174,7 +170,7 @@ def test_venue_minimum_rejection_does_not_override_capacity_limit() -> None:
         if event.event_type == "rejected"
     }
     assert reasons == {"below_minimum_notional"}
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []
@@ -217,7 +213,7 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
     assert COST.max_participation_rate == 0.50
     assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
     assert dataset.resolved_array("max_participation_rate")[-1, 0] == symbol_cap
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is expected_dust
     assert report["passed"] is expected_dust
@@ -253,7 +249,7 @@ def test_symbol_cap_uses_processing_row_with_previous_volume_basis() -> None:
     } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
     assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
 
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=cost)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=cost)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []
@@ -265,7 +261,7 @@ def test_a_genuine_stuck_position_still_fails() -> None:
     # 6 USDT >= the 5 USDT minimum, but the terminal bar has no liquidity: the close
     # fails for a reason other than the minimum notional.
     dataset = _dataset(drop=False, thin_last_volume=True)
-    report = reconcile_ledger(_replay(dataset), dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is False
     assert report["terminal_dust"] == []
@@ -280,7 +276,7 @@ def test_mark_dust_is_not_venue_dust_when_terminal_open_is_tradable() -> None:
         terminal_open_rebounds=True,
     )
     result = _replay(dataset)
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     residuals = report["terminal_residual_quantities"]
     assert set(residuals) == set(SYMBOLS)
     for index, symbol in enumerate(SYMBOLS):
@@ -331,7 +327,7 @@ def test_classification_follows_the_engines_own_rejection_basis() -> None:
         if event.event_type == "rejected"
     }
     assert rejections == {"below_minimum_notional"}
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_dust_only"] is True
     assert report["passed"] is True
 
@@ -347,8 +343,8 @@ def test_runs_that_end_flat_are_unchanged_by_the_dust_valuation() -> None:
     assert ledger is not None
     assert all(Fraction(v) == 0 for v in ledger.intervals.terminal_exact_quantities)
 
-    plain = reconcile_ledger(result, dataset, PROTO)
-    valued = reconcile_ledger(result, dataset, PROTO, execution_cost=COST)
+    plain = reconcile_ledger(result, dataset, CAPITAL)
+    valued = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
     assert valued == plain
     assert valued["terminal_flat"] is True
     assert valued["terminal_dust_only"] is False
@@ -416,40 +412,6 @@ def test_no_public_path_changes_the_venue_minimum() -> None:
     assert any(Fraction(v) != 0 for v in held)
 
 
-def test_phase2_replay_cell_with_dust_only_terminal_is_reconciled_and_haircut() -> None:
-    from trade_rl.evaluation.dev_realdata_study import runner as dev_runner
-
-    dataset = _dataset(drop=True)
-
-    def builder(arm, data, protocol, sources):  # type: ignore[no-untyped-def]
-        return dev_runner.BuiltArm(
-            policy=BuyAndHoldPortfolioPolicy(symbols=SYMBOLS, gross_budget=0.12),
-            adapter=None,
-        )
-
-    protocol = dataclasses.replace(
-        PROTO, fee_rate=COST.fee_rate, spread_rate=COST.spread_rate
-    )
-    outcome = dev_runner.run_replay(
-        dataset,
-        protocol,
-        "buy_and_hold",
-        "base",
-        None,
-        start_index=1,
-        stop_index=dataset.n_bars - 1,
-        arm_builder=builder,
-    )
-    reconciliation = outcome.summary["reconciliation"]
-    assert reconciliation["terminal_dust_only"] is True
-    assert reconciliation["passed"] is True
-    cost = reconciliation["terminal_dust_exit_cost_usdt"]
-    assert cost > 0.0
-    assert outcome.equity[-1] == pytest.approx(
-        reconciliation["ledger_final_equity"] - cost
-    )
-
-
 @pytest.mark.parametrize("last_volume", (0.0, 1e-320, 1e-308, 1e-9, 0.1))
 def test_unrepresentable_or_unfillable_dust_exit_never_passes(
     last_volume: float,
@@ -460,7 +422,7 @@ def test_unrepresentable_or_unfillable_dust_exit_never_passes(
     volume[-1, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
     replayed = _replay(dataset)
-    report = reconcile_ledger(replayed, dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(replayed, dataset, CAPITAL, execution_cost=COST)
     assert report["terminal_flat"] is False
     assert report["terminal_dust_only"] is False
     assert report["passed"] is False
@@ -476,20 +438,11 @@ def test_finite_positive_volume_remains_valued_dust_control(last_volume: float) 
     volume = np.array(dataset.volume, copy=True)
     volume[-1, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
-    report = reconcile_ledger(_replay(dataset), dataset, PROTO, execution_cost=COST)
+    report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
     assert report["passed"] is True
     assert report["terminal_dust_only"] is True
     assert len(report["terminal_dust"]) == len(SYMBOLS)
     assert math.isfinite(report["terminal_dust_exit_cost_usdt"])
-
-
-def test_shared_terminal_settlement_api_is_single_owner_and_legacy_compatible() -> None:
-    from trade_rl.evaluation import terminal_settlement as shared
-    from trade_rl.evaluation.dev_realdata_study import runner as legacy
-
-    assert shared.terminal_dust is legacy.terminal_dust
-    assert shared.terminal_dust_adjusted_equity is legacy.terminal_dust_adjusted_equity
-    assert shared.terminal_dust.__module__ == "trade_rl.evaluation.terminal_settlement"
 
 
 @pytest.mark.parametrize("drop", (True, False))
@@ -509,7 +462,7 @@ def test_shared_terminal_settlement_uses_native_ledger_and_preserves_input(
     original = ledger.to_mapping()
     cost = COST if with_cost else None
     dust, other, valued = terminal_dust(ledger, dataset, cost, ledger.intervals[-1])
-    report = reconcile_ledger(result, dataset, PROTO, execution_cost=cost)
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=cost)
     assert dust == report["terminal_dust"]
     assert valued is with_cost
     assert other == (list(SYMBOLS) if drop and not with_cost else [])
@@ -522,3 +475,23 @@ def test_shared_terminal_settlement_uses_native_ledger_and_preserves_input(
         ledger.final_portfolio_value
         - sum(float(item["exit_cost_usdt"]) for item in dust)
     )
+
+
+@pytest.mark.parametrize("capital", (True, 0.0, -1.0, float("inf"), float("nan")))
+def test_shared_ledger_reconciliation_rejects_invalid_capital(capital):
+    dataset = _dataset(drop=False)
+    with pytest.raises(ValueError, match="initial_capital"):
+        reconcile_ledger(_replay(dataset), dataset, capital, execution_cost=COST)
+
+
+@pytest.mark.parametrize("tolerance", (True, -1.0, float("inf"), float("nan")))
+def test_shared_ledger_reconciliation_rejects_invalid_tolerance(tolerance):
+    dataset = _dataset(drop=False)
+    with pytest.raises(ValueError, match="reconciliation_tolerance"):
+        reconcile_ledger(
+            _replay(dataset),
+            dataset,
+            CAPITAL,
+            execution_cost=COST,
+            reconciliation_tolerance=tolerance,
+        )

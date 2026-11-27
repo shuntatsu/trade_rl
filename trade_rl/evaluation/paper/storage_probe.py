@@ -28,7 +28,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from trade_rl.evaluation.forward_study.seal import CodeIdentity, current_code_identity
 from trade_rl.evaluation.paper.account import PaperSettings
 from trade_rl.evaluation.paper.attempt2 import (
     CAPACITY_HEADROOM,
@@ -37,6 +36,7 @@ from trade_rl.evaluation.paper.attempt2 import (
     authorization_reasons,
     write_draft,
 )
+from trade_rl.evaluation.paper.code_identity import CodeIdentity, current_code_identity
 from trade_rl.evaluation.paper.operations import (
     STORAGE_PROBE_PLAN_SCHEMA,
     collect_until_finished,

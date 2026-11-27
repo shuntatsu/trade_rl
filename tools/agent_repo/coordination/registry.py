@@ -84,7 +84,7 @@ class CoordinatorRegistry:
     entries: tuple[EnrollmentProjection, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.repository, str) or not _REPOSITORY_RE.fullmatch(
+        if type(self.repository) is not str or not _REPOSITORY_RE.fullmatch(
             self.repository
         ):
             raise ValueError("registry repository must use owner/name form")
@@ -94,7 +94,7 @@ class CoordinatorRegistry:
         if entry_type is not list and entry_type is not tuple:
             raise ValueError("registry entries must be an ordered list or tuple")
         entries = tuple(self.entries)
-        if any(not isinstance(entry, EnrollmentProjection) for entry in entries):
+        if any(type(entry) is not EnrollmentProjection for entry in entries):
             raise ValueError("registry entries must be EnrollmentProjection values")
         if any(entry.repository != self.repository for entry in entries):
             raise ValueError("registry entry repository differs from registry")
@@ -145,9 +145,9 @@ def plan_registry_transition(
 ) -> RegistryTransitionPlan:
     """Plan one canonical registry create/update; never persist or authorize it."""
 
-    if not isinstance(registry, CoordinatorRegistry):
+    if type(registry) is not CoordinatorRegistry:
         raise ValueError("registry must be a CoordinatorRegistry")
-    if not isinstance(candidate, EnrollmentProjection):
+    if type(candidate) is not EnrollmentProjection:
         raise ValueError("candidate must be an EnrollmentProjection")
     if type(expected_before_digest) is not str or not _DIGEST_RE.fullmatch(
         expected_before_digest

@@ -12,10 +12,10 @@
 - [architecture/research-assurance.md](architecture/research-assurance.md) — G0–G5、反証条件、研究証拠の妥当性
 - [architecture/single-use-stage-claims.md](architecture/single-use-stage-claims.md) — 新規プロトコル向けの単回予約台帳
 - [architecture/portfolio-decision-trace.md](architecture/portfolio-decision-trace.md) — opt-in shared-portfolioでの行動・risk承認・約定と口座変化のtrace
-- [architecture/ppo-rollout-boundary.md](architecture/ppo-rollout-boundary.md) — Issue #810 P3 synthetic PPOのrollout境界診断とソース契約
+- [architecture/ppo-rollout-boundary.md](architecture/ppo-rollout-boundary.md) — 終了済みIssue #810 P3 synthetic PPOのrollout境界診断・固定履歴と研究側参照
 - [architecture/synthetic-ridge-outer-refit.md](architecture/synthetic-ridge-outer-refit.md) — 合成データ限定のRidge再学習・モデル切替・口座継続性の契約
 
-## 研究判断の正本（移行前）
+## 固定された研究判断・履歴
 
 - [research/current-status.md](research/current-status.md) — 現行の研究判断・証拠リンク・未完了gate
 - [research/ppo-rollout-boundary-protocol.md](research/ppo-rollout-boundary-protocol.md) — 固定48/72-step synthetic比較条件と受入基準
@@ -23,7 +23,7 @@
 
 ## リポジトリ分離・フォルダ整理
 
-- [研究基盤と個別研究の分離計画](plans/repository-split.md) — 2リポジトリの目標責務、時間軸の拡張、研究から基盤へのIssue routing、最適化、配布・研究保証・CI・証拠保全、段階的cutover。別repoの統合Draftでpolicy・比較条件・合成検証の移行を進めている。研究側の移行台帳・現況は [研究リポジトリ](https://github.com/shuntatsu/trade_rl_research) を参照する。基盤の既存実行権限とsource-bound証拠はcutoverまで維持する。
+- [研究基盤と個別研究の分離計画](plans/repository-split.md) — 2リポジトリの目標責務、時間軸の拡張、研究から基盤へのIssue routing、最適化、配布・研究保証・CI・証拠保全、段階的cutover。別repoの統合Draftでpolicy・比較条件・合成検証の移行を進めている。研究側の移行台帳・現況は [研究リポジトリ](https://github.com/shuntatsu/trade_rl_research) を参照する。旧研究の実行経路は一括退役対象。新しい実行権限は移管せず、固定証拠を保全する。
 
 ## 変更目的から選ぶ
 
@@ -42,11 +42,11 @@ python -m tools.markdown_links --check
 
 検査は存在するlocal target、Git treeの外への参照、危険なURI scheme、コード例内の誤検知を扱う。inline画像ラベル内の候補は画像として成立した場合だけ除外し、単なる未閉鎖ラベルで後続のリンクを隠さない。検査器はリポジトリの文書向けの限定的な構文scanであり、CommonMark/GFM全構文やHTMLのレンダリング等価性を保証しない。外部URLの到達性、fragment/heading anchorの正しさ、文章・研究内容の正確性は保証しない。Guideのsource fingerprint、研究の承認・実験認可、ライセンス監査も別の検査で扱う。
 
-正本文書とsourceの**意味上の不一致**には、別の検査 `python -m tools.docs_source_consistency --check` をFast Push / Full CIの両方で使用する。過去のagy `BACKCAST_2020 INVALID` / `HOLD` の誤表記、Learning Labの未掲載、登録済み研究harnessのsource/spec digest不一致、BREADTHの未来情報による過去時点の精算変化を拒否する。これが証明するのは**登録した部分的な意味契約**だけで、あらゆる文の正しさや収益・独立研究レビューは保証しない。新規の経済規範には専用のas-of・会計反例も追加する。
+正本文書とsourceの**意味上の不一致**には、別の検査 `python -m tools.docs_source_consistency --check` をFast Push / Full CIの両方で使用する。退役対象の再導入や、現行の未登録harnessを拒否する。旧AGY/BREADTH等の実行・検証コードは固定Git履歴に保管し、研究側の新規実行認可には用いない。これが証明するのは**登録した部分的な意味契約**だけで、あらゆる文の正しさや収益・独立研究レビューは保証しない。新規の経済規範には専用のas-of・会計反例も追加する。
 
 ## Active work（完了までは暫定）
 
-現在の研究別仕様は移行完了までここから参照する。下記の状態記述・リンクは既存正本を維持し、分離計画で経済実験の認可・判定を変更しない。
+旧研究別の記述は固定履歴への案内であり、現行基盤の実行入口ではない。研究の状態・判定を変更せず、新規実行には研究側で別の承認が必要。
 
 ### 親計画・実験管理
 
@@ -55,28 +55,28 @@ python -m tools.markdown_links --check
 ### キャリー・資金調達・クロスセクション
 
 - Prospective carry: [specs/funding-carry-paper.md](specs/funding-carry-paper.md) / [plans/funding-carry-paper.md](plans/funding-carry-paper.md)
-- Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md](specs/funding-carry-multisymbol.md)
-- Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md](specs/xs-lowvol-funding.md)
+- Multi-symbol carry development screen (pre-registered, no data read): [specs/funding-carry-multisymbol.md — historical](plans/repository-split.md#一括退役記録)
+- Cross-sectional low-volatility / funding-contrarian perp book on untouched symbols (pre-registered; DEV run, DISJOINT then FORWARD pending): [specs/xs-lowvol-funding.md — historical](plans/repository-split.md#一括退役記録)
 
 ### トレンド・売買ルール
 
 - Directional exits: [specs/reduce-only-exits.md](specs/reduce-only-exits.md) / [plans/reduce-only-exits.md](plans/reduce-only-exits.md)
 - Trend following with fast stops (closed historical revision 2, NO_WINNER): [research archive and pinned historical specification](https://github.com/shuntatsu/trade_rl_research/blob/main/migration/trend_stop_archive.json)
-- Signal diagnosis run SD2 (frozen protocol v4, runner implemented, not run on real data): [specs/signal-diagnosis-run.md](specs/signal-diagnosis-run.md)
-- Daily trend breadth screen (pre-registered, one-shot, class 2 known-used data, not yet run; no economic result): [specs/trend-breadth.md](specs/trend-breadth.md)
-- Trend-OOS: [v1 historical protocol and consumed BACKCAST](specs/trend-long-spot-oos.md); [v2 cash-account software-only successor (HOLD)](specs/trend-long-spot-oos-v2.md). Neither is fresh OOS/profitability authorization.
-- Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized](specs/agy-anchor-realistic.md).
-- Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md](specs/trend-exit-arms-forward.md)
-- Hierarchical MTF long/short perp system (pre-registered prospective FORWARD from 2026-12-01, not yet run, no data read; software PR, authorizes nothing economic, needs independent review and a per-stage G4 relay): [specs/mtf-combo-forward.md](specs/mtf-combo-forward.md)
-- BTC vol-targeted trend ensemble (HOLD: BACKCAST consumed with a defective result that decides nothing; Amendment 3 FORWARD-only protocol 2026-12-01 to 2027-11-30 awaits review/G4; FORWARD unauthorized): [specs/btc-trend-ensemble.md](specs/btc-trend-ensemble.md)
-- Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered; INTERIM_A reported as not a decision, FINAL at or after 2027-05-02): [specs/agy-clean-all-forward.md](specs/agy-clean-all-forward.md)
+- Signal diagnosis run SD2 (frozen protocol v4, runner implemented, not run on real data): [specs/signal-diagnosis-run.md — historical](plans/repository-split.md#一括退役記録)
+- Daily trend breadth screen (pre-registered, one-shot, class 2 known-used data, not yet run; no economic result): [specs/trend-breadth.md — historical](plans/repository-split.md#一括退役記録)
+- Trend-OOS: [v1 historical protocol and consumed BACKCAST — historical](plans/repository-split.md#一括退役記録); [v2 cash-account software-only successor (HOLD) — historical](plans/repository-split.md#一括退役記録). Neither is fresh OOS/profitability authorization.
+- Ported agy anchor OOS: [historical v1 with DEV/BACKCAST_2020 receipts (BACKCAST_2020 INVALID); further economic execution HOLD, FORWARD not authorized — historical](plans/repository-split.md#一括退役記録).
+- Trend short-exit arms FORWARD (pre-registered, one-shot, no economic run yet; Status: Active, awaiting independent review): [specs/trend-exit-arms-forward.md — historical](plans/repository-split.md#一括退役記録)
+- Hierarchical MTF long/short perp system (pre-registered prospective FORWARD from 2026-12-01, not yet run, no data read; software PR, authorizes nothing economic, needs independent review and a per-stage G4 relay): [specs/mtf-combo-forward.md — historical](plans/repository-split.md#一括退役記録)
+- BTC vol-targeted trend ensemble (HOLD: BACKCAST consumed with a defective result that decides nothing; Amendment 3 FORWARD-only protocol 2026-12-01 to 2027-11-30 awaits review/G4; FORWARD unauthorized): [specs/btc-trend-ensemble.md — historical](plans/repository-split.md#一括退役記録)
+- Forward test of agy's Round 17 `CLEAN_ALL` arm at gross ≤ 1 (pre-registered; INTERIM_A reported as not a decision, FINAL at or after 2027-05-02): [specs/agy-clean-all-forward.md — historical](plans/repository-split.md#一括退役記録)
 
 ### RL・モデル比較
 
-- Learning lab method registry (draft, software harness and synthetic tests only): [specs/learning-lab-registry.md](specs/learning-lab-registry.md)
-- RL execution overlay for the agy anchor (development study draft, not yet run): [specs/anchor-rl-execution-dev.md](specs/anchor-rl-execution-dev.md)
-- Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md](specs/core7-mtf-shadow-anchor-ppo.md)
-- Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md](specs/lowturn-family-screen.md)
+- Learning lab method registry (draft, software harness and synthetic tests only): [specs/learning-lab-registry.md — historical](plans/repository-split.md#一括退役記録)
+- RL execution overlay for the agy anchor (development study draft, not yet run): [specs/anchor-rl-execution-dev.md — historical](plans/repository-split.md#一括退役記録)
+- Core7 MTF Shadow-Anchor PPO (Phase 0 software and synthetic validity only, not yet run on market data): [specs/core7-mtf-shadow-anchor-ppo.md — historical](plans/repository-split.md#一括退役記録)
+- Low-turnover strategy family screen (pre-registered, one-shot, exploratory ceiling, not yet run): [specs/lowturn-family-screen.md — historical](plans/repository-split.md#一括退役記録)
 
 ## 情報の所有先と更新
 

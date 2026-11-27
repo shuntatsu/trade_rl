@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.forward_study.seal import CodeIdentity
 from trade_rl.evaluation.paper import predecessor as pred
 from trade_rl.evaluation.paper.attempt3 import (
     Attempt3Refusal,
@@ -23,6 +22,7 @@ from trade_rl.evaluation.paper.attempt3 import (
     resolve_lineage,
     seal_attempt3,
 )
+from trade_rl.evaluation.paper.code_identity import CodeIdentity
 from trade_rl.evaluation.paper.store import PaperJournal
 
 AUTH = "https://github.com/shuntatsu/trade_rl/issues/810#issuecomment-4242424242"

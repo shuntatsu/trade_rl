@@ -34,10 +34,10 @@ def test_all_ci_uv_jobs_preinstall_python_from_runner_toolcache() -> None:
     )
     # All Fast Push / Core / PPO / PostgreSQL / software and research reviews
     # must use one toolcache interpreter and never trigger standalone downloads.
-    assert len(setup_pattern.findall(source)) == 7
-    assert source.count(f"uses: {SETUP_PYTHON}") == 7
-    assert source.count(f"uses: {SETUP_UV}") == 7
-    assert source.count('python-version: "3.12"') == 7
+    assert len(setup_pattern.findall(source)) == 6
+    assert source.count(f"uses: {SETUP_PYTHON}") == 6
+    assert source.count(f"uses: {SETUP_UV}") == 6
+    assert source.count('python-version: "3.12"') == 6
     assert "UV_PYTHON_DOWNLOADS: automatic" not in source
     assert "UV_PYTHON_DOWNLOADS: never" in source
 
@@ -54,7 +54,7 @@ def test_lean_core_fetches_full_history_for_research_packet_source_binding() -> 
 
 def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
-    assert source.count("name: Checkout exact head") >= 7
+    assert source.count("name: Checkout exact head") >= 6
     assert "uv sync --extra dev" in source
     assert "uv sync --extra dev --extra train-sb3" in source
     assert "uv sync --extra dev --extra store" in source
@@ -62,14 +62,14 @@ def test_ci_keeps_exact_head_and_dependency_install_steps() -> None:
 
 
 def test_setup_uv_action_commit_is_consistent_across_all_workflows() -> None:
-    """A reviewed SHA update must cover *all* 20 Action steps, not just Core CI."""
+    """A reviewed SHA update must cover *all* 11 Action steps, not just Core CI."""
     workflows = ROOT / ".github" / "workflows"
     refs: list[str] = []
     for path in sorted((*workflows.glob("*.yml"), *workflows.glob("*.yaml"))):
         text = path.read_text(encoding="utf-8")
         refs.extend(match.group("ref") for match in setup_uv_action_matches(text, path))
-    assert len(refs) == 20
-    assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 20
+    assert len(refs) == 11
+    assert refs == [SETUP_UV.removeprefix("astral-sh/setup-uv@")] * 11
 
 
 def test_full_core_shards_preserve_test_coverage_and_skip_reasons() -> None:

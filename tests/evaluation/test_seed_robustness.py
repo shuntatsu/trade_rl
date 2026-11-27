@@ -82,3 +82,46 @@ def test_seed_summary_rejects_best_seed_only_reporting() -> None:
             ),
             baseline=_series((0.0, 0.0)),
         )
+
+
+def _elapsed_series(years: float) -> ReturnSeries:
+    return ReturnSeries(
+        values=(0.01, 0.02),
+        kind=ReturnKind.DECISION_STEP,
+        periods_per_year=365,
+        elapsed_years=years,
+    )
+
+
+@pytest.mark.parametrize("wrong_seed", [0, 1])
+def test_seed_summary_rejects_different_effective_elapsed_clock(
+    wrong_seed: int,
+) -> None:
+    baseline = _elapsed_series(0.01)
+    seeds = tuple(
+        SeedEvaluation(
+            seed=seed,
+            returns=_elapsed_series(0.02 if seed == wrong_seed else 0.01),
+            turnover_total=0.0,
+        )
+        for seed in (0, 1)
+    )
+    with pytest.raises(ValueError, match="annualization"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=seeds,
+            baseline=baseline,
+            n_bootstrap=5,
+        )
+
+
+def test_seed_summary_preserves_matching_elapsed_clock() -> None:
+    baseline = _elapsed_series(0.01)
+    summary = summarize_seed_robustness(
+        evaluation_label="synthetic",
+        seeds=tuple(SeedEvaluation(seed, baseline, 0.0) for seed in (0, 1)),
+        baseline=baseline,
+        n_bootstrap=5,
+    )
+    assert summary.median_baseline_difference == 0.0
+    assert summary.bootstrap_p_value == 1.0

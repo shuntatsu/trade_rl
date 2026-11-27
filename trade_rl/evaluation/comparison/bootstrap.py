@@ -31,6 +31,16 @@ def _resolve_block_size(*, requested: object, n_values: int) -> int:
     return min(value, max(n_values, 1))
 
 
+def _require_integer(value: object, *, name: str, minimum: int) -> int:
+    requirement = "positive" if minimum else "non-negative"
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
+        raise ValueError(f"{name} must be a {requirement} integer")
+    resolved = int(value)
+    if resolved < minimum:
+        raise ValueError(f"{name} must be a {requirement} integer")
+    return resolved
+
+
 def moving_block_mean_test(
     differences: tuple[float, ...],
     *,
@@ -45,14 +55,16 @@ def moving_block_mean_test(
     size is capped only when the supplied sample is shorter than that block.
     """
 
-    if n_bootstrap <= 0:
-        raise ValueError("n_bootstrap must be positive")
-    if seed < 0:
-        raise ValueError("seed must be non-negative")
+    n_bootstrap = _require_integer(n_bootstrap, name="n_bootstrap", minimum=1)
+    seed = _require_integer(seed, name="seed", minimum=0)
     effective_block_size = _resolve_block_size(
         requested=block_size,
         n_values=len(differences),
     )
+    values = np.asarray(differences, dtype=np.float64)
+    if values.ndim != 1 or not np.isfinite(values).all():
+        raise ValueError("bootstrap differences must be a finite 1-D series")
+
     if len(differences) < 2 or all(abs(value) <= 1e-15 for value in differences):
         return BootstrapResult(
             p_value=1.0,
@@ -61,31 +73,42 @@ def moving_block_mean_test(
             block_size=(1 if block_size is None else effective_block_size),
         )
 
-    values = np.asarray(differences, dtype=np.float64)
-    if not np.isfinite(values).all():
-        raise ValueError("bootstrap differences must be finite")
-
-    observed = fmean(differences)
+    try:
+        observed = fmean(differences)
+    except OverflowError as exc:
+        raise ValueError("observed bootstrap mean must be finite") from exc
+    if not math.isfinite(observed):
+        raise ValueError("observed bootstrap mean must be finite")
     n_values = len(differences)
     rng = np.random.default_rng(seed)
     means = np.empty(n_bootstrap, dtype=np.float64)
 
-    for draw in range(n_bootstrap):
-        sampled: list[int] = []
-        while len(sampled) < n_values:
-            start = int(rng.integers(0, n_values))
-            sampled.extend(
-                (start + offset) % n_values for offset in range(effective_block_size)
-            )
-        means[draw] = float(values[np.asarray(sampled[:n_values])].mean())
+    # Preserve the historical resample stream and arithmetic for valid inputs,
+    # but never publish an interval or p-value derived from overflow.
+    with np.errstate(over="ignore", invalid="ignore"):
+        for draw in range(n_bootstrap):
+            sampled: list[int] = []
+            while len(sampled) < n_values:
+                start = int(rng.integers(0, n_values))
+                sampled.extend(
+                    (start + offset) % n_values
+                    for offset in range(effective_block_size)
+                )
+            means[draw] = float(values[np.asarray(sampled[:n_values])].mean())
 
-    lower, upper = np.quantile(means, [0.025, 0.975])
-    if observed <= 0.0:
-        p_value = 1.0
-    else:
-        centered = means - means.mean()
-        extreme = int(np.count_nonzero(centered >= observed))
-        p_value = float((extreme + 1) / (n_bootstrap + 1))
+        if not np.isfinite(means).all():
+            raise ValueError("bootstrap resampled means must be finite")
+        lower, upper = np.quantile(means, [0.025, 0.975])
+        if not np.isfinite([lower, upper]).all():
+            raise ValueError("bootstrap interval must be finite")
+        if observed <= 0.0:
+            p_value = 1.0
+        else:
+            centered = means - means.mean()
+            if not np.isfinite(centered).all():
+                raise ValueError("centered bootstrap means must be finite")
+            extreme = int(np.count_nonzero(centered >= observed))
+            p_value = float((extreme + 1) / (n_bootstrap + 1))
 
     return BootstrapResult(
         p_value=p_value,

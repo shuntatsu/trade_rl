@@ -893,6 +893,283 @@ def apply_merged_retirement(
     return tuple(deleted)
 
 
+# Owner-reviewed exact identities in #1057 comment 7212724691.
+# This is NOT a general retirement rule or a Task/lease authorization.
+_APPROVED_20261127_MAIN = (
+    (
+        "fix/issue1112-junit-nested-counts-20261124",
+        "d56a8299b940965875b1e5ad687ee53ffab5c1eb",
+    ),
+    ("fix/issue1112-m1-audit-20261123", "f066b2ebbf293c0ec7de8826234a3191e1275fb3"),
+    ("fix/m1-e2e-audit-1112-20261122", "4a8d90e7ca86ec4f64ebf3a71cd96bdd0e9c9a16"),
+    (
+        "fix/m1-exact-fee-exhaustion-20261127",
+        "a1653a642aad5c111d16f5e638e6fb8253a12832",
+    ),
+    (
+        "fix/m1-m2-canonical-identity-boundaries-20261127",
+        "43542e42ceedebeab2489942fae2e4defca41a61",
+    ),
+    (
+        "fix/m1-m2-evidence-clock-units-20261127",
+        "7fd662aa75b5c542ac17c6e80cbbb8c24cb6ff73",
+    ),
+    (
+        "fix/m1-m2-strict-artifact-json-readers-20261127",
+        "1c2cda5559558bf2628c7238c4c53e8023d76d02",
+    ),
+    (
+        "fix/m1-m2-strict-config-json-20261127",
+        "2825f432e92b7f173b9a4c1ffe6aee029da7dba2",
+    ),
+    (
+        "fix/m1-m2-strict-json-unicode-20261127",
+        "7fa3be3311e2ee2df9cc8d63a0771e46ebff0bac",
+    ),
+)
+_APPROVED_20261127_CLOUD = (
+    (
+        "feat/divergence-cloud-follow-20261123",
+        "01a762a5d16a7fc0d3cca880937689926b73c04f",
+    ),
+    (
+        "feat/divergence-ichimoku-mtf-20261123",
+        "e0ee297c04260179caac44021536935e9e85f025",
+    ),
+    (
+        "feat/divergence-regime-gate-20261123",
+        "8f5ae2b547b0114e1f58ea571b5bce7f8b6a6d40",
+    ),
+    (
+        "feat/divergence-short-null-controls-20261123",
+        "6f29d480c36a411b0165c3ef78bda4e1b1092ec1",
+    ),
+    ("research/cloud-adx-atr-20261124", "a617a89f4902c7c0462af821621f4f09b085e2e5"),
+    (
+        "research/cloud-regime-switch-20261124",
+        "a9683e7d9fd51baa82e284ba45243b3e2d7a2ef9",
+    ),
+    (
+        "research/family-divergence-quorum-20261124",
+        "1a718c65eef5cdf8f0d100445056be4f7b059759",
+    ),
+)
+_APPROVED_20261127_SUCCESSOR = (
+    "prepare/cloud-regime-switch-screen-20261124",
+    "04bad8c4c80e4fedc6b428483f305b433ded7fdd",
+)
+
+
+def plan_approved_20261127_retirement(
+    branches: Sequence[BranchInfo],
+    *,
+    expected_main_sha: str,
+    open_pull_request_refs: Sequence[OpenPullRequestRefs],
+    active_workflow_branches: frozenset[str],
+    reachable_from_main: frozenset[str],
+    reachable_from_successor: frozenset[str],
+    merged_pr_sources: Sequence[MergedPullRequestSource] = (),
+    consolidated_pr_sources: Sequence[ConsolidatedPullRequestSource] = (),
+) -> tuple[BranchInfo, ...]:
+    """Select only the unchanged, individually approved redundant refs."""
+    by_name = _unique_branch_readback(branches)
+    if any(
+        not branch.name
+        or not _is_nonzero_oid(branch.sha)
+        or type(branch.protected) is not bool
+        for branch in branches
+    ):
+        raise ValueError("invalid branch roster")
+    main = by_name.get("main")
+    if (
+        main is None
+        or main.sha != expected_main_sha
+        or main.sha not in reachable_from_main
+    ):
+        raise RuntimeError("main identity or ancestry changed")
+    blocked = (
+        open_pull_request_branch_names(open_pull_request_refs)
+        | active_workflow_branches
+    )
+    sources = {(s.name, s.sha) for s in merged_pr_sources}
+    sources.update((s.name, s.sha) for s in consolidated_pr_sources)
+    cloud_names = {name for name, _ in _APPROVED_20261127_CLOUD}
+    if cloud_names.intersection(by_name):
+        anchor_name, anchor_sha = _APPROVED_20261127_SUCCESSOR
+        anchor = by_name.get(anchor_name)
+        if (
+            anchor is None
+            or anchor.sha != anchor_sha
+            or anchor_sha not in reachable_from_successor
+        ):
+            raise RuntimeError("retained Cloud successor missing or changed")
+    selected: list[BranchInfo] = []
+    for name, sha in (*_APPROVED_20261127_MAIN, *_APPROVED_20261127_CLOUD):
+        branch = by_name.get(name)
+        if branch is None:
+            continue  # Already absent; do not expand the approved scope.
+        if branch.sha != sha or branch.protected or name in blocked:
+            raise RuntimeError(f"approved ref changed, protected or active: {name}")
+        if name in cloud_names:
+            if (
+                sha == _APPROVED_20261127_SUCCESSOR[1]
+                or sha not in reachable_from_successor
+            ):
+                raise RuntimeError(f"Cloud source not in retained successor: {name}")
+        elif sha not in reachable_from_main or (name, sha) not in sources:
+            raise RuntimeError(f"exact merged/consolidated M1 proof missing: {name}")
+        selected.append(branch)
+    return tuple(selected)
+
+
+def _verify_approved_20261127_backup(
+    backup_git_dir: Path, required: Sequence[tuple[str, str]]
+) -> None:
+    """Verify the pre-existing independent local object/ref copy, never create one."""
+    backup = backup_git_dir.resolve()
+    current = Path(
+        _git_history("rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    ).resolve()
+    if (
+        backup == current
+        or not backup.is_dir()
+        or not (backup / "HEAD").is_file()
+        or not (backup / "objects").is_dir()
+        or (backup / "objects").is_symlink()
+        or (backup / "commondir").exists()
+    ):
+        raise ValueError("independent pre-existing Git backup required")
+    for path in (
+        backup / "objects/info/alternates",
+        backup / "objects/info/http-alternates",
+        backup / "info/grafts",
+        backup / "shallow",
+    ):
+        if path.exists() or path.is_symlink():
+            raise ValueError("backup must not depend on alternate or shallow history")
+    if (backup / "objects/pack").is_symlink() or any(
+        (backup / "objects/pack").glob("*.promisor")
+    ):
+        raise ValueError("backup must contain local objects")
+    # Do not inherit object-directory, alternate, or config overrides from the
+    # caller. This verifies a local copy, not off-site durability.
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    env.update(
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+    )
+    command = ["git", "--no-replace-objects", f"--git-dir={backup}"]
+    try:
+        for name, sha in required:
+            actual = subprocess.check_output(
+                [*command, "rev-parse", "--verify", f"refs/remotes/origin/{name}"],
+                text=True,
+                env=env,
+            ).strip()
+            if actual != sha:
+                raise RuntimeError(f"backup ref differs: {name}")
+            subprocess.run(
+                [*command, "cat-file", "-e", f"{sha}^{{commit}}"], env=env, check=True
+            )
+        subprocess.run(
+            [*command, "fsck", "--connectivity-only", "--no-dangling", "--no-progress"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError("backup Git connectivity/ref verification failed") from error
+
+
+def run_approved_20261127_retirement(
+    api: GitHubApi,
+    *,
+    apply: bool,
+    backup_git_dir: Path,
+    max_deletes: int,
+) -> tuple[tuple[BranchInfo, ...], tuple[str, ...]]:
+    """One bounded atomic batch, with current-main source and exact readback."""
+    if (
+        api._repository != "shuntatsu/trade_rl"
+        or api._api_url != "https://api.github.com"
+        or api.repository_default_branch() != "main"
+    ):
+        raise ValueError("approved retirement is restricted to trade_rl/main")
+    if type(apply) is not bool:
+        raise ValueError("invalid apply mode")
+    if type(max_deletes) is not int or not 1 <= max_deletes <= 100:
+        raise ValueError("invalid max-deletes")
+    require_retirement_origin()
+    before = _unique_branch_readback(api.branches())
+    local_main = _git_history("rev-parse", "refs/remotes/origin/main").strip()
+    if before.get("main") is None or before["main"].sha != local_main:
+        raise RuntimeError("local main history differs from current GitHub ref")
+    if apply and Path(__file__).read_bytes() != subprocess.check_output(
+        ["git", "--no-replace-objects", "show", f"{local_main}:tools/branch_hygiene.py"]
+    ):
+        raise RuntimeError(
+            "approved apply must execute the accepted current main source"
+        )
+    if _git_history("rev-parse", "--is-shallow-repository").strip() != "false":
+        raise RuntimeError("complete main/successor history required")
+    grafts = Path(_git_history("rev-parse", "--git-path", "info/grafts").strip())
+    if grafts.exists() or grafts.is_symlink():
+        raise RuntimeError("grafted ancestry is not accepted")
+    main_history = frozenset(_git_history("rev-list", local_main).splitlines())
+    cloud = tuple((n, h) for n, h in _APPROVED_20261127_CLOUD if n in before)
+    successor_history: frozenset[str] = frozenset()
+    if cloud:
+        anchor_name, anchor_sha = _APPROVED_20261127_SUCCESSOR
+        if (
+            before.get(anchor_name) is None
+            or before[anchor_name].sha != anchor_sha
+            or _git_history("rev-parse", f"refs/remotes/origin/{anchor_name}").strip()
+            != anchor_sha
+        ):
+            raise RuntimeError("retained Cloud successor missing or changed")
+        successor_history = frozenset(_git_history("rev-list", anchor_sha).splitlines())
+        _verify_approved_20261127_backup(
+            backup_git_dir, (*cloud, _APPROVED_20261127_SUCCESSOR)
+        )
+    merged = api.merged_pr_source_refs()
+    consolidated = api.consolidated_pr_source_refs(
+        tuple(before.values()), main_sha=local_main
+    )
+    opened = api.open_pull_request_refs()
+    running = api.active_workflow_branch_names()
+    selected = plan_approved_20261127_retirement(
+        tuple(before.values()),
+        expected_main_sha=local_main,
+        open_pull_request_refs=opened,
+        active_workflow_branches=running,
+        reachable_from_main=main_history,
+        reachable_from_successor=successor_history,
+        merged_pr_sources=merged,
+        consolidated_pr_sources=consolidated,
+    )
+    if len(selected) > max_deletes:
+        raise ValueError("approved exact scope exceeds max-deletes")
+    if _unique_branch_readback(api.branches()) != before:
+        raise RuntimeError("branch/main/successor changed during approved proof")
+    if not apply or not selected:
+        return selected, ()
+    api.delete_branches_with_leases(selected)
+    expected = {
+        name: branch for name, branch in before.items() if branch not in selected
+    }
+    after = _unique_branch_readback(api.branches())
+    if after != expected:
+        raise RuntimeError(
+            "approved post-delete readback differs: "
+            + _readback_differences(expected, after)
+        )
+    return selected, tuple(branch.name for branch in selected)
+
+
 def require_retirement_origin(*, env: dict[str, str] | None = None) -> None:
     """Do not let an exact-SHA lease target an unrelated checkout or remote."""
 
@@ -978,6 +1255,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         metavar="BRANCH=SHA",
         help="apply only this owner-reviewed exact consolidated source (repeatable)",
     )
+    parser.add_argument(
+        "--retire-approved-20261127",
+        action="store_true",
+        help="manual exact 16-ref exception recorded in #1057; never used by scheduled cleanup",
+    )
+    parser.add_argument("--backup-git-dir", type=Path)
     parser.add_argument("--max-deletes", type=int, default=100)
     parser.add_argument("--summary", type=Path)
     return parser.parse_args(argv)
@@ -997,9 +1280,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError(
             "consolidated apply requires explicit exact ref selections and opt-in"
         )
+    if args.retire_approved_20261127:
+        if args.include_consolidated or scope or args.backup_git_dir is None:
+            raise ValueError(
+                "approved mode requires a backup and no consolidated selections"
+            )
+        if (
+            args.repository != "shuntatsu/trade_rl"
+            or args.api_url != "https://api.github.com"
+        ):
+            raise ValueError("approved mode requires the exact GitHub repository/API")
+    elif args.backup_git_dir is not None:
+        raise ValueError("backup is accepted only in the approved manual mode")
     if not args.token:
         raise RuntimeError("GH_TOKEN or GITHUB_TOKEN is required")
     api = GitHubApi(repository=args.repository, token=args.token, api_url=args.api_url)
+    if args.retire_approved_20261127:
+        backup_git_dir = args.backup_git_dir
+        if not isinstance(backup_git_dir, Path):
+            raise ValueError("approved mode requires a backup Git directory")
+        selected, deleted = run_approved_20261127_retirement(
+            api,
+            apply=args.apply,
+            backup_git_dir=backup_git_dir,
+            max_deletes=args.max_deletes,
+        )
+        summary = "\n".join(
+            (
+                "## Approved 2026-11-27 redundant ref retirement",
+                f"- mode: {'apply' if args.apply else 'dry-run'}",
+                f"- eligible exact refs: {len(selected)}",
+                f"- deleted and verified: {len(deleted)}",
+                *(
+                    f"- {'retired' if args.apply else 'candidate'}: {b.name}={b.sha}"
+                    for b in selected
+                ),
+            )
+        )
+        print(summary)
+        if args.summary is not None:
+            args.summary.write_text(summary + "\n", encoding="utf-8")
+        return 0
     default_branch = api.repository_default_branch()
     branches = api.branches()
     open_refs = api.open_pull_request_refs()

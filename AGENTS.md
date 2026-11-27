@@ -36,6 +36,8 @@
 
 ## Research / documentation / branch retention
 
+以下は通常退役経路の規則。末尾の2026-11-27限定手動例外だけを別扱いとする。
+
 - causal/point-in-time data、現実的執行費用、common accounting、hard risk、unused data、研究証拠の不変性を維持する。結果後の合格条件変更・leakage・過去の封印結果の再分類は禁止。研究変更はG0–G2のresult-blind反証と必要な独立reviewを先に行う。
 - `tools.agent_repo` のsource-derived出力は便利な補助であり、GitHub PR/branch現況・実コード・Full CIの代替ではない。生成reportをcommitしない。
 - `main`、保護ref、open PR head/base、未完了workflow（requested/waiting/pending/queued/in_progress）、研究・freeze・seal・run・evidence、`provenance/branch-retention`を保持する。**mainに未統合のbranchも削除しない。** 元PRがclosedでも、別のmain向けmerged PRの実際のnormal mergeがそのexact source tipを初めてmainへ導入したことを確認できる場合に限り、集約済みsourceとして扱える。 現在使うTaskはopen PRまたは明示された実行中workflowで参照を残し、統合済み旧branchの恒久保存は原則要求しない（次のM1監査例外を除く）。
@@ -45,4 +47,5 @@
 - 過去の一回限りのarchive退役例外は廃止し、現行の証拠付きsource退役経路だけを実行可能にする。固定archive ref・研究証拠は保持し、過去の対象、実装、承認・結果はGit historyとIssue #1057から参照する。旧コメントの再実行や、未統合refの一般削除は認めない。
 - `tools.branch_hygiene --retire-merged --apply` を標準の削除経路とし、`.github/workflows/retire-merged-pr-branches.yml`がmain更新時と定期実行で処理する。現在のmain SHA、全branchのexact SHA、closed/merged PRのexact source HEAD、open PR、未完了workflowを取得し、**source自身のmerged PR証拠を持つmain祖先refのみ**をatomicなSHA leaseで限定削除、各バッチ後にGitHubを再照合する。情報不完全・更新競合・認証失敗時は停止し、成功とみなさない。集約済みsourceは自動workflowと独立した手動CLIの `--include-consolidated` で読み取り専用previewできるが、自動workflowのpreview/apply対象外。保全対象でないことを個別に確認し、ownerが承認したexact branch/SHAを `--apply --include-consolidated --consolidated-ref BRANCH=SHA`（繰り返し指定可）で限定した場合だけ、追加のnormal merge証拠・fresh readback・leaseを満たして退役できる。履歴証明やCLI引数だけでTask/M1/研究refの退役権限は成立しない。`audit/`も保持する。古い汎用`--apply`は`--retire-merged`無しでは拒否を維持し、未統合分を一括削除しない。
 - マージ済みPR source refの退役は`tools.branch_hygiene --retire-merged --apply`の一経路に統一する。旧retention記録を前提とする個別手動削除ツールは稼働対象に残さない。未統合・保護・研究refは削除せず、Coordinatorのregistry/lease認証・`cleanup_authorized`の成立、経済実験やlive注文の認可をbranch整理から推定しない。
+- **2026-11-27の限定手動退役（#1057）**：ownerが不要と判断した16個のexact branch/SHAだけを `tools.branch_hygiene --retire-merged --retire-approved-20261127` でpreviewし、`--backup-git-dir` に既存Git退避先を指定して `--apply` する。9個のM1/M2は現行mainへの到達性とexact merged/consolidated PR証明、7個の旧Cloud研究は変更されていない後継refへの到達性と既存退避先のexact ref・Git接続性を必須とする。main/後継/保護/open PR/未完了workflow・対象外のrefを削除しない。mainの現行sourceからのみ適用し、全branch再照合、単一atomic SHA lease batch、事後readbackを必須とする。通常の自動workflowと集約済みsourceの一般条件は不変。詳細は [#1057の判断記録](https://github.com/shuntatsu/trade_rl/issues/1057#issuecomment-7212724691)。新規アーカイブや研究認可は不要・不付与。
 - `docs/` は現行正本のみ。完了済みplan/specは必要な契約を昇格してGit historyに残し、`docs/history`・`docs/archive`を増やさない。`LICENSE`・`LICENSES/`と、immutable研究artifactは通常のdocs整理から除外する。

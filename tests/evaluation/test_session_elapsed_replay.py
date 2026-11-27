@@ -383,23 +383,18 @@ def test_duration_risk_preserves_nonzero_subnormal_residual(hours, sign):
     elapsed = Fraction(sum(hours), 8760)
     exact = tuple(Fraction.from_float(value) for value in values)
     total = sum(exact, Fraction(0))
-    residual_variance = sum(
+    residual_sum = sum(
         (value - total * Fraction(hours_i, sum(hours))) ** 2
         for value, hours_i in zip(exact, hours, strict=True)
-    ) / elapsed
+    )
+    residual_variance = residual_sum / elapsed
     downside_variance = sum(min(value, 0) ** 2 for value in exact) / elapsed
     with localcontext() as context:
         context.prec = 100
-        expected_volatility = float(
-            (
-                Decimal(residual_variance.numerator) / residual_variance.denominator
-            ).sqrt()
-        )
-        expected_downside = float(
-            (
-                Decimal(downside_variance.numerator) / downside_variance.denominator
-            ).sqrt()
-        )
+        rv = Decimal(residual_variance.numerator) / residual_variance.denominator
+        dv = Decimal(downside_variance.numerator) / downside_variance.denominator
+        expected_volatility = float(rv.sqrt())
+        expected_downside = float(dv.sqrt())
     assert expected_volatility > 0.0
     assert actual.annualized_volatility == expected_volatility
     assert actual.annualized_downside_deviation == expected_downside

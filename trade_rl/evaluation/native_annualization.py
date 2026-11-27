@@ -96,9 +96,8 @@ def _sqrt_exact_variance(variance: Fraction) -> float:
         if units == 0:
             raise ValueError("nonzero native annualization risk is not representable")
         return math.ldexp(float(units), -1074)
-    exponent = (
-        variance.numerator.bit_length() - variance.denominator.bit_length()
-    ) // 2
+    bit_delta = variance.numerator.bit_length() - variance.denominator.bit_length()
+    exponent = bit_delta // 2
     scaled = variance / Fraction(2) ** (2 * exponent)
     return math.ldexp(math.sqrt(float(scaled)), exponent)
 
@@ -146,21 +145,19 @@ def _evaluate_duration_annualization(
             # Keep the ordinary path unchanged; only recover the tiny norm.
             exact = tuple(Fraction.from_float(value) for value in normalized)
             exact_total = sum(exact, Fraction(0))
-            variance = sum(
+            sum_squares = sum(
                 (value - exact_total * int(duration) / total_ns) ** 2
                 for value, duration in zip(exact, durations_ns, strict=True)
-            ) / elapsed
-            volatility = _sqrt_exact_variance(variance)
+            )
+            volatility = _sqrt_exact_variance(sum_squares / elapsed)
         else:
             volatility = residual_norm / scale
         downside_norm = math.hypot(*(min(value, 0.0) for value in normalized))
         if 0.0 < downside_norm < sys.float_info.min:
-            variance = sum(
-                Fraction.from_float(value) ** 2
-                for value in normalized
-                if value < 0.0
-            ) / elapsed
-            downside = _sqrt_exact_variance(variance)
+            sum_squares = sum(
+                Fraction.from_float(value) ** 2 for value in normalized if value < 0.0
+            )
+            downside = _sqrt_exact_variance(sum_squares / elapsed)
         else:
             downside = downside_norm / scale
         if (residual_norm > 0.0 and volatility == 0.0) or (

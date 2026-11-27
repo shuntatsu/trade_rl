@@ -1,4 +1,4 @@
-"""Publication-gated coarse decisions on actual fine-grid spot-style replay.
+"""Publication-gated coarse decisions on actual fine-grid native replay.
 
 The existing overlay owns causal feature values and the shared replay owns
 every execution, risk, and accounting transition. No coarse OHLC is expanded
@@ -254,6 +254,51 @@ class _PublicationGatedPolicy:
         return self._policy.decide_portfolio(snapshot)
 
 
+def _require_linear_carry_data(
+    dataset: MarketDataset, group: ClockedNativeFeatureGroup, span: slice
+) -> None:
+    """Admit explicit, close-assigned single funding events on the fine grid.
+
+    A rate-price product binds the declared economic input, not the venue
+    event's time or independent mark provenance. Multiple events in one
+    execution interval cannot be modeled from this contract.
+    """
+    if dataset.funding_price_rate is None:
+        raise ValueError("linear carry requires explicit fine funding price-rate data")
+    count = dataset.resolved_array("funding_event_count")[span]
+    due = dataset.resolved_array("funding_due")[span]
+    rate = dataset.funding_rate[span]
+    price_rate = dataset.funding_price_rate[span]
+    if (
+        np.any(count > 1)
+        or np.any(due != (count == 1))
+        or not np.isfinite(rate).all()
+        or np.any(~due & ((rate != 0.0) | (price_rate != 0.0)))
+        or np.any((rate == 0.0) != (price_rate == 0.0))
+    ):
+        raise ValueError("linear carry requires consistent single-event funding rows")
+    nonzero = due & (rate != 0.0)
+    # A nonzero single-event rate requires a representable positive event
+    # price. Do not substitute the close or try to reconstruct event timing.
+    with np.errstate(over="ignore", under="ignore", invalid="ignore", divide="ignore"):
+        implied_price = price_rate[nonzero] / rate[nonzero]
+    if not np.isfinite(implied_price).all() or np.any(implied_price <= 0.0):
+        raise ValueError("linear carry requires a finite positive funding event price")
+    if tuple(
+        source.contract.volume_unit for source in group.sources
+    ) != dataset.volume_units or not np.array_equal(
+        dataset.resolved_array("contract_multipliers"),
+        [source.contract.contract_multiplier for source in group.sources],
+    ):
+        raise ValueError(
+            "linear carry requires matching fine and coarse instrument units"
+        )
+    if np.any(dataset.resolved_array("split_factor")[span] != 1.0) or np.any(
+        dataset.resolved_array("dividend")[span] != 0.0
+    ):
+        raise ValueError("linear carry does not admit corporate actions")
+
+
 def run_clocked_native_portfolio_replay(
     dataset: MarketDataset,
     policy: PortfolioPolicy,
@@ -265,29 +310,42 @@ def run_clocked_native_portfolio_replay(
     execution_cost: ExecutionCostConfig,
     risk: PreTradeRisk | None = None,
     capture_ledger_evidence: bool = False,
+    execution_mode: Literal["strict_spot", "linear_carry"] = "strict_spot",
 ) -> ClockedNativeReplayResult:
     """Run sparse actor calls while the canonical engine advances every fine bar.
 
-    The first scope is strict spot cash, deterministic MARKET, zero additional
-    latency, previous-bar capacity, no pending partial-fill carry. Hard risk may
-    still override off-schedule exact HOLD and the native terminal tail attempts
-    flattening. The caller must inspect actual settlement/termination.
-    Delayed/unavailable fine bars and non-spot carry are not modeled
-    by this entrypoint. This is a software contract, not execution authority.
+    The default preserves strict long-only spot cash without funding. Explicit
+    linear_carry selects the shared native signed-position/cross-margin and
+    carry accounting with at most one close-assigned funding event per symbol
+    per fine row, explicit price-rate products and identity-bound borrow
+    inputs. Funding applies after the row's open fills, never before them.
+    This is a declared discrete linear model, not exchange-specific event
+    timing, leverage or provider admission. Both modes require deterministic
+    unlevered MARKET, zero additional latency, previous-bar capacity and no
+    pending partial-fill carry. Hard risk may override off-schedule exact HOLD;
+    the terminal tail attempts flattening. Inspect actual settlement.
+    Delayed/unavailable fine bars and intrabar carry are not admitted.
+    This is a software contract, not execution authority.
     """
+    mode: object = execution_mode
+    if type(mode) is not str or mode not in ("strict_spot", "linear_carry"):
+        raise ValueError("invalid clocked native execution_mode")
+    strict_spot = mode == "strict_spot"
     if type(execution_cost) is not ExecutionCostConfig or (
         execution_cost.order_type != "market"
         or execution_cost.order_latency_bars != 0
         or execution_cost.partial_fill_carry
         or execution_cost.processing_bar_volume_capacity
-        or execution_cost.allow_short
+        or (strict_spot and execution_cost.allow_short)
+        or (not strict_spot and execution_cost.margin_mode != "cross")
         or execution_cost.max_leverage > 1.0
         or execution_cost.collateral_haircut != 1.0
         or execution_cost.slippage_std != 0.0
         or execution_cost.tail_slippage_probability != 0.0
     ):
         raise ValueError(
-            "scheduled replay requires deterministic strict spot MARKET without pending carry"
+            "scheduled replay requires deterministic unlevered MARKET without pending carry; "
+            "strict spot is long-only and linear carry requires cross margin"
         )
     if type(dataset) is not MarketDataset:
         raise TypeError("expected a MarketDataset")
@@ -322,7 +380,9 @@ def run_clocked_native_portfolio_replay(
         raise ValueError(
             "scheduled replay requires complete available fine execution bars"
         )
-    if (
+    if not strict_spot:
+        _require_linear_carry_data(dataset, decision_group, span)
+    elif (
         np.any(dataset.resolved_array("funding_event_count")[span])
         or np.any(dataset.resolved_array("funding_due")[span])
         or np.any(dataset.funding_rate[span] != 0.0)
@@ -347,7 +407,7 @@ def run_clocked_native_portfolio_replay(
         execution_cost=execution_cost,
         risk=risk,
         settle_terminal_position=True,
-        strict_spot_cash=True,
+        strict_spot_cash=strict_spot,
         capture_ledger_evidence=capture_ledger_evidence,
     )
     return ClockedNativeReplayResult(

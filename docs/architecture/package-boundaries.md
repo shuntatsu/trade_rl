@@ -327,6 +327,14 @@ whose research plan names no attempt lineage, so `attempt2 launch`, `cli evaluat
 `paper/attempt3.py` is the same plan/seal/launch composition for the successor: it reads
 the preserved attempt-2 root's identity with the v1 reader (read-only), builds lineage
 v4 and the `screen_plan_v3`, and has the same offline/no-collector import boundary.
+The retained `paper/code_identity.py` supplies the shared authorization URL pattern
+and local checkout identity after retirement of the FS1 implementation. Default
+checkout detection requires the resolved module to be at its own repository path
+and that exact path to be a regular blob in the observed HEAD (not an ignored
+substitute, an index-only addition or a symlink). The pinned root commit must
+belong to that HEAD history; a changed HEAD observed across the status query is
+refused. Git status reports modified and non-ignored untracked files as dirty.
+This is a local, non-atomic observation, not authentication or research authority.
 `paper/linux_service.py` is the Linux operating platform of that screen: the run layout,
 the systemd user unit text and a read-only chrony/timesyncd clock report (allow-listed
 read-only commands only); it imports no network, collector, journal or market surface,

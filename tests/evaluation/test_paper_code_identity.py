@@ -145,3 +145,74 @@ def test_the_real_checkout_identity_matches_git_when_history_is_available() -> N
     assert identity.git_head == head.strip()
     # reports a dirty tree as dirty (and a clean one as clean); never silently clean
     assert identity.tracked_tree_clean == (status.strip() == "")
+
+
+def test_default_identity_requires_module_in_head_even_when_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, root, _ = make_repo(tmp_path / "repo")
+    relative = "trade_rl/evaluation/paper/code_identity.py"
+    module = repo / relative
+    module.parent.mkdir(parents=True)
+    (repo / ".gitignore").write_text(f"/{relative}\n", encoding="utf-8")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-q", "-m", "ignore module")
+    module.write_text("# ignored substitute\n", encoding="utf-8")
+    assert git(repo, "ls-files", "--", relative) == ""
+    assert git(repo, "status", "--porcelain", "--untracked-files=all") == ""
+    monkeypatch.setattr(seal, "__file__", str(module))
+    assert seal.current_code_identity(root_commit=root) == CodeIdentity(None, False)
+
+    # The same ordinary tracked module is accepted once present in HEAD.
+    git(repo, "add", "-f", relative)
+    assert seal.current_code_identity(root_commit=root) == CodeIdentity(None, False)
+    git(repo, "commit", "-q", "-m", "track module")
+    head = git(repo, "rev-parse", "HEAD")
+    assert seal.current_code_identity(root_commit=root) == CodeIdentity(head, True)
+    module.write_text("# edited tracked module\n", encoding="utf-8")
+    assert seal.current_code_identity(root_commit=root) == CodeIdentity(head, False)
+
+
+def test_default_identity_refuses_nonregular_head_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, root, _ = make_repo(tmp_path / "repo")
+    relative = "trade_rl/evaluation/paper/code_identity.py"
+    module = repo / relative
+    module.parent.mkdir(parents=True)
+    module.write_text("other.py", encoding="utf-8")
+    # Use the Git index directly: this exercises the tracked mode on every OS,
+    # including Windows without permission to create a filesystem symlink.
+    git(repo, "add", relative)
+    blob = git(repo, "rev-parse", f":{relative}")
+    git(repo, "update-index", "--cacheinfo", f"120000,{blob},{relative}")
+    git(repo, "commit", "-q", "-m", "track nonregular module")
+    assert git(repo, "ls-tree", "HEAD", "--", relative).startswith("120000 blob ")
+    monkeypatch.setattr(seal, "__file__", str(module))
+    assert seal.current_code_identity(root_commit=root) == CodeIdentity(None, False)
+
+
+def test_identity_refuses_observed_head_change_during_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, root, head = make_repo(tmp_path / "repo")
+    original_run = subprocess.run
+
+    def run(*args, **kwargs):
+        result = original_run(*args, **kwargs)
+        if args and args[0][:2] == ["git", "status"]:
+            original_run(
+                ["git", "checkout", "--detach", root],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        return result
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert head != root
+    assert seal.current_code_identity(repo, root_commit=root) == CodeIdentity(
+        None, False
+    )
+    assert git(repo, "rev-parse", "HEAD") == root

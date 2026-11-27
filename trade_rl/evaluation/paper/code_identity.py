@@ -35,11 +35,12 @@ def current_code_identity(
     """Identify the trade_rl checkout this code runs from (no network).
 
     Unavailable (``git_head`` None) unless: ``git rev-parse --show-toplevel`` resolves a
-    repository; with the default ``repo_root`` this very module file is the tracked
-    ``trade_rl/evaluation/paper/code_identity.py`` of that repository (so a non-editable
-    install, or a copy inside some other enclosing repository, is refused); and the
-    repository history contains ``root_commit``, the trade_rl root commit. Untracked
-    non-ignored files make the tree dirty.
+    repository; with the default ``repo_root`` this very module file is a regular
+    blob tracked in HEAD at ``trade_rl/evaluation/paper/code_identity.py`` of that
+    repository (so a non-editable install or a foreign copy is refused); and the
+    observed HEAD history contains ``root_commit``, the trade_rl root commit.
+    Untracked non-ignored files make the tree dirty. This is a local Git observation,
+    not an atomic checkout snapshot or an authentication mechanism.
     """
 
     module_file = Path(__file__).resolve()
@@ -58,15 +59,34 @@ def current_code_identity(
     if toplevel_text is None or not toplevel_text.strip():
         return _UNAVAILABLE
     toplevel = Path(toplevel_text.strip()).resolve()
+    head = run("rev-parse", "HEAD")
+    if head is None or not head.strip():
+        return _UNAVAILABLE
+    head = head.strip()
     if repo_root is None:
-        expected = toplevel / "trade_rl" / "evaluation" / "paper" / "code_identity.py"
-        if module_file != expected.resolve():
+        relative = "trade_rl/evaluation/paper/code_identity.py"
+        expected = toplevel / relative
+        if module_file != expected:
             return _UNAVAILABLE
-    roots = run("rev-list", "--max-parents=0", "HEAD")
+        # A clean status does not prove an ignored module exists in HEAD.
+        # Require the exact path to be a regular tracked blob, not a symlink.
+        entry = run("ls-tree", "-z", head, "--", relative)
+        if entry is None:
+            return _UNAVAILABLE
+        metadata, separator, name = entry.partition("\t")
+        fields = metadata.split()
+        if (
+            separator != "\t"
+            or name != relative + "\0"
+            or len(fields) != 3
+            or fields[0] not in {"100644", "100755"}
+            or fields[1] != "blob"
+        ):
+            return _UNAVAILABLE
+    roots = run("rev-list", "--max-parents=0", head)
     if roots is None or root_commit not in roots.split():
         return _UNAVAILABLE
-    head = run("rev-parse", "HEAD")
     status = run("status", "--porcelain", "--untracked-files=all")
-    if head is None or status is None or not head.strip():
+    if status is None or run("rev-parse", "HEAD") != head + "\n":
         return _UNAVAILABLE
-    return CodeIdentity(head.strip(), status.strip() == "")
+    return CodeIdentity(head, status.strip() == "")

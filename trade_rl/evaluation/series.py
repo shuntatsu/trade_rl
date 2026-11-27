@@ -6,7 +6,13 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 from fractions import Fraction
-from numbers import Integral
+from numbers import Integral, Real
+
+import numpy as np
+
+from trade_rl.data._timestamps import _MAX_DATETIME64_NS, _MIN_FINITE_DATETIME64_NS
+from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
+from trade_rl.data.native_execution_clock import calendar_month_execution_frequency
 
 
 class ReturnKind(StrEnum):
@@ -72,6 +78,77 @@ class ReturnSeries:
         if self.elapsed_years is None:
             return float(self.periods_per_year)
         return len(self.values) / self.elapsed_years
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarMonthReturnSeries(ReturnSeries):
+    """Complete UTC calendar-month returns; frequency is descriptive, not fixed."""
+
+    closes_ns: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind is not ReturnKind.BASE_BAR
+            or self.elapsed_years is not None
+            or type(self.periods_per_year) is not Fraction
+            or type(self.values) is not tuple
+            or type(self.closes_ns) is not tuple
+            or not self.closes_ns
+            or len(self.closes_ns) != len(self.values)
+            or any(
+                type(x) is not int
+                or not _MIN_FINITE_DATETIME64_NS <= x <= _MAX_DATETIME64_NS
+                for x in self.closes_ns
+            )
+        ):
+            raise ValueError("invalid calendar month return series")
+        expected = calendar_month_execution_frequency(
+            NativeBarClock(NativeClockKind.UTC_MONTH), self.closes
+        )
+        if self.periods_per_year != expected:
+            raise ValueError(
+                "calendar month return frequency does not match its intervals"
+            )
+        normalized: list[float] = []
+        for raw_item in self.values:
+            item: object = raw_item
+            if isinstance(item, (bool, np.bool_)) or not isinstance(item, Real):
+                raise ValueError("calendar month returns must be real numbers")
+            try:
+                value = float(item)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError("calendar month return is not representable") from exc
+            if not math.isfinite(value) or value <= -1.0:
+                raise ValueError(
+                    "calendar month returns must be finite and greater than -1"
+                )
+            normalized.append(value)
+        object.__setattr__(self, "values", tuple(normalized))
+
+    @property
+    def closes(self) -> np.ndarray:
+        return np.asarray(self.closes_ns, dtype=np.int64).view("datetime64[ns]")
+
+    @property
+    def exact_elapsed_years(self) -> Fraction:
+        return NativeBarClock(NativeClockKind.UTC_MONTH).elapsed_years(self.closes)
+
+    @property
+    def annualization_periods_per_year(self) -> float:
+        raise ValueError("calendar month returns require duration-aware annualization")
+
+    @classmethod
+    def from_closes(
+        cls, values: tuple[float, ...], closes: np.ndarray
+    ) -> CalendarMonthReturnSeries:
+        clock = NativeBarClock(NativeClockKind.UTC_MONTH)
+        _, ends = clock.interval_bounds(closes)
+        return cls(
+            values,
+            ReturnKind.BASE_BAR,
+            calendar_month_execution_frequency(clock, ends),
+            closes_ns=tuple(int(x) for x in ends.view(np.int64)),
+        )
 
 
 def _finite_annualization(returns: ReturnSeries, *, label: str) -> float:

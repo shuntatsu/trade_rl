@@ -6,8 +6,9 @@ Sharpe, drawdown, equity, positions): continuous performance between interim
 stages would be peeking. Result files are read through an explicit allowlist;
 every other field is dropped before any output is built.
 
-This is orientation only. It is not an authorization gate and never writes to a
-ledger directory.
+This is orientation only, not an authorization gate or an atomic ledger snapshot.
+The POSIX reader uses no-follow directory descriptors. All formats go to stdout;
+the tool has no filesystem output path.
 """
 
 from __future__ import annotations
@@ -19,13 +20,14 @@ import os
 import re
 import stat
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, BinaryIO, Callable, Sequence
 
-from trade_rl.artifacts.stage_claim import StageClaim
+from trade_rl.artifacts.canonical import strict_json_loads
+from trade_rl.artifacts.stage_claim import StageClaim, _open_root
+from trade_rl.artifacts.verified_file import open_regular_binary
 
 SCHEMA_VERSION = "stage_claims_status_v1"
 NO_PERFORMANCE_NOTICE = (
@@ -38,13 +40,13 @@ RESULT_RECORDED = "RESULT_RECORDED"
 INVALID = "INVALID"
 NOT_CLAIMED = "NOT_CLAIMED"
 
-# Result-file fields that may be read. Everything else is discarded unread,
-# including any metric-like key at any nesting depth.
+# Only these result fields may enter the report. Other JSON members are parsed
+# but never emitted; labels remain protocol-defined, not authenticated.
 RESULT_ALLOWLIST = ("stage", "label", "protocol_digest", "result_sha256")
 
 _STAGE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
-_LABEL = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
+_LABEL = re.compile(r"[A-Z][A-Z0-9_]{0,79}")
 _LEGACY_CLAIM = re.compile(r"([A-Z][A-Z0-9_]{0,63})\.claim")
 _LEGACY_RESULT = re.compile(r"((?:stage-)?[A-Z][A-Z0-9_]{0,63})\.result\.json")
 _V1_CLAIM = re.compile(r"stage-([A-Z][A-Z0-9_]{0,63})\.claim")
@@ -61,6 +63,7 @@ class _Claim:
     stage: str
     protocol_digest: str
     commit: str
+    repository_id: int | None
     comment_id: int
     claimed_at: str
     schema: str
@@ -81,7 +84,7 @@ class _Group:
     stage: str
     claim: _Claim | None = None
     result: _Result | None = None
-    comments: list[tuple[str, int]] = field(default_factory=list)
+    comments: list[tuple[str, _Claim]] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
 
@@ -90,23 +93,58 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
 
 
-def _read_regular(path: Path, limit: int) -> bytes:
-    """Read a regular, non-symlink file with a bounded size."""
-    info = os.lstat(path)
-    if not stat.S_ISREG(info.st_mode):
-        raise ValueError("not a regular file")
-    if info.st_size > limit:
+def _file_identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _bounded_read(
+    handle: BinaryIO, limit: int, expected: os.stat_result | None = None
+) -> tuple[bytes, os.stat_result]:
+    before = os.fstat(handle.fileno())
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise ValueError("not a single-link regular file")
+    if expected is not None and _file_identity(before) != _file_identity(expected):
+        raise ValueError("file changed before reading")
+    if before.st_size > limit:
         raise ValueError("file exceeds the size limit")
-    with open(path, "rb") as handle:
-        data = handle.read(limit + 1)
+    data = handle.read(limit + 1)
     if len(data) > limit:
         raise ValueError("file exceeds the size limit")
-    return data
+    if (
+        len(data) != before.st_size
+        or _file_identity(os.fstat(handle.fileno())) != _file_identity(before)
+    ):
+        raise ValueError("file changed during reading")
+    return data, before
+
+
+def _read_regular(
+    directory: int, name: str, limit: int, expected: os.stat_result
+) -> tuple[bytes, os.stat_result]:
+    """Read a held directory's leaf, refusing symlinks and replaced files."""
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+    )
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            data, info = _bounded_read(handle, limit, expected)
+        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        if _file_identity(current) != _file_identity(info):
+            raise ValueError("file changed during reading")
+        return data, info
+    finally:
+        os.close(descriptor)
 
 
 def _json_object(data: bytes) -> dict[str, Any]:
     try:
-        value = json.loads(data.decode("utf-8"))
+        value = strict_json_loads(data.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise ValueError("not valid UTF-8 JSON") from exc
     if not isinstance(value, dict):
@@ -114,9 +152,9 @@ def _json_object(data: bytes) -> dict[str, Any]:
     return value
 
 
-def _parse_claim(path: Path, expected_stage: str | None) -> _Claim:
+def _parse_claim(data: bytes, expected_stage: str | None) -> _Claim:
     """Validate a claim marker, reusing StageClaim's field validation."""
-    body = _json_object(_read_regular(path, _MAX_CLAIM_BYTES))
+    body = _json_object(data)
     schema = body.get("schema_version")
     if schema is None:
         # Frozen legacy format: authorization_comment_id and no repository id.
@@ -161,22 +199,23 @@ def _parse_claim(path: Path, expected_stage: str | None) -> _Claim:
             claimed_at=claimed_at,
         )
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid claim field: {exc}") from exc
+        raise ValueError("invalid claim field") from exc
     if expected_stage is not None and validated.stage != expected_stage:
         raise ValueError("claim stage differs from its file name")
     return _Claim(
         validated.stage,
         validated.protocol_digest,
         validated.commit,
+        validated.repository_id if label == _V1_SCHEMA else None,
         validated.comment_id,
         _iso(validated.claimed_at),
         label,
     )
 
 
-def _parse_result(path: Path, expected_stage: str) -> _Result:
-    """Extract only allowlisted fields; every other key is never read out."""
-    body = _json_object(_read_regular(path, _MAX_RESULT_BYTES))
+def _parse_result(data: bytes, expected_stage: str, info: os.stat_result) -> _Result:
+    """Extract only allowlisted fields and the opened file's timestamp."""
+    body = _json_object(data)
     picked = {key: body.get(key) for key in RESULT_ALLOWLIST}
     stage, label = picked["stage"], picked["label"]
     protocol, digest = picked["protocol_digest"], picked["result_sha256"]
@@ -190,7 +229,7 @@ def _parse_result(path: Path, expected_stage: str) -> _Result:
         raise ValueError("result protocol digest is missing or malformed")
     if type(digest) is not str or not _HEX64.fullmatch(digest):
         raise ValueError("result digest is missing or malformed")
-    recorded = datetime.fromtimestamp(os.lstat(path).st_mtime, UTC)
+    recorded = datetime.fromtimestamp(info.st_mtime, UTC)
     return _Result(stage, label, protocol, digest, _iso(recorded))
 
 
@@ -206,39 +245,52 @@ def _scan(root: Path) -> tuple[list[_Group], list[dict[str, Any]]]:
             groups[key] = _Group(location, stage)
         return groups[key]
 
-    def walk(directory: Path, location: str, depth: int) -> None:
+    def walk(directory: int, location: str, depth: int) -> None:
         nonlocal seen
-        try:
-            names = sorted(os.listdir(directory))
-        except OSError:
-            loose.append(_loose(location, "", "directory cannot be listed"))
-            return
-        for name in names:
-            seen += 1
-            if seen > _MAX_ENTRIES:
-                if seen == _MAX_ENTRIES + 1:
-                    loose.append(_loose(location, "", "entry limit exceeded"))
-                return
-            path = directory / name
+        # Bound the roster while enumerating; never sort an unbounded list or
+        # present a partial scan as evidence that a stage is unclaimed.
+        names: list[str] = []
+        with os.scandir(directory) as children:
+            for child in children:
+                seen += 1
+                if seen > _MAX_ENTRIES:
+                    raise ValueError("ledger entry limit exceeded")
+                names.append(child.name)
+        for name in sorted(names):
             try:
-                info = os.lstat(path)
+                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
             except OSError:
-                loose.append(_loose(location, name, "file cannot be inspected"))
+                loose.append(_loose(location, "", "file cannot be inspected"))
                 continue
             if stat.S_ISLNK(info.st_mode):
-                loose.append(_loose(location, name, "symlink is not followed"))
+                loose.append(_loose(location, "", "symlink is not followed"))
             elif stat.S_ISDIR(info.st_mode):
+                if not _HEX64.fullmatch(name):
+                    loose.append(_loose(location, "", "foreign directory"))
+                    continue
                 if depth >= _MAX_DEPTH:
-                    loose.append(_loose(location, name, "directory depth limit"))
-                else:
-                    child = f"{location}/{name}" if location else name
-                    walk(path, child, depth + 1)
+                    raise ValueError("ledger directory depth limit exceeded")
+                child_location = f"{location}/{name}" if location else name
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory,
+                )
+                try:
+                    opened = os.fstat(descriptor)
+                    if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                        raise ValueError("ledger directory identity changed")
+                    walk(descriptor, child_location, depth + 1)
+                finally:
+                    os.close(descriptor)
             elif stat.S_ISREG(info.st_mode):
-                _classify(path, name, location)
+                _classify(directory, name, location, info)
             else:
-                loose.append(_loose(location, name, "not a regular file"))
+                loose.append(_loose(location, "", "not a regular file"))
 
-    def _classify(path: Path, name: str, location: str) -> None:
+    def _classify(
+        directory: int, name: str, location: str, info: os.stat_result
+    ) -> None:
         v1 = _V1_CLAIM.fullmatch(name)
         legacy = _LEGACY_CLAIM.fullmatch(name)
         comment = _COMMENT_CLAIM.fullmatch(name)
@@ -248,36 +300,50 @@ def _scan(root: Path) -> tuple[list[_Group], list[dict[str, Any]]]:
                 stage = (v1 or legacy).group(1)  # type: ignore[union-attr]
                 entry = group(location, stage)
                 entry.files.append(name)
-                claim = _parse_claim(path, stage)
+                data, _ = _read_regular(directory, name, _MAX_CLAIM_BYTES, info)
+                claim = _parse_claim(data, stage)
                 if (v1 is not None) != (claim.schema == _V1_SCHEMA):
                     raise ValueError("claim schema differs from its file name")
+                if entry.claim is not None:
+                    raise ValueError("duplicate stage claim marker")
                 entry.claim = claim
             elif comment:
-                claim = _parse_claim(path, None)
-                if claim.schema != _V1_SCHEMA:
-                    raise ValueError("comment marker has the wrong schema")
-                if f"{comment.group(2)}" != str(claim.comment_id):
-                    raise ValueError("comment marker id differs from its name")
+                data, _ = _read_regular(directory, name, _MAX_CLAIM_BYTES, info)
+                claim = _parse_claim(data, None)
                 entry = group(location, claim.stage)
                 entry.files.append(name)
-                entry.comments.append((name, claim.comment_id))
+                if claim.schema != _V1_SCHEMA:
+                    entry.problems.append("comment marker has the wrong schema")
+                elif (comment.group(1), comment.group(2)) != (
+                    str(claim.repository_id),
+                    str(claim.comment_id),
+                ):
+                    entry.problems.append(
+                        "comment marker identity differs from its name"
+                    )
+                else:
+                    entry.comments.append((name, claim))
             elif result:
-                raw = result.group(1)
-                stage = raw.removeprefix("stage-")
+                stage = result.group(1).removeprefix("stage-")
                 entry = group(location, stage)
                 entry.files.append(name)
-                entry.result = _parse_result(path, stage)
+                data, observed = _read_regular(directory, name, _MAX_RESULT_BYTES, info)
+                parsed = _parse_result(data, stage, observed)
+                if entry.result is not None:
+                    raise ValueError("duplicate result marker")
+                entry.result = parsed
             else:
-                loose.append(_loose(location, name, "foreign file"))
-        except (OSError, ValueError) as exc:
-            reason = str(exc) or "unreadable file"
+                loose.append(_loose(location, "", "foreign file"))
+        except (OSError, ValueError, OverflowError) as exc:
+            reason = str(exc) if isinstance(exc, ValueError) else "file cannot be read"
             stage_name = _stage_from_name(name)
             if stage_name is None:
-                loose.append(_loose(location, name, reason))
+                loose.append(_loose(location, "", reason))
             else:
                 group(location, stage_name).problems.append(f"{name}: {reason}")
 
-    walk(root, "", 0)
+    with _open_root(root.absolute()) as directory:
+        walk(directory, "", 0)
     return [groups[key] for key in sorted(groups)], loose
 
 
@@ -315,9 +381,13 @@ def _entry_for(item: _Group) -> dict[str, Any]:
         if claim.protocol_digest != namespace:
             problems.append("claim digest differs from its digest-named directory")
     if claim is not None:
-        for name, comment_id in item.comments:
-            if comment_id != claim.comment_id:
-                problems.append(f"{name}: comment id differs from the stage claim")
+        if claim.schema == _V1_SCHEMA:
+            if len(item.comments) != 1:
+                problems.append("v1 stage requires exactly one matching comment marker")
+            elif item.comments[0][1] != claim:
+                problems.append("comment marker identity differs from the stage claim")
+        elif item.comments:
+            problems.append("legacy claim cannot have a v1 comment marker")
     entry: dict[str, Any] = {
         "location": item.location,
         "stage": item.stage,
@@ -418,22 +488,22 @@ def build_report(
     matched: set[str] = set()
     for ledger in ledgers:
         try:
-            ok = stat.S_ISDIR(os.lstat(ledger).st_mode)
-        except OSError:
-            ok = False
-        if not ok:
+            groups, loose = _scan(ledger)
+        except (OSError, ValueError):
             out.append(
                 {
                     "path": str(ledger),
-                    "error": "ledger is not a readable real directory",
+                    "error": (
+                        "ledger is not a readable real directory or scan is incomplete"
+                    ),
                     "entries": [],
                 }
             )
             continue
-        groups, loose = _scan(ledger)
         entries = [_entry_for(item) for item in groups]
         entries.extend(loose)
-        if scheduled:
+        # An invalid observation cannot establish that another stage is absent.
+        if scheduled and not any(entry["state"] == INVALID for entry in entries):
             matched.update(_apply_schedule(entries, scheduled, reference))
         for entry in entries:
             entry.setdefault("earliest_allowed", None)
@@ -609,30 +679,11 @@ def render_html(report: dict[str, Any]) -> str:
     return "\n".join(parts) + "\n"
 
 
-def write_html(path: Path, content: str, *, replace: bool) -> None:
-    """Write the page with exclusive create; `replace` swaps atomically."""
-    data = content.encode("utf-8")
-    if not replace:
-        with open(path, "xb") as handle:
-            handle.write(data)
-        return
-    directory = path.resolve().parent
-    fd, temporary = tempfile.mkstemp(prefix=".stage-status-", dir=directory)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        os.replace(temporary, path)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
-
-
 def load_schedule(path: Path) -> dict[str, dict[str, date]]:
     """Parse {protocol_digest: {STAGE: 'YYYY-MM-DD'}}; reject anything else."""
-    body = _json_object(_read_regular(path, _MAX_CLAIM_BYTES))
+    with open_regular_binary(path, field="stage schedule") as handle:
+        data, _ = _bounded_read(handle, _MAX_CLAIM_BYTES)
+    body = _json_object(data)
     schedule: dict[str, dict[str, date]] = {}
     for digest, stages in body.items():
         if not _HEX64.fullmatch(digest) or not isinstance(stages, dict):
@@ -658,9 +709,9 @@ def main(
     )
     parser.add_argument("ledgers", nargs="+", type=Path, metavar="LEDGER_DIR")
     parser.add_argument("--schedule", type=Path, help="JSON: protocol -> stage -> date")
-    parser.add_argument("--json", action="store_true", help="deterministic JSON")
-    parser.add_argument("--html", type=Path, help="write a static HTML page")
-    parser.add_argument("--replace", action="store_true", help="overwrite --html")
+    formats = parser.add_mutually_exclusive_group()
+    formats.add_argument("--json", action="store_true", help="deterministic JSON")
+    formats.add_argument("--html", action="store_true", help="static HTML on stdout")
     parser.add_argument("--as-of", help="override today's date (YYYY-MM-DD)")
     args = parser.parse_args(argv)
     schedule: dict[str, dict[str, date]] | None = None
@@ -675,13 +726,8 @@ def main(
         print(f"error: {exc}", file=sys.stderr)
         return 2
     report = build_report(args.ledgers, schedule, reference)
-    if args.html is not None:
-        try:
-            write_html(args.html, render_html(report), replace=args.replace)
-        except OSError as exc:
-            print(f"error: cannot write HTML: {exc}", file=sys.stderr)
-            return 2
-    sys.stdout.write(render_json(report) if args.json else render_text(report))
+    renderer = render_html if args.html else render_json if args.json else render_text
+    sys.stdout.write(renderer(report))
     return 1 if any(item["error"] for item in report["ledgers"]) else 0
 
 

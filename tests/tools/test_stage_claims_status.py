@@ -12,6 +12,10 @@ import pytest
 
 from tools import stage_claims_status as status
 
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="strict dir-fd POSIX contract"
+)
+
 DIGEST_A = "a1" * 32
 DIGEST_B = "b2" * 32
 RESULT_SHA = "c3" * 32
@@ -113,13 +117,14 @@ def test_claimed_and_recorded_legacy_stages(tmp_path: Path) -> None:
     assert entries["FINAL"]["result_label"] is None
 
 
-def test_no_metric_data_in_any_output(tmp_path: Path) -> None:
+def test_no_metric_data_in_any_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     root = tmp_path / "ledger"
     _write(root / "INTERIM_A.claim", _legacy_claim())
     _write(root / "INTERIM_A.result.json", _result_with_metrics())
-    html_path = tmp_path / "page.html"
-    assert status.main([str(root), "--html", str(html_path)]) == 0
-    outputs = [*_outputs(root, tmp_path), html_path.read_text(encoding="utf-8")]
+    assert status.main([str(root), "--html"]) == 0
+    outputs = [*_outputs(root, tmp_path), capsys.readouterr().out]
     for text in outputs:
         lowered = text.lower()
         for key in METRIC_KEYS:
@@ -298,29 +303,34 @@ def test_json_is_deterministic_and_order_independent(tmp_path: Path) -> None:
     assert json.loads(first)["as_of"] is None
 
 
-def test_html_is_self_contained_and_exclusive(
+def test_html_is_self_contained_and_stdout_only(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = tmp_path / "ledger"
+    root = tmp_path / "ledger&a'b"
     _write(root / "INTERIM_A.claim", _legacy_claim())
-    _write(root / "a&b'x.txt", b"x")
-    page = tmp_path / "out.html"
-    assert status.main([str(root), "--html", str(page)]) == 0
-    first = page.read_bytes()
-    lowered = first.decode("utf-8").lower()
+    _write(root / "sharpe_1.53_pnl_0.42.csv", b"x")
+    before = sorted(
+        (p.name, p.read_bytes(), p.stat().st_mtime_ns) for p in root.iterdir()
+    )
+    assert status.main([str(root), "--html"]) == 0
+    first = capsys.readouterr().out
+    lowered = first.lower()
     assert "<script" not in lowered
-    assert "a&amp;b&#x27;x.txt: foreign file" in lowered
+    assert "ledger&amp;a&#x27;b" in lowered
+    assert "foreign file" in lowered
+    assert "sharpe_1.53_pnl_0.42.csv" not in first
     for banned in ("http://", "https://", "src=", "<link", "<img", "@import", "url("):
         assert banned not in lowered
     assert "no performance data" in lowered
-    assert b"\r" not in first
-    page.write_bytes(b"SENTINEL")
-    assert status.main([str(root), "--html", str(page)]) == 2
-    assert page.read_bytes() == b"SENTINEL"
-    assert "cannot write HTML" in capsys.readouterr().err
-    assert status.main([str(root), "--html", str(page), "--replace"]) == 0
-    assert page.read_bytes() == first
-    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".stage-status-")]
+    assert "\r" not in first
+    assert first == status.render_html(status.build_report([root]))
+    with pytest.raises(SystemExit) as exc:
+        status.main([str(root), "--html", "--json"])
+    assert exc.value.code == 2
+    after = sorted(
+        (p.name, p.read_bytes(), p.stat().st_mtime_ns) for p in root.iterdir()
+    )
+    assert before == after
 
 
 def test_schedule_due_and_overdue_with_injected_clock(tmp_path: Path) -> None:
@@ -403,3 +413,188 @@ def test_ledger_directory_is_never_modified(tmp_path: Path) -> None:
         (p.name, p.read_bytes(), p.stat().st_mtime_ns) for p in root.iterdir()
     )
     assert before == after
+
+
+@pytest.mark.parametrize("mode", ["new", "replace", "alias"])
+def test_no_html_destination_can_mutate_ledger(tmp_path: Path, mode: str) -> None:
+    root = tmp_path / "ledger"
+    marker = root / "INTERIM_A.claim"
+    _write(marker, _legacy_claim())
+    original = marker.read_bytes()
+    before = root.stat().st_mtime_ns
+    target = root / "report.html"
+    args = [str(root), "--html"]
+    if mode == "replace":
+        target = marker
+        args.extend([str(target), "--replace"])
+    elif mode == "alias":
+        alias = tmp_path / "alias"
+        alias.symlink_to(root, target_is_directory=True)
+        args.append(str(alias / "report.html"))
+    else:
+        args.append(str(target))
+    try:
+        result = status.main(args)
+    except SystemExit as exc:
+        result = exc.code
+    assert result != 0
+    assert marker.read_bytes() == original
+    assert sorted(p.name for p in root.iterdir()) == [marker.name]
+    assert root.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize("kind", ["claim", "result"])
+def test_duplicate_markers_do_not_select_a_winner(tmp_path: Path, kind: str) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "STAGE_ONE.claim", _legacy_claim("STAGE_ONE"))
+    _write(
+        root / "STAGE_ONE.result.json", _result_with_metrics("STAGE_ONE", label="A")
+    )
+    if kind == "claim":
+        _write(root / "stage-STAGE_ONE.claim", _v1_claim())
+        _write(root / "comment-5-22.claim", _v1_claim())
+    else:
+        _write(
+            root / "stage-STAGE_ONE.result.json",
+            _result_with_metrics("STAGE_ONE", label="B"),
+        )
+    (entry,) = _entries(root)
+    assert entry["state"] == status.INVALID
+    assert "duplicate" in entry["reason"]
+    assert entry["result_label"] is None
+
+
+@pytest.mark.parametrize(
+    ("name", "overrides"),
+    [
+        (None, {}),
+        ("comment-9-22.claim", {}),
+        ("comment-5-22.claim", {"protocol_digest": DIGEST_B}),
+        ("comment-5-22.claim", {"commit": "e5" * 20}),
+        ("comment-5-22.claim", {"claimed_at": "2027-01-03T03:04:05+00:00"}),
+        ("comment-9-22.claim", {"repository_id": 9}),
+        ("comment-5-23.claim", {"comment_id": 23}),
+    ],
+)
+def test_v1_stage_requires_exact_comment_pair(
+    tmp_path: Path, name: str | None, overrides: dict[str, Any]
+) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "stage-STAGE_ONE.claim", _v1_claim())
+    if name is not None:
+        _write(root / name, {**_v1_claim(), **overrides})
+    entry = next(e for e in _entries(root) if e["stage"] == "STAGE_ONE")
+    assert entry["state"] == status.INVALID
+    assert "comment" in entry["reason"]
+
+
+def test_duplicate_json_member_is_not_a_valid_claim(tmp_path: Path) -> None:
+    root = tmp_path / "ledger"
+    payload = json.dumps(_legacy_claim())[:-1] + ',"stage":"INTERIM_A"}'
+    _write(root / "INTERIM_A.claim", payload.encode())
+    (entry,) = _entries(root)
+    assert entry["state"] == status.INVALID
+
+
+def test_symlinked_root_ancestor_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    _write(outside / "ledger" / "INTERIM_A.claim", _legacy_claim())
+    alias = tmp_path / "alias"
+    alias.symlink_to(outside, target_is_directory=True)
+    report = status.build_report([alias / "ledger"])["ledgers"][0]
+    assert report["error"] and not report["entries"]
+
+
+def test_symlink_replacement_after_file_inspection_is_not_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ledger"
+    marker = root / "INTERIM_A.claim"
+    _write(marker, _legacy_claim())
+    outside = tmp_path / "outside.json"
+    _write(outside, _legacy_claim(comment=999))
+    original_lstat, original_stat = os.lstat, os.stat
+    replaced = False
+    inspections = 0
+
+    def swap() -> None:
+        nonlocal replaced
+        if not replaced:
+            marker.unlink()
+            marker.symlink_to(outside)
+            replaced = True
+
+    def lstat(path, *args, **kwargs):
+        nonlocal inspections
+        info = original_lstat(path, *args, **kwargs)
+        if path == marker:
+            inspections += 1
+            if inspections == 2:
+                swap()
+        return info
+
+    def stat_fn(path, *args, **kwargs):
+        info = original_stat(path, *args, **kwargs)
+        if path == marker.name and kwargs.get("dir_fd") is not None:
+            swap()
+        return info
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    monkeypatch.setattr(os, "stat", stat_fn)
+    entries = _entries(root)
+    assert replaced
+    assert all(e["state"] == status.INVALID for e in entries)
+    assert all(e.get("comment_id") != 999 for e in entries)
+
+
+def test_invalid_claim_timestamp_does_not_echo_untrusted_value(tmp_path: Path) -> None:
+    root = tmp_path / "ledger"
+    _write(
+        root / "INTERIM_A.claim", {**_legacy_claim(), "claimed_at": "METRIC=987.123"}
+    )
+    assert all("987.123" not in output for output in _outputs(root, tmp_path))
+
+
+def test_scan_limit_refuses_partial_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "INTERIM_A.claim", _legacy_claim())
+    _write(root / "FINAL.claim", _legacy_claim("FINAL"))
+    monkeypatch.setattr(status, "_MAX_ENTRIES", 1)
+    report = status.build_report([root])["ledgers"][0]
+    assert report["error"] and not report["entries"]
+
+
+@pytest.mark.parametrize("kind", ["hardlink", "label", "foreign_dir"])
+def test_refuses_ambiguous_or_foreign_observations(tmp_path: Path, kind: str) -> None:
+    root = tmp_path / "ledger"
+    root.mkdir()
+    if kind == "hardlink":
+        outside = tmp_path / "outside.json"
+        _write(outside, _legacy_claim())
+        os.link(outside, root / "INTERIM_A.claim")
+    elif kind == "label":
+        _write(root / "INTERIM_A.claim", _legacy_claim())
+        _write(
+            root / "INTERIM_A.result.json",
+            _result_with_metrics(label="SHARPE:987.123"),
+        )
+    else:
+        _write(root / "METRIC_987.123" / "INTERIM_A.claim", _legacy_claim())
+    entries = _entries(root)
+    assert entries and all(entry["state"] == status.INVALID for entry in entries)
+    assert all("987.123" not in output for output in _outputs(root, tmp_path))
+
+
+def test_invalid_scan_does_not_infer_unclaimed_stages(tmp_path: Path) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "INTERIM_A.claim", _legacy_claim())
+    _write(root / "comment-5-22.claim", b"{incomplete")
+    schedule = {DIGEST_A: {"INTERIM_B": TODAY}}
+    report = status.build_report([root], schedule, TODAY)
+    assert not any(
+        entry["state"] == status.NOT_CLAIMED
+        for entry in report["ledgers"][0]["entries"]
+    )
+    assert report["schedule_unmatched_protocols"] == [DIGEST_A]

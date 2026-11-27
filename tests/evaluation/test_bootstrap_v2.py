@@ -29,7 +29,20 @@ def test_short_sample_cannot_hide_nonfinite_difference(value: float) -> None:
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{"n_bootstrap": True}, {"n_bootstrap": 1.5}, {"seed": True}, {"seed": 0.5}],
+    [
+        {"n_bootstrap": True},
+        {"n_bootstrap": np.bool_(True)},
+        {"n_bootstrap": 1.5},
+        {"n_bootstrap": 0},
+        {"seed": True},
+        {"seed": np.bool_(True)},
+        {"seed": 0.5},
+        {"seed": -1},
+        {"block_size": True},
+        {"block_size": np.bool_(True)},
+        {"block_size": 0},
+        {"block_size": 1.5},
+    ],
 )
 def test_degenerate_sample_still_requires_integral_resampling_contract(kwargs) -> None:
     with pytest.raises(ValueError, match="integer"):
@@ -58,6 +71,9 @@ def test_legacy_valid_bootstrap_vector_and_degenerate_policy_are_unchanged() -> 
         block_size=3,
     )
     assert moving_block_mean_test((0.25,)) == BootstrapResult(1.0, 0.0, 0.0, 1)
+    assert moving_block_mean_test((0.0, 0.0), block_size=99) == BootstrapResult(
+        1.0, 0.0, 0.0, 2
+    )
     assert moving_block_mean_test(()) == BootstrapResult(1.0, 0.0, 0.0, 1)
     assert moving_block_mean_test((1e-16, -1e-16)) == BootstrapResult(1.0, 0.0, 0.0, 1)
 
@@ -79,3 +95,16 @@ def test_finite_resamples_cannot_produce_false_significance_from_centering_overf
 def test_bootstrap_rejects_nonnative_rank_before_short_sample_fallback() -> None:
     with pytest.raises(ValueError, match="finite 1-D"):
         moving_block_mean_test(((0.1, 0.2),))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_quantile_failure_never_publishes_an_interval(monkeypatch, bad: float) -> None:
+    # Fault injection at the quantile boundary, separate from resample overflow.
+    def broken_quantile(means, probabilities):
+        assert means.shape == (5,) and np.isfinite(means).all()
+        assert probabilities == [0.025, 0.975]
+        return np.array([bad, 0.1])
+
+    monkeypatch.setattr(np, "quantile", broken_quantile)
+    with pytest.raises(ValueError, match="bootstrap interval must be finite"):
+        moving_block_mean_test((0.01, -0.01), n_bootstrap=5)

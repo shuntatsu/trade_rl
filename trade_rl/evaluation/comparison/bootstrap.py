@@ -23,11 +23,7 @@ class BootstrapResult:
 def _resolve_block_size(*, requested: object, n_values: int) -> int:
     if requested is None:
         return max(1, min(n_values, math.ceil(math.sqrt(n_values))))
-    if isinstance(requested, bool) or not isinstance(requested, Integral):
-        raise ValueError("block_size must be a positive integer")
-    value = int(requested)
-    if value <= 0:
-        raise ValueError("block_size must be a positive integer")
+    value = _require_integer(requested, name="block_size", minimum=1)
     return min(value, max(n_values, 1))
 
 

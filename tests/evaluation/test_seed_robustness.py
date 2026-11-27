@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from trade_rl.evaluation.comparison.seed_robustness import (
@@ -125,3 +127,93 @@ def test_seed_summary_preserves_matching_elapsed_clock() -> None:
     )
     assert summary.median_baseline_difference == 0.0
     assert summary.bootstrap_p_value == 1.0
+
+
+@pytest.mark.parametrize("delta, compatible", [(5e-13, True), (2e-12, False)])
+def test_effective_clock_uses_the_existing_paired_tolerance(delta, compatible) -> None:
+    baseline = _elapsed_series(2.0 / 200.0)
+    candidate = _elapsed_series(2.0 / (200.0 + delta))
+    difference = abs(
+        candidate.annualization_periods_per_year
+        - baseline.annualization_periods_per_year
+    )
+    assert (difference <= 1e-12) is compatible
+    seeds = (SeedEvaluation(0, candidate, 0.0), SeedEvaluation(1, baseline, 0.0))
+    if compatible:
+        assert (
+            summarize_seed_robustness(
+                evaluation_label="synthetic",
+                seeds=seeds,
+                baseline=baseline,
+                n_bootstrap=5,
+            ).median_baseline_difference
+            == 0.0
+        )
+    else:
+        with pytest.raises(ValueError, match="annualization"):
+            summarize_seed_robustness(
+                evaluation_label="synthetic",
+                seeds=seeds,
+                baseline=baseline,
+                n_bootstrap=5,
+            )
+
+
+@pytest.mark.parametrize("years, compatible", [(2.0 / 365.0, True), (0.01, False)])
+def test_effective_clock_checks_mixed_explicit_and_implicit_elapsed_time(
+    years, compatible
+) -> None:
+    baseline = _series((0.01, 0.02))
+    candidate = _elapsed_series(years)
+    seeds = (SeedEvaluation(0, candidate, 0.0), SeedEvaluation(1, baseline, 0.0))
+    if compatible:
+        assert (
+            summarize_seed_robustness(
+                evaluation_label="synthetic",
+                seeds=seeds,
+                baseline=baseline,
+                n_bootstrap=5,
+            ).median_baseline_difference
+            == 0.0
+        )
+    else:
+        with pytest.raises(ValueError, match="annualization"):
+            summarize_seed_robustness(
+                evaluation_label="synthetic",
+                seeds=seeds,
+                baseline=baseline,
+                n_bootstrap=5,
+            )
+
+
+@pytest.mark.parametrize("invalid_baseline", [False, True])
+def test_effective_clock_rejects_unrepresentable_annualization(
+    invalid_baseline,
+) -> None:
+    finite = _elapsed_series(0.01)
+    unrepresentable = _elapsed_series(5e-324)
+    assert math.isinf(unrepresentable.annualization_periods_per_year)
+    baseline = unrepresentable if invalid_baseline else finite
+    seeds = (SeedEvaluation(0, unrepresentable, 0.0), SeedEvaluation(1, finite, 0.0))
+    with pytest.raises(ValueError, match="annualization"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic", seeds=seeds, baseline=baseline, n_bootstrap=5
+        )
+
+
+def test_matching_effective_clock_does_not_remove_legacy_nominal_check() -> None:
+    baseline = _elapsed_series(0.01)
+    candidate = ReturnSeries(
+        (0.01, 0.02), ReturnKind.DECISION_STEP, 200, elapsed_years=0.01
+    )
+    assert (
+        candidate.annualization_periods_per_year
+        == baseline.annualization_periods_per_year
+    )
+    with pytest.raises(ValueError, match="annualization"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(SeedEvaluation(0, candidate, 0.0), SeedEvaluation(1, baseline, 0.0)),
+            baseline=baseline,
+            n_bootstrap=5,
+        )

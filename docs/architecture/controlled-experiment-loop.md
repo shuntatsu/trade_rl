@@ -198,7 +198,7 @@ factorごとに影響しないstrategyのraw returnsを完全一致で検証す�
 
 ## Analysis semantics
 
-既存のpaired-return / block-bootstrap / seed robustness primitiveを再利用する。 Circular moving-block bootstrapは短い/縮退sampleでも有限な一次元差分・整数のseed/countを先に検証し、観測平均・resample平均・区間・中心化平均のoverflowを拒否する。正当な旧sampleの乱数stream・統計式・縮退規則は変えない。Seed robustnessはreturn kind・長さ・従来の年率period設定に加え、実経過時間を反映した有限な正のeffective annualizationをpaired比較の既存許容差で照合する。異なる経過時計の系列を同じsampleとして集約しない。
+既存のpaired-return / block-bootstrap / seed robustness primitiveを再利用する。 Circular moving-block bootstrapは短い/縮退sampleでも有限な一次元差分・整数のseed/countを先に検証し、観測平均・resample平均・区間・中心化平均のoverflowを拒否する。正当な旧sampleの乱数stream・統計式・縮退規則は変えない。Seed robustnessはreturn kind・長さ・従来の年率period設定に加え、実経過時間を反映した有限な正のeffective annualizationをpaired比較の既存許容差で照合する。effective annualizationの照合は絶対許容差1e-12・相対許容差0とし、異なる年率時計を集約しない。elapsed_yearsの有無自体や各sampleの実timestamp一致を証明するものではない。
 
 - deterministic strategyはseed複製を独立sampleとして数えない。
 - PPOはStudyで登録した同一seedをbaseline/candidateでpaired比較する。

@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from trade_rl.evaluation.forward_study.seal import CodeIdentity, current_code_identity
 from trade_rl.evaluation.paper.account import PaperSettings, timestamp
 from trade_rl.evaluation.paper.attempt2 import (
     ALREADY_RUNNING,
@@ -45,6 +44,7 @@ from trade_rl.evaluation.paper.attempt2 import (
     capacity_plan,
     write_draft,
 )
+from trade_rl.evaluation.paper.code_identity import CodeIdentity, current_code_identity
 from trade_rl.evaluation.paper.lock import collector_lock_held
 from trade_rl.evaluation.paper.operations import (
     STORAGE_PROBE_PLAN_SCHEMA,

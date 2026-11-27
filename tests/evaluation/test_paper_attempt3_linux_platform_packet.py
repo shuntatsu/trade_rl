@@ -9,6 +9,7 @@ the source, and keep the packet from claiming a review, a seal or any economic r
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -189,10 +190,26 @@ def test_packet_grants_no_authorization_and_claims_no_review_or_seal() -> None:
         assert required in forbidden, required
     cited = set(re.findall(r"tests/[\w/]+\.py", _text(packet)))
     assert cited
-    assert sorted(path for path in cited if not (ROOT / path).is_file()) == []
     modules = set(re.findall(r"trade_rl/[\w/]+\.py", _text(packet)))
     assert set(PLATFORM_FILES) <= modules
-    assert sorted(path for path in modules if not (ROOT / path).is_file()) == []
+
+    # A packet cites its frozen implementation, not the evolving main tree.
+    # Only explicitly archived paths may disappear from the current checkout.
+    manifest = json.loads(
+        (ROOT / "report/legacy-research-retirement-20261126.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    archived = {row["path"]: row for row in manifest["records"]}
+    head = packet["identity"]["implementation_head"]
+    for path in sorted(cited | modules):
+        assert _git("cat-file", "-t", f"{head}:{path}").stdout.strip() == "blob", path
+        if not (ROOT / path).is_file():
+            row = archived[path]
+            original = subprocess.check_output(
+                ["git", "show", f"{row['source_commit']}:{path}"], cwd=ROOT
+            )
+            assert hashlib.sha256(original).hexdigest() == row["sha256"], path
 
 
 def test_heads_bind_the_packet_to_the_platform_source_and_the_listed_delta() -> None:

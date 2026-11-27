@@ -218,7 +218,7 @@ def test_a_probe_root_cannot_be_evaluated_launched_or_resealed(tmp_path):
     # become a screen either.
     from datetime import UTC, datetime
 
-    from trade_rl.evaluation.forward_study.seal import CodeIdentity
+    from trade_rl.evaluation.paper.code_identity import CodeIdentity
 
     with pytest.raises(Attempt2Refusal) as error:
         attempt2.seal_attempt2(

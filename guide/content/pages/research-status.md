@@ -100,6 +100,8 @@ mean-reversion candidateはbaseline比で5 / 5銘柄を改善し、median turnov
 
 現在のdevelopment基準はbaselineのままです。
 
+旧個別研究の実行コードは基盤から退役し、研究リポジトリへ責務を分離しました。以下のPPO正規化・activation・one-shot実行に関する説明は固定された履歴であり、現行基盤に実行可能な旧runnerやactivation resourceがあること、過去の認可の再利用、未検証の経済結果の確定を意味しません。[退役記録](../../../docs/plans/repository-split.md#一括退役記録)を参照してください。
+
 PPO feature standardizationには、historical comparisonとは別に **current corrected economics用のreplication software boundary** があります。raw / normalizedをseed 0..4でfresh fitする10 slotsを固定し、両armはfit-only normalization以外を共通化します。execution rootはprepareだけがstagingからatomicに公開し、slot claim/failureはprepared rootのidentityから導出します。bundleはmanifestとparent pathを安全に確認してから読込み、fit/reloadとも262,144 timestepsを必須にします。source/runtimeも長いfit/replay後、resultを保存する前に再確認します。
 
 economic activationは非Pythonのcanonical `ppo_normalization_activation.json` で別管理し、source authorityの `activation_sha256=null` を維持します。activationはreview済みimplementationに加えてimplementation seal・fresh reconstruction・result-blind assurance reviewのdigestをbindします。one-shot transport capabilityはcurrent `main` を含むopen Draft request PR、exact-head Core / real-PPO / Guide / independent-review Green、固定source Artifact、未使用のstatic activation tagを再検証してからactivationを作る契約です。request PR HEADは承認provenanceでありeconomic sourceではなく、request recordが#770のreview/seal済みsource SHAを別にbindします。

@@ -53,18 +53,13 @@ def test_permanent_ci_lints_formats_and_types_repository_tooling() -> None:
         r"(?m)^      - name: Conditional PPO diagnostic types\n        run: (.*)$",
         workflow,
     )
-    assert len(repo_commands) == len(ppo_commands) == 2
+    assert len(repo_commands) == 2
+    assert ppo_commands == []
     for command in repo_commands:
         arguments = command.split()
         assert arguments[:3] == ["uv", "run", "mypy"]
         assert "tools/issue810_joint_fee_only_fixture.py" not in arguments
         assert "tools/issue810_portfolio_probability_probe.py" not in arguments
-    for command in ppo_commands:
-        arguments = command.split()
-        assert arguments[:3] == ["uv", "run", "mypy"]
-        assert "tools/ppo_conditional_diagnostic.py" in arguments
-        assert "tools/issue810_portfolio_probability_probe.py" not in arguments
-        assert "tools/issue810_joint_fee_only_fixture.py" not in arguments
 
 
 def test_source_packet_contract_is_documented_at_the_repository_boundary() -> None:

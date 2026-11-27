@@ -318,6 +318,13 @@ def resolve_review_outcome(
     head = _mapping(pull.get("head"))
     if head is None or head.get("sha") != expected_head_sha:
         return ReviewOutcome.PENDING
+    head_ref = head.get("ref")
+    if type(head_ref) is not str or not head_ref or head_ref.strip() != head_ref:
+        return ReviewOutcome.PENDING
+    # The historical 4h-specific route is retired, not downgraded to a
+    # generic software receipt. Reopening it requires a separate research gate.
+    if head_ref == "research/ppo-4h-indicator-smoke":
+        return ReviewOutcome.BLOCKED
     author_id = _github_user_id(pull.get("user"))
     if (
         author_id is None

@@ -245,8 +245,7 @@
         }
       ],
       "tests": [
-        "tests/strategies/test_ppo_execution_observer.py",
-        "tests/tools/test_ppo_conditional_diagnostic.py"
+        "tests/strategies/test_ppo_execution_observer.py"
       ]
     }
   ]

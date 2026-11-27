@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import trade_rl.evaluation as evaluation
@@ -16,11 +15,6 @@ EXPECTED_PUBLIC_API = (
     "CapacityPoint",
     "ClosedTradeDiagnostics",
     "ClosedTradeTracker",
-    "DecisionValueArmMetrics",
-    "DecisionValueBlockResult",
-    "DecisionValueBlockSpec",
-    "DecisionValueDevStudyProtocol",
-    "DecisionValueDevStudyResult",
     "ExecutionDiagnostics",
     "IndependentFoldSummary",
     "LeanCandidateConfig",
@@ -46,15 +40,12 @@ EXPECTED_PUBLIC_API = (
     "compare_strategies",
     "compare_strategies_by_symbol",
     "compare_strategy_factories_by_symbol",
-    "compute_real_scope_authorization_digest",
     "compound_return",
-    "default_2024q1_decision_value_dev_protocol",
     "evaluate_capacity_grid",
     "evaluate_performance",
     "fit_conservative_linear_decision_value",
     "moving_block_mean_test",
     "resolve_gate",
-    "run_decision_value_dev_study",
     "run_lean_candidate_suite",
     "run_single_symbol_replay",
     "solve_perfect_information_bound",
@@ -75,49 +66,11 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "equity_path.py",
         "strict_spot_cash_path.py",
         "directional.py",
+        "directional_contract.py",
+        "decision_value_ledger_oracle.py",
+        "ledger_reconciliation.py",
+        "paper/code_identity.py",
         "carry.py",
-        "carry_multisymbol/__init__.py",
-        "carry_multisymbol/protocol.py",
-        "carry_multisymbol/decision.py",
-        "carry_multisymbol/runner.py",
-        "directional_candidates.py",
-        "directional_selection.py",
-        "directional_study.py",
-        "ppo_feature_study.py",
-        "ppo_feature_checkpoint.py",
-        "ppo_normalization_replication.py",
-        "ppo_normalization_execution.py",
-        "ppo_normalization_activation.json",
-        "ppo_risk_study.py",
-        "dev_realdata_study/__init__.py",
-        "dev_realdata_study/__main__.py",
-        "dev_realdata_study/protocol.py",
-        "dev_realdata_study/metrics.py",
-        "dev_realdata_study/runner.py",
-        "dev_realdata_study/cli.py",
-        "dev_realdata_study/trials.py",
-        "dev_realdata_study/trial_sources.py",
-        "dev_realdata_study/trial_study.py",
-        "dev_realdata_study/trial_cli.py",
-        "dev_realdata_study/trial_labels.py",
-        "dev_realdata_study/phase3_registry.py",
-        "dev_realdata_study/phase3_sources.py",
-        "dev_realdata_study/phase3_study.py",
-        "dev_realdata_study/phase3_cli.py",
-        "dev_realdata_study/dataset_build.py",
-        "forward_study/__init__.py",
-        "forward_study/__main__.py",
-        "forward_study/registry.py",
-        "forward_study/labels.py",
-        "forward_study/seal.py",
-        "forward_study/fs1.py",
-        "forward_study/cli.py",
-        "forward_acquisition/__init__.py",
-        "forward_acquisition/__main__.py",
-        "forward_acquisition/plan.py",
-        "forward_acquisition/acquire.py",
-        "forward_acquisition/seal_record.py",
-        "forward_acquisition/cli.py",
         "paper/__init__.py",
         "paper/store.py",
         "paper/account.py",
@@ -239,19 +192,3 @@ def test_evaluation_package_public_api_is_exactly_preserved() -> None:
     assert tuple(evaluation.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(evaluation, name), name
-
-
-def test_ppo_normalization_activation_package_data_is_declared() -> None:
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    package_data = pyproject["tool"]["setuptools"]["package-data"]
-
-    assert package_data["trade_rl.evaluation"] == ["ppo_normalization_activation.json"]
-
-
-def test_ppo_normalization_software_only_activation_is_canonical_and_closed() -> None:
-    raw = (PACKAGE / "ppo_normalization_activation.json").read_bytes()
-
-    assert raw == (
-        b'{"activation_sha256":null,'
-        b'"schema":"ppo_normalization_execution_activation_authority_v1"}'
-    )

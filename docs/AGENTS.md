@@ -19,7 +19,7 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
-`python -m tools.docs_source_consistency --check` は、登録済みのsource/doc semantic contractを、GitHub・market-data・networkを読まずに検証する。historical agy v1の `BACKCAST_2020 INVALID` / `FORWARD HOLD` と実sourceのCLI拒否が `docs/README.md`・正本spec・current-statusで一致すること、Learning Labの仕様/READMEへの同時導入、prospective harnessのコードとspecに束縛されたprotocol digest、BREADTHが未来の上場廃止の有無で過去の精算・資金を変えない合成as-of会計オラクルを検証する。新しいプロトコルを追加する場合は対応するbindingと独立した反例を同じsource/test/docs変更に登録する。Fast/Full CIのsemantic gateが失敗したら仕様を結果後に緩めず、現行sourceを正本に失敗原因と歴史的証拠の保持を確認して是正する。成功は**登録した部分契約の検証**のみであり、他の自然文の正しさ、全PIT、G0–G5/G4、unused/final、経済成績や実取引を認可しない。
+`python -m tools.docs_source_consistency --check` は、登録済みのsource/doc semantic contractを、GitHub・market-data・networkを読まずに検証する。退役inventory・共有契約の現行配置・退役sourceの再導入拒否と、現行harnessの登録およびsource/specのprotocol digestを検証する。旧AGY v1の `BACKCAST_2020 INVALID` / `FORWARD HOLD`、Learning Lab、BREADTHの旧source/spec/合成oracleは[一括退役記録](plans/repository-split.md#一括退役記録)の固定Git履歴に保全し、退役後の現行CLI・CIで実行するものではない。新しいプロトコルを追加する場合は対応するbindingと独立した反例を同じsource/test/docs変更に登録する。Fast/Full CIのsemantic gateが失敗したら仕様を結果後に緩めず、現行sourceを正本に失敗原因と歴史的証拠の保持を確認して是正する。成功は**登録した部分契約の検証**のみであり、他の自然文の正しさ、全PIT、G0–G5/G4、unused/final、経済成績や実取引を認可しない。
 
 ## 必要時参照
 
@@ -199,16 +199,16 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 
 ### Independent Research Review / PR lifecycle
 
-PRに独立レビューゲート（CI check: `Generic Independent Research Review` または `Independent Research Review`）が存在する場合のライフサイクル契約は次の通りとする。 Generic gateの前提はLean Core・PPO Runtime・Human Guide・Market Store PostgreSQLの4ジョブすべての`success`であり、`skipped`・空値・未定義・失敗を許容しない。4h PPO専用研究レビューの既存契約は変更しない。
+現行coreの `Generic Independent Research Review` のライフサイクル契約は次の通りとする。前提はLean Core・PPO Runtime・Human Guide・Market Store PostgreSQLの4ジョブすべての`success`であり、`skipped`・空値・未定義・失敗を許容しない。旧4h PPO専用研究review/triggerの実装は固定履歴に退役し、Generic gateは旧 `research/ppo-4h-indicator-smoke` refをBLOCKEDにする。専用研究認可をGenericへ移管せず、再開には別途承認済みの研究gateを要する。
 
-1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（Generic: core, ppo-runtime, guide, market-store／4h PPO専用: core, ppo-runtime, guide）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
-2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。4h PPO専用reviewやG0–G5/economic reviewは従来の独立性要件を維持する。
+1. **レビューゲート待機 (PENDING)**: 先行CIジョブ（core, ppo-runtime, guide, market-store）がパスしたPR exact HEADに対し、独立レビューゲート（`independent-research-review-audit`）が未完了（PENDING）の状態で外部レビューを待機する。
+2. **software model reviewの実行**: Generic software PRでは、PR exact HEADの差分・関連source/tests/contractsをAI reviewerがread-onlyで監査する。`software_source_review_v2`では実装担当と同じconfigured model（例: `gpt-5.6-sol`）を許容し、fresh contextや別providerは必須にしない。これはsoftware source reviewであり、model independence・provider実行・研究result-blind independenceの証明ではない。歴史的4h PPO専用reviewの独立性要件は保存し、現行のG0–G5/economic reviewをGenericで代替しない。
 3. **指摘と差し戻し (BLOCKED)**: 重大な懸念・脆弱性・契約違反（Medium / High severity）が検出された場合、指摘内容をレビュー本文に記録し `### Disposition: BLOCKED` で投稿する。PRはマージされず、修正対応（差し戻し）となる。
 4. **承認とマージ・クローズ (APPROVED)**:
    - 未解消のblocking指摘がないことを確認し、当該receipt形式の有効な証拠が揃った場合だけ `### Disposition: APPROVED` を記録する。Lowの改善提案はreportへ残してよい。
    - `tested PR head contains current main` を満たし、全必須CIチェックがGreenとなった段階で、PRをマージ（`gh pr merge`）してクローズする。
 
-Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbindする。従来の`independent_model_review_v1`は互換のため受理し、新しい`software_source_review_v2`は`reviewer_model_id`・`review_result=PASS`・`blocking_findings=0`・具体的reportだけをpublisher-attested software review metadataとして受理する。同じconfigured modelを許容し、外部review job、provider attestation、diff digest、実装Task ID、model independenceは要求・主張しない。旧`software_source_review_v1`は未検証のjob/diff値を権威ある証拠のように見せるためfail-closedのまま廃止する。G0–G5・sealed/unused/final・live・4h PPO専用reviewはこの軽量化の対象外で、従来どおり別ゲート。
+Generic gateはGitHub review APIのauthenticated actorとexact `commit_id`へbindし、PR head refが欠落・不正ならPENDING、旧4h専用refならBLOCKEDとする。従来の`independent_model_review_v1`は互換のため受理し、新しい`software_source_review_v2`は`reviewer_model_id`・`review_result=PASS`・`blocking_findings=0`・具体的reportだけをpublisher-attested software review metadataとして受理する。同じconfigured modelを許容し、外部review job、provider attestation、diff digest、実装Task ID、model independenceは要求・主張しない。旧`software_source_review_v1`は未検証のjob/diff値を権威ある証拠のように見せるためfail-closedのまま廃止する。G0–G5・sealed/unused/final・live・歴史的4h PPO専用reviewはこの軽量化の対象外。旧経路の退役は認可の代替・移管ではない。
 
 ## 更新matrix
 
@@ -269,13 +269,13 @@ uv run ruff check trade_rl tests tools
 uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl
 uv run mypy tools/agent_repo tests/architecture/distribution.py
-uv run mypy tools/ppo_checkpoint_actions.py
+uv run mypy tools/independent_research_review.py tools/docs_source_consistency.py tools/ci_test_shard.py
 uv run pytest -q tests
 ```
 
-さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。 Full PR CIは`Lean Core`・`PPO Runtime`・`Human Guide`・`Market Store PostgreSQL`の4ジョブを要求し、Market Storeでは実PostgreSQL serviceによるintegration test（skipなし）とmigrate/status smokeも確認する。古い3ジョブのみのGreenは現行Full gateの代替としない。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。Learning Labを含むPRでは同じ必須jobでlocked `learning-lab` extraも導入し、Torch・Stable-Baselines3・sb3-contrib・LightGBMの実importをfail-closedで確認してから、合成データだけの `tests/evaluation/test_learning_lab_runner.py`（実agent学習・checkpoint保存/読込・評価・real-data拒否）を実行する。Core側のoptional skipだけで実runtime検証を代替しない。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
+さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。 Full PR CIは`Lean Core`・`PPO Runtime`・`Human Guide`・`Market Store PostgreSQL`の4ジョブを要求し、Market Storeでは実PostgreSQL serviceによるintegration test（skipなし）とmigrate/status smokeも確認する。古い3ジョブのみのGreenは現行Full gateの代替としない。PPO/SB3境界を含む変更では、PR-only `PPO Runtime` jobで`train-sb3` extraの実Stable-Baselines3/Torchを導入し、environment API・実rollout・interleaved fit・model save/loadをsmokeする。旧Learning Labのcore runnerと専用テストは固定履歴へ退役した。研究側でのLearning Labの変更は、研究repoのlocked runtime実importと合成agent学習・checkpoint保存/読込・評価・real-data拒否を含む独立した実行検証を要し、core CIは代替しない。Core側のoptional skipだけで実runtime検証を代替しない。fake/mockだけをintegration oracleにしない。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
 
-Hosted Full CIの `Lean Core tests` は全 `tests` を各runnerで収集し、pytest node IDの安定SHA-256で8分割する（実測の高負荷・fixture再利用に基づく8 moduleだけは `tools/ci_test_shard.py` の明示的な配置に従い、同一shardでfixtureを再利用する）。各shardの成功時だけ同一HEAD・同一workflow attemptに紐付く完了node ID一覧と全収集件数/digestを発行する。 各nodeのfinish通知だけでは完了とせず、setup/call/teardownの実行reportまたは正当なsetup skipとteardownを照合する。setup-only/setup-plan等の非実行modeを拒否し、従来のskip/xfailは維持する。`Lean Core` は全8shardの成功、重複・漏れのない完了一覧と全収集digestおよび独立した通常pytest全収集との一致を必須とし、その後も従来の静的検査・配布物・installed smokeを行う。失敗・中断・artifact欠落・異なる収集roster・異なるHEADは拒否する。部分rerunの旧attempt receiptは再利用せず、必要なら全jobsをrerunする。通常のローカル `uv run pytest -q tests` は分割しない。専用PPO研究認可と他の必須CI/レビュー条件は変更しない。各shardで遅い25件とskip理由を記録し、実際のhosted wall time・待ち時間・runner minutesで改善を評価する。
+Hosted Full CIの `Lean Core tests` は全 `tests` を各runnerで収集し、pytest node IDの安定SHA-256で8分割する（実測の高負荷・fixture再利用に基づく現行2 moduleだけは `tools/ci_test_shard.py` の明示的な配置に従い、同一shardでfixtureを再利用する）。各shardの成功時だけ同一HEAD・同一workflow attemptに紐付く完了node ID一覧と全収集件数/digestを発行する。 各nodeのfinish通知だけでは完了とせず、setup/call/teardownの実行reportまたは正当なsetup skipとteardownを照合する。setup-only/setup-plan等の非実行modeを拒否し、従来のskip/xfailは維持する。`Lean Core` は全8shardの成功、重複・漏れのない完了一覧と全収集digestおよび独立した通常pytest全収集との一致を必須とし、その後も従来の静的検査・配布物・installed smokeを行う。失敗・中断・artifact欠落・異なる収集roster・異なるHEADは拒否する。部分rerunの旧attempt receiptは再利用せず、必要なら全jobsをrerunする。通常のローカル `uv run pytest -q tests` は分割しない。退役した専用PPO研究認可は復活させず、現行の必須CI/レビュー条件は維持する。各shardで遅い25件とskip理由を記録し、実際のhosted wall time・待ち時間・runner minutesで改善を評価する。
 
 Python依存関係の監視は、Dependabotのuv更新がHOLD中でも継続する。 `.github/workflows/ci-uv-advisory-audit.yml` (#1441 / #1175) は固定uvとそのversionを強制する隔離configで公開OSVの全locked extrasを読み取り専用監査し、registry package rosterとreport件数、scanner終了状態、manifest/lock不変を検証する。PRではfindingsを明示するreport-onlyであり、scheduled/manual scanはfindingsで非0終了、scanner failureは全eventで非0終了する。通常の必須source Full CIとは別の監視で、成功は有効なreportの生成を意味し、脆弱性不在・更新復旧・研究実行認可ではない。新規advisoryと修正候補は#1441で追跡し、過去のlock、実行環境、receiptを変更しない。Dependabot本体の再有効化は#1175の実hosted updater E2E受入条件を維持する。
 

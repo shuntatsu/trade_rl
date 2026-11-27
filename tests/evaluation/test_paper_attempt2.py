@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.evaluation.forward_study.seal import CodeIdentity
 from trade_rl.evaluation.paper import attempt2, operations
 from trade_rl.evaluation.paper.attempt2 import (
     Attempt2Refusal,
@@ -24,6 +23,7 @@ from trade_rl.evaluation.paper.attempt2 import (
     seal_attempt2,
     write_draft,
 )
+from trade_rl.evaluation.paper.code_identity import CodeIdentity
 from trade_rl.evaluation.paper.predecessor import (
     ATTEMPT_ONE_FINAL_TIP_SHA256,
     ATTEMPT_ONE_LAST_OBSERVED_AT,

@@ -13,9 +13,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Final
 
 from trade_rl.integrations.binance.vision import _normalize_epoch_ms
 from trade_rl.integrations.market_store.contracts import StoreMarket, utc_from_ms
+
+#: Exact Binance USD-M ``contractType`` values admitted as perpetuals. Binance lists
+#: commodity/equity/ETF perpetuals (e.g. XAUUSDT, SPYUSDT) as ``TRADIFI_PERPETUAL``;
+#: they settle in USDT on the same USD-M venue and Vision archives. Delivery
+#: contracts (``CURRENT_QUARTER``/``NEXT_QUARTER``) and any other value are refused.
+USDS_M_PERPETUAL_CONTRACT_TYPES: Final = frozenset({"PERPETUAL", "TRADIFI_PERPETUAL"})
 
 
 class ExchangeInfoError(ValueError):
@@ -76,7 +83,11 @@ def parse_symbol_rules(
         item = by_symbol.get(symbol)
         if item is None:
             raise ExchangeInfoError(f"exchangeInfo has no symbol {symbol}")
-        if market is StoreMarket.USDS_M and item.get("contractType") != "PERPETUAL":
+        contract_type = item.get("contractType")
+        if market is StoreMarket.USDS_M and (
+            not isinstance(contract_type, str)
+            or contract_type not in USDS_M_PERPETUAL_CONTRACT_TYPES
+        ):
             raise ExchangeInfoError(f"{symbol} is not a USD-M perpetual")
         raw_filters = item.get("filters")
         if not isinstance(raw_filters, list):
@@ -108,4 +119,9 @@ def parse_symbol_rules(
     return result
 
 
-__all__ = ["ExchangeInfoError", "SymbolRule", "parse_symbol_rules"]
+__all__ = [
+    "USDS_M_PERPETUAL_CONTRACT_TYPES",
+    "ExchangeInfoError",
+    "SymbolRule",
+    "parse_symbol_rules",
+]

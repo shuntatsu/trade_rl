@@ -50,7 +50,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0611d94d55b6101a4091662e57181aca3a063dbe3ea13a1e2f42d634543c6bdd"
+      "sha256": "4c72b019773cda8485dfe4b98011f13856a68e2498fc0c0387549d9e8a80e019"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -65,7 +65,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Financial objective declarations",
-      "sha256": "f1833463debc43e62b8c6d6a2eec66c9e56fbecc188f7fb8513242e7c8454b36"
+      "sha256": "8ba2d34d0a790bc7411c496040980dc7bb18d72f74144dd43f6154790edf2efd"
     }
   ],
   "code_references": [
@@ -226,20 +226,21 @@
       "id": "bound-financial-objective-clock",
       "symbol": "trade_rl.simulation.objectives.binding.BoundObjectiveClock",
       "kind": "class",
-      "source_sha256": "e34f2bc8388c8f5c532e9872696b588beecb781dd0c6a8bf3fc04d3156b23e99",
+      "source_sha256": "153dff3e6ad367815ea34e3b28b1c3642fdf251676cc0444cb453235bcee00f0",
       "label_ja": "evaluation windowとfinancial horizonの一致",
-      "description_ja": "aware UTCへ正規化されたObjectiveContractのevaluation期間とFinancialClockContractのelapsed horizonが完全一致することを検証し、両digestを束縛します。runtimeがそのclockを利用する証明ではありません。",
+      "description_ja": "aware UTCへ正規化されたObjectiveContractのevaluation期間と時計の実経過秒を照合します。暦月clockではUTC月境界と月数も検査し、別schemaで両digestを束縛します。宣言自体はruntimeや研究認可の証明ではありません。",
       "variables": [],
       "tests": [
         "tests/simulation/objectives/test_binding.py",
-        "tests/architecture/test_objective_contract_boundary.py"
+        "tests/architecture/test_objective_contract_boundary.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "2779daf5c216bf153d4ec16ff9ca61838062925f2b9b747a40daf3593725ecfe",
+      "source_sha256": "e790fa3ea1a9599ca4cd1e93c51c3d0f9fde212522e80c7fc73ba9808d29ea27",
       "label_ja": "約定・会計の所有者",
       "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。",
       "variables": [],
@@ -312,32 +313,34 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "ee3d01442d361cda11eeb6bc9608a6d56fdd699c082fee7ac53ac8d31253f1a9",
+      "source_sha256": "3c2fcf610b870c6f98fc029eeec4f4e9b3121ebd40dd1f106e25e0647a7715ea",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
-      "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。",
+      "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
-        "tests/architecture/test_lean_dependency_boundaries.py"
+        "tests/architecture/test_lean_dependency_boundaries.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "cf4b212fda41e6b30ff762a78b4880ff054fdc25732add83d93a113702ac3ed8",
+      "source_sha256": "0d9cb214874b0dcecfda3eb5427c20b4f61de29abba48b46b04d9772cc92ae76",
       "label_ja": "fit範囲と環境へbindする観測変換",
-      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。",
+      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
       "variables": [],
       "tests": [
-        "tests/strategies/rl/test_portfolio_env.py"
+        "tests/strategies/rl/test_portfolio_env.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {
       "id": "portfolio-observation-transform-fit",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.fit_portfolio_observation_transform",
       "kind": "function",
-      "source_sha256": "d14863b31c6d0e81eeed92b846abc8823e7d29ef139fb6893d5dc6250c21ed4d",
+      "source_sha256": "c2830eb3924a68c23be0f4b2a3e37366f364ad315a83cf73905c78f189b3645b",
       "label_ja": "actor-fit範囲だけで観測統計を固定",
       "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。",
       "variables": [],
@@ -349,12 +352,13 @@
       "id": "portfolio-observation-runtime-binding",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
       "kind": "class",
-      "source_sha256": "bdd3ab4971e62ce98ffdfaa5a71cd77fc1a55b6a5f9e50b0ed96db02ed684098",
+      "source_sha256": "0f17ca5e2b3acd81064116eaa601e8b2c88f861d391e28868d677854a144630e",
       "label_ja": "学習統計を将来windowへbind",
-      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
       "variables": [],
       "tests": [
-        "tests/strategies/rl/test_portfolio_env.py"
+        "tests/strategies/rl/test_portfolio_env.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {
@@ -418,7 +422,8 @@
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
-        "tests/architecture/test_lean_dependency_boundaries.py"
+        "tests/architecture/test_lean_dependency_boundaries.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {
@@ -478,13 +483,14 @@
       "id": "published-portfolio-inference-replay",
       "symbol": "trade_rl.evaluation.portfolio_inference.run_published_portfolio_inference_replay",
       "kind": "function",
-      "source_sha256": "9608c73e0566230e24780de33422cb310e645c479baa4ce66cbee4b41db4b69b",
+      "source_sha256": "d0a8efd75e139c92a4c25ab8ff85de7cac26976561fe8b8de234aec4308ea4fe",
       "label_ja": "paired dataとfrozen policyを同じshared replayへ接続",
       "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度だけ実行します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
-        "tests/architecture/test_lean_dependency_boundaries.py"
+        "tests/architecture/test_lean_dependency_boundaries.py",
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
       ]
     },
     {

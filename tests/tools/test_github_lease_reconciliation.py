@@ -760,3 +760,122 @@ def test_reconciliation_rejects_foreign_identity_text(
     with pytest.raises(ValueError):
         _inspect(e)
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("path", "label"),
+    [
+        (("inventory",), "work inventory"),
+        (("inventory", "branches", 0), "branch"),
+        (("inventory", "pull_requests", 0), "open PR"),
+        (("attempts", 0), "attempt observation"),
+        (("attempts", 0, "jobs", 0), "job"),
+        (("artifacts", 0), "artifact observation"),
+        (("artifacts", 0, "artifacts", 0), "artifact"),
+    ],
+)
+@pytest.mark.parametrize("kind", ["dict", "key"])
+def test_foreign_reconciliation_objects_rejected_before_hooks(
+    path: tuple[str | int, ...], label: str, kind: str
+) -> None:
+    calls: list[str] = []
+
+    class ForeignDict(dict):
+        def get(self, *args):
+            calls.append("get")
+            return super().get(*args)
+
+        def __getitem__(self, key):
+            calls.append("getitem")
+            return super().__getitem__(key)
+
+        def __iter__(self):
+            calls.append("iter")
+            return super().__iter__()
+
+        def __contains__(self, key):
+            calls.append("contains")
+            return super().__contains__(key)
+
+    class ForeignKey(str):
+        def __hash__(self):
+            calls.append("hash")
+            return super().__hash__()
+
+        def __eq__(self, other):
+            calls.append("eq")
+            return super().__eq__(other)
+
+    e = _evidence()
+    parent = e
+    for part in path[:-1]:
+        parent = parent[part]  # type: ignore[index]
+    original = parent[path[-1]]  # type: ignore[index]
+    if kind == "dict":
+        replacement = ForeignDict(original)
+    else:
+        replacement = dict(original)
+        key = next(iter(replacement))
+        replacement[ForeignKey(key)] = replacement.pop(key)
+    parent[path[-1]] = replacement  # type: ignore[index]
+    calls.clear()
+    with pytest.raises(ValueError, match=label + " must be a native"):
+        _inspect(e)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("path", "label"),
+    [
+        (("inventory", "branches"), "branch roster"),
+        (("inventory", "pull_requests"), "open PR roster"),
+        (("inventory", "unfinished_workflow_branches"), "unfinished workflow branches"),
+        (("attempts",), "attempt observations"),
+        (("artifacts",), "artifact observations"),
+        (("attempts", 0, "jobs"), "run attempt jobs"),
+        (("artifacts", 0, "artifacts"), "run artifacts"),
+    ],
+)
+@pytest.mark.parametrize("kind", ["list", "tuple"])
+def test_foreign_reconciliation_sequences_rejected_before_hooks(
+    path: tuple[str | int, ...], label: str, kind: str
+) -> None:
+    calls: list[str] = []
+
+    class ForeignList(list):
+        def __iter__(self):
+            calls.append("iter")
+            return super().__iter__()
+
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+    class ForeignTuple(tuple):
+        def __iter__(self):
+            calls.append("iter")
+            return super().__iter__()
+
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+    e = _evidence()
+    parent = e
+    for part in path[:-1]:
+        parent = parent[part]  # type: ignore[index]
+    original = parent[path[-1]]  # type: ignore[index]
+    parent[path[-1]] = (  # type: ignore[index]
+        ForeignList(original) if kind == "list" else ForeignTuple(original)
+    )
+    calls.clear()
+    with pytest.raises(ValueError, match=label + " must be a native"):
+        _inspect(e)
+    assert calls == []
+
+
+def test_native_tuple_reconciliation_rosters_remain_supported() -> None:
+    e = _evidence()
+    e["attempts"] = tuple(e["attempts"])  # type: ignore[arg-type]
+    e["artifacts"] = tuple(e["artifacts"])  # type: ignore[arg-type]
+    assert _inspect(e)["decision"] == "HOLD"

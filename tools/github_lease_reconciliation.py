@@ -27,14 +27,14 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _object(value: object, label: str) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} must be a mapping")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{label} must be a native mapping with native string keys")
     return value
 
 
 def _rows(value: object, label: str) -> Sequence[object]:
-    if not isinstance(value, (list, tuple)):
-        raise ValueError(f"{label} must be an ordered sequence")
+    if type(value) is not list and type(value) is not tuple:
+        raise ValueError(f"{label} must be a native ordered sequence (list or tuple)")
     return value
 
 

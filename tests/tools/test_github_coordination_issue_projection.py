@@ -272,3 +272,122 @@ def test_extra_comment_after_declared_full_page_is_rejected(
     api.issue["comments"] = count
     with pytest.raises(ValueError, match="pagination"):
         _read(api)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "bad", "error"),
+    [
+        ("issue", "node_id", "wrong-node", "Issue identity"),
+        (
+            "issue",
+            "repository_url",
+            "https://api.github.com/repos/other/repo",
+            "Issue identity",
+        ),
+        ("issue", "state", "closed", "Issue identity"),
+        ("issue", "updated_at", "now", "Issue updated_at"),
+        ("comment", "body", render_status_comment(STATUS), "Issue comment body"),
+        ("comment", "updated_at", "now", "Issue comment body"),
+    ],
+)
+def test_foreign_projection_text_rejected_before_hooks(section, field, bad, error):
+    calls = []
+
+    class ForeignText(str):
+        def __eq__(self, other):
+            calls.append("eq")
+            return True
+
+        def __ne__(self, other):
+            calls.append("ne")
+            return False
+
+        def strip(self, *args):
+            calls.append("strip")
+            return super().strip(*args)
+
+        def __contains__(self, other):
+            calls.append("contains")
+            return super().__contains__(other)
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            if section == "issue" and query is None:
+                result[field] = ForeignText(bad)
+            if section == "comment" and query is not None:
+                result[0][field] = ForeignText(bad)
+            return result
+
+    with pytest.raises(ValueError, match=error):
+        _read(Api())
+    assert calls == []
+
+
+@pytest.mark.parametrize("section", ["issue", "comment", "publisher", "page"])
+def test_foreign_projection_containers_rejected_before_hooks(section):
+    calls = []
+
+    class ForeignDict(dict):
+        def get(self, *args):
+            calls.append("get")
+            return super().get(*args)
+
+    class ForeignList(list):
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            if query is None and section == "issue":
+                return ForeignDict(result)
+            if query is not None:
+                if section == "page":
+                    return ForeignList(result)
+                if section == "comment":
+                    result[0] = ForeignDict(result[0])
+                if section == "publisher":
+                    result[0]["user"] = ForeignDict(result[0]["user"])
+            return result
+
+    with pytest.raises(ValueError, match="object|pagination"):
+        _read(Api())
+    assert calls == []
+
+
+def test_foreign_projection_key_rejected_before_lookup():
+    calls = []
+
+    class ForeignKey(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            calls.append("eq")
+            return super().__eq__(other)
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            if query is None:
+                result[ForeignKey("node_id")] = result.pop("node_id")
+            return result
+
+    with pytest.raises(ValueError, match="object"):
+        _read(Api())
+    assert calls == []
+
+
+def test_foreign_projection_record_rejected_before_requests():
+    class ForeignProjection(EnrollmentProjection):
+        pass
+
+    api = FakeApi()
+    with pytest.raises(ValueError, match="EnrollmentProjection"):
+        observe_issue_projection(
+            api,
+            projection=ForeignProjection(REPO, ISSUE, NODE, STATUS),
+            expected_publisher_user_id=AUTHOR,
+        )
+    assert api.requests == []

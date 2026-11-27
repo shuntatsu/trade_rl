@@ -31,6 +31,14 @@ class DependencyGraph:
     def __init__(self, packets: Sequence[TaskPacket]) -> None:
         # Validate the same roster that is retained by the graph.
         packets = tuple(packets)
+        if any(type(packet) is not TaskPacket for packet in packets):
+            raise ValueError("dependency graph requires native TaskPacket records")
+        if any(
+            type(packet.task_id) is not str
+            or any(type(dep.task_id) is not str for dep in packet.dependencies)
+            for packet in packets
+        ):
+            raise ValueError("dependency graph task IDs must contain native strings")
         self._packets = {packet.task_id: packet for packet in packets}
         if len(self._packets) != len(packets):
             raise ValueError("duplicate task_id in dependency graph")

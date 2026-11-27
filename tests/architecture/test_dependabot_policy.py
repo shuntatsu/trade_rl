@@ -10,14 +10,25 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "dependabot.yml"
 ECOSYSTEM_PATTERN = re.compile(r'^  - package-ecosystem: "([a-z-]+)"$', re.M)
 
 
-def _ecosystem_sections() -> dict[str, str]:
-    source = MANIFEST.read_text(encoding="utf-8")
+def _ecosystem_sections(source: str | None = None) -> dict[str, str]:
+    if source is None:
+        source = MANIFEST.read_text(encoding="utf-8")
     assert source.startswith("version: 2\nupdates:\n")
+    # Every non-comment line outside an update mapping must be one of the
+    # canonical list entries. A regex search alone misses extra flow entries,
+    # replacement root keys and appended YAML documents.
+    for line in source.splitlines()[2:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith("    ") and ECOSYSTEM_PATTERN.fullmatch(line) is None:
+            raise AssertionError(f"noncanonical update layout: {line}")
     matches = list(ECOSYSTEM_PATTERN.finditer(source))
     names = [match.group(1) for match in matches]
     assert names == ["github-actions", "uv", "npm", "docker-compose"]
@@ -32,6 +43,29 @@ def _ecosystem_sections() -> dict[str, str]:
     return sections
 
 
+def _require_version_update_limit(section: str, expected: int) -> None:
+    """Require one canonical direct scalar, not a comment or nested value.
+
+    The manifest uses a fixed block-mapping layout. Reject alternate direct
+    key spellings and duplicates rather than attempt general YAML parsing.
+    """
+    fields: dict[str, str | None] = {}
+    for line in section.splitlines():
+        if (
+            not line.startswith("    ")
+            or line.startswith("     ")
+            or not line.strip()
+            or line.lstrip().startswith("#")
+        ):
+            continue
+        match = re.fullmatch(r"    ([a-z][a-z0-9-]*):(?: (.*))?", line)
+        assert match is not None, f"noncanonical direct update field: {line}"
+        key, value = match.groups()
+        assert key not in fields, f"duplicate direct update field: {key}"
+        fields[key] = value
+    assert fields.get("open-pull-requests-limit") == str(expected)
+
+
 def test_update_roster_and_weekly_review_limits() -> None:
     sections = _ecosystem_sections()
     expected = {
@@ -44,7 +78,7 @@ def test_update_roster_and_weekly_review_limits() -> None:
         section = sections[ecosystem]
         assert f'directory: "{directory}"' in section
         assert 'interval: "weekly"' in section
-        assert f"open-pull-requests-limit: {limit}" in section
+        _require_version_update_limit(section, limit)
 
     assert (ROOT / "uv.lock").is_file()
     assert (ROOT / "guide" / "package-lock.json").is_file()
@@ -56,7 +90,53 @@ def test_uv_version_updates_hold_for_pinned_incompatible_updater() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["tool"]["uv"]["required-version"] == "==0.13.10"
     uv = _ecosystem_sections()["uv"]
-    assert "open-pull-requests-limit: 0" in uv
+    _require_version_update_limit(uv, 0)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "    # open-pull-requests-limit: 0\n    open-pull-requests-limit: 1",
+        "    open-pull-requests-limit: 01",
+        "    open-pull-requests-limit: 0x1",
+        "    open-pull-requests-limit: 0.5",
+        "    open-pull-requests-limit: 0\n    open-pull-requests-limit: 1",
+        '    open-pull-requests-limit: 0\n    "open-pull-requests-limit": 1',
+        "    open-pull-requests-limit: 0\n    'open-pull-requests-limit': 1",
+        "    open-pull-requests-limit: 1\n    # open-pull-requests-limit: 0",
+        "    open-pull-requests-limit: 1\n    unused:\n"
+        "      open-pull-requests-limit: 0",
+        "    # open-pull-requests-limit: 0",
+        "    unused:\n      open-pull-requests-limit: 0",
+        "    open-pull-requests-limit: 0\n    <<: {open-pull-requests-limit: 1}",
+    ],
+)
+def test_uv_hold_rejects_noncanonical_or_enabled_limit(replacement: str) -> None:
+    section = _ecosystem_sections()["uv"]
+    original = "    open-pull-requests-limit: 0\n"
+    assert section.count(original) == 1
+    changed = section.replace(original, replacement + "\n", 1)
+    with pytest.raises(AssertionError):
+        _require_version_update_limit(changed, 0)
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        '  - {package-ecosystem: uv, directory: "/other", '
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}\n",
+        'updates: [{package-ecosystem: uv, directory: "/", '
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
+        '"updates": [{package-ecosystem: uv, directory: "/", '
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
+        '---\nversion: 2\nupdates: [{package-ecosystem: uv, directory: "/", '
+        "schedule: {interval: weekly}, open-pull-requests-limit: 1}]\n",
+    ],
+)
+def test_update_roster_refuses_hidden_entries(suffix: str) -> None:
+    source = MANIFEST.read_text(encoding="utf-8") + suffix
+    with pytest.raises(AssertionError, match="noncanonical update layout"):
+        _ecosystem_sections(source)
 
 
 def test_python_lockfile_only_recipe_is_retained_for_reenable() -> None:
@@ -124,4 +204,4 @@ def test_locked_advisory_monitor_is_read_only_and_separate_from_updater() -> Non
         "gh pr merge",
     ):
         assert forbidden not in workflow
-    assert "open-pull-requests-limit: 0" in _ecosystem_sections()["uv"]
+    _require_version_update_limit(_ecosystem_sections()["uv"], 0)

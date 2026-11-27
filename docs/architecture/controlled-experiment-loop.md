@@ -153,6 +153,8 @@ historical `resolved_run_config_v1` / Study artifactはread/inspection互換の�
 
 ## Study-owned EvidenceSet
 
+EvidenceSetの入力Datasetは、同一loader passで得た検証済みartifact identityとDataset本体を対にしてStudy pinへ照合する。各Candidate Runも、読み込んだ不変summary/returns/provenance自体から既存のsemantic artifact digestを計算し、その同じsnapshotの内容をseed不変性やconfig検証に使う。別のpath再読込から得たdigestを先の内容に結び付けない。既存schema・digestは不変であり、この境界はfilesystem全体の原子的snapshot、公開後の第三者書換え防止や外部真正性を証明するものではない。
+
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
 
 EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。Load・Study reconstructionは各Run artifactのpersisted candidate/evaluation fieldsからresolved configを再構成し、EvidenceSet semantic config、凍結した `StudyPlan` baseline、`ExperimentDefinition` candidateと照合する。Studyの各Runは `StudyPlan` のdataset ID、artifact schema、artifact digestにも一致しなければならない。Run schemaが古く実際のfieldを保持しない場合、そのfieldをmanifestから補完せず、検証可能なschema範囲だけで照合する。宣言されたRun schemaより新しいparameter、observation、replay fieldが残っている場合は、config projection前に拒否する。config identityはcanonical JSONで比較し、boolと整数の型差を保持する。この照合はpersisted parameter evidenceを凍結configへbindするものであり、artifactをself-consistentに全面書換えした場合の実行・学習真正性を証明しない。

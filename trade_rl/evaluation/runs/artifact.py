@@ -135,6 +135,22 @@ class LoadedCandidateRun:
         object.__setattr__(self, "provenance", frozen_provenance)
 
     @property
+    def artifact_digest(self) -> str:
+        """Semantic identity of this loaded content, without reading its path.
+
+        This uses the same versioned payload as artifact inspection; it is not
+        evidence of current filesystem contents or external source authenticity.
+        """
+        return content_digest(
+            {
+                "schema_version": _ARTIFACT_IDENTITY_SCHEMA,
+                "summary": self.summary,
+                "returns": _semantic_returns_payload(self.returns),
+                "provenance": self.provenance,
+            }
+        )
+
+    @property
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
@@ -1562,16 +1578,10 @@ def inspect_candidate_run_artifact(root: str | Path) -> CandidateRunArtifactIden
     summary_hash, summary_size = summary_evidence
     returns_hash, returns_size = returns_evidence
     provenance_hash, provenance_size = provenance_evidence
-    semantic_payload = {
-        "schema_version": _ARTIFACT_IDENTITY_SCHEMA,
-        "summary": loaded.summary,
-        "returns": _semantic_returns_payload(loaded.returns),
-        "provenance": loaded.provenance,
-    }
     return CandidateRunArtifactIdentity(
         schema_version=_ARTIFACT_IDENTITY_SCHEMA,
         result_schema_version=cast(str, loaded.summary["schema_version"]),
-        artifact_digest=content_digest(semantic_payload),
+        artifact_digest=loaded.artifact_digest,
         summary_file_sha256=summary_hash,
         summary_file_size=summary_size,
         returns_file_sha256=returns_hash,

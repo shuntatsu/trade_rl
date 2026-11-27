@@ -57,7 +57,11 @@ def _all_imports(path: Path) -> set[str]:
 def test_store_layout_is_the_documented_roster() -> None:
     assert {path.name for path in STORE.glob("*.py")} == MODULES
     names = sorted(path.name for path in (STORE / "migrations").glob("*.sql"))
-    assert names == ["0000_schema_version.sql", "0001_market_store.sql"]
+    assert names == [
+        "0000_schema_version.sql",
+        "0001_market_store.sql",
+        "0002_open_interest_book_depth.sql",
+    ]
     assert all(re.fullmatch(r"\d{4}_[a-z0-9_]+\.sql", name) for name in names)
 
 

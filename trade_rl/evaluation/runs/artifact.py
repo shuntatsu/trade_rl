@@ -307,6 +307,18 @@ def _result_payload(
                 for decision in entry.replay.decisions
                 if decision.minimum_hold_suppressed or decision.minimum_hold_unlocked
             ]
+            terminal_complete = (
+                config.ppo_settle_terminal_position
+                and not any(quantity != 0.0 for quantity in final_quantities)
+                and not active_order_remainders
+                and len(entry.replay.returns.values) == expected_periods
+                and entry.metrics.termination_count == 0
+                and not diagnostics.termination_reasons
+            )
+            # The existing per-symbol schema stores reporting quantities only.
+            # Refuse a completed claim that would erase an exact residual.
+            if terminal_complete and any(entry.replay.book.exact_quantities):
+                raise ValueError("candidate exact terminal quantities are nonzero")
             strategies_payload.append(
                 {
                     "name": entry.name,
@@ -334,14 +346,7 @@ def _result_payload(
                     "final_quantities": final_quantities,
                     "active_order_remainders": active_order_remainders,
                     "terminal_order_reasons": terminal_order_reasons,
-                    "terminal_settlement_complete": (
-                        config.ppo_settle_terminal_position
-                        and not any(quantity != 0.0 for quantity in final_quantities)
-                        and not active_order_remainders
-                        and len(entry.replay.returns.values) == expected_periods
-                        and entry.metrics.termination_count == 0
-                        and not diagnostics.termination_reasons
-                    ),
+                    "terminal_settlement_complete": terminal_complete,
                     "minimum_hold_audit": minimum_hold_audit,
                 }
             )
@@ -434,6 +439,13 @@ def _result_payload(
             and shared_cash_ppo.metrics.termination_count == 0
             and not diagnostics.termination_reasons
         )
+        if terminal_complete and (
+            any(replay.book.exact_quantities)
+            or ledger.terminal_exact_quantities != ("0",) * len(final_quantities)
+        ):
+            raise ValueError(
+                "candidate shared-cash exact terminal quantities are nonzero"
+            )
         summary["shared_cash_ppo"] = {
             "name": shared_cash_ppo.name,
             "return_key": return_key,
@@ -1219,7 +1231,10 @@ def _validate_v7_replay_evidence(summary: Mapping[str, object]) -> None:
         raise ValueError(
             "candidate shared-cash exact terminal quantities are malformed"
         )
-    if terminal_complete and any(float(value) != 0.0 for value in exact_quantities):
+    # Every historical shared-cash writer serializes Fraction quantities with
+    # str(value). Exact zero is therefore "0", not a value rounded to zero
+    # by binary64 conversion (or a noncanonical alternate spelling).
+    if terminal_complete and any(value != "0" for value in exact_quantities):
         raise ValueError("candidate shared-cash exact terminal quantities are nonzero")
 
 

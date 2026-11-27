@@ -158,3 +158,31 @@ def test_build_request_rejects_oversized_integer_with_field_error(
     )
     with pytest.raises(ValueError, match=field):
         load_market_build_request(path)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        '"base_timeframe":"bad",',
+        r'"\u0062ase_timeframe":"bad",',
+        '"base_timeframe":NaN,',
+        '"base_timeframe":1e400,',
+        None,
+    ],
+)
+def test_build_request_rejects_ambiguous_json(
+    tmp_path: Path, prefix: str | None
+) -> None:
+    path = tmp_path / "build.json"
+    raw = (
+        '{"source_root":".","base_timeframe":"1h",'
+        '"features":[{"name":"ret","kind":"log_return"}],'
+        '"instruments":[{"symbol":"BTCUSDT","listed_at":"2020-01-01T00:00:00Z"}]}'
+    )
+    if prefix is None:
+        raw = raw.replace('"name":"ret"', '"name":"other","name":"ret"')
+    else:
+        raw = "{" + prefix + raw[1:]
+    path.write_text(raw, encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON member|finite"):
+        load_market_build_request(path)

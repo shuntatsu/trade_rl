@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
+from trade_rl.artifacts.canonical import strict_json_loads
 from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
     FeatureAlignment,
@@ -204,7 +204,7 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
     """Load and validate one JSON build request without permissive coercions."""
 
     config_path = Path(path)
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload = strict_json_loads(config_path.read_text(encoding="utf-8"))
     root = _mapping(payload, field="market build config")
     _reject_unknown(
         root,

@@ -149,7 +149,7 @@ def plan_registry_transition(
         raise ValueError("registry must be a CoordinatorRegistry")
     if not isinstance(candidate, EnrollmentProjection):
         raise ValueError("candidate must be an EnrollmentProjection")
-    if not isinstance(expected_before_digest, str) or not _DIGEST_RE.fullmatch(
+    if type(expected_before_digest) is not str or not _DIGEST_RE.fullmatch(
         expected_before_digest
     ):
         raise ValueError("expected registry digest must be a lowercase SHA-256")

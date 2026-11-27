@@ -4,6 +4,7 @@ from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.clock import (
     CalendarMonthFinancialClockContract,
     FinancialClockContract,
+    SessionFinancialClockContract,
 )
 from trade_rl.simulation.objectives.contract import (
     CapitalContract,
@@ -16,6 +17,7 @@ __all__ = [
     "CapitalContract",
     "FinancialClockContract",
     "ObjectiveContract",
+    "SessionFinancialClockContract",
     "BoundObjectiveClock",
     "net_equity_increment",
 ]

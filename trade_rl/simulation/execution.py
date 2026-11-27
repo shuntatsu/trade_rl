@@ -10,9 +10,13 @@ from typing import Literal, Sequence
 import numpy as np
 
 from trade_rl._array_snapshot import checked_array_input
-from trade_rl._validation import require_sha256
+from trade_rl._validation import (
+    _ordered_ns_durations,
+    _require_nominal_session_seconds,
+    require_sha256,
+)
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
     MarketOrderProfile,
@@ -530,6 +534,76 @@ def _require_calendar_month_spot_roster(dataset: MarketDataset) -> None:
         raise ValueError(
             "calendar month execution requires unit-multiplier Spot volume"
         )
+
+
+def _preflight_session_spot_execution_window(
+    dataset: MarketDataset,
+    execution_cost: ExecutionCostConfig,
+    *,
+    start_index: int,
+    stop_index: int,
+    expected_boundaries_ns: tuple[int, ...],
+    expected_nominal_bar_seconds: int,
+) -> tuple[int, ...]:
+    """Match a caller-established session grid before entering Spot execution."""
+    if (
+        type(dataset) is not MarketDataset
+        or dataset.calendar_kind is not MarketCalendarKind.SESSION
+        or dataset.native_clock is not None
+        or not dataset.identity_verified
+    ):
+        raise ValueError("expected a verified declared session Dataset")
+    if (
+        type(start_index) is not int
+        or type(stop_index) is not int
+        or not 0 <= start_index < stop_index < dataset.n_bars
+    ):
+        raise ValueError("invalid session elapsed execution window")
+    boundaries = tuple(
+        int(x) for x in dataset.timestamps[start_index : stop_index + 1].view(np.int64)
+    )
+    durations = _ordered_ns_durations(expected_boundaries_ns)
+    if boundaries != expected_boundaries_ns:
+        raise ValueError("session Dataset differs from the expected boundary sequence")
+    _require_nominal_session_seconds(expected_nominal_bar_seconds, durations)
+    if dataset.bar_hours != expected_nominal_bar_seconds / 3600:
+        raise ValueError("session nominal processing duration differs from the Dataset")
+    if type(execution_cost) is not ExecutionCostConfig:
+        raise ValueError("expected explicit session execution cost")
+    try:
+        _require_native_execution_cost(dataset, execution_cost)
+    except ValueError as error:
+        raise ValueError(
+            "session elapsed replay requires deterministic unlevered long-only MARKET with previous-bar capacity"
+        ) from error
+    span = slice(start_index, stop_index + 1)
+    processed = slice(start_index + 1, stop_index + 1)
+    price_rate = dataset.funding_price_rate
+    if (
+        any(
+            unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+            for unit in dataset.volume_units
+        )
+        or np.any(dataset.resolved_array("contract_multipliers") != 1.0)
+        or np.any(~dataset.resolved_array("information_available")[span])
+        or np.any(
+            dataset.resolved_array("available_at")[span]
+            > dataset.timestamps[span, None]
+        )
+        or np.any(~dataset.resolved_array("asset_active")[span])
+        or np.any(~dataset.tradable[span])
+        or np.any(dataset.resolved_array("funding_event_count")[processed])
+        or np.any(dataset.funding_rate[processed] != 0.0)
+        or (price_rate is not None and np.any(price_rate[processed] != 0.0))
+        or np.any(dataset.resolved_array("dividend")[processed] != 0.0)
+        or np.any(dataset.resolved_array("split_factor")[processed] != 1.0)
+        or np.any(dataset.resolved_array("cash_rate")[processed] < 0.0)
+    ):
+        raise ValueError(
+            "session elapsed replay requires complete available Spot rows without funding or corporate actions"
+        )
+    _require_execution_margin_roster(dataset, execution_cost)
+    return boundaries
 
 
 def _require_native_fixed_linear_carry_dataset(dataset: MarketDataset) -> None:

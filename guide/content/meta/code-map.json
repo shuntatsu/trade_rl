@@ -240,13 +240,14 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "e790fa3ea1a9599ca4cd1e93c51c3d0f9fde212522e80c7fc73ba9808d29ea27",
+      "source_sha256": "766409e0ef8992974ede45fc79b5ffdbaae80458e33d77b9703bd159fb1754cc",
       "label_ja": "約定・会計の所有者",
-      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
       "variables": [],
       "tests": [
         "tests/simulation/test_execution_v2.py",
-        "tests/simulation/test_execution_cost_representability.py"
+        "tests/simulation/test_execution_cost_representability.py",
+        "tests/evaluation/test_native_fixed_linear_carry.py"
       ]
     },
     {
@@ -284,29 +285,31 @@
       "id": "shared-portfolio-policy-replay",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "d040f09b07ebb886380865c67600a19e733fdba913faf1390f50fc4218bba49d",
+      "source_sha256": "1b56b7f901630ef676ec816e6d6319f8e886aa23f3501cf770b24f1804d42a2e",
       "label_ja": "全銘柄portfolio policyの共通replay",
-      "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。",
+      "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
-        "tests/evaluation/test_clocked_native_replay.py"
+        "tests/evaluation/test_clocked_native_replay.py",
+        "tests/evaluation/test_native_fixed_linear_carry.py"
       ]
     },
     {
       "id": "shared-portfolio-session",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "34be32c45e2c709623ae334b84bbac3e06fd2ede93cd57552ffa4f12d42a0211",
+      "source_sha256": "615c5db57414f76776c9b6ab6d4f2274055f6baf37f32c777055515ebeebf4e9",
       "label_ja": "native barごとにportfolio状態を継続",
-      "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。",
+      "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/architecture/test_lean_simulation_layout.py",
-        "tests/simulation/test_portfolio_pending_continuation.py"
+        "tests/simulation/test_portfolio_pending_continuation.py",
+        "tests/evaluation/test_native_fixed_linear_carry.py"
       ]
     },
     {

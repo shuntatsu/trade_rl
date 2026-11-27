@@ -971,6 +971,7 @@ def _run_shared_cash_replay_core(
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
     native_calendar_month: bool = False,
+    native_fixed_linear_carry: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
@@ -984,6 +985,13 @@ def _run_shared_cash_replay_core(
     """
 
     portfolio_mode = _portfolio_policy is not None
+    if type(native_fixed_linear_carry) is not bool or (
+        native_fixed_linear_carry
+        and (not portfolio_mode or not settle_terminal_position)
+    ):
+        raise ValueError(
+            "native fixed linear carry requires explicit settled portfolio replay"
+        )
     if (
         type(native_calendar_month) is not bool
         or native_calendar_month != dataset.native_calendar_month
@@ -1140,6 +1148,7 @@ def _run_shared_cash_replay_core(
             hold_unchanged_risk_target=hold_unchanged_risk_target,
             strict_spot_cash=strict_spot_cash,
             native_calendar_month=native_calendar_month,
+            native_fixed_linear_carry=native_fixed_linear_carry,
             execution_observer=retain_latest_execution_observation,
             fill_cash_observer=fill_cash_observer,
         )
@@ -1804,6 +1813,7 @@ def run_shared_portfolio_replay(
     hold_unchanged_risk_target: bool = False,
     strict_spot_cash: bool = False,
     native_calendar_month: bool = False,
+    native_fixed_linear_carry: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
@@ -1831,7 +1841,12 @@ def run_shared_portfolio_replay(
     distinguish actual actor calls from continuation and risk fallback.
     Exposure evidence v2 is not combined with this opt-in mode.
     The native_calendar_month opt-in requires a verified UTC-month Dataset
-    and emits duration-bound returns. Other replay modes remain unchanged.
+    and emits duration-bound returns. The separate native_fixed_linear_carry
+    opt-in admits verified fixed contract-unit Datasets with at most one
+    declared close-assigned funding event per processing row and available
+    borrow. It uses post-open quantities for funding and post-open marked
+    short notional for actual-duration borrow. It is not intrabar or venue
+    event reconstruction. Terminal settlement is required.
     Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
@@ -1877,6 +1892,7 @@ def run_shared_portfolio_replay(
         hold_unchanged_risk_target=hold_unchanged_risk_target,
         strict_spot_cash=strict_spot_cash,
         native_calendar_month=native_calendar_month,
+        native_fixed_linear_carry=native_fixed_linear_carry,
         on_native_advance=on_native_advance,
         fill_cash_observer=fill_cash_observer,
     )

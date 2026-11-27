@@ -19,7 +19,7 @@ import numpy as np
 
 from trade_rl.data import MarketDataset
 from trade_rl.data.build import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureAlignment, FeatureKind, FeatureSpec, IchimokuPeriods, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import FeatureAlignment, FeatureKind, FeatureSpec, IchimokuPeriods, InstrumentContract, MACDPeriods, MarketBuildConfig
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.source import MarketDataSource, NativeRawMarketSeries, RawMarketSeries
 from trade_rl.data.timestamps import utc_timestamp_ns
@@ -112,6 +112,11 @@ def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock
     periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
     cloud = FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, alignment=FeatureAlignment.VISIBLE_DISPLACED_CLOUD, ichimoku_periods=periods)
     assert_type(cloud.ichimoku_periods, IchimokuPeriods | None)
+    macd = FeatureSpec("macd", FeatureKind.MACD_HISTOGRAM, macd_periods=MACDPeriods(5, 21, 4))
+    assert_type(macd.macd_periods, MACDPeriods | None)
+    stochastic = FeatureSpec("stoch", FeatureKind.STOCHASTIC_D, lookback=14, stochastic_smoothing_period=5)
+    assert_type(stochastic.stochastic_smoothing_period, int | None)
+    assert_type(ClockedNativeFeatureGroup(clock, (native,), (macd, stochastic)), ClockedNativeFeatureGroup)
     assert_type(ClockedNativeFeatureGroup(clock, (native,), (cloud,)), ClockedNativeFeatureGroup)
     group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
@@ -148,6 +153,9 @@ parse_quantity(1.5)  # expect: arg-type
 PortfolioTargetProposal(("wrong",))  # expect: arg-type
 FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
 IchimokuPeriods(tenkan_period="9")  # expect: arg-type
+MACDPeriods(slow_period="26")  # expect: arg-type
+FeatureSpec("macd", FeatureKind.MACD_LINE, macd_periods={"fast_period": 3})  # expect: arg-type
+FeatureSpec("stoch", FeatureKind.STOCHASTIC_D, stochastic_smoothing_period="3")  # expect: arg-type
 FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, ichimoku_periods={"tenkan_period": 9})  # expect: arg-type
 ExecutionCostConfig(fee_rate="wrong")  # expect: arg-type
 runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present="unknown")  # expect: arg-type

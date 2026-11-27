@@ -66,7 +66,7 @@ def _native_events(
         funding_available=raw.funding_available,
         row_present=(
             raw.tradable
-            if spec.ichimoku_periods is not None
+            if spec.requires_complete_native_rows
             else np.ones(raw.timestamps.shape, dtype=np.bool_)
         ),
         active=active,

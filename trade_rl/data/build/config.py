@@ -16,6 +16,7 @@ from trade_rl.data.contracts import (
     FeatureSpec,
     IchimokuPeriods,
     InstrumentContract,
+    MACDPeriods,
     MarketBuildConfig,
     NormalizationMode,
     VolumeUnit,
@@ -120,6 +121,30 @@ def _ichimoku_periods(value: object, *, field: str) -> IchimokuPeriods:
     return IchimokuPeriods(*(integer(name) for name in names))
 
 
+def _macd_periods(value: object, *, field: str) -> MACDPeriods:
+    item = _mapping(value, field=field)
+    names = ("fast_period", "slow_period", "signal_period")
+    if (
+        set(item) != {"schema_version", *names}
+        or item.get("schema_version") != "macd_periods_v1"
+    ):
+        raise ValueError(f"{field} requires the complete macd_periods_v1 profile")
+
+    def integer(name: str) -> int:
+        number = item[name]
+        if type(number) is not int:
+            raise ValueError(f"{field}.{name} must be a native integer")
+        return number
+
+    return MACDPeriods(*(integer(name) for name in names))
+
+
+def _explicit_smoothing_period(value: object, *, field: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{field} must be a native integer")
+    return value
+
+
 def _feature(value: object, *, index: int) -> FeatureSpec:
     field = f"features[{index}]"
     item = _mapping(value, field=field)
@@ -136,6 +161,8 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
             "timeframe",
             "alignment",
             "ichimoku_periods",
+            "macd_periods",
+            "stochastic_smoothing_period",
         },
         field=field,
     )
@@ -181,6 +208,19 @@ def _feature(value: object, *, index: int) -> FeatureSpec:
                 item["ichimoku_periods"], field=f"{field}.ichimoku_periods"
             )
             if "ichimoku_periods" in item
+            else None
+        ),
+        macd_periods=(
+            _macd_periods(item["macd_periods"], field=f"{field}.macd_periods")
+            if "macd_periods" in item
+            else None
+        ),
+        stochastic_smoothing_period=(
+            _explicit_smoothing_period(
+                item["stochastic_smoothing_period"],
+                field=f"{field}.stochastic_smoothing_period",
+            )
+            if "stochastic_smoothing_period" in item
             else None
         ),
     )

@@ -686,3 +686,38 @@ def test_expiry_preflight_distinguishes_repeated_wall_clock_hour() -> None:
         _inspect(e)
     e["now"] = datetime(2026, 11, 1, 1, 5, tzinfo=zone, fold=1)
     assert _inspect(e)["decision"] == "HOLD"
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["expected", "inventory", "branch", "pr", "attempt", "artifact"],
+)
+def test_foreign_sha_never_reaches_comparison(location: str) -> None:
+    calls: list[str] = []
+
+    class ForeignSHA(str):
+        def __eq__(self, other: object) -> bool:
+            calls.append("eq")
+            return True
+
+        def __ne__(self, other: object) -> bool:
+            calls.append("ne")
+            return False
+
+    e = _evidence()
+    value = ForeignSHA("f" * 40)
+    if location == "expected":
+        e["expected_main_sha"] = value
+    elif location == "inventory":
+        e["inventory"]["main_sha"] = value  # type: ignore[index]
+    elif location == "branch":
+        e["inventory"]["branches"][1]["sha"] = value  # type: ignore[index]
+    elif location == "pr":
+        e["inventory"]["pull_requests"][0]["head_sha"] = value  # type: ignore[index]
+    elif location == "attempt":
+        e["attempts"][0]["head_sha"] = value  # type: ignore[index]
+    else:
+        e["artifacts"][0]["head_sha"] = value  # type: ignore[index]
+    with pytest.raises(ValueError, match="exact Git SHA"):
+        _inspect(e)
+    assert calls == []

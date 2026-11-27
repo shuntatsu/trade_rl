@@ -42,9 +42,15 @@ class Env:
         return path
 
     def age(self, worktree: Path, hours: float = 240.0) -> None:
+        """Backdate every file and directory (ignored ones too, ``.git`` excluded)."""
         old = time.time() - hours * 3600.0
-        for name in git(worktree, "ls-files").splitlines():
-            os.utime(worktree / name, (old, old))
+        for dirpath, dirnames, filenames in os.walk(worktree):
+            if Path(dirpath) == worktree:
+                dirnames[:] = [name for name in dirnames if name != ".git"]
+                filenames = [name for name in filenames if name != ".git"]
+            for name in (*filenames, *dirnames):
+                os.utime(os.path.join(dirpath, name), (old, old))
+        os.utime(worktree, (old, old))
 
     def commit(self, worktree: Path, name: str = "extra.txt") -> str:
         (worktree / name).write_text(f"{name}\n", encoding="utf-8", newline="\n")
@@ -95,7 +101,11 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Env:
     git(tmp_path, "init", "-q", str(repo))
     git(repo, "remote", "add", "origin", str(origin))
     (repo / "README.md").write_text("hello\n", encoding="utf-8", newline="\n")
-    (repo / ".gitignore").write_text("__pycache__/\n", encoding="utf-8", newline="\n")
+    (repo / ".gitignore").write_text(
+        "__pycache__/\n.pytest_cache/\nartifacts/\n*.log\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "init")
     git(repo, "push", "-q", "-u", "origin", "main")
@@ -435,3 +445,297 @@ def test_parse_worktree_list_flags() -> None:
     assert main.is_main and main.branch == "main"
     assert locked.locked and locked.branch is None and not locked.is_main
     assert prunable.prunable and prunable.branch == "f/y"
+
+
+def _nested_child(env: Env, parent: Path) -> Path:
+    """A worktree nested in ``parent``; the shared exclude hides it from status."""
+    child = env.add("child", parent=parent / ".claude" / "worktrees")
+    (child / "precious.txt").write_text("uncommitted\n", encoding="utf-8", newline="\n")
+    return child
+
+
+def test_plain_git_remove_would_destroy_nested_worktree(env: Env) -> None:
+    """Documents the hazard: git's own clean check cannot see the nested child."""
+    parent = env.add("parent")
+    child = _nested_child(env, parent)
+    env.age(parent)
+    assert git(parent, "status", "--porcelain", "--untracked-files=all") == ""
+    git(env.repo, "worktree", "remove", str(parent))
+    assert not (child / "precious.txt").exists()
+
+
+def test_parent_with_nested_worktree_is_kept(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    parent = env.add("parent")
+    child = _nested_child(env, parent)
+    env.age(parent)
+    found = reasons(plan(env, capsys, "--allow-ignored-data"))
+    assert found["parent"] == "contains-nested-worktree"
+    assert env.run("--apply", "--allow-ignored-data") == 0
+    assert (child / "precious.txt").read_text(encoding="utf-8") == "uncommitted\n"
+
+
+def test_nested_git_directory_in_ignored_path_is_kept(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("holder")
+    clone = wt / "artifacts" / "clone"
+    clone.mkdir(parents=True)
+    git(clone, "init", "-q")
+    env.age(wt)
+    found = reasons(plan(env, capsys, "--allow-ignored-data"))
+    assert found["holder"] == "contains-nested-worktree"
+    assert env.run("--apply", "--allow-ignored-data") == 0
+    assert (clone / ".git").is_dir()
+
+
+def test_nested_worktree_added_between_plan_and_apply_is_kept(env: Env) -> None:
+    parent = env.add("parent")
+    env.age(parent)
+    decisions = wh.plan_worktrees(
+        env.repo,
+        env.repo,
+        open_pulls=[],
+        origin_main_sha=wh.resolve_origin_main(env.repo),
+    )
+    assert {d.worktree.path.name: d.action for d in decisions}["parent"] == wh.REMOVABLE
+    child = _nested_child(env, parent)
+    (result,) = wh.apply_removals(env.repo, decisions)
+    assert result.reason == "recheck-nested-worktree"
+    assert (child / "precious.txt").exists()
+
+
+def test_ignored_data_is_kept_with_example_paths(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("data")
+    (wt / "artifacts").mkdir()
+    (wt / "artifacts" / "model.bin").write_bytes(b"x")
+    (wt / "run.log").write_text("log\n", encoding="utf-8", newline="\n")
+    (wt / "__pycache__").mkdir()
+    (wt / "__pycache__" / "m.pyc").write_bytes(b"\0")
+    (wt / ".pytest_cache").mkdir()
+    (wt / ".pytest_cache" / "README.md").write_text("c\n", encoding="utf-8")
+    env.age(wt)
+    payload = plan(env, capsys)
+    assert reasons(payload)["data"] == "ignored-data"
+    worktrees = payload["worktrees"]
+    assert isinstance(worktrees, list)
+    detail = next(i["detail"] for i in worktrees if i["path"].endswith("data"))
+    assert "artifacts/" in detail and "run.log" in detail
+    assert "__pycache__" not in detail and ".pytest_cache" not in detail
+    assert env.run("--apply") == 0
+    assert (wt / "artifacts" / "model.bin").exists()
+
+
+def test_allow_ignored_data_flag_overrides(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("data")
+    (wt / "artifacts").mkdir()
+    (wt / "artifacts" / "model.bin").write_bytes(b"x")
+    env.age(wt)
+    assert reasons(plan(env, capsys))["data"] == "ignored-data"
+    assert reasons(plan(env, capsys, "--allow-ignored-data"))["data"] == "removable"
+    assert env.run("--apply", "--allow-ignored-data") == 0
+    assert not wt.exists()
+
+
+def test_ignored_data_created_between_plan_and_apply_is_kept(env: Env) -> None:
+    wt = env.add("late")
+    env.age(wt)
+    decisions = wh.plan_worktrees(
+        env.repo,
+        env.repo,
+        open_pulls=[],
+        origin_main_sha=wh.resolve_origin_main(env.repo),
+    )
+    (wt / "run.log").write_text("late\n", encoding="utf-8", newline="\n")
+    (result,) = wh.apply_removals(env.repo, decisions)
+    assert result.reason == "recheck-ignored-data"
+    assert wt.is_dir()
+
+
+def test_idle_check_counts_ignored_files(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cache = env.add("cache")
+    (cache / "__pycache__").mkdir()
+    (cache / "__pycache__" / "m.pyc").write_bytes(b"\0")
+    env.age(cache)
+    assert reasons(plan(env, capsys))["cache"] == "removable"
+    now = time.time()
+    os.utime(cache / "__pycache__" / "m.pyc", (now, now))
+    assert reasons(plan(env, capsys))["cache"] == "recently-modified"
+    data = env.add("data")
+    (data / "run.log").write_text("log\n", encoding="utf-8", newline="\n")
+    env.age(data)
+    os.utime(data / "run.log", (now, now))
+    found = reasons(plan(env, capsys, "--allow-ignored-data"))
+    assert found["data"] == "recently-modified"
+
+
+def test_in_use_worktree_is_kept_when_rename_probe_fails(
+    env: Env, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("busy")
+    env.age(wt)
+    real_rename = os.rename
+
+    def deny(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) == wt:
+            raise PermissionError("handle open")
+        real_rename(src, dst)
+
+    monkeypatch.setattr(wh.os, "rename", deny)
+    assert env.run("--apply") == 0
+    assert wt.is_dir()
+    assert "[in-use]" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name != "nt", reason="open handles block renames on Windows")
+def test_open_handle_blocks_removal_on_windows(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("handle")
+    env.age(wt)
+    with open(wt / "README.md", encoding="utf-8"):
+        assert env.run("--apply") == 0
+    assert wt.is_dir()
+    assert "[in-use]" in capsys.readouterr().out
+
+
+def test_rename_probe_restores_directory(env: Env) -> None:
+    wt = env.add("probe")
+    assert wh._probe_in_use(wt) is None
+    assert wt.is_dir() and not list(wt.parent.glob("*hygiene-probe*"))
+
+
+@pytest.mark.parametrize(
+    "marker, is_dir",
+    [
+        ("rebase-merge", True),
+        ("rebase-apply", True),
+        ("MERGE_HEAD", False),
+        ("CHERRY_PICK_HEAD", False),
+        ("REVERT_HEAD", False),
+        ("BISECT_LOG", False),
+    ],
+)
+def test_operation_in_progress_is_kept(
+    env: Env,
+    capsys: pytest.CaptureFixture[str],
+    marker: str,
+    is_dir: bool,
+) -> None:
+    wt = env.add("busy")
+    env.age(wt)
+    gitdir = Path(git(wt, "rev-parse", "--absolute-git-dir"))
+    if is_dir:
+        (gitdir / marker).mkdir()
+    else:
+        (gitdir / marker).write_text("x\n", encoding="utf-8", newline="\n")
+    payload = plan(env, capsys)
+    assert reasons(payload)["busy"] == "operation-in-progress"
+    assert env.run("--apply") == 0
+    assert wt.is_dir()
+
+
+def test_operation_started_between_plan_and_apply_is_kept(env: Env) -> None:
+    wt = env.add("busy")
+    env.age(wt)
+    decisions = wh.plan_worktrees(
+        env.repo,
+        env.repo,
+        open_pulls=[],
+        origin_main_sha=wh.resolve_origin_main(env.repo),
+    )
+    gitdir = Path(git(wt, "rev-parse", "--absolute-git-dir"))
+    (gitdir / "MERGE_HEAD").write_text("x\n", encoding="utf-8", newline="\n")
+    (result,) = wh.apply_removals(env.repo, decisions)
+    assert result.reason == "recheck-operation-in-progress"
+    assert wt.is_dir()
+
+
+def test_branch_name_of_open_pr_is_kept_even_with_different_head(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("renamed")
+    env.age(wt)
+    pulls = [OpenPullRequest(9, "feat/renamed", "f" * 40)]
+    assert env.run("--json", provider=lambda: pulls) == 0
+    found = reasons(json.loads(capsys.readouterr().out))
+    assert found["renamed"] == "open-pr-branch"
+    assert env.run("--apply", provider=lambda: pulls) == 0
+    assert wt.is_dir()
+
+
+def test_error_after_removal_reports_actual_count_and_exits_one(
+    env: Env,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    wt = env.add("gone")
+    env.age(wt)
+
+    def boom(repo_root: Path) -> str | None:
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(wh, "prune_worktrees", boom)
+    assert env.run("--apply") == 1
+    captured = capsys.readouterr()
+    assert not wt.exists()
+    assert "- removed: 1" in captured.out
+    assert "nothing was removed" not in captured.err
+    assert "1 worktree(s) removed" in captured.err
+
+
+def test_oserror_for_one_worktree_does_not_stop_the_rest(
+    env: Env,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    first = env.add("aaa")
+    second = env.add("bbb")
+    env.age(first)
+    env.age(second)
+    real = wh._probe_in_use
+
+    def flaky(path: Path) -> str | None:
+        if path.name == "aaa":
+            raise OSError("antivirus")
+        return real(path)
+
+    monkeypatch.setattr(wh, "_probe_in_use", flaky)
+    assert env.run("--apply") == 1
+    assert first.is_dir() and not second.exists()
+    out = capsys.readouterr().out
+    assert "- removed: 1" in out and "- failed: 1" in out
+
+
+def test_scope_prefix_lookalike_is_outside(tmp_path: Path) -> None:
+    scope = tmp_path / ".claude" / "worktrees"
+    (scope / "a").mkdir(parents=True)
+    (tmp_path / ".claude" / "worktrees-evil" / "a").mkdir(parents=True)
+    assert wh._is_within(scope / "a", scope)
+    assert not wh._is_within(tmp_path / ".claude" / "worktrees-evil" / "a", scope)
+    assert not wh._is_within(scope, scope)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows paths are case-insensitive")
+def test_windows_case_and_slash_variants_are_equivalent(
+    env: Env, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wt = env.add("MixedCase")
+    other = env.add("other")
+    env.age(wt)
+    env.age(other)
+    variant = str(wt).replace("\\", "/").swapcase()
+    assert wh._is_within(variant, str(env.scope).swapcase())
+    assert wh._norm(variant) == wh._norm(wt)
+    capsys.readouterr()
+    assert env.run("--json", cwd=Path(variant)) == 0
+    found = reasons(json.loads(capsys.readouterr().out))
+    assert found["MixedCase"] == "current-worktree"
+    assert found["other"] == "removable"

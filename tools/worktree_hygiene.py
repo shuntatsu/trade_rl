@@ -1,12 +1,22 @@
 """Safely remove stale linked git worktrees under ``<repo>/.claude/worktrees``.
 
 Default mode is a read-only plan.  ``--apply`` removes only worktrees that are
-classified ``REMOVABLE`` (clean, merged into ``origin/main``, not an open PR
-head, not locked, idle).  The tool never forces a removal, never deletes remote
-branches and never touches the stash.  Local branches are deleted only with
-``--delete-local-branches`` and only via ``git branch -d``.  Any uncertainty
-(``gh`` failure, unreadable ``origin/main``, git errors) stops the run without
-removing anything.
+classified ``REMOVABLE``: clean (ignored regenerable caches excepted), merged
+into ``origin/main``, not an open PR head or branch, not locked, not
+mid-operation, free of nested worktrees and non-cache ignored data, and idle.
+The tool never forces a removal, never deletes remote branches and never
+touches the stash.  Local branches are deleted only with
+``--delete-local-branches`` and only via ``git branch -d``.
+
+Failure behaviour: any uncertainty *before* removal starts (``gh`` failure,
+unreadable ``origin/main``, git errors) exits 2 and nothing is removed.  A
+failure for one worktree during ``--apply`` is reported, the others are still
+processed, and the exit code is 1; an unexpected error after removals began
+reports the actual removed count and also exits 1.
+
+Limits (heuristics, not guarantees): only a git lock, the worktree the tool
+runs in, and the idle window identify live sessions; on Windows a rename probe
+additionally detects open handles.  Other sessions are not detected.
 """
 
 from __future__ import annotations
@@ -28,6 +38,20 @@ SCOPE_PARTS = (".claude", "worktrees")
 PR_LIST_LIMIT = 200
 DEFAULT_MIN_IDLE_HOURS = 24.0
 PROTECTED_BRANCHES = frozenset({"main", "master"})
+# Regenerable caches that never count as "ignored data".
+REGENERABLE_DIR_NAMES = frozenset(
+    {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+)
+# Gitdir state files/dirs meaning a rebase/merge/cherry-pick/revert/bisect is open.
+OPERATION_MARKERS = (
+    "rebase-merge",
+    "rebase-apply",
+    "MERGE_HEAD",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "BISECT_LOG",
+)
+EXAMPLE_PATHS = 3
 
 REMOVABLE = "REMOVABLE"
 KEEP = "KEEP"
@@ -229,9 +253,48 @@ def gh_open_pull_requests(repo_root: Path) -> list[OpenPullRequest]:
     return pulls
 
 
-def _status_lines(worktree: Path) -> list[str]:
-    output = _git_ok(worktree, "status", "--porcelain", "--untracked-files=all")
-    return [line for line in output.splitlines() if line.strip()]
+@dataclass(frozen=True)
+class _Status:
+    tracked: list[str]
+    untracked: list[str]
+    ignored: list[str]  # ignored entries beyond the regenerable-cache allowlist
+
+
+def _is_regenerable(entry: str) -> bool:
+    name = entry.strip().strip('"').rstrip("/").rsplit("/", 1)[-1]
+    return name in REGENERABLE_DIR_NAMES or name.endswith(".pyc")
+
+
+def _status(worktree: Path) -> _Status:
+    output = _git_ok(
+        worktree,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    tracked: list[str] = []
+    untracked: list[str] = []
+    ignored: list[str] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("!! "):
+            if not _is_regenerable(line[3:]):
+                ignored.append(line[3:].strip().strip('"'))
+        elif line.startswith("??"):
+            untracked.append(line)
+        else:
+            tracked.append(line)
+    return _Status(tracked, untracked, ignored)
+
+
+def _ignored_detail(ignored: Sequence[str]) -> str:
+    shown = ", ".join(ignored[:EXAMPLE_PATHS])
+    more = len(ignored) - EXAMPLE_PATHS
+    return f"{len(ignored)} ignored entr(ies) would be deleted: {shown}" + (
+        f", +{more} more" if more > 0 else ""
+    )
 
 
 def _is_ancestor(repo_root: Path, sha: str, base_sha: str) -> bool:
@@ -243,22 +306,48 @@ def _is_ancestor(repo_root: Path, sha: str, base_sha: str) -> bool:
     raise WorktreeHygieneError(f"merge-base failed: {process.stderr.strip()}")
 
 
-def latest_activity(worktree: Path) -> float | None:
-    """Newest mtime among tracked/untracked-not-ignored files (``.git`` excluded)."""
-    output = _git_ok(
-        worktree, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
-    )
+def _operation_in_progress(worktree: Path) -> str | None:
+    gitdir = Path(_git_ok(worktree, "rev-parse", "--absolute-git-dir").strip())
+    found = [name for name in OPERATION_MARKERS if (gitdir / name).exists()]
+    return ", ".join(found) if found else None
+
+
+def _scan_tree(worktree: Path) -> tuple[Path | None, float | None]:
+    """Walk the whole worktree (ignored dirs included, root ``.git`` excluded).
+
+    Returns ``(first nested .git path or None, newest file/directory mtime)``.
+    """
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    nested: Path | None = None
     newest: float | None = None
-    for name in output.split("\0"):
-        if not name or name == ".git" or name.startswith(".git/"):
-            continue
-        try:
-            mtime = os.lstat(worktree / name).st_mtime
-        except FileNotFoundError:
-            continue
-        if newest is None or mtime > newest:
-            newest = mtime
-    return newest
+    root = _norm(worktree)
+    for dirpath, dirnames, filenames in os.walk(worktree, onerror=fail):
+        names = [*dirnames, *filenames]
+        if _norm(dirpath) == root:
+            names = [name for name in names if name != ".git"]
+            dirnames[:] = [name for name in dirnames if name != ".git"]
+        elif ".git" in names:
+            nested = Path(dirpath) / ".git"
+            break
+        for entry in (".", *names):
+            mtime = os.lstat(os.path.join(dirpath, entry)).st_mtime
+            if newest is None or mtime > newest:
+                newest = mtime
+    return nested, newest
+
+
+def _registered_nested(
+    worktree: Worktree, registered: Sequence[Worktree]
+) -> Path | None:
+    for other in registered:
+        if _norm(other.path) != _norm(worktree.path) and _is_within(
+            other.path, worktree.path
+        ):
+            return other.path
+    return None
 
 
 def _classify(
@@ -267,9 +356,12 @@ def _classify(
     repo_root: Path,
     scope_dir: Path,
     current: Path,
+    registered: Sequence[Worktree],
     origin_main_sha: str,
     pr_by_sha: dict[str, OpenPullRequest],
+    pr_by_branch: dict[str, OpenPullRequest],
     min_idle_seconds: float,
+    allow_ignored_data: bool,
     now: float,
 ) -> tuple[str, str]:
     """Return ``(reason, detail)``; reason ``removable`` means REMOVABLE."""
@@ -286,15 +378,16 @@ def _classify(
     if worktree.head is None:
         return "head-unreadable", "no HEAD commit reported"
     try:
-        lines = _status_lines(worktree.path)
+        operation = _operation_in_progress(worktree.path)
+        status = _status(worktree.path)
     except WorktreeHygieneError as exc:
         return "status-failed", str(exc)
-    tracked = [line for line in lines if not line.startswith("??")]
-    untracked = [line for line in lines if line.startswith("??")]
-    if tracked:
-        return "dirty-tracked", f"{len(tracked)} tracked change(s)"
-    if untracked:
-        return "untracked-files", f"{len(untracked)} untracked file(s)"
+    if operation:
+        return "operation-in-progress", f"git state present: {operation}"
+    if status.tracked:
+        return "dirty-tracked", f"{len(status.tracked)} tracked change(s)"
+    if status.untracked:
+        return "untracked-files", f"{len(status.untracked)} untracked file(s)"
     try:
         merged = _is_ancestor(repo_root, worktree.head, origin_main_sha)
     except WorktreeHygieneError as exc:
@@ -304,15 +397,25 @@ def _classify(
     pull = pr_by_sha.get(worktree.head)
     if pull is not None:
         return "open-pr-head", f"HEAD is the head of open PR #{pull.number}"
-    try:
-        newest = latest_activity(worktree.path)
-    except (WorktreeHygieneError, OSError) as exc:
-        return "activity-scan-failed", str(exc)
+    if worktree.branch is not None and worktree.branch in pr_by_branch:
+        pull = pr_by_branch[worktree.branch]
+        return "open-pr-branch", f"branch is the head branch of open PR #{pull.number}"
+    nested = _registered_nested(worktree, registered)
+    newest: float | None = None
+    if nested is None:
+        try:
+            nested, newest = _scan_tree(worktree.path)
+        except OSError as exc:
+            return "scan-failed", str(exc)
+    if nested is not None:
+        return "contains-nested-worktree", f"nested git/worktree at {nested}"
+    if status.ignored and not allow_ignored_data:
+        return "ignored-data", _ignored_detail(status.ignored)
     if newest is not None and now - newest < min_idle_seconds:
         idle_hours = max(now - newest, 0.0) / 3600.0
         return "recently-modified", f"newest file change {idle_hours:.1f}h ago"
     if newest is None:
-        return "removable", "clean, merged, no tracked files"
+        return "removable", "clean, merged, empty"
     idle_hours = max(now - newest, 0.0) / 3600.0
     return "removable", f"clean, merged into {ORIGIN_REF}, idle {idle_hours:.1f}h"
 
@@ -324,21 +427,27 @@ def plan_worktrees(
     open_pulls: Sequence[OpenPullRequest],
     origin_main_sha: str,
     min_idle_hours: float = DEFAULT_MIN_IDLE_HOURS,
+    allow_ignored_data: bool = False,
     now: float | None = None,
 ) -> list[WorktreeDecision]:
     scope_dir = repo_root.joinpath(*SCOPE_PARTS)
     pr_by_sha = {pull.head_sha: pull for pull in open_pulls}
+    pr_by_branch = {pull.branch: pull for pull in open_pulls}
     clock = time.time() if now is None else now
+    registered = list_worktrees(repo_root)
     decisions: list[WorktreeDecision] = []
-    for worktree in list_worktrees(repo_root):
+    for worktree in registered:
         reason, detail = _classify(
             worktree,
             repo_root=repo_root,
             scope_dir=scope_dir,
             current=current,
+            registered=registered,
             origin_main_sha=origin_main_sha,
             pr_by_sha=pr_by_sha,
+            pr_by_branch=pr_by_branch,
             min_idle_seconds=min_idle_hours * 3600.0,
+            allow_ignored_data=allow_ignored_data,
             now=clock,
         )
         action = REMOVABLE if reason == "removable" else KEEP
@@ -346,12 +455,15 @@ def plan_worktrees(
     return decisions
 
 
-def _recheck(repo_root: Path, planned: Worktree) -> tuple[str, str] | None:
+def _recheck(
+    repo_root: Path, planned: Worktree, *, allow_ignored_data: bool
+) -> tuple[str, str] | None:
     """Return a ``(reason, detail)`` keep verdict, or None if still removable."""
+    registered = list_worktrees(repo_root)
     entry = next(
         (
             item
-            for item in list_worktrees(repo_root)
+            for item in registered
             if _norm(item.path) == _norm(planned.path) and not item.is_main
         ),
         None,
@@ -362,9 +474,43 @@ def _recheck(repo_root: Path, planned: Worktree) -> tuple[str, str] | None:
         return "recheck-locked", "worktree was locked after planning"
     if entry.head != planned.head:
         return "recheck-head-changed", f"HEAD moved to {entry.head}"
-    lines = _status_lines(planned.path)
-    if lines:
-        return "recheck-dirty", f"{len(lines)} change(s) appeared after planning"
+    operation = _operation_in_progress(planned.path)
+    if operation:
+        return "recheck-operation-in-progress", f"git state present: {operation}"
+    status = _status(planned.path)
+    changes = len(status.tracked) + len(status.untracked)
+    if changes:
+        return "recheck-dirty", f"{changes} change(s) appeared after planning"
+    nested = _registered_nested(entry, registered)
+    if nested is None:
+        nested, _ = _scan_tree(planned.path)
+    if nested is not None:
+        return "recheck-nested-worktree", f"nested git/worktree at {nested}"
+    if status.ignored and not allow_ignored_data:
+        return "recheck-ignored-data", _ignored_detail(status.ignored)
+    return None
+
+
+def _probe_in_use(path: Path) -> str | None:
+    """Rename the directory away and back; return why it is in use, if it is.
+
+    On Windows an open handle or a process cwd inside the tree makes the rename
+    fail, which prevents a half-completed ``git worktree remove``.  POSIX
+    systems allow renaming busy directories, so there the probe detects nothing.
+    """
+    probe = path.with_name(f"{path.name}.hygiene-probe-{os.getpid()}")
+    if os.path.lexists(probe):
+        return f"probe path {probe} already exists"
+    try:
+        os.rename(path, probe)
+    except OSError as exc:
+        return str(exc)
+    try:
+        os.rename(probe, path)
+    except OSError as exc:
+        raise WorktreeHygieneError(
+            f"probe rename back failed; the worktree is now at {probe}: {exc}"
+        ) from exc
     return None
 
 
@@ -378,43 +524,60 @@ def _delete_branch(repo_root: Path, branch: str) -> str:
     return f"refused by git branch -d: {message}"
 
 
+def _remove_one(
+    repo_root: Path,
+    worktree: Worktree,
+    *,
+    delete_local_branches: bool,
+    allow_ignored_data: bool,
+) -> ApplyResult:
+    verdict = _recheck(repo_root, worktree, allow_ignored_data=allow_ignored_data)
+    if verdict is not None:
+        return ApplyResult(worktree.path, "kept", verdict[0], verdict[1])
+    in_use = _probe_in_use(worktree.path)
+    if in_use is not None:
+        return ApplyResult(worktree.path, "kept", "in-use", in_use)
+    process = _git(repo_root, "worktree", "remove", str(worktree.path))
+    if process.returncode != 0:
+        return ApplyResult(
+            worktree.path, "failed", "remove-failed", process.stderr.strip()
+        )
+    branch_result = None
+    if delete_local_branches and worktree.branch is not None:
+        branch_result = _delete_branch(repo_root, worktree.branch)
+    return ApplyResult(worktree.path, "removed", "removed", "", branch_result)
+
+
 def apply_removals(
     repo_root: Path,
     decisions: Sequence[WorktreeDecision],
     *,
     delete_local_branches: bool = False,
+    allow_ignored_data: bool = False,
+    results: list[ApplyResult] | None = None,
 ) -> list[ApplyResult]:
-    """Remove REMOVABLE worktrees after a fresh per-worktree re-check."""
-    results: list[ApplyResult] = []
+    """Remove REMOVABLE worktrees after a fresh per-worktree re-check.
+
+    Outcomes are appended to ``results`` as they happen so a caller keeps the
+    partial record if something unexpected escapes.
+    """
+    out = [] if results is None else results
     for decision in decisions:
         if decision.action != REMOVABLE:
             continue
         worktree = decision.worktree
         try:
-            verdict = _recheck(repo_root, worktree)
-        except WorktreeHygieneError as exc:
-            results.append(
-                ApplyResult(worktree.path, "failed", "recheck-failed", str(exc))
-            )
-            continue
-        if verdict is not None:
-            results.append(ApplyResult(worktree.path, "kept", verdict[0], verdict[1]))
-            continue
-        process = _git(repo_root, "worktree", "remove", str(worktree.path))
-        if process.returncode != 0:
-            results.append(
-                ApplyResult(
-                    worktree.path, "failed", "remove-failed", process.stderr.strip()
+            out.append(
+                _remove_one(
+                    repo_root,
+                    worktree,
+                    delete_local_branches=delete_local_branches,
+                    allow_ignored_data=allow_ignored_data,
                 )
             )
-            continue
-        branch_result = None
-        if delete_local_branches and worktree.branch is not None:
-            branch_result = _delete_branch(repo_root, worktree.branch)
-        results.append(
-            ApplyResult(worktree.path, "removed", "removed", "", branch_result)
-        )
-    return results
+        except (WorktreeHygieneError, OSError) as exc:
+            out.append(ApplyResult(worktree.path, "failed", "error", str(exc)))
+    return out
 
 
 def prune_worktrees(repo_root: Path) -> str | None:
@@ -440,7 +603,7 @@ def _decision_dict(decision: WorktreeDecision) -> dict[str, object]:
 def summarize(
     decisions: Sequence[WorktreeDecision],
     results: Sequence[ApplyResult],
-    prune_error: str | None,
+    errors: Sequence[str],
 ) -> dict[str, object]:
     removed = sum(1 for item in results if item.outcome == "removed")
     failed = sum(1 for item in results if item.outcome == "failed")
@@ -452,7 +615,7 @@ def summarize(
         "removable": sum(1 for item in decisions if item.action == REMOVABLE),
         "removed": removed,
         "kept": plan_kept + kept_after,
-        "failed": failed + (1 if prune_error else 0),
+        "failed": failed + len(errors),
         "reasons": dict(sorted(reasons.items())),
     }
 
@@ -464,17 +627,19 @@ def render_text(
     origin_main_sha: str,
     open_pr_count: int,
     min_idle_hours: float,
+    allow_ignored_data: bool,
     decisions: Sequence[WorktreeDecision],
     results: Sequence[ApplyResult],
-    prune_error: str | None,
+    errors: Sequence[str],
 ) -> str:
     lines = [
         "## Worktree hygiene",
         f"- mode: {'apply' if apply else 'dry-run'}",
         f"- repo root: {repo_root}",
         f"- {ORIGIN_REF}: {origin_main_sha}",
-        f"- open PR heads: {open_pr_count}",
+        f"- open PRs: {open_pr_count}",
         f"- min idle hours: {min_idle_hours:g}",
+        f"- allow ignored data (DESTRUCTIVE): {'yes' if allow_ignored_data else 'no'}",
         "",
     ]
     for decision in decisions:
@@ -492,9 +657,8 @@ def render_text(
             lines.append(
                 f"{result.outcome.upper():<9} [{result.reason}] {result.path}{suffix}{branch}"
             )
-        if prune_error:
-            lines.append(f"FAILED    [prune-failed] git worktree prune: {prune_error}")
-    summary = summarize(decisions, results, prune_error)
+        lines.extend(f"FAILED    [error] {message}" for message in errors)
+    summary = summarize(decisions, results, errors)
     reasons = summary["reasons"]
     assert isinstance(reasons, dict)
     lines.extend(
@@ -538,6 +702,15 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="with --apply, also `git branch -d` the removed worktree's branch",
     )
+    parser.add_argument(
+        "--allow-ignored-data",
+        action="store_true",
+        help=(
+            "DESTRUCTIVE: also treat worktrees holding gitignored data beyond "
+            "regenerable caches (artifacts, data, outputs, .env, ...) as "
+            "removable; that data is deleted and cannot be recovered"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.min_idle_hours < 0:
         parser.error("--min-idle-hours must be >= 0")
@@ -572,21 +745,32 @@ def main(
             open_pulls=open_pulls,
             origin_main_sha=origin_main_sha,
             min_idle_hours=args.min_idle_hours,
+            allow_ignored_data=args.allow_ignored_data,
             now=now,
         )
-        results: list[ApplyResult] = []
-        prune_error: str | None = None
-        if args.apply:
-            results = apply_removals(
+    except (WorktreeHygieneError, OSError) as exc:
+        print(f"worktree_hygiene: {exc}; nothing was removed", file=sys.stderr)
+        return 2
+    results: list[ApplyResult] = []
+    errors: list[str] = []
+    if args.apply:
+        try:
+            apply_removals(
                 repo_root,
                 decisions,
                 delete_local_branches=args.delete_local_branches,
+                allow_ignored_data=args.allow_ignored_data,
+                results=results,
             )
+        except (WorktreeHygieneError, OSError) as exc:
+            errors.append(f"apply stopped: {exc}")
+        try:
             prune_error = prune_worktrees(repo_root)
-    except WorktreeHygieneError as exc:
-        print(f"worktree_hygiene: {exc}; nothing was removed", file=sys.stderr)
-        return 2
-    summary = summarize(decisions, results, prune_error)
+        except (WorktreeHygieneError, OSError) as exc:
+            prune_error = str(exc)
+        if prune_error:
+            errors.append(f"git worktree prune: {prune_error}")
+    summary = summarize(decisions, results, errors)
     if args.json:
         print(
             json.dumps(
@@ -594,8 +778,9 @@ def main(
                     "mode": "apply" if args.apply else "dry-run",
                     "repo_root": str(repo_root),
                     "origin_main": origin_main_sha,
-                    "open_pr_heads": len(open_pulls),
+                    "open_prs": len(open_pulls),
                     "min_idle_hours": args.min_idle_hours,
+                    "allow_ignored_data": args.allow_ignored_data,
                     "worktrees": [_decision_dict(item) for item in decisions],
                     "results": [
                         {
@@ -607,7 +792,7 @@ def main(
                         }
                         for item in results
                     ],
-                    "prune_error": prune_error,
+                    "errors": errors,
                     "summary": summary,
                 },
                 indent=2,
@@ -621,10 +806,17 @@ def main(
                 origin_main_sha=origin_main_sha,
                 open_pr_count=len(open_pulls),
                 min_idle_hours=args.min_idle_hours,
+                allow_ignored_data=args.allow_ignored_data,
                 decisions=decisions,
                 results=results,
-                prune_error=prune_error,
+                errors=errors,
             )
+        )
+    if errors:
+        print(
+            f"worktree_hygiene: {summary['removed']} worktree(s) removed before "
+            f"the error(s) above: {'; '.join(errors)}",
+            file=sys.stderr,
         )
     failed = summary["failed"]
     return 1 if isinstance(failed, int) and failed > 0 else 0

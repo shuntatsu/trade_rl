@@ -372,7 +372,7 @@ class MarketDatasetBuilder:
                         row_present=(
                             causal_row_present[:, symbol_index]
                             & tradable[:, symbol_index]
-                            if spec.ichimoku_periods is not None
+                            if spec.requires_complete_native_rows
                             else causal_row_present[:, symbol_index]
                         ),
                         active=symbol_active[:, symbol_index],

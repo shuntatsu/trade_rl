@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
+from itertools import chain
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeAlias, cast
@@ -104,18 +106,45 @@ def _reject_json_constant(_text: str) -> None:
     raise ValueError("JSON numbers must be finite")
 
 
-def strict_json_loads(text: str) -> object:
-    """Decode JSON without discarding duplicate names or admitting nonfinite numbers.
+_JSON_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
-    This preserves ordinary JSON whitespace, member ordering and finite numeric
-    types. Schema and identity validation remain the responsibility of the caller.
+
+def _require_utf8_json_strings(value: object) -> None:
+    # JSON decoding combines a valid escaped surrogate pair into one scalar.
+    # Reject remaining surrogate code points without copying/re-encoding the
+    # entire decoded tree. Iterator frames scale with nesting, not breadth.
+    pending: list[Iterator[object]] = [iter((value,))]
+    while pending:
+        try:
+            item = next(pending[-1])
+        except StopIteration:
+            pending.pop()
+            continue
+        if isinstance(item, str):
+            if _JSON_SURROGATE.search(item):
+                raise ValueError("JSON strings must be valid UTF-8")
+        elif isinstance(item, dict):
+            pending.append(chain.from_iterable(item.items()))
+        elif isinstance(item, list):
+            pending.append(iter(item))
+
+
+def strict_json_loads(text: str) -> object:
+    """Decode unambiguous JSON representable by canonical UTF-8.
+
+    Refuse duplicate member names, nonfinite numbers and unpaired surrogate
+    code points in keys and values. Preserve ordinary JSON whitespace,
+    member ordering, valid Unicode and finite numeric types. Schema and
+    identity validation remain the responsibility of the caller.
     """
-    return json.loads(
+    decoded = json.loads(
         text,
         object_pairs_hook=_unique_json_members,
         parse_float=_finite_json_float,
         parse_constant=_reject_json_constant,
     )
+    _require_utf8_json_strings(decoded)
+    return decoded
 
 
 def canonical_json_bytes(value: object) -> bytes:

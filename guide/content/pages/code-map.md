@@ -153,3 +153,5 @@ Task18のnumeric replayも同じsessionを使います。明示的な終端予�
 - artifactがsource/runtime provenanceから切り離されていないか。
 
 責務が二重化すると、同じ候補でも経路によって結果が変わり、比較可能性が失われます。
+
+固定秒数の `FinancialClockContract` に加え、UTC暦月Spotの共有口座学習には `CalendarMonthFinancialClockContract` を明示します。月数・実経過秒・UTC境界を別schemaでbindし、観測変換とforward bindingでも固定秒へ近似しません。固定scenario-v2は対象外です。

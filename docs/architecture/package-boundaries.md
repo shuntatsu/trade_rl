@@ -487,7 +487,7 @@ portfolio/pretrade/emergencyのhard safety・feasibilityを持つ。`PortfolioRi
 execution/accountingの経済正本と、order/stateful/target/diagnosticsを持つ。strategy/evaluationから独立することで、同じexecution semanticsを複数研究候補で共有できる。
 
 `objectives/` は新規Study向けのpureな `CapitalContract`、`ObjectiveContract`、
-`FinancialClockContract`、`BoundObjectiveClock` と固定資本の
+`FinancialClockContract`、`CalendarMonthFinancialClockContract`、`BoundObjectiveClock` と固定資本の
 `net_equity_increment` を所有する。値を受け取ってobjective identityを宣言するだけで、
 ledger、replay、selection、study executionを実装しない。入力のequityは既存の
 after-cost accounting ownerが供給する。objective subpackageはsimulation root facadeへ
@@ -1042,6 +1042,7 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.strategies.portfolio` | `PortfolioPolicy`, `PortfolioDecisionSnapshot`, `PortfolioTargetProposal` |
 | `trade_rl.risk` / `trade_rl.simulation` | `PreTradeRisk`, `PreTradeRiskConfig` / `ExecutionCostConfig` |
 | `trade_rl.simulation` | `runtime_execution_policy_digest` (source-free runtime identity) |
+| `trade_rl.simulation.objectives` | `CapitalContract`, `ObjectiveContract`, `FinancialClockContract`, `CalendarMonthFinancialClockContract`, `BoundObjectiveClock` (explicit fixed or UTC-calendar financial window; no execution authority) |
 | `trade_rl.simulation.training_identity` | `training_execution_config_payload`, `training_execution_config_digest`, `training_risk_config_payload`, `training_risk_config_digest` (full legacy training config identity) |
 | `trade_rl.data.timestamps` | `utc_timestamp_ns` (exact native scalar UTC timestamp) |
 | `trade_rl.risk.spot_cash` / `trade_rl.strategies.allocation.spot_cash` | `spot_cash_target_factor` / `SpotCashBudgetPolicy` |

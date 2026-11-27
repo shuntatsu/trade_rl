@@ -179,27 +179,29 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "3c2fcf610b870c6f98fc029eeec4f4e9b3121ebd40dd1f106e25e0647a7715ea",
+      "source_sha256": "1ba406f9324665b0df2e565642f73c861191ed53184cc0753d4fd01e27139667",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
-      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
+      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
-        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "f7798a9232f130a49f8fdd61c5580acaf93f6691d5a112063e1a6c4a67cacccf",
+      "source_sha256": "2e9440b218b64a846bae3266c582d534e8ee0c17c2146036b9a5afebacb71d2b",
       "label_ja": "共通portfolioのopt-in PPO training entrypoint",
-      "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。",
+      "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_training.py",
-        "tests/architecture/test_lean_dependency_boundaries.py"
+        "tests/architecture/test_lean_dependency_boundaries.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
@@ -208,12 +210,13 @@
       "kind": "function",
       "source_sha256": "c08db217e277ad500e492fc34d2344a3f1d51c1e8090cf126492b2e5df4bcd54",
       "label_ja": "学習attemptを検証するopt-in inference bundle",
-      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。",
+      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
-        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
@@ -232,52 +235,56 @@
       "id": "published-portfolio-inference-replay",
       "symbol": "trade_rl.evaluation.portfolio_inference.run_published_portfolio_inference_replay",
       "kind": "function",
-      "source_sha256": "d0a8efd75e139c92a4c25ab8ff85de7cac26976561fe8b8de234aec4308ea4fe",
+      "source_sha256": "f6f0de7c11cc5bbaeebb0dc51248274bbb388a156f3d2be68789fc704cabe2a6",
       "label_ja": "paired dataとfrozen policyを共通replayへ接続",
-      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度実行します。",
+      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度実行します。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
-        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "0d9cb214874b0dcecfda3eb5427c20b4f61de29abba48b46b04d9772cc92ae76",
+      "source_sha256": "7342098f43bd809ea8d5cd1cc8fd0b88f06bbc62f88b8ee347845d6288c10741",
       "label_ja": "fit範囲と環境へbindする観測変換",
-      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
+      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
-        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-transform-fit",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.fit_portfolio_observation_transform",
       "kind": "function",
-      "source_sha256": "c2830eb3924a68c23be0f4b2a3e37366f364ad315a83cf73905c78f189b3645b",
+      "source_sha256": "943ce94d56f4d5daf059a6f0aacc491c4e6e43d0f4785068325f2dab795feb83",
       "label_ja": "actor-fit範囲だけで観測統計を固定",
-      "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。",
+      "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
-        "tests/strategies/rl/test_portfolio_env.py"
+        "tests/strategies/rl/test_portfolio_env.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-runtime-binding",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
       "kind": "class",
-      "source_sha256": "0f17ca5e2b3acd81064116eaa601e8b2c88f861d391e28868d677854a144630e",
+      "source_sha256": "af41198c6b24f8af0e04b1efa813db13209bc0550c60c0a8a0443c3835e35a22",
       "label_ja": "学習統計を将来windowへbind",
-      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
-        "tests/strategies/rl/test_portfolio_native_calendar_month.py"
+        "tests/strategies/rl/test_portfolio_native_calendar_month.py",
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
       ]
     },
     {

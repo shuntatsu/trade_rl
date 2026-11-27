@@ -89,6 +89,9 @@ _SOURCE_MODULES = (
 _SOURCE_SCOPE = "selected direct execution, context and policy owners; not a complete transitive closure"
 _TRAINING_SCHEMA = "shared_portfolio_ppo_training_v1"
 _TRAINING_CONTEXT_SCHEMA = "shared_portfolio_training_context_v1"
+_CARRY_TRAINING_CONTEXT_SCHEMA = (
+    "shared_portfolio_fixed_linear_carry_training_context_v1"
+)
 _BUNDLE_SCHEMA = "shared_portfolio_inference_bundle_v1"
 _BUNDLE_FILES = {
     "training_context.json",
@@ -659,8 +662,12 @@ def _validated_training_context(
         },
         field="training_context",
     )
-    if context["schema"] != _TRAINING_CONTEXT_SCHEMA:
+    if context["schema"] not in (
+        _TRAINING_CONTEXT_SCHEMA,
+        _CARRY_TRAINING_CONTEXT_SCHEMA,
+    ):
         raise ValueError("training context schema differs")
+    native_fixed_linear_carry = context["schema"] == _CARRY_TRAINING_CONTEXT_SCHEMA
     declared_context = _strict_object(
         context["context"], field="training_context.context"
     )
@@ -764,6 +771,7 @@ def _validated_training_context(
         or transform.bound_digest != bound.digest
         or transform.objective_digest != objective.digest
         or transform.clock_digest != clock.digest
+        or transform.native_fixed_linear_carry != native_fixed_linear_carry
         or transform.native_interval_seconds != clock.decision_interval_seconds
         or transform.economic_horizon_seconds != clock.economic_horizon_seconds
         or transform.objective_start_ns != _datetime_ns(objective.evaluation_start)

@@ -48,6 +48,8 @@ from trade_rl.simulation.training_identity import (
     training_execution_config_payload, training_execution_config_digest,
     training_risk_config_payload, training_risk_config_digest,
 )
+from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
+from trade_rl.strategies.rl.portfolio_transform import PortfolioObservationTransform, fit_portfolio_observation_transform
 from trade_rl.strategies.portfolio import (
     PortfolioDecisionSnapshot, PortfolioPolicy, PortfolioTargetProposal,
 )
@@ -110,6 +112,11 @@ def month(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarCl
         assert_type(result.returns.exact_elapsed_years, Fraction)
         payload = native_calendar_month_return_payload(market, result.returns, start_index=0)
         assert_type(load_native_calendar_month_return_payload(market, payload), CalendarMonthReturnSeries)
+def fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
+    env = assert_type(SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry=True), SharedPortfolioGymEnv)
+    assert_type(env.native_fixed_linear_carry, bool)
+    transform = assert_type(fit_portfolio_observation_transform(env), PortfolioObservationTransform)
+    assert_type(transform.native_fixed_linear_carry, bool)
 def month_learning_clock(objective: ObjectiveContract) -> None:
     clock = assert_type(CalendarMonthFinancialClockContract(economic_horizon_months=2, economic_horizon_seconds=5184000, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1"), CalendarMonthFinancialClockContract)
     assert_type(BoundObjectiveClock(objective, clock), BoundObjectiveClock)
@@ -190,6 +197,8 @@ def bad_cloud(raw: RawMarketSeries, native: NativeRawMarketSeries, clock: Native
 def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput) -> None:
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
+def bad_fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
+    SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry="yes")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type

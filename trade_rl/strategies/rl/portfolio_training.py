@@ -20,6 +20,8 @@ from trade_rl.strategies.rl.portfolio_episode_journal import (
     PortfolioEpisodeJournalWrapper,
 )
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
+    _CARRY_TRAINING_CONTEXT_SCHEMA,
+    _TRAINING_CONTEXT_SCHEMA,
     _space_descriptor,
     capture_portfolio_source_runtime,
 )
@@ -652,7 +654,11 @@ def fit_shared_portfolio_ppo(
     }
     profile = env.market_order_profile
     training_context: dict[str, object] = {
-        "schema": "shared_portfolio_training_context_v1",
+        "schema": (
+            _CARRY_TRAINING_CONTEXT_SCHEMA
+            if env.native_fixed_linear_carry
+            else _TRAINING_CONTEXT_SCHEMA
+        ),
         "training_context_digest": context_digest,
         "context": context,
         "transform": transform.to_payload(),

@@ -50,6 +50,7 @@ from trade_rl.integrations.binance.vision import (
     _looks_like_header,
     _normalize_epoch_ms,
 )
+from trade_rl.integrations.market_store.archive_url import verify_spec_matches_url
 from trade_rl.integrations.market_store.contracts import (
     ArchiveKind,
     ArchiveSpec,
@@ -429,6 +430,7 @@ def _daily_derivatives_rows(
     *,
     kind: ArchiveKind,
     header: tuple[str, ...],
+    embargo: EmbargoPolicy,
 ) -> list[list[str]]:
     if spec.kind is not kind:
         raise ValueError(f"spec is not a {kind.value} archive")
@@ -437,6 +439,8 @@ def _daily_derivatives_rows(
         or spec.period_kind is not PeriodKind.DAILY
     ):
         raise ValueError(f"{kind.value} archives are USD-M daily only")
+    parsed = verify_spec_matches_url(spec)
+    embargo.check_archive_end(parsed.period_end, url=spec.url)
     rows = _rows(payload, url=spec.url)
     if not rows:
         return []
@@ -471,7 +475,11 @@ def parse_open_interest_metrics_archive(
     """Parse a verified USD-M daily ``metrics`` archive into exact rows, ascending."""
 
     body = _daily_derivatives_rows(
-        payload, spec, kind=ArchiveKind.METRICS, header=METRICS_HEADER
+        payload,
+        spec,
+        kind=ArchiveKind.METRICS,
+        header=METRICS_HEADER,
+        embargo=embargo,
     )
     parsed: dict[int, OpenInterestMetricRow] = {}
     for raw in body:
@@ -501,7 +509,11 @@ def parse_book_depth_archive(
     """Parse a verified USD-M daily ``bookDepth`` archive into exact rows, ascending."""
 
     body = _daily_derivatives_rows(
-        payload, spec, kind=ArchiveKind.BOOK_DEPTH, header=BOOK_DEPTH_HEADER
+        payload,
+        spec,
+        kind=ArchiveKind.BOOK_DEPTH,
+        header=BOOK_DEPTH_HEADER,
+        embargo=embargo,
     )
     parsed: dict[tuple[int, int], BookDepthRow] = {}
     for raw in body:

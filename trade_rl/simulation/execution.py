@@ -12,6 +12,7 @@ import numpy as np
 from trade_rl._array_snapshot import checked_array_input
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
     MarketOrderProfile,
@@ -35,6 +36,7 @@ from trade_rl.simulation.quantities import exact_quantity, project_quantity
 from trade_rl.simulation.stateful.execution import (
     StatefulExecutionObservation,
     StatefulExecutionResult,
+    _require_native_fixed_execution_rows,
     execute_stateful_orders,
 )
 from trade_rl.simulation.targets.execution import execute_target_statefully
@@ -446,6 +448,59 @@ class _FillResult:
     cost_by_symbol: np.ndarray
 
 
+def _require_native_execution_cost(
+    dataset: MarketDataset, cost: ExecutionCostConfig
+) -> None:
+    if (
+        cost.order_type != "market"
+        or cost.processing_bar_volume_capacity
+        or cost.allow_short
+        or cost.max_leverage > 1.0
+        or cost.collateral_haircut != 1.0
+        or cost.slippage_std != 0.0
+        or cost.tail_slippage_probability != 0.0
+    ):
+        raise ValueError(
+            (
+                "native calendar month"
+                if dataset.native_calendar_month
+                else "native fixed"
+            )
+            + " execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
+        )
+
+
+def _require_execution_margin_roster(
+    dataset: MarketDataset, cost: ExecutionCostConfig
+) -> None:
+    if cost.margin_mode == "isolated" and dataset.n_symbols != 1:
+        raise ValueError(
+            "isolated margin requires a per-symbol collateral ledger; "
+            "only single-asset execution is supported"
+        )
+
+
+def _preflight_native_fixed_execution_window(
+    dataset: MarketDataset,
+    cost: ExecutionCostConfig,
+    *,
+    start_index: int,
+    stop_index: int,
+) -> None:
+    """Refuse unsupported native learning inputs before reserving work."""
+    if dataset.native_calendar_month:
+        raise ValueError("calendar month execution is not supported by fixed-clock Gym")
+    if dataset.native_clock is None:
+        return
+    if not dataset.identity_verified:
+        raise ValueError("native fixed execution requires a verified Dataset identity")
+    _require_native_execution_cost(dataset, cost)
+    _require_execution_margin_roster(dataset, cost)
+    _require_native_fixed_execution_rows(
+        dataset, start_index=start_index, stop_index=stop_index
+    )
+
+
 class MarketExecutor:
     """Execute one decision target while holding filled quantities.
 
@@ -466,8 +521,26 @@ class MarketExecutor:
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         strict_spot_cash: bool = False,
+        native_calendar_month: bool = False,
         fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
+        if (
+            type(native_calendar_month) is not bool
+            or native_calendar_month != dataset.native_calendar_month
+        ):
+            raise ValueError(
+                "calendar month execution requires explicit matching opt-in"
+            )
+        if native_calendar_month and (
+            any(
+                unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+                for unit in dataset.volume_units
+            )
+            or np.any(dataset.contract_multipliers != 1.0)
+        ):
+            raise ValueError(
+                "calendar month execution requires unit-multiplier Spot volume"
+            )
         self.dataset = dataset
         self._native_fixed_dataset = (
             dataset if dataset.native_clock is not None else None
@@ -485,11 +558,7 @@ class MarketExecutor:
         )
         self._validate_strict_spot_configuration()
         self.insolvency_valuation = insolvency_valuation
-        if self.cost.margin_mode == "isolated" and self.dataset.n_symbols != 1:
-            raise ValueError(
-                "isolated margin requires a per-symbol collateral ledger; "
-                "only single-asset execution is supported"
-            )
+        _require_execution_margin_roster(self.dataset, self.cost)
         self.rule_stress = rule_stress or ExecutionRuleStress()
         self.market_order_profile = market_order_profile
         if execution_observer is not None and not callable(execution_observer):
@@ -556,18 +625,8 @@ class MarketExecutor:
             raise ValueError(
                 "native fixed execution requires a fresh executor for a different Dataset"
             )
-        if self.dataset.native_clock is not None and (
-            self.cost.order_type != "market"
-            or self.cost.processing_bar_volume_capacity
-            or self.cost.allow_short
-            or self.cost.max_leverage > 1.0
-            or self.cost.collateral_haircut != 1.0
-            or self.cost.slippage_std != 0.0
-            or self.cost.tail_slippage_probability != 0.0
-        ):
-            raise ValueError(
-                "native fixed execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
-            )
+        if self.dataset.native_clock is not None:
+            _require_native_execution_cost(self.dataset, self.cost)
 
     def _validate_strict_spot_configuration(self) -> None:
         if self.strict_spot_cash and (

@@ -9,7 +9,11 @@ from typing import Literal
 import numpy as np
 
 from trade_rl._array_snapshot import checked_array_input
-from trade_rl.risk.pretrade import PreTradeRisk, RiskConstrainedTarget
+from trade_rl.risk.pretrade import (
+    PreTradeRisk,
+    PreTradeRiskConfig,
+    RiskConstrainedTarget,
+)
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
@@ -118,6 +122,13 @@ def _validate_native_target_request(
     return proposed_weights, hold_symbols, emergency_mask, reduce_mask
 
 
+def _require_risk_execution_limits(
+    config: PreTradeRiskConfig, execution_limit: float
+) -> None:
+    if config.max_gross > execution_limit or config.max_abs_weight > execution_limit:
+        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+
+
 def validate_risk_execution_compatibility(
     pretrade_risk: PreTradeRisk, executor: MarketExecutor
 ) -> None:
@@ -126,12 +137,9 @@ def validate_risk_execution_compatibility(
         raise TypeError("pretrade_risk must be a PreTradeRisk")
     if not isinstance(executor, MarketExecutor):
         raise TypeError("executor must be a MarketExecutor")
-    execution_limit = float(executor.cost.max_leverage)
-    if (
-        pretrade_risk.config.max_gross > execution_limit
-        or pretrade_risk.config.max_abs_weight > execution_limit
-    ):
-        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+    _require_risk_execution_limits(
+        pretrade_risk.config, float(executor.cost.max_leverage)
+    )
 
 
 def execute_native_target_transition(

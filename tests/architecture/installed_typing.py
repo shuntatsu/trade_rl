@@ -42,6 +42,7 @@ from trade_rl.evaluation.runs.external_provenance import (
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import ExecutionCostConfig, runtime_execution_policy_digest
 from trade_rl.simulation.quantities import parse_quantity
+from trade_rl.simulation.objectives import CalendarMonthFinancialClockContract, BoundObjectiveClock, ObjectiveContract
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
 from trade_rl.simulation.training_identity import (
     training_execution_config_payload, training_execution_config_digest,
@@ -107,6 +108,11 @@ def month(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarCl
         assert_type(result.returns.exact_elapsed_years, Fraction)
         payload = native_calendar_month_return_payload(market, result.returns, start_index=0)
         assert_type(load_native_calendar_month_return_payload(market, payload), CalendarMonthReturnSeries)
+def month_learning_clock(objective: ObjectiveContract) -> None:
+    clock = assert_type(CalendarMonthFinancialClockContract(economic_horizon_months=2, economic_horizon_seconds=5184000, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1"), CalendarMonthFinancialClockContract)
+    assert_type(BoundObjectiveClock(objective, clock), BoundObjectiveClock)
+    assert_type(clock.decision_interval_seconds, None)
+    assert_type(clock.digest, str)
 def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
     periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
@@ -154,6 +160,7 @@ PortfolioTargetProposal(("wrong",))  # expect: arg-type
 FeatureSpec("ret", FeatureKind.LOG_RETURN, lookback="wrong")  # expect: arg-type
 IchimokuPeriods(tenkan_period="9")  # expect: arg-type
 MACDPeriods(slow_period="26")  # expect: arg-type
+CalendarMonthFinancialClockContract(economic_horizon_months="2", economic_horizon_seconds=5184000, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1")  # expect: arg-type
 FeatureSpec("macd", FeatureKind.MACD_LINE, macd_periods={"fast_period": 3})  # expect: arg-type
 FeatureSpec("stoch", FeatureKind.STOCHASTIC_D, stochastic_smoothing_period="3")  # expect: arg-type
 FeatureSpec("cloud", FeatureKind.ICHIMOKU_CLOUD_POSITION, ichimoku_periods={"tenkan_period": 9})  # expect: arg-type

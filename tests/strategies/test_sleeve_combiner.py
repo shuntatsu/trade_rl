@@ -705,6 +705,21 @@ def _single(
     )
 
 
+@pytest.mark.parametrize(
+    "vol_target",
+    [None, VolatilityTarget(1.0, 2.0), VolatilityTarget(1.0, 2.0, 1e308)],
+)
+@pytest.mark.parametrize("small", [math.ulp(0.0), 2 * math.ulp(0.0)])
+def test_unrepresentable_subnormal_variance_is_refused(
+    vol_target: VolatilityTarget | None, small: float
+) -> None:
+    # A nonconstant two-point history has exact positive population variance
+    # small**2 / 4, outside binary64 even if annualized volatility is representable.
+    with pytest.raises(SleeveCombinerError) as info:
+        _single([[0.0], [small]], (1.0, 1.0), vol_target=vol_target)
+    assert info.value.reason == "non_representable"
+
+
 def test_witness_gross_cap_does_not_overflow_on_huge_weights() -> None:
     result = _single([[-1.0], [1.0]], (1e308, 1e308), max_gross=1.0)
     assert result.combined_weights == (0.5, 0.5)

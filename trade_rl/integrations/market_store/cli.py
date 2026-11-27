@@ -10,6 +10,10 @@ unconditionally: there is no flag that lifts it. The FS1 warm-up span
 [2026-08-01, 2026-11-01) is refused by default and admitted only with BOTH
 ``--allow-fs1-warmup-span`` and ``--fs1-warmup-authorization-url`` naming the Issue #810
 comment in which the user authorized it; even then FS1 scoring re-acquires its own data.
+
+``plan`` and ``ingest`` cover klines and funding rates unless ``--kinds`` opts in to
+others (for example ``--kinds klines,funding_rate,metrics,book_depth``); ``metrics`` and
+``book_depth`` are public USD-M daily archives and are embargoed like every other kind.
 """
 
 from __future__ import annotations
@@ -26,8 +30,11 @@ from typing import Any, TextIO
 
 from trade_rl.integrations.market_store.checksum import ChecksumError
 from trade_rl.integrations.market_store.contracts import (
+    DAILY_USDS_M_ONLY_KINDS,
+    DEFAULT_ARCHIVE_KINDS,
     DEFAULT_BASE_ASSETS,
     DEFAULT_INTERVAL,
+    ArchiveKind,
     StoreExportPolicy,
     StoreMarket,
     Universe,
@@ -46,6 +53,9 @@ from trade_rl.integrations.market_store.parse import ArchiveContentError
 from trade_rl.integrations.market_store.plan import IngestionPlan, plan_ingestion
 
 DEFAULT_START = "2020-01-01"
+
+# the first migration that creates the metrics and book_depth tables
+_DERIVATIVES_MIGRATION = 2
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -68,6 +78,34 @@ def _csv(text: str) -> tuple[str, ...]:
     if not values:
         raise argparse.ArgumentTypeError("expected a non-empty comma separated list")
     return values
+
+
+def _kinds(text: str) -> tuple[ArchiveKind, ...]:
+    names = _csv(text)
+    allowed = {kind.value: kind for kind in ArchiveKind}
+    unknown = [name for name in names if name not in allowed]
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown archive kind(s) {unknown}; choose from {sorted(allowed)}"
+        )
+    if len(set(names)) != len(names):
+        raise argparse.ArgumentTypeError("archive kinds must not repeat")
+    return tuple(allowed[name] for name in names)
+
+
+def _add_kinds(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--kinds",
+        type=_kinds,
+        default=DEFAULT_ARCHIVE_KINDS,
+        help=(
+            "comma separated archive kinds: "
+            + ", ".join(kind.value for kind in ArchiveKind)
+            + " (default: "
+            + ",".join(kind.value for kind in DEFAULT_ARCHIVE_KINDS)
+            + "); metrics and book_depth are USD-M daily archives and opt-in"
+        ),
+    )
 
 
 def _add_universe(parser: argparse.ArgumentParser) -> None:
@@ -126,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan = commands.add_parser("plan", help="print the archives that would be ingested")
     _add_universe(plan)
+    _add_kinds(plan)
     _add_range(plan)
     _add_warmup(plan)
 
@@ -134,6 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="ingest planned archives (a dry-run plan unless --allow-network)",
     )
     _add_universe(ingest)
+    _add_kinds(ingest)
     _add_range(ingest)
     _add_warmup(ingest)
     ingest.add_argument(
@@ -247,7 +287,12 @@ def _make_plan(
 ) -> IngestionPlan:
     end = args.end if args.end is not None else _default_end(now, policy)
     return plan_ingestion(
-        _universe(args), start=args.start, end=end, now=now, embargo=policy
+        _universe(args),
+        start=args.start,
+        end=end,
+        now=now,
+        embargo=policy,
+        kinds=args.kinds,
     )
 
 
@@ -322,8 +367,16 @@ def run(
                     warmup_authorization_url=plan.embargo.warmup_authorization_url
                 )
             with PostgresMarketStore.open() as store:
-                if not store.schema_versions():
+                versions = store.schema_versions()
+                if not versions:
                     raise IngestError("the store is not migrated; run `migrate` first")
+                if DAILY_USDS_M_ONLY_KINDS & set(plan.kinds) and (
+                    max(version for version, _ in versions) < _DERIVATIVES_MIGRATION
+                ):
+                    raise IngestError(
+                        "metrics and book_depth need migration "
+                        f"{_DERIVATIVES_MIGRATION:04d}; run `migrate` first"
+                    )
                 if not args.skip_exchange_info:
                     _ingest_exchange_info(store, plan, stderr)
                 report = run_ingestion(

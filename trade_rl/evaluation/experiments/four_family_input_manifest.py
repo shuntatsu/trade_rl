@@ -180,9 +180,12 @@ class WindowSpec:
             - self.bound.objective.evaluation_start
         )
         seconds = elapsed.days * 86_400 + elapsed.seconds
-        expected = (self.stop_index - self.start_index) * (
-            self.bound.clock.decision_interval_seconds
-        )
+        interval = self.bound.clock.decision_interval_seconds
+        if interval is None:
+            raise ContractViolationError(
+                "calendar month four-family manifests require a new schema"
+            )
+        expected = (self.stop_index - self.start_index) * interval
         if elapsed.microseconds or seconds != expected:
             raise ContractViolationError(
                 "window duration must match its indexes and decision interval"

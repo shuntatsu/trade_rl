@@ -50,6 +50,19 @@ class StoreExportPolicy(StrEnum):
 class ArchiveKind(StrEnum):
     KLINES = "klines"
     FUNDING_RATE = "funding_rate"
+    #: USD-M daily ``metrics`` archive: 5-minute open-interest / long-short snapshots.
+    METRICS = "metrics"
+    #: USD-M daily ``bookDepth`` archive: cumulative depth within signed percent bands.
+    BOOK_DEPTH = "book_depth"
+
+
+#: The kinds every plan and ingest run covered before the opt-in kinds existed. The
+#: default stays exactly this pair so existing runs and plan identities are unchanged.
+DEFAULT_ARCHIVE_KINDS: Final = (ArchiveKind.KLINES, ArchiveKind.FUNDING_RATE)
+#: Opt-in kinds that exist only as USD-M **daily** Vision archives.
+DAILY_USDS_M_ONLY_KINDS: Final = frozenset(
+    {ArchiveKind.METRICS, ArchiveKind.BOOK_DEPTH}
+)
 
 
 class PeriodKind(StrEnum):
@@ -117,9 +130,22 @@ class ArchiveSpec:
 
     def __post_init__(self) -> None:
         if (self.kind is ArchiveKind.KLINES) != (self.interval is not None):
-            raise ValueError("klines archives need an interval, funding archives none")
+            raise ValueError(
+                "klines archives need an interval; other archive kinds have none"
+            )
         if self.period_start >= self.period_end:
             raise ValueError("archive period must be non-empty")
+        if self.kind in DAILY_USDS_M_ONLY_KINDS:
+            if self.market is not StoreMarket.USDS_M:
+                raise ValueError(
+                    f"{self.kind.value} archives exist only for USD-M futures, "
+                    f"not {self.market.value}"
+                )
+            if self.period_kind is not PeriodKind.DAILY:
+                raise ValueError(
+                    f"{self.kind.value} archives exist only as daily archives, "
+                    f"not {self.period_kind.value}"
+                )
         if self.checksum_url != f"{self.url}.CHECKSUM":
             raise ValueError("checksum URL must be the archive URL plus .CHECKSUM")
 
@@ -205,6 +231,64 @@ class FundingRow:
             "mark_price": self.mark_price,
             "funding_interval_hours": self.interval_hours,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class OpenInterestMetricRow:
+    """One exact 5-minute USD-M ``metrics`` snapshot, read from the archive text.
+
+    ``create_time_ms`` is the archive's ``create_time`` (UTC, exact seconds). Values are
+    stored exactly as published; their economic meaning and any availability lag are
+    the consumer's to establish.
+    """
+
+    create_time_ms: int
+    sum_open_interest: Decimal
+    sum_open_interest_value: Decimal
+    count_toptrader_long_short_ratio: Decimal
+    sum_toptrader_long_short_ratio: Decimal
+    count_long_short_ratio: Decimal
+    sum_taker_long_short_vol_ratio: Decimal
+
+    @property
+    def create_time(self) -> datetime:
+        return utc_from_ms(self.create_time_ms)
+
+    def comparable(self) -> dict[str, object]:
+        return {
+            "sum_open_interest": self.sum_open_interest,
+            "sum_open_interest_value": self.sum_open_interest_value,
+            "count_toptrader_long_short_ratio": self.count_toptrader_long_short_ratio,
+            "sum_toptrader_long_short_ratio": self.sum_toptrader_long_short_ratio,
+            "count_long_short_ratio": self.count_long_short_ratio,
+            "sum_taker_long_short_vol_ratio": self.sum_taker_long_short_vol_ratio,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class BookDepthRow:
+    """One exact ``bookDepth`` observation: cumulative depth inside a signed % band.
+
+    A negative ``percentage`` is the bid side (that far below the mid), a positive one
+    the ask side; ``depth`` is the cumulative base quantity and ``notional`` the
+    cumulative quote value inside the band, both exactly as published.
+    """
+
+    timestamp_ms: int
+    percentage: int
+    depth: Decimal
+    notional: Decimal
+
+    @property
+    def timestamp(self) -> datetime:
+        return utc_from_ms(self.timestamp_ms)
+
+    @property
+    def key(self) -> tuple[int, int]:
+        return (self.timestamp_ms, self.percentage)
+
+    def comparable(self) -> dict[str, object]:
+        return {"depth": self.depth, "notional": self.notional}
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,16 +407,20 @@ def ms_from_utc(value: datetime) -> int:
 
 
 __all__ = [
+    "DAILY_USDS_M_ONLY_KINDS",
+    "DEFAULT_ARCHIVE_KINDS",
     "DEFAULT_BASE_ASSETS",
     "DEFAULT_INTERVAL",
     "DEFAULT_QUOTE_ASSET",
     "MARKET_STORE_URL_ENV",
     "ArchiveKind",
     "ArchiveSpec",
+    "BookDepthRow",
     "EmbargoState",
     "FundingRow",
     "KlineRow",
     "MarketReader",
+    "OpenInterestMetricRow",
     "PeriodKind",
     "StoredExchangeInfo",
     "WarmupRun",

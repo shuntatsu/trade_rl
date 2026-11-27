@@ -7,7 +7,7 @@ function of its arguments: no clock, no hidden state, no randomness, no account.
 Which sleeves exist, their parameters and every default are the caller's
 (research's) choice; this module only fixes the reference arithmetic.
 
-Look-ahead is impossible to express. The history is a bare ``(T, K)`` array of
+The combiner cannot attest the chronology of supplied rows. The history is a bare ``(T, K)`` array of
 the rows the caller passes, oldest first; the function reads nothing else and
 only the most recent ``lookback`` rows. The caller owns the contract that every
 passed row is a realized sleeve return strictly before the decision time.
@@ -392,16 +392,27 @@ def combine_sleeves(
     if not (math.isfinite(quadratic) and math.isfinite(reference)):
         raise SleeveCombinerError("non_finite", "predicted variance is not finite")
     vol_zero = quadratic <= _ZERO_VARIANCE_RELATIVE * reference
-    base_scale = scaled.global_scale * scaled.max_relative_scale
     periods = 1.0 if config.vol_target is None else config.vol_target.periods_per_year
     if vol_zero:
         predicted_vol = 0.0
     else:
         predicted_vol = _scaled_product(
-            base_scale, v_max, math.sqrt(quadratic), math.sqrt(periods)
+            scaled.global_scale,
+            scaled.max_relative_scale,
+            v_max,
+            math.sqrt(quadratic),
+            math.sqrt(periods),
         )
     contributions = [
-        _scaled_product(base_scale, base_scale, v_max, v_max, float(z[i] * rz[i]))
+        _scaled_product(
+            scaled.global_scale,
+            scaled.max_relative_scale,
+            scaled.global_scale,
+            scaled.max_relative_scale,
+            v_max,
+            v_max,
+            float(z[i] * rz[i]),
+        )
         for i in range(k)
     ]
 

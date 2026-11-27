@@ -25,6 +25,9 @@ from trade_rl.data.source import MarketDataSource, NativeRawMarketSeries, RawMar
 from trade_rl.data.timestamps import utc_timestamp_ns
 from trade_rl.data.features.clocked_overlay import ClockedNativeFeatureGroup, ClockedNativeSource, append_clocked_native_feature_groups
 from trade_rl.data.native_clock import NativeBarClock
+from trade_rl.data.build.native_spot import build_native_calendar_month_spot_dataset
+from trade_rl.evaluation.series import CalendarMonthReturnSeries
+from trade_rl.evaluation.native_calendar_returns import native_calendar_month_return_payload, load_native_calendar_month_return_payload
 from trade_rl.data.features.indicators.ichimoku_cloud import AlignedVisibleCloud, VisibleCloud, VisibleCloudEvents, align_visible_ichimoku_cloud, visible_ichimoku_cloud, visible_ichimoku_events
 from trade_rl.evaluation.replay import (
     SharedCashPortfolioReplayLedgerEvidence, SharedCashPortfolioReplayResult,
@@ -96,6 +99,14 @@ def cloud_features(raw: NativeRawMarketSeries, clock: NativeBarClock, contract: 
     aligned = assert_type(align_visible_ichimoku_cloud(raw, clock=clock, contract=contract, base_timestamps=raw.timestamps, base_active=raw.tradable, max_staleness_hours=720.0), AlignedVisibleCloud)
     assert_type(aligned.available, np.ndarray[Any, Any])
     assert_type(aligned.span_a, np.ndarray[Any, Any])
+def month(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock, closes: np.ndarray[Any, Any]) -> None:
+    group = ClockedNativeFeatureGroup(clock, (native,), (FeatureSpec("ret", FeatureKind.LOG_RETURN),))
+    assert_type(build_native_calendar_month_spot_dataset(clock=clock, closes=closes, sources=(native,), feature_groups=(group,), as_of=np.datetime64("2024-01-01")), MarketDataset)
+    result = assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month=True), SharedCashPortfolioReplayResult)
+    if isinstance(result.returns, CalendarMonthReturnSeries):
+        assert_type(result.returns.exact_elapsed_years, Fraction)
+        payload = native_calendar_month_return_payload(market, result.returns, start_index=0)
+        assert_type(load_native_calendar_month_return_payload(market, payload), CalendarMonthReturnSeries)
 def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock: NativeBarClock) -> None:
     spec = FeatureSpec("higher", FeatureKind.LOG_RETURN)
     periods = assert_type(IchimokuPeriods(9, 26, 52, 26), IchimokuPeriods)
@@ -163,6 +174,7 @@ def bad_external(pin: PackageSourcePin, path: Path, source: ExternalPackageInput
     ExternalPackageInput(pin, "bad", path)  # expect: arg-type
     verify_external_source_provenance(source, source, runtime_config={}, expected_core_pin_digest="a"*64, expected_research_pin_digest="b"*64)  # expect: call-arg
 def bad_replay(market: MarketDataset) -> None:
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """
 )

@@ -11,8 +11,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
     MarketDataset,
     PublishedDatasetArtifact,
-    inspect_published_market_dataset_artifact,
-    load_market_dataset_artifact,
+    load_published_market_dataset_artifact,
 )
 from trade_rl.evaluation.experiments.analysis import (
     PPO_HOLDING_DURATION_COMPARISON_SCHEMA,
@@ -109,8 +108,7 @@ def _validate_dataset_root(
     plan: StudyPlan,
 ) -> tuple[MarketDataset, PublishedDatasetArtifact]:
     try:
-        artifact = inspect_published_market_dataset_artifact(dataset_root)
-        dataset = load_market_dataset_artifact(dataset_root)
+        artifact, dataset = load_published_market_dataset_artifact(dataset_root)
     except ValueError as error:
         raise ArtifactIntegrityError(
             "Study dataset artifact cannot be trusted"
@@ -231,8 +229,7 @@ def create_study(
                 "PPO holding-duration protocol requires a final window and research context"
             )
         try:
-            artifact = inspect_published_market_dataset_artifact(dataset_root)
-            dataset = load_market_dataset_artifact(dataset_root)
+            artifact, dataset = load_published_market_dataset_artifact(dataset_root)
         except ValueError as error:
             raise ArtifactIntegrityError(
                 "dataset artifact cannot be trusted"

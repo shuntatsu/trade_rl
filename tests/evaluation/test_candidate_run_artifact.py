@@ -108,16 +108,14 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
 
     monkeypatch.setattr(
         candidate_run,
-        "inspect_published_market_dataset_artifact",
-        lambda path: SimpleNamespace(
-            schema_version="market_dataset_artifact_v3",
-            artifact_digest="d" * 64,
+        "load_published_market_dataset_artifact",
+        lambda path: (
+            SimpleNamespace(
+                schema_version="market_dataset_artifact_v3",
+                artifact_digest="d" * 64,
+            ),
+            dataset,
         ),
-    )
-    monkeypatch.setattr(
-        candidate_run,
-        "load_market_dataset_artifact",
-        lambda path: dataset,
     )
 
     def fake_execute(loaded, spec):
@@ -328,16 +326,14 @@ def test_run_candidate_artifact_rejects_unknown_config_keys(
 
     monkeypatch.setattr(
         candidate_run,
-        "inspect_published_market_dataset_artifact",
-        lambda path: SimpleNamespace(
-            schema_version="market_dataset_artifact_v3",
-            artifact_digest="d" * 64,
+        "load_published_market_dataset_artifact",
+        lambda path: (
+            SimpleNamespace(
+                schema_version="market_dataset_artifact_v3",
+                artifact_digest="d" * 64,
+            ),
+            market(),
         ),
-    )
-    monkeypatch.setattr(
-        candidate_run,
-        "load_market_dataset_artifact",
-        lambda path: market(),
     )
     raw = run_config()
     raw["hidden_override"] = 1
@@ -360,16 +356,14 @@ def test_run_candidate_artifact_rejects_unknown_fit_symbol(
 
     monkeypatch.setattr(
         candidate_run,
-        "inspect_published_market_dataset_artifact",
-        lambda path: SimpleNamespace(
-            schema_version="market_dataset_artifact_v3",
-            artifact_digest="d" * 64,
+        "load_published_market_dataset_artifact",
+        lambda path: (
+            SimpleNamespace(
+                schema_version="market_dataset_artifact_v3",
+                artifact_digest="d" * 64,
+            ),
+            market(),
         ),
-    )
-    monkeypatch.setattr(
-        candidate_run,
-        "load_market_dataset_artifact",
-        lambda path: market(),
     )
     raw = run_config()
     raw["fit_symbol_names"] = ["UNKNOWN"]
@@ -389,10 +383,14 @@ def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None
 
     output = tmp_path / "result"
     output.mkdir()
+
+    def unexpected_dataset_io(path):
+        pytest.fail("existing destination must reject before Dataset I/O")
+
     monkeypatch.setattr(
         candidate_run,
-        "load_market_dataset_artifact",
-        lambda path: market(),
+        "load_published_market_dataset_artifact",
+        unexpected_dataset_io,
     )
     config_path = tmp_path / "run.json"
     config_path.write_text("{}", encoding="utf-8")

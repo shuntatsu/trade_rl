@@ -7,10 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
-from trade_rl.data import (
-    inspect_published_market_dataset_artifact,
-    load_market_dataset_artifact,
-)
+from trade_rl.data import load_published_market_dataset_artifact
 from trade_rl.evaluation.runs.artifact import (
     PublishedCandidateRun,
     publish_candidate_run,
@@ -43,8 +40,7 @@ def run_candidate_artifact(
     if output.exists():
         raise FileExistsError(f"candidate run destination already exists: {output}")
 
-    artifact = inspect_published_market_dataset_artifact(dataset_root)
-    dataset = load_market_dataset_artifact(dataset_root)
+    artifact, dataset = load_published_market_dataset_artifact(dataset_root)
     config = load_candidate_run_config(config_path)
     spec = resolve_candidate_run_spec(
         dataset,

@@ -17,8 +17,8 @@ from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_rename_directory
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.publication import (
-    inspect_published_market_dataset_artifact,
-    load_market_dataset_artifact,
+    PublishedDatasetArtifact,
+    load_published_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
 from trade_rl.data.market import MarketDataset
@@ -260,11 +260,11 @@ def _validate_study_against_config(
     config: CanonicalM2BootstrapConfig,
     *,
     dataset_root: Path,
+    dataset: MarketDataset,
+    artifact: PublishedDatasetArtifact,
 ) -> tuple[str, str, str]:
     snapshot = inspect_study(dataset_root.parent / "study")
     plan = snapshot.plan
-    dataset = load_market_dataset_artifact(dataset_root)
-    artifact = inspect_published_market_dataset_artifact(dataset_root)
 
     if snapshot.baseline is not None or snapshot.experiment_sequences:
         raise ValueError("bootstrap Study must remain before baseline execution")
@@ -541,11 +541,14 @@ def inspect_canonical_m2_bootstrap(
         bootstrap_root / "source",
         require_resolution=manifest_schema == _MANIFEST_SCHEMA_V2,
     )
-    artifact = inspect_published_market_dataset_artifact(bootstrap_root / "dataset")
-    dataset = load_market_dataset_artifact(bootstrap_root / "dataset")
+    artifact, dataset = load_published_market_dataset_artifact(
+        bootstrap_root / "dataset"
+    )
     study_digest, plan_implementation, plan_runtime = _validate_study_against_config(
         config,
         dataset_root=bootstrap_root / "dataset",
+        dataset=dataset,
+        artifact=artifact,
     )
     if manifest["bootstrap_config_digest"] != config.digest:
         raise ValueError("bootstrap config digest differs from manifest")
@@ -630,8 +633,9 @@ def bootstrap_canonical_m2_study(
             )
 
         published = publish_market_dataset_artifact(staging / "dataset", build.dataset)
-        artifact = inspect_published_market_dataset_artifact(staging / "dataset")
-        loaded_dataset = load_market_dataset_artifact(staging / "dataset")
+        artifact, loaded_dataset = load_published_market_dataset_artifact(
+            staging / "dataset"
+        )
         if loaded_dataset.dataset_id != build.dataset.dataset_id:
             raise ValueError("reloaded dataset id differs from built dataset")
         if artifact.artifact_digest != published.artifact_digest:
@@ -674,6 +678,8 @@ def bootstrap_canonical_m2_study(
             _validate_study_against_config(
                 config,
                 dataset_root=staging / "dataset",
+                dataset=loaded_dataset,
+                artifact=artifact,
             )
         )
         if plan_implementation != start_implementation:

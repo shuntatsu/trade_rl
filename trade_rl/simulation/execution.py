@@ -1417,6 +1417,7 @@ class MarketExecutor:
         start_index: int,
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
+        continue_pending_orders: bool = False,
     ) -> tuple[
         ExecutionResult,
         StatefulExecutionResult,
@@ -1430,39 +1431,53 @@ class MarketExecutor:
         previous_terminal_orders = state.terminal_orders
         if not isinstance(previous_terminal_orders, TerminalOrderArchive):
             raise RuntimeError("terminal order archive was not normalized")
-        target_vector = np.asarray(
-            checked_array_input(target, field_name="target weights"), dtype=np.float64
-        ).reshape(-1)
-        target_identity = content_digest(
-            {
-                "bars": bars,
-                "dataset_id": self.dataset.dataset_id,
-                "schema_version": "compatibility_target_execution_v1",
-                "start_index": start_index,
-                "target": tuple(float(value) for value in target_vector),
-            }
-        )
-        if hold_current_quantity_symbols:
-            stateful = execute_target_statefully(
-                self,
-                book,
-                state,
-                target_vector,
-                start_index=start_index,
-                bars=bars,
-                target_identity=target_identity,
-                hold_current_quantity_symbols=hold_current_quantity_symbols,
+        if continue_pending_orders:
+            # Only the risk-checked native no-new-intent transition may use
+            # this path. Keep the exact active order identities and quantities.
+            if book is not self._compatibility_last_book or not state.active_orders:
+                raise ValueError(
+                    "pending continuation requires the current executor book"
+                )
+            if hold_current_quantity_symbols:
+                raise ValueError("pending continuation cannot also request exact HOLD")
+            stateful = execute_stateful_orders(
+                self, book, state, (), start_index=start_index, bars=bars
             )
         else:
-            stateful = execute_target_statefully(
-                self,
-                book,
-                state,
-                target_vector,
-                start_index=start_index,
-                bars=bars,
-                target_identity=target_identity,
+            target_vector = np.asarray(
+                checked_array_input(target, field_name="target weights"),
+                dtype=np.float64,
+            ).reshape(-1)
+            target_identity = content_digest(
+                {
+                    "bars": bars,
+                    "dataset_id": self.dataset.dataset_id,
+                    "schema_version": "compatibility_target_execution_v1",
+                    "start_index": start_index,
+                    "target": tuple(float(value) for value in target_vector),
+                }
             )
+            if hold_current_quantity_symbols:
+                stateful = execute_target_statefully(
+                    self,
+                    book,
+                    state,
+                    target_vector,
+                    start_index=start_index,
+                    bars=bars,
+                    target_identity=target_identity,
+                    hold_current_quantity_symbols=hold_current_quantity_symbols,
+                )
+            else:
+                stateful = execute_target_statefully(
+                    self,
+                    book,
+                    state,
+                    target_vector,
+                    start_index=start_index,
+                    bars=bars,
+                    target_identity=target_identity,
+                )
         self._compatibility_order_book = stateful.order_book
         self._compatibility_last_book = stateful.book
 
@@ -1514,8 +1529,8 @@ class MarketExecutor:
         bars: int,
         hold_current_quantity_symbols: tuple[int, ...] = (),
     ) -> ExecutionResult:
-        compatibility, stateful, previous_terminal_orders = (
-            self._execute_interval_with_stateful_evidence(
+        return self._observe_compatibility_execution(
+            *self._execute_interval_with_stateful_evidence(
                 book,
                 target,
                 start_index=start_index,
@@ -1523,6 +1538,26 @@ class MarketExecutor:
                 hold_current_quantity_symbols=hold_current_quantity_symbols,
             )
         )
+
+    def _continue_pending_interval(
+        self, book: BookState, *, start_index: int
+    ) -> ExecutionResult:
+        return self._observe_compatibility_execution(
+            *self._execute_interval_with_stateful_evidence(
+                book,
+                book.weights,
+                start_index=start_index,
+                bars=1,
+                continue_pending_orders=True,
+            )
+        )
+
+    def _observe_compatibility_execution(
+        self,
+        compatibility: ExecutionResult,
+        stateful: StatefulExecutionResult,
+        previous_terminal_orders: TerminalOrderArchive,
+    ) -> ExecutionResult:
         if self._execution_observer is not None:
             self._execution_observer(StatefulExecutionObservation.from_result(stateful))
         if self._execution_trace_observer is not None:

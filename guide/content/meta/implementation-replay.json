@@ -59,7 +59,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Strategy contract",
-      "sha256": "5c683f8ec2967a9692ec670346450f00ab1c8cc233b5305b8871a4c11df211cb"
+      "sha256": "079170e550460f3aa0306bf055f247362e069ecce611ee80c222f37ade79595a"
     },
     {
       "path": "docs/architecture/research-assurance.md",
@@ -120,9 +120,9 @@
       "id": "portfolio-replay-run",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "4513b0a174a3d1713ecfe46f5e7719a9c7cf71560c9aefa39e35d98a975c6e71",
+      "source_sha256": "ff2d7c2092ce1f9c7037d3e9df5494f4737e5ca8de6b2a20e827fdef5c20b985",
       "label_ja": "全銘柄portfolio policyを実行",
-      "description_ja": "各eligible native barでpolicyを一度呼び、完全なnumeric target vectorをsimulation-owned sessionのshared native risk/execution/accounting loopへ渡します。latency-aware actor boundary後のterminal flattenはsessionが所有します。 明示的な終端予約、risk後の重み一致HOLD、債務保持はopt-inであり、既存既定値を変えません。 任意のon_native_advanceは実行後・診断前の観測済み進捗をimmutable scalar DTOで通知し、例外は後続実行を停止します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。",
+      "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。",
       "variables": [
         {
           "name": "policy",
@@ -131,7 +131,8 @@
         }
       ],
       "tests": [
-        "tests/evaluation/test_shared_portfolio_replay.py"
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/evaluation/test_clocked_native_replay.py"
       ]
     },
     {
@@ -325,7 +326,7 @@
       "id": "execute-interval",
       "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
       "kind": "method",
-      "source_sha256": "f00d7a3e7f864cfdfcba99d54e12b30e3e3ae2b7e47c024cb8d9803ff905eef1",
+      "source_sha256": "e4b3efb0e6314638aa756b9dff1e7f3f16de229e607f37764e99259443c447c7",
       "label_ja": "次の区間を約定・会計処理",
       "description_ja": "リスク制約済みの目標を注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
       "variables": [],
@@ -337,13 +338,14 @@
       "id": "portfolio-session-owner",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "3adc40cb3715ed45390c005341be3f137dd0c21ead0cae062862c4c799ad395d",
+      "source_sha256": "95a99a4d3a69789326d279fbe10595af085929a67cdc58f74d31d8e7941d5d39",
       "label_ja": "数値portfolio sessionを継続",
-      "description_ja": "同じBookState・MarketExecutor・native indexを一native-barごとに引き継ぎます。book viewはcloneで、latency-aware actor boundary後のterminal flattenをsessionが予約し、transition failure後の再試行を拒否します。 予約の明示延長とrisk後の重み一致HOLD・債務保持をopt-inで受け入れます。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。",
+      "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
-        "tests/evaluation/test_shared_portfolio_replay.py"
+        "tests/evaluation/test_shared_portfolio_replay.py",
+        "tests/simulation/test_portfolio_pending_continuation.py"
       ]
     },
     {

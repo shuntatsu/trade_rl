@@ -315,3 +315,22 @@ def test_late_completed_artifact_must_match_observed_partial_frontier(persisted_
             arm_id=running.arm_id,
             expected_pins=published.pins,
         )
+
+
+def test_native_v1_decision_closure_survives_new_replay_modes():
+    from tools.tier_d_nonrl.task18_native_decode import _decision
+    from trade_rl.evaluation.replay import SharedCashPortfolioReplayDecision
+
+    count = len(P.dataset.symbols)
+    original = SharedCashPortfolioReplayDecision(
+        index=0,
+        proposal_weights=(0.0,) * count,
+        target_weights=(0.0,) * count,
+        risk_reasons=(),
+        requested_hold_symbols=tuple(range(count)),
+        effective_hold_symbols=tuple(range(count)),
+    )
+    raw = json.loads(canonical_json_bytes(original.to_mapping()))
+    assert _decision(raw) == original
+    with pytest.raises(ValueError, match="portfolio decision field closure differs"):
+        _decision(raw | {"pending_continuation_status": None})

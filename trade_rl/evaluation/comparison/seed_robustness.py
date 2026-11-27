@@ -81,10 +81,20 @@ def summarize_seed_robustness(
         raise ValueError("seed and baseline return kinds must match")
     if any(len(item.returns.values) != len(baseline.values) for item in seeds):
         raise ValueError("seed and baseline ranges must have equal length")
-    if any(
-        item.returns.periods_per_year != baseline.periods_per_year for item in seeds
-    ):
-        raise ValueError("seed and baseline annualization must match")
+    baseline_frequency = baseline.annualization_periods_per_year
+    if not math.isfinite(baseline_frequency) or baseline_frequency <= 0.0:
+        raise ValueError("baseline annualization must be finite and positive")
+    for item in seeds:
+        frequency = item.returns.annualization_periods_per_year
+        if (
+            item.returns.periods_per_year != baseline.periods_per_year
+            or not math.isfinite(frequency)
+            or frequency <= 0.0
+            or not math.isclose(
+                frequency, baseline_frequency, rel_tol=0.0, abs_tol=1e-12
+            )
+        ):
+            raise ValueError("seed and baseline annualization must match")
 
     baseline_return = compound_return(baseline.values)
     resolved: list[SeedResult] = []

@@ -604,3 +604,139 @@ def test_legacy_replay_result_and_terminal_ledger_schema_remain_intent_shaped() 
     assert len(payload["decisions"]) == 2
     assert "portfolio_decisions" not in payload
     assert "intents" in payload["decisions"][0]
+
+
+@pytest.mark.parametrize(
+    "indices", [(True,), (1.0,), (np.int64(1),), [1], (2, 1), (1, 1), (-1,), (4,)]
+)
+def test_sparse_actor_schedule_rejects_invalid_indices_before_actor(indices):
+    class Never:
+        def decide_portfolio(self, snapshot):
+            pytest.fail("invalid schedule called actor")
+
+    with pytest.raises(ValueError, match="actor decision indices"):
+        run_shared_portfolio_replay(
+            _market(close=np.tile([100.0, 200.0], (6, 1))),
+            Never(),
+            start_index=0,
+            stop_index=5,
+            execution_cost=replace(
+                ExecutionCostConfig.zero(),
+                processing_bar_volume_capacity=False,
+                order_latency_bars=1,
+            ),
+            settle_terminal_position=True,
+            actor_decision_indices=indices,
+        )
+
+
+def test_sparse_actor_schedule_requires_terminal_and_separate_ledger_version():
+    class Never:
+        def decide_portfolio(self, snapshot):
+            pytest.fail("empty or invalid schedule called actor")
+
+    kwargs = dict(
+        dataset=_market(close=np.tile([100.0, 200.0], (6, 1))),
+        policy=Never(),
+        start_index=0,
+        stop_index=5,
+        actor_decision_indices=(),
+        execution_cost=replace(
+            ExecutionCostConfig.zero(), processing_bar_volume_capacity=False
+        ),
+        capture_ledger_evidence=True,
+    )
+    with pytest.raises(ValueError, match="terminal settlement"):
+        run_shared_portfolio_replay(**kwargs)
+    with pytest.raises(ValueError, match="exposure evidence"):
+        run_shared_portfolio_replay(
+            **kwargs, settle_terminal_position=True, capture_exposure_evidence=True
+        )
+    result = run_shared_portfolio_replay(**kwargs, settle_terminal_position=True)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert len(ledger.decisions) == 4
+    assert all(d.pending_continuation_status == "hold" for d in ledger.decisions)
+    mapping = ledger.to_mapping()
+    assert mapping["schema_version"] == "shared_cash_portfolio_replay_ledger_v3"
+    assert mapping["actor_decision_indices"] == mapping["scheduled_actor_indices"] == ()
+    with pytest.raises(ValueError, match="sparse actor ledger"):
+        replace(ledger, scheduled_actor_indices=None).to_mapping()
+    with pytest.raises(ValueError, match="differ from schedule"):
+        replace(ledger, scheduled_actor_indices=(0,)).to_mapping()
+
+
+def test_sparse_actor_ledger_distinguishes_risk_fallback_from_actor():
+    close = np.tile([100.0, 200.0], (9, 1))
+    close[1:, 0] = 150.0
+    calls = []
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            calls.append(snapshot.index)
+            return PortfolioTargetProposal((0.5, 0.0))
+
+    result = run_shared_portfolio_replay(
+        _market(close=close),
+        Policy(),
+        start_index=0,
+        stop_index=8,
+        execution_cost=replace(
+            ExecutionCostConfig.zero(),
+            processing_bar_volume_capacity=False,
+            order_latency_bars=3,
+        ),
+        risk=PreTradeRisk(
+            PreTradeRiskConfig(
+                max_abs_weight=0.5,
+                max_turnover=None,
+                drawdown_start=1.0,
+                drawdown_stop=1.0,
+            )
+        ),
+        settle_terminal_position=True,
+        actor_decision_indices=(0,),
+        capture_ledger_evidence=True,
+    )
+    assert calls == [0]
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert [d.pending_continuation_status for d in ledger.decisions] == [
+        None,
+        "risk_fallback",
+        "hold",
+        "hold",
+    ]
+    assert ledger.decisions[1].proposal_weights == (0.0, 0.0)
+    assert ledger.decisions[1].requested_hold_symbols == (0, 1)
+    assert ledger.decisions[1].effective_hold_symbols == (0, 1)
+    assert ledger.to_mapping()["actor_decision_indices"] == (0,)
+    assert result.book.exact_quantities == (0, 0)
+    assert ledger.intervals.active_order_remainders == ()
+
+
+def test_legacy_portfolio_dto_fields_and_serialized_mapping_remain_closed():
+    from dataclasses import asdict, fields
+
+    from trade_rl.evaluation.replay import (
+        SharedCashPortfolioReplayDecision,
+        SharedCashPortfolioReplayLedgerEvidence,
+    )
+
+    keys = {
+        "index",
+        "proposal_weights",
+        "target_weights",
+        "risk_reasons",
+        "requested_hold_symbols",
+        "effective_hold_symbols",
+    }
+    assert {f.name for f in fields(SharedCashPortfolioReplayDecision)} == keys
+    assert {f.name for f in fields(SharedCashPortfolioReplayLedgerEvidence)} == {
+        "intervals",
+        "decisions",
+        "exposure_evidence",
+    }
+    decision = SharedCashPortfolioReplayDecision(0, (0.0, 0.0), (0.0, 0.0), (), (), ())
+    assert asdict(decision) == decision.to_mapping()
+    assert set(decision.to_mapping()) == keys

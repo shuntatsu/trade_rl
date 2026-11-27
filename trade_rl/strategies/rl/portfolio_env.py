@@ -293,6 +293,34 @@ class SharedPortfolioGymEnv(gym.Env):
             _require_risk_execution_limits(
                 self.risk_config, float(self.execution_cost.max_leverage)
             )
+            # The native Dataset grid is immutable and complete. Match the
+            # current indices to the declared financial window before any
+            # session, training attempt, or checkpoint loading is admitted.
+            start_ns = _market_timestamp_ns(self.dataset, self.start_index)
+            stop_ns = _market_timestamp_ns(self.dataset, self.stop_index)
+            interval_ns = (
+                _market_timestamp_ns(self.dataset, self.start_index + 1)
+                - start_ns
+            )
+            objective = self.bound.objective
+            clock = self.bound.clock
+            if (
+                start_ns != _utc_datetime_ns(objective.evaluation_start)
+                or stop_ns != _utc_datetime_ns(objective.evaluation_stop_exclusive)
+                or any(
+                    seconds * 1_000_000_000 != interval_ns
+                    for seconds in (
+                        clock.decision_interval_seconds,
+                        clock.execution_interval_seconds,
+                        clock.reward_interval_seconds,
+                    )
+                )
+                or clock.economic_horizon_seconds * 1_000_000_000
+                != stop_ns - start_ns
+            ):
+                raise ValueError(
+                    "native fixed Gym financial clock must match the Dataset window"
+                )
 
     def reset(
         self,

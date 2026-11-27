@@ -491,3 +491,56 @@ def test_native_gym_literal_long_only_fees_and_terminal_reward(days: int) -> Non
             assert book.cash == pytest.approx(996.0)
     # Two units bought and sold at 100, one percent fee on both fills.
     assert sum(rewards) == pytest.approx(-4 / 1000)
+
+
+@pytest.mark.parametrize("start,stop", [(0, 6), (1, 6)])
+def test_native_reset_rejects_changed_available_financial_window(
+    start: int, stop: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = _environment(_native_dataset())
+    env.start_index, env.stop_index = start, stop
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("mismatched financial window reached session construction")
+
+    monkeypatch.setattr(
+        "trade_rl.strategies.rl.portfolio_env.SharedPortfolioSession", forbidden
+    )
+    with pytest.raises(ValueError, match="financial clock must match"):
+        env.reset()
+    assert env._session is None
+
+
+def test_native_reset_rejects_changed_clock_cadence() -> None:
+    env = _environment(_native_dataset())
+    env.bound = BoundObjectiveClock(
+        env.bound.objective,
+        replace(
+            env.bound.clock,
+            decision_interval_seconds=86400,
+            execution_interval_seconds=86400,
+            reward_interval_seconds=86400,
+        ),
+    )
+    with pytest.raises(ValueError, match="financial clock must match"):
+        env.reset()
+    assert env._session is None
+
+
+def test_native_training_rechecks_shifted_financial_window_before_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = _environment(_native_dataset())
+    transform = fit_portfolio_observation_transform(env)
+    env.start_index, env.stop_index = 1, 6
+    output = tmp_path / "attempt"
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("mismatched financial window reached optional runtime import")
+
+    monkeypatch.setattr(portfolio_training.importlib, "import_module", forbidden)
+    with pytest.raises(ValueError, match="financial clock must match"):
+        fit_shared_portfolio_ppo(
+            env, transform=transform, output_root=output, config=_config()
+        )
+    assert not output.exists() and env._session is None

@@ -39,7 +39,7 @@ def _rows(value: object, label: str) -> Sequence[object]:
 
 
 def _sha(value: object, label: str) -> str:
-    if not isinstance(value, str) or not _SHA.fullmatch(value) or value == "0" * 40:
+    if type(value) is not str or not _SHA.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{label} must be an exact Git SHA")
     return value
 
@@ -133,7 +133,7 @@ def inspect_expired_lease_evidence(
     if (
         observed.get("schema") != "github_work_inventory_v1"
         or observed.get("repository") != snapshot.repository
-        or observed.get("main_sha") != expected_main_sha
+        or _sha(observed.get("main_sha"), "inventory main_sha") != expected_main_sha
         or observed.get("unfinished_workflow_branch_names_checked") is not True
         or observed.get("task_scope") != "open_issue_comments_only"
     ):
@@ -202,7 +202,7 @@ def inspect_expired_lease_evidence(
             or item.get("scope") != "single_run_attempt"
             or item.get("job_source") != "attempt_scoped_only"
             or item.get("head_branch") != lease.lease_branch
-            or item.get("head_sha") != lease.head_sha
+            or _sha(item.get("head_sha"), "attempt head_sha") != lease.head_sha
         ):
             raise ValueError("attempt observation differs from lease")
         _id(item.get("run_attempt"), "run attempt")
@@ -250,7 +250,7 @@ def inspect_expired_lease_evidence(
             or item.get("scope") != "single_run_all_attempts_current_artifacts"
             or item.get("repository") != snapshot.repository
             or item.get("head_branch") != attempt["head_branch"]
-            or item.get("head_sha") != attempt["head_sha"]
+            or _sha(item.get("head_sha"), "artifact head_sha") != attempt["head_sha"]
             or observed_attempt != attempt["run_attempt"]
             or item.get("status") != attempt.get("status")
             or item.get("conclusion") != attempt.get("conclusion")

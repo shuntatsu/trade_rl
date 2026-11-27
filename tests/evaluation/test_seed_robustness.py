@@ -256,3 +256,58 @@ def test_explicit_baseline_also_rejects_mismatched_implicit_seed_clock() -> None
             baseline=baseline,
             n_bootstrap=5,
         )
+
+
+def test_seed_summary_rejects_overflowing_nominal_annualization() -> None:
+    baseline = ReturnSeries((0.01, 0.02), ReturnKind.DECISION_STEP, 10**400)
+    with pytest.raises(ValueError, match="baseline annualization must be finite"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(SeedEvaluation(0, baseline, 0.0), SeedEvaluation(1, baseline, 0.0)),
+            baseline=baseline,
+            n_bootstrap=5,
+        )
+
+
+def test_seed_summary_rejects_unrepresentable_seed_nominal_clock_before_metrics(
+    monkeypatch,
+) -> None:
+    from trade_rl.evaluation.comparison import seed_robustness as module
+
+    valid = _series((0.01, 0.02))
+    invalid = ReturnSeries((0.01, 0.02), ReturnKind.DECISION_STEP, 10**400)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid seed clock reached performance calculation")
+
+    monkeypatch.setattr(module, "compound_return", unexpected)
+    monkeypatch.setattr(module, "evaluate_performance", unexpected)
+    with pytest.raises(ValueError, match="seed annualization must be finite"):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(SeedEvaluation(0, valid, 0.0), SeedEvaluation(1, invalid, 0.0)),
+            baseline=valid,
+            n_bootstrap=5,
+        )
+
+
+@pytest.mark.parametrize(
+    "values,elapsed,match",
+    [
+        ((1e155, 1e155), None, "compound.*finite"),
+        ((1e155, -0.5), None, "performance.*finite"),
+        ((1e150, -1e-150), 1e-300, "performance.*finite"),
+    ],
+)
+def test_seed_summary_never_publishes_invalid_derived_metrics(
+    values, elapsed, match
+) -> None:
+    baseline = ReturnSeries((0.0, 0.0), ReturnKind.DECISION_STEP, 365, elapsed)
+    invalid = ReturnSeries(values, ReturnKind.DECISION_STEP, 365, elapsed)
+    with pytest.raises(ValueError, match=match):
+        summarize_seed_robustness(
+            evaluation_label="synthetic",
+            seeds=(SeedEvaluation(0, baseline, 0.0), SeedEvaluation(1, invalid, 0.0)),
+            baseline=baseline,
+            n_bootstrap=5,
+        )

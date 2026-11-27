@@ -21,21 +21,17 @@ _JSON_BLOCK_RE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
 
 
 def _require_task_id(value: str) -> None:
-    if not isinstance(value, str) or not _TASK_ID_RE.fullmatch(value):
+    if type(value) is not str or not _TASK_ID_RE.fullmatch(value):
         raise ValueError("task_id is invalid")
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or not _FULL_SHA_RE.fullmatch(value)
-        or value == "0" * 40
-    ):
+    if type(value) is not str or not _FULL_SHA_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 
 def _require_digest(value: str) -> None:
-    if not isinstance(value, str) or not _FULL_DIGEST_RE.fullmatch(value):
+    if type(value) is not str or not _FULL_DIGEST_RE.fullmatch(value):
         raise ValueError(
             "task_contract_digest must be a lowercase 64-hex SHA-256 digest"
         )
@@ -79,6 +75,14 @@ class TaskStatusRecord:
         if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
         _require_digest(self.task_contract_digest)
+        # Accept enum members and native JSON text, not caller-defined lookup hooks.
+        if type(self.phase) is not TaskPhase and type(self.phase) is not str:
+            raise ValueError("phase must be a TaskPhase or native string")
+        if (
+            type(self.condition) is not TaskCondition
+            and type(self.condition) is not str
+        ):
+            raise ValueError("condition must be a TaskCondition or native string")
         object.__setattr__(self, "phase", TaskPhase(self.phase))
         object.__setattr__(self, "condition", TaskCondition(self.condition))
         _require_sha(self.base_sha, field_name="base_sha")
@@ -95,12 +99,12 @@ class TaskStatusRecord:
             assert self.owner is not None
             assert self.lease_epoch is not None
             assert self.lease_branch is not None
-            if not isinstance(self.owner, str) or not self.owner.strip():
+            if type(self.owner) is not str or not self.owner.strip():
                 raise ValueError("lease fields require a non-empty owner")
             if type(self.lease_epoch) is not int or self.lease_epoch < 1:
                 raise ValueError("lease fields require a positive lease_epoch")
             expected = lease_branch_name(self.task_id, self.lease_epoch, self.owner)
-            if self.lease_branch != expected:
+            if type(self.lease_branch) is not str or self.lease_branch != expected:
                 raise ValueError("lease fields contain an invalid fenced branch")
 
         for field_name in (
@@ -135,6 +139,8 @@ def _reject_duplicate_json_fields(
 def render_status_comment(record: TaskStatusRecord) -> str:
     """Render one canonical Coordinator-owned GitHub status comment."""
 
+    if type(record) is not TaskStatusRecord:
+        raise ValueError("status must be a TaskStatusRecord")
     marker = f"<!-- agent-coordination:{record.task_id} -->"
     payload = json.dumps(
         record.canonical_payload(),

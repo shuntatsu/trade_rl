@@ -66,9 +66,9 @@ def execute_source_bound_disposable_enrollment(
     # The first GET must not interpolate fields from an unvalidated caller
     # object. The audit separately verifies all contract/digest/lease values.
     if (
-        not isinstance(packet, TaskPacket)
-        or not isinstance(lease, LeaseRecord)
-        or not isinstance(status, TaskStatusRecord)
+        type(packet) is not TaskPacket
+        or type(lease) is not LeaseRecord
+        or type(status) is not TaskStatusRecord
         or type(packet.parent_issue) is not int
         or packet.parent_issue < 1
     ):

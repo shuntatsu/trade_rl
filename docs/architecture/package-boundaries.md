@@ -543,12 +543,15 @@ distance and on the notional-weighted average distance from mid (the upper bound
 puts each band's liquidity at its outer edge; the lower bound is an unattained
 infimum), reports `BeyondObservedDepth` instead of extrapolating, aggregates
 type-1 quantiles over snapshots, finds the exact capacity at a cost threshold,
+refuses a positive selected capacity outside the public bounded notional domain
+rather than rounding or returning a value the query APIs cannot consume,
 and classifies an assumed cost as below, within, above, unresolvable or beyond
 depth. Band data cannot resolve the spread or the impact of an order that fits
 inside the first band, so such assumptions are `UNRESOLVABLE`, never validated.
 Inputs outside the documented numeric domain are refused with a `ValueError` that
-does not echo the value. It authorizes no economic experiment or profitability
-claim.
+does not echo the value. The input digest identifies the snapshots only; query
+grids, sides, grouping and threshold are separate result fields. It authorizes no
+economic experiment or profitability claim.
 
 ### `strategies`
 

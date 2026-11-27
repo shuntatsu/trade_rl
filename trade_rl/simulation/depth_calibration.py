@@ -91,8 +91,10 @@ continuous and non-decreasing on ``(0, N_m]`` and infinite beyond, so a
 snapshot's feasible set is ``(0, Q_s]`` with ``Q_s`` solved band by band from
 ``C(Q) <= theta * Q``; the type-1 quantile is at most ``theta`` exactly when at
 least ``ceil(q * n)`` snapshots are feasible, i.e. for ``Q`` up to the
-``ceil(q * n)``-th largest ``Q_s``. This is a bound on assumed cost, not a fill
-or profitability claim.
+``ceil(q * n)``-th largest ``Q_s``. A positive selected boundary must also fit
+the bounded public notional domain; otherwise the solver refuses it with
+``ValueError`` instead of rounding or returning an unqueryable capacity.
+This is a bound on assumed cost, not a fill or profitability claim.
 """
 
 from __future__ import annotations
@@ -495,9 +497,10 @@ class DepthCostCalibration:
 class DepthCapacity:
     """Exact largest notional whose quantile average-cost upper bound fits.
 
-    ``capacity_notional == 0`` means even the smallest orders exceed the
-    threshold at that quantile. This bounds an assumed cost; it does not claim
-    fills, profit or live capacity.
+    ``capacity_notional == 0`` means no positive order is feasible at that
+    quantile. A positive returned capacity is within the public notional input
+    domain; an exact boundary outside that domain is refused, not rounded.
+    This bounds an assumed cost; it does not claim fills, profit or live capacity.
     """
 
     side: Side
@@ -655,11 +658,12 @@ def calibrate_depth_costs(
 ) -> DepthCostCalibration:
     """Aggregate per-snapshot cost bounds over a notional grid.
 
-    ``snapshots`` must be strictly time-ordered. ``notionals`` and ``quantiles``
-    (each in ``(0, 1]``) must be strictly increasing. With ``by_utc_hour`` the
-    result adds one cell per UTC hour that has snapshots, besides the overall
-    cell (``hour_utc=None``). Nothing is fitted: the result is a deterministic
-    function of the snapshots and the grids, identified by ``input_digest``.
+    ``snapshots`` must be strictly time-ordered. ``notionals`` must be positive
+    and ``quantiles`` in ``(0, 1]``; both grids must be strictly increasing. With
+    ``by_utc_hour`` the result adds one cell per UTC hour that has snapshots,
+    besides the overall cell (``hour_utc=None``). Nothing is fitted. The
+    ``input_digest`` identifies only the snapshots; grids, sides and grouping
+    are separate result fields.
     """
     resolved = _validated_snapshots(snapshots)
     grid = _strictly_increasing(notionals, "notionals", upper_one=False)
@@ -727,7 +731,9 @@ def depth_capacity(
     """Exact largest ``Q`` whose ``quantile`` of ``A_upper`` is ``<=`` the threshold.
 
     Uses the type-1 quantile and counts snapshots too shallow for ``Q`` as
-    infinite cost. ``hour_utc`` restricts to snapshots of one UTC hour.
+    infinite cost. ``hour_utc`` restricts to snapshots of one UTC hour. A
+    positive exact capacity outside the public notional input domain raises
+    ``ValueError``; a returned positive capacity can be queried without rounding.
     """
     resolved = _validated_snapshots(snapshots)
     _require_side(side)
@@ -752,6 +758,9 @@ def depth_capacity(
         raise ValueError("no snapshots in the requested UTC hour")
     limits = sorted((_feasible_notional(b, threshold) for b in selected), reverse=True)
     capacity = limits[_rank(len(selected), level) - 1]
+    # Validate only the selected order statistic, not discarded candidates.
+    if capacity != 0:
+        _require_notional(capacity, "capacity_notional")
     return DepthCapacity(
         side=side,
         hour_utc=hour_utc,

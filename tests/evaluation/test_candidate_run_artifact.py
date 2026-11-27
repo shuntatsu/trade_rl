@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import replace
+from fractions import Fraction
 from types import SimpleNamespace
 
 import numpy as np
@@ -404,7 +405,7 @@ def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None
 
 
 @pytest.fixture
-def shared_cash_candidate_artifact(tmp_path):
+def shared_cash_candidate_result():
     dataset = market()
     risk_config = PreTradeRiskConfig(
         max_gross=0.5,
@@ -477,9 +478,14 @@ def shared_cash_candidate_artifact(tmp_path):
         ppo_training_timesteps=2048,
     )
 
+    return result
+
+
+@pytest.fixture
+def shared_cash_candidate_artifact(tmp_path, shared_cash_candidate_result):
     return candidate_artifact.publish_candidate_run(
         tmp_path / "shared-cash-result",
-        result,
+        shared_cash_candidate_result,
         build_candidate_run_provenance(),
     )
 
@@ -565,3 +571,172 @@ def test_shared_cash_candidate_rejects_mismatched_period_count_before_decode(
     with pytest.raises(ValueError, match="return period count"):
         reader(artifact.root)
     assert artifact.returns_path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "lean_candidate_result_v7",
+        "lean_candidate_result_v9",
+        "lean_candidate_result_v10",
+    ],
+)
+@pytest.mark.parametrize("quantity", ["1e-400", "-1e-400"])
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize(
+    "reader",
+    [
+        candidate_artifact.load_candidate_run_artifact,
+        candidate_artifact.inspect_candidate_run_artifact,
+    ],
+)
+def test_completed_candidate_refuses_underflowed_exact_terminal_quantity(
+    shared_cash_candidate_artifact, schema, quantity, index, reader
+):
+    artifact = shared_cash_candidate_artifact
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = schema
+    if schema != "lean_candidate_result_v10":
+        summary["candidate_config"].pop("forecast_switch_cost")
+    if schema == "lean_candidate_result_v7":
+        summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    assert reader(artifact.root) is not None
+    assert summary["shared_cash_ppo"]["terminal_settlement_complete"] is True
+    assert Fraction(quantity) != 0 and float(quantity) == 0.0
+    summary["shared_cash_ppo"]["ledger_evidence"]["terminal_exact_quantities"][
+        index
+    ] = quantity
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    original = artifact.summary_path.read_bytes()
+    with pytest.raises(ValueError, match="exact terminal quantities"):
+        reader(artifact.root)
+    assert artifact.summary_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("scope", ["per_symbol", "shared_book", "shared_ledger"])
+@pytest.mark.parametrize("index", [0, 1])
+def test_candidate_writer_does_not_publish_false_terminal_completion(
+    tmp_path, shared_cash_candidate_result, scope, index
+):
+    result = shared_cash_candidate_result
+    comparison = result.comparison
+    exact = Fraction(1, 10**400)
+    assert exact != 0 and float(exact) == 0.0
+
+    def hidden_residue(book):
+        # Construct an actual BookState with exact dust that conservatively
+        # projects to zero, using the same native setter as book transitions.
+        book = book.clone()
+        book._set_quantity_values(
+            tuple(
+                exact if i == index else Fraction(0)
+                for i in range(len(book.quantities))
+            )
+        )
+        assert not np.any(book.quantities)
+        assert book.exact_quantities[index] == exact
+        return book
+
+    if scope == "per_symbol":
+        symbol = comparison.by_symbol[index]
+        entry = symbol.comparison.entries[0]
+        updated = replace(
+            entry, replay=replace(entry.replay, book=hidden_residue(entry.replay.book))
+        )
+        symbol = replace(
+            symbol, comparison=replace(symbol.comparison, entries=(updated,))
+        )
+        comparison = replace(
+            comparison,
+            by_symbol=tuple(
+                symbol if i == index else value
+                for i, value in enumerate(comparison.by_symbol)
+            ),
+        )
+    else:
+        shared = comparison.shared_cash_ppo
+        assert shared is not None
+        ledger = shared.replay.ledger_evidence
+        assert ledger is not None
+        if scope == "shared_book":
+            replay = replace(shared.replay, book=hidden_residue(shared.replay.book))
+        else:
+            replay = replace(
+                shared.replay,
+                ledger_evidence=replace(
+                    ledger,
+                    terminal_exact_quantities=tuple(
+                        str(exact) if i == index else "0"
+                        for i in range(len(ledger.terminal_exact_quantities))
+                    ),
+                ),
+            )
+        comparison = replace(comparison, shared_cash_ppo=replace(shared, replay=replay))
+    result = replace(result, comparison=comparison)
+    destination = tmp_path / "not-settled"
+    with pytest.raises(ValueError, match="exact terminal quantities"):
+        candidate_artifact.publish_candidate_run(
+            destination, result, build_candidate_run_provenance()
+        )
+    assert not destination.exists()
+    assert not tuple(tmp_path.glob(".not-settled.staging-*"))
+
+
+@pytest.mark.parametrize(
+    "quantity", ["0.0", "-0", "0/1", str(Fraction(1, 10**400)), "not a quantity"]
+)
+def test_completed_shared_cash_ledger_requires_canonical_zero(
+    shared_cash_candidate_artifact, quantity
+):
+    artifact = shared_cash_candidate_artifact
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    assert summary["shared_cash_ppo"]["ledger_evidence"][
+        "terminal_exact_quantities"
+    ] == ["0", "0"]
+    summary["shared_cash_ppo"]["ledger_evidence"]["terminal_exact_quantities"][1] = (
+        quantity
+    )
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    for reader in (
+        candidate_artifact.load_candidate_run_artifact,
+        candidate_artifact.inspect_candidate_run_artifact,
+    ):
+        with pytest.raises(ValueError, match="exact terminal quantities"):
+            reader(artifact.root)
+
+
+def test_noncompleted_candidate_preserves_exact_residue_evidence(
+    tmp_path, shared_cash_candidate_result
+):
+    result = shared_cash_candidate_result
+    shared = result.comparison.shared_cash_ppo
+    assert shared is not None
+    ledger = shared.replay.ledger_evidence
+    assert ledger is not None
+    exact = Fraction(1, 10**400)
+    book = shared.replay.book.clone()
+    book._set_quantity_values((Fraction(0), exact))
+    assert book.exact_quantities == (Fraction(0), exact)
+    assert not np.any(book.quantities)
+    replay = replace(
+        shared.replay,
+        book=book,
+        ledger_evidence=replace(
+            ledger,
+            terminal_exact_quantities=("0", str(exact)),
+            active_order_remainders=(("pending-synthetic", 0.1),),
+        ),
+    )
+    comparison = replace(
+        result.comparison, shared_cash_ppo=replace(shared, replay=replay)
+    )
+    result = replace(result, comparison=comparison)
+    artifact = candidate_artifact.publish_candidate_run(
+        tmp_path / "not-completed", result, build_candidate_run_provenance()
+    )
+    loaded = candidate_artifact.load_candidate_run_artifact(artifact.root)
+    assert loaded.summary["shared_cash_ppo"]["terminal_settlement_complete"] is False
+    assert loaded.summary["shared_cash_ppo"]["ledger_evidence"][
+        "terminal_exact_quantities"
+    ] == ("0", str(exact))

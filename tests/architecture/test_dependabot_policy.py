@@ -43,27 +43,51 @@ def _ecosystem_sections(source: str | None = None) -> dict[str, str]:
     return sections
 
 
-def _require_version_update_limit(section: str, expected: int) -> None:
-    """Require one canonical direct scalar, not a comment or nested value.
-
-    The manifest uses a fixed block-mapping layout. Reject alternate direct
-    key spellings and duplicates rather than attempt general YAML parsing.
-    """
+def _direct_mapping_fields(section: str, indent: int) -> dict[str, str | None]:
+    """Read canonical direct keys in the manifest's fixed block layout."""
+    prefix = " " * indent
     fields: dict[str, str | None] = {}
     for line in section.splitlines():
         if (
-            not line.startswith("    ")
-            or line.startswith("     ")
+            not line.startswith(prefix)
+            or line.startswith(prefix + " ")
             or not line.strip()
             or line.lstrip().startswith("#")
         ):
             continue
-        match = re.fullmatch(r"    ([a-z][a-z0-9-]*):(?: (.*))?", line)
+        match = re.fullmatch(r"([a-z][a-z0-9-]*):(?: (.*))?", line[indent:])
         assert match is not None, f"noncanonical direct update field: {line}"
         key, value = match.groups()
         assert key not in fields, f"duplicate direct update field: {key}"
         fields[key] = value
+    return fields
+
+
+def _require_version_update_limit(section: str, expected: int) -> None:
+    """Require one canonical direct scalar, not a comment or nested value."""
+    fields = _direct_mapping_fields(section, 4)
     assert fields.get("open-pull-requests-limit") == str(expected)
+
+
+def _require_update_scope(section: str, directory: str, limit: int) -> None:
+    fields = _direct_mapping_fields(section, 4)
+    assert fields.get("directory") == f'"{directory}"'
+    assert fields.get("open-pull-requests-limit") == str(limit)
+    assert "schedule" in fields and fields["schedule"] is None
+
+    # Only the schedule's own direct children count; a comment or interval
+    # elsewhere in the ecosystem mapping cannot establish the cadence.
+    _, separator, suffix = section.partition("\n    schedule:\n")
+    assert separator
+    schedule_lines = []
+    for line in suffix.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith("      "):
+            break
+        schedule_lines.append(line)
+    schedule = _direct_mapping_fields("\n".join(schedule_lines), 6)
+    assert schedule.get("interval") == '"weekly"'
 
 
 def test_update_roster_and_weekly_review_limits() -> None:
@@ -76,9 +100,7 @@ def test_update_roster_and_weekly_review_limits() -> None:
     }
     for ecosystem, (directory, limit) in expected.items():
         section = sections[ecosystem]
-        assert f'directory: "{directory}"' in section
-        assert 'interval: "weekly"' in section
-        _require_version_update_limit(section, limit)
+        _require_update_scope(section, directory, limit)
 
     assert (ROOT / "uv.lock").is_file()
     assert (ROOT / "guide" / "package-lock.json").is_file()
@@ -137,6 +159,58 @@ def test_update_roster_refuses_hidden_entries(suffix: str) -> None:
     source = MANIFEST.read_text(encoding="utf-8") + suffix
     with pytest.raises(AssertionError, match="noncanonical update layout"):
         _ecosystem_sections(source)
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        (
+            '    directory: "/guide"',
+            '    # directory: "/guide"\n    directory: "/other"',
+        ),
+        (
+            '    directory: "/guide"',
+            '    directory: "/other"\n    ignored:\n      directory: "/guide"',
+        ),
+        (
+            '    directory: "/guide"',
+            '    directory: "/guide"\n    "directory": "/other"',
+        ),
+        (
+            '      interval: "weekly"',
+            '      # interval: "weekly"\n      interval: "daily"',
+        ),
+        (
+            '      interval: "weekly"',
+            '      interval: "daily"\n      unused:\n        interval: "weekly"',
+        ),
+        (
+            '    schedule:\n      interval: "weekly"',
+            '    schedule:\n      interval: "daily"\n'
+            '    other:\n      interval: "weekly"',
+        ),
+        (
+            '      interval: "weekly"',
+            '      interval: "weekly"\n      interval: "daily"',
+        ),
+        (
+            '      interval: "weekly"',
+            '      interval: "weekly"\n      "interval": "daily"',
+        ),
+        (
+            '    schedule:\n      interval: "weekly"',
+            '    schedule: {interval: daily}\n    # interval: "weekly"',
+        ),
+    ],
+)
+def test_update_scope_refuses_directory_and_schedule_decoys(
+    original: str, replacement: str
+) -> None:
+    section = _ecosystem_sections()["npm"]
+    assert section.count(original) == 1
+    changed = section.replace(original, replacement, 1)
+    with pytest.raises(AssertionError):
+        _require_update_scope(changed, "/guide", 2)
 
 
 def test_python_lockfile_only_recipe_is_retained_for_reenable() -> None:

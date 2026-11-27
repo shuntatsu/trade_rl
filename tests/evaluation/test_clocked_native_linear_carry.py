@@ -585,3 +585,63 @@ def test_borrow_uses_native_post_open_book_not_close_or_funding_mark():
     assert held.interval_funding == 0.0
     assert result.replay.book.borrow_cost == pytest.approx(0.01375)
     assert result.replay.book.portfolio_value == pytest.approx(1004.98625)
+
+
+def test_extended_terminal_reserve_signed_positions_and_terminal_funding():
+    dataset, group, decision, stop = _fixture()
+    terminal = decision + 3
+    volume = dataset.volume.copy()
+    volume[terminal:stop, 0] = 0.5
+    volume[terminal:stop, 1] = 0.125
+    dataset = _rebind(dataset, volume=volume)
+
+    class Policy:
+        def decide_portfolio(self, snapshot):
+            assert snapshot.agent_stop_index == terminal
+            return PortfolioTargetProposal((0.25, -0.25))
+
+    def run(end, reserve):
+        return run_clocked_native_portfolio_replay(
+            dataset,
+            Policy(),
+            decision_group=group,
+            start_index=decision - 3,
+            stop_index=end,
+            initial_capital=1000.0,
+            execution_cost=_cost(fee_rate=0.0, borrow_rate_multiplier=0.0),
+            execution_mode="linear_carry",
+            capture_ledger_evidence=True,
+            terminal_reserve_bars=reserve,
+        )
+
+    short = run(terminal + 1, 1)
+    extended = run(stop, 3)
+    assert (
+        short.policy_decision_indices == extended.policy_decision_indices == (decision,)
+    )
+    a = short.replay.ledger_evidence.intervals
+    b = extended.replay.ledger_evidence.intervals
+    assert a.intervals == b.intervals[: len(a.intervals)]
+    assert len(b.intervals) == 9
+    assert tuple(Fraction(q) for q in a.terminal_exact_quantities) == (
+        Fraction(3, 4),
+        Fraction(-3, 16),
+    )
+    for row, expected in zip(
+        b.intervals[-3:],
+        (
+            (Fraction(3, 4), Fraction(-3, 16)),
+            (Fraction(1, 4), Fraction(-1, 16)),
+            (0, 0),
+        ),
+        strict=True,
+    ):
+        assert tuple(Fraction(q) for q in row.exact_quantities_after) == expected
+        assert row.cash_after == pytest.approx(1006.0)
+        assert row.portfolio_value_after == pytest.approx(1006.0)
+        assert row.interval_funding == pytest.approx(0.0)
+    (boundary,) = b.intervals[-1].funding_events
+    assert boundary.signed_quantities == (0.0, 0.0)
+    assert extended.replay.book.exact_quantities == (0, 0)
+    assert extended.replay.book.funding_pnl == pytest.approx(6.0)
+    assert b.active_order_remainders == ()

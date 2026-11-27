@@ -93,7 +93,7 @@ def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock
     assert_type(append_clocked_native_feature_groups(market, groups=(group,)), MarketDataset)
     assert_type(clocked_native_decision_schedule(market, group, start_index=0, stop_index=2), tuple[NativePublicationSlot, ...])
     scheduled = assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig()), ClockedNativeReplayResult)
-    assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig(), execution_mode="linear_carry"), ClockedNativeReplayResult)
+    assert_type(run_clocked_native_portfolio_replay(market, policy, decision_group=group, start_index=0, stop_index=2, initial_capital=1000.0, execution_cost=ExecutionCostConfig(), execution_mode="linear_carry", terminal_reserve_bars=1), ClockedNativeReplayResult)
     assert_type(scheduled.replay, SharedCashPortfolioReplayResult)
     assert_type(scheduled.policy_decision_indices, tuple[int, ...])
     assert_type(scheduled.slots, tuple[NativePublicationSlot, ...])

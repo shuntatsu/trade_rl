@@ -21,7 +21,10 @@ from trade_rl.risk.pretrade import (
     RiskConstrainedTarget,
 )
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution import (
+    ExecutionCostConfig,
+    _preflight_native_fixed_execution_window,
+)
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
 from trade_rl.simulation.objectives.contract import net_equity_increment
 from trade_rl.simulation.orders.model import (
@@ -209,6 +212,7 @@ class SharedPortfolioGymEnv(gym.Env):
         self.market_order_profile = market_order_profile
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
+        self._validate_native_fixed_window()
         n_symbols = dataset.n_symbols
         n_features = len(dataset.feature_names)
         n_global_features = len(dataset.global_feature_names)
@@ -257,6 +261,16 @@ class SharedPortfolioGymEnv(gym.Env):
         self._capturing_execution_observations: (
             list[StatefulExecutionObservation] | None
         ) = None
+
+    def _validate_native_fixed_window(self) -> None:
+        # Constructor admission is repeated by the fit and bundle-load
+        # boundaries because a Gym environment's attributes are mutable.
+        _preflight_native_fixed_execution_window(
+            self.dataset,
+            self.execution_cost,
+            start_index=self.start_index,
+            stop_index=self.stop_index,
+        )
 
     def reset(
         self,

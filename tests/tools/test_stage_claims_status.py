@@ -611,9 +611,7 @@ def test_schedule_refuses_ambiguous_or_incomplete_observation(
     if scope == "separate_roots":
         _write(second / "FINAL.claim", _legacy_claim("FINAL", comment=12))
     elif scope == "nested_namespace":
-        _write(
-            first / DIGEST_A / "FINAL.claim", _legacy_claim("FINAL", comment=12)
-        )
+        _write(first / DIGEST_A / "FINAL.claim", _legacy_claim("FINAL", comment=12))
         ledgers = [first]
     elif scope == "invalid_root":
         _write(second / "FINAL.claim", b"{incomplete")

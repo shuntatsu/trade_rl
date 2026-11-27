@@ -1051,3 +1051,143 @@ def test_inventory_rejects_foreign_repository_identity(
         ValueError, match="native|repository identity|different repository"
     ):
         build_inventory(api, compare_prs=True)  # type: ignore[arg-type]
+
+
+class _ForeignText(str):
+    pass
+
+
+class _ForgedOpenState:
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+class _ForeignInventoryList(list):
+    pass
+
+
+@pytest.mark.parametrize("field", ["node_id", "state", "updated_at"])
+def test_inventory_rejects_foreign_issue_identity_text(field: str) -> None:
+    api = FakeWorkApi()
+    row = _complete_issue_row(comments=0)
+    row[field] = (
+        _ForgedOpenState() if field == "state" else _ForeignText(str(row[field]))
+    )
+    api.issue_rows = [row]
+    with pytest.raises(ValueError, match="Issue identity or state|Issue updated_at"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ["body", "updated_at"])
+def test_inventory_rejects_foreign_comment_identity_text(field: str) -> None:
+    api = FakeWorkApi()
+    comment = _ordinary_comment()
+    comment[field] = _ForeignText(str(comment[field]))
+    api.issue_comments_by_id[810] = [comment]
+    with pytest.raises(ValueError, match="Issue comment body or updated_at"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "head-ref",
+        "base-ref",
+        "head-object",
+        "base-object",
+        "head-repo-object",
+        "base-repo-object",
+        "foreign-key",
+    ],
+)
+def test_inventory_rejects_foreign_nested_pr_identity(location: str) -> None:
+    api = FakeWorkApi()
+    api.branch_rows += (BranchInfo("feature/current", "d" * 40, False),)
+    head = {
+        "ref": "feature/current",
+        "sha": "d" * 40,
+        "repo": {"full_name": api.repository},
+    }
+    base = {"ref": "main", "sha": "a" * 40, "repo": {"full_name": api.repository}}
+    pr = {"number": 123, "head": head, "base": base}
+    if location == "head-ref":
+        head["ref"] = _ForeignText("feature/current")
+    elif location == "base-ref":
+        base["ref"] = _ForeignText("main")
+    elif location == "head-object":
+        pr["head"] = _ForeignInventoryObject(head)
+    elif location == "base-object":
+        pr["base"] = _ForeignInventoryObject(base)
+    elif location == "head-repo-object":
+        head["repo"] = _ForeignInventoryObject(head["repo"])
+    elif location == "base-repo-object":
+        base["repo"] = _ForeignInventoryObject(base["repo"])
+    else:
+        pr[_ForeignText("extra")] = 1
+    api.pull_rows = [pr]
+    with pytest.raises(ValueError, match="native|branch missing"):
+        build_inventory(api, compare_prs=True)  # type: ignore[arg-type]
+
+
+def test_inventory_rejects_foreign_repository_before_reader_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tools.github_work_inventory as inventory
+
+    monkeypatch.setattr(
+        inventory,
+        "GitHubApi",
+        lambda **kwargs: pytest.fail("foreign repository reached reader"),
+    )
+    with pytest.raises(ValueError, match="repository.*native"):
+        GitHubWorkApi(repository=_ForeignText("owner/repo"), token="fake")
+
+
+@pytest.mark.parametrize("source", ["open_pulls", "open_issues", "issue_comments"])
+def test_inventory_rejects_foreign_roster_container(
+    monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    api = FakeWorkApi()
+    original = getattr(api, source)
+    monkeypatch.setattr(
+        api, source, lambda *args: _ForeignInventoryList(original(*args))
+    )
+    with pytest.raises((ValueError, RuntimeError), match="native|count differs"):
+        build_inventory(api)  # type: ignore[arg-type]
+
+
+def test_inventory_rejects_foreign_comment_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    monkeypatch.setattr(
+        api._reader, "_request_json", lambda *a, **kw: _ForeignInventoryList()
+    )
+    with pytest.raises(RuntimeError, match="page has invalid size or shape"):
+        api.issue_comments(123)
+
+
+@pytest.mark.parametrize(
+    "field", ["name", "protected", "default", "repository", "container"]
+)
+def test_inventory_rejects_foreign_branch_or_adapter_identity(
+    monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    api = FakeWorkApi()
+    if field == "name":
+        api.branch_rows = (
+            BranchInfo(_ForeignText("main"), "a" * 40, False),
+            *api.branch_rows[1:],
+        )
+    elif field == "protected":
+        api.branch_rows = (BranchInfo("main", "a" * 40, 0), *api.branch_rows[1:])
+    elif field == "default":
+        monkeypatch.setattr(
+            api, "repository_default_branch", lambda: _ForeignText("main")
+        )
+    elif field == "repository":
+        api.repository = _ForeignText(api.repository)
+    else:
+        monkeypatch.setattr(api, "branches", lambda: list(api.branch_rows))
+    with pytest.raises(ValueError, match="native"):
+        build_inventory(api)  # type: ignore[arg-type]

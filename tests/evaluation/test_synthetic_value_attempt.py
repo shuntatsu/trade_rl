@@ -567,3 +567,44 @@ def test_cost_aware_v2_exact_quantity_bridge_preserves_native_account_state() ->
         poisoned.decide_portfolio(broken)
     with pytest.raises(RuntimeError, match="poison"):
         poisoned.decide_portfolio(observed)
+
+
+@pytest.mark.parametrize("unit", ["s", "ms", "us"])
+def test_synthetic_attempt_activation_uses_exact_ns_for_coarser_source(
+    tmp_path: Path, unit: str
+) -> None:
+    original = _dataset(signal=0.0, move=0.0)
+    dataset = replace(
+        original, timestamps=original.timestamps.astype(f"datetime64[{unit}]")
+    )
+    assert dataset.timestamps.dtype == np.dtype(f"datetime64[{unit}]")
+    config = _config(dataset)
+    root = tmp_path / "coarse"
+    result = run_synthetic_value_attempt(root, config)
+    loaded = load_synthetic_value_attempt(
+        root,
+        expected_result_sha256=result.result_sha256,
+        expected_model_sha256=config.expected_model_sha256,
+        expected_dataset_id=dataset.dataset_id,
+    )
+    assert all(row["valid_endpoint"] is True for row in loaded.arms)
+    assert loaded.arms[0]["terminal_equity"] == 1000.0
+    assert float(loaded.arms[1]["total_cost"]) == pytest.approx(0.96)
+    assert float(loaded.arms[2]["terminal_equity"]) == pytest.approx(1000.0)
+
+
+def test_coarser_source_still_rejects_activation_one_ns_after_start(
+    tmp_path: Path,
+) -> None:
+    original = _dataset(signal=0.0, move=0.0)
+    dataset = replace(original, timestamps=original.timestamps.astype("datetime64[s]"))
+    model = replace(
+        _model(),
+        evaluation_start_ns=int(original.timestamps[0].astype(np.int64)) + 1,
+    )
+    payload, digest = serialize_linear_decision_value(model)
+    config = replace(_config(dataset), model_json=payload, expected_model_sha256=digest)
+    root = tmp_path / "future-activation"
+    with pytest.raises(ValueError, match="precedes the model activation"):
+        run_synthetic_value_attempt(root, config)
+    assert not root.exists()

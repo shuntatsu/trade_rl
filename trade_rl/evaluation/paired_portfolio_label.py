@@ -150,7 +150,7 @@ def _native_ledger(
     idx = pair.intervention_index
     if type(idx) is not int or not 0 <= idx < dataset.n_bars:
         raise ValueError("paired intervention index is invalid")
-    at_decision = int(dataset.timestamps[idx].astype(np.int64))
+    at_decision = _time_ns(dataset.timestamps[idx], field="decision timestamp")
     if (
         pair.baseline_snapshot.index != idx
         or pair.baseline_snapshot.timestamp_ns != at_decision
@@ -368,8 +368,10 @@ def build_synthetic_paired_label(
     base, candidate = _validate_intervention_actions(
         pair, start, baseline_action, candidate_action, weights
     )
-    decision = int(dataset.timestamps[pair.intervention_index].astype(np.int64))
-    terminal = int(dataset.timestamps[stop].astype(np.int64))
+    decision = _time_ns(
+        dataset.timestamps[pair.intervention_index], field="decision timestamp"
+    )
+    terminal = _time_ns(dataset.timestamps[stop], field="terminal timestamp")
     inputs_arrive = _time_ns(
         observation_record_available_at, field="observation_record_available_at"
     )

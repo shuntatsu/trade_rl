@@ -12,6 +12,7 @@ import numpy as np
 from trade_rl._array_snapshot import checked_array_input
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.market_order_rules import (
     MarketOrderProfile,
@@ -466,8 +467,26 @@ class MarketExecutor:
         | None = None,
         insolvency_valuation: Literal["floor_zero", "retain_debt"] = "floor_zero",
         strict_spot_cash: bool = False,
+        native_calendar_month: bool = False,
         fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
     ) -> None:
+        if (
+            type(native_calendar_month) is not bool
+            or native_calendar_month != dataset.native_calendar_month
+        ):
+            raise ValueError(
+                "calendar month execution requires explicit matching opt-in"
+            )
+        if native_calendar_month and (
+            any(
+                unit not in (VolumeUnit.BASE_ASSET, VolumeUnit.QUOTE_NOTIONAL)
+                for unit in dataset.volume_units
+            )
+            or np.any(dataset.contract_multipliers != 1.0)
+        ):
+            raise ValueError(
+                "calendar month execution requires unit-multiplier Spot volume"
+            )
         self.dataset = dataset
         self._native_fixed_dataset = (
             dataset if dataset.native_clock is not None else None
@@ -566,7 +585,12 @@ class MarketExecutor:
             or self.cost.tail_slippage_probability != 0.0
         ):
             raise ValueError(
-                "native fixed execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
+                (
+                    "native calendar month"
+                    if self.dataset.native_calendar_month
+                    else "native fixed"
+                )
+                + " execution requires deterministic unlevered long-only MARKET orders with previous-bar capacity"
             )
 
     def _validate_strict_spot_configuration(self) -> None:

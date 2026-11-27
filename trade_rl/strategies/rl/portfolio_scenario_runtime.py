@@ -16,6 +16,7 @@ from trade_rl.artifacts.canonical import canonical_json_bytes, to_json_value
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
+from trade_rl.simulation.objectives.clock import SessionFinancialClockContract
 from trade_rl.strategies.rl.portfolio_env import SharedPortfolioGymEnv
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
     _space_descriptor,
@@ -133,6 +134,14 @@ def create_portfolio_scenario_runtime_binding_v2(
         raise TypeError("training_bound must be exactly BoundObjectiveClock")
     if type(runtime_env) is not SharedPortfolioGymEnv:
         raise TypeError("runtime_env must be exactly SharedPortfolioGymEnv")
+    if transform.session_boundaries_ns or isinstance(
+        runtime_env.bound.clock, SessionFinancialClockContract
+    ):
+        raise ValueError("session scenario inference requires a new scenario schema")
+    if transform.native_fixed_linear_carry or runtime_env.native_fixed_linear_carry:
+        raise ValueError(
+            "native fixed linear carry scenario inference requires a new scenario schema"
+        )
     native_interval_seconds = runtime_env.bound.clock.decision_interval_seconds
     if (
         native_interval_seconds is None

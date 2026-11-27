@@ -29,7 +29,10 @@ from trade_rl.simulation.native_transition import (
     validate_risk_execution_compatibility,
 )
 from trade_rl.simulation.orders.model import PendingOrder
-from trade_rl.simulation.stateful.execution import StatefulExecutionObservation
+from trade_rl.simulation.stateful.execution import (
+    StatefulExecutionObservation,
+    _require_native_fixed_execution_rows,
+)
 
 
 def _finite_real(value: object, *, name: str) -> float:
@@ -100,6 +103,7 @@ class SharedPortfolioSession:
         hold_unchanged_risk_target: bool = False,
         strict_spot_cash: bool = False,
         native_calendar_month: bool = False,
+        native_fixed_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -131,6 +135,10 @@ class SharedPortfolioSession:
             raise TypeError("settle_terminal_position must be boolean")
         if type(hold_unchanged_risk_target) is not bool:
             raise ValueError("hold_unchanged_risk_target must be boolean")
+        if type(native_fixed_linear_carry) is not bool:
+            raise ValueError("native_fixed_linear_carry must be boolean")
+        if native_fixed_linear_carry and not settle_terminal_position:
+            raise ValueError("native fixed linear carry requires terminal settlement")
         if execution_observer is not None and not callable(execution_observer):
             raise TypeError("execution_observer must be callable")
         if execution_trace_observer is not None and not callable(
@@ -168,10 +176,18 @@ class SharedPortfolioSession:
             insolvency_valuation=insolvency_valuation,
             strict_spot_cash=strict_spot_cash,
             native_calendar_month=native_calendar_month,
+            native_fixed_linear_carry=native_fixed_linear_carry,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
             fill_cash_observer=fill_cash_observer,
         )
+        if native_fixed_linear_carry:
+            _require_native_fixed_execution_rows(
+                dataset,
+                start_index=start_index,
+                stop_index=stop_index,
+                native_fixed_linear_carry=True,
+            )
         risk_controller = (
             PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)
             if risk is None

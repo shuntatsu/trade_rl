@@ -19,7 +19,7 @@ from trade_rl.artifacts.atomic_write import (
     _temporary_name_suffix,
     atomic_rename_directory,
 )
-from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
 from trade_rl.artifacts.verified_file import (
     _open_directory_descriptor_nofollow,
     _trusted_process_directory_fd,
@@ -840,9 +840,11 @@ class StudyStore:
         except OSError as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
         try:
-            raw = cast(object, json.loads(encoded.decode("utf-8")))
+            raw = strict_json_loads(encoded.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ArtifactIntegrityError("Study artifact JSON is malformed") from error
+        except ValueError as error:
+            raise ArtifactIntegrityError(f"Study artifact JSON: {error}") from error
         if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
             raise ArtifactIntegrityError("Study artifact must contain a JSON object")
         return cast(dict[str, object], raw)

@@ -12,7 +12,7 @@ import numpy as np
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
-from trade_rl.artifacts.canonical import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data import (
@@ -745,18 +745,6 @@ def execute_evidence_set(
     return completed
 
 
-def _unique_manifest_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    """Reject ambiguity before hashing any decoded evidence fields."""
-    result: dict[str, object] = {}
-    for name, value in pairs:
-        if name in result:
-            raise ArtifactIntegrityError(
-                "EvidenceSet manifest contains a duplicate JSON member"
-            )
-        result[name] = value
-    return result
-
-
 def _read_manifest(root: Path) -> dict[str, object]:
     manifest_path = root / "manifest.json"
     if manifest_path.is_symlink():
@@ -764,16 +752,14 @@ def _read_manifest(root: Path) -> dict[str, object]:
     try:
         with open_regular_binary(manifest_path, field="EvidenceSet manifest") as handle:
             payload = handle.read()
-        raw = cast(
-            object,
-            json.loads(
-                payload.decode("utf-8"), object_pairs_hook=_unique_manifest_members
-            ),
-        )
-    except ArtifactIntegrityError:
-        raise
-    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         raise ArtifactIntegrityError("EvidenceSet manifest is malformed") from error
+    try:
+        raw = strict_json_loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ArtifactIntegrityError("EvidenceSet manifest is malformed") from error
+    except ValueError as error:
+        raise ArtifactIntegrityError(f"EvidenceSet manifest JSON: {error}") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ArtifactIntegrityError("EvidenceSet manifest must be a JSON object")
     return cast(dict[str, object], raw)

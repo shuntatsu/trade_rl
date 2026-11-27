@@ -8,6 +8,7 @@ import stat
 from pathlib import Path
 from typing import cast
 
+from trade_rl.artifacts.canonical import strict_json_loads
 from trade_rl.artifacts.verified_file import open_regular_binary
 
 
@@ -23,16 +24,6 @@ def _identity(status: os.stat_result) -> tuple[int, int, int, int, int]:
         status.st_mtime_ns,
         status.st_ctime_ns,
     )
-
-
-def _unique_json_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    """Do not allow last-member-wins parsing to erase ambiguous evidence."""
-    result: dict[str, object] = {}
-    for name, value in pairs:
-        if name in result:
-            raise ValueError("duplicate JSON member")
-        result[name] = value
-    return result
 
 
 def _read_json_object(
@@ -80,9 +71,7 @@ def _read_json_object(
         raise ValueError(invalid_error) from error
 
     try:
-        decoded = json.loads(
-            encoded.decode("utf-8"), object_pairs_hook=_unique_json_members
-        )
+        decoded = strict_json_loads(encoded.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(invalid_error) from error
     if not isinstance(decoded, dict) or any(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ import numpy as np
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.evaluation.experiments.bootstrap._json_reader import _read_json_object
 from trade_rl.evaluation.experiments.contracts import (
@@ -34,6 +36,13 @@ from trade_rl.integrations.binance import (
 )
 from trade_rl.strategies.rl.ppo import PPO_OBSERVATION_SCHEMA_V3
 from trade_rl.strategies.rl.ppo_training import PPO_TRAINING_LAYOUT_SEQUENTIAL
+
+# datetime.fromisoformat validates syntax but can truncate fractional input.
+_CLOCK_FRACTION = re.compile(r"[.,]([0-9]+)")
+_OFFSET_FRACTION = re.compile(
+    r"[+-][0-9]{2}(?::?[0-9]{2})?(?::?[0-9]{2})?[.,]([0-9]+)\Z"
+)
+
 
 _SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
 _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
@@ -189,7 +198,16 @@ def _normalize_source_datetime(value: object, *, field: str) -> datetime:
         raise ValueError(f"{field} must be a datetime")
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field} must be timezone-aware")
-    return value.astimezone(UTC)
+    try:
+        normalized = value.astimezone(UTC)
+    except OverflowError as error:
+        raise ValueError(
+            f"{field} must be losslessly representable as datetime64[ns]"
+        ) from error
+    # Validate all development and final-window fields, including direct
+    # constructors, before any comparison or source acquisition can use them.
+    _utc_np(normalized, field=field)
+    return normalized
 
 
 def _parse_source_datetime(value: object, *, field: str) -> datetime:
@@ -198,12 +216,38 @@ def _parse_source_datetime(value: object, *, field: str) -> datetime:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as error:
         raise ValueError(f"{field} must be an ISO datetime") from error
+
+    # Bootstrap persists Python datetimes and requires whole native UTC bars.
+    # Reject precision lost by parsing rather than aligning a truncated clock.
+    precision_error = f"{field} must be losslessly representable as a UTC datetime"
+    if any(
+        any(digit != "0" for digit in fraction[6:])
+        for fraction in _CLOCK_FRACTION.findall(raw)
+    ):
+        raise ValueError(precision_error)
+    offset_fraction = _OFFSET_FRACTION.search(raw)
+    offset = parsed.utcoffset()
+    if offset_fraction is not None and offset is not None:
+        expected = int(offset_fraction.group(1)[:6].ljust(6, "0"))
+        # Python also discards a fractional offset with zero whole seconds.
+        if abs(offset).microseconds != expected:
+            raise ValueError(precision_error)
     return _normalize_source_datetime(parsed, field=field)
 
 
-def _utc_np(value: datetime) -> np.datetime64:
+def _utc_np(value: datetime, *, field: str) -> np.datetime64:
+    # A direct cast from a Python datetime to ns can wrap outside int64.
+    # Start from its original microsecond precision and check before narrowing.
     naive = value.astimezone(UTC).replace(tzinfo=None)
-    return np.datetime64(naive, "ns")
+    try:
+        resolved = _datetime64_values_to_ns_exact(
+            np.asarray(np.datetime64(naive, "us"))
+        )
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            f"{field} must be losslessly representable as datetime64[ns]"
+        ) from error
+    return cast(np.datetime64, resolved[()])
 
 
 def _require_native_alignment(
@@ -243,8 +287,8 @@ def _validate_time_contract(
     ):
         raise ValueError("data_stop_exclusive must be a UTC month boundary")
 
-    start = _utc_np(data_start)
-    stop = _utc_np(data_stop_exclusive)
+    start = _utc_np(data_start, field="data_start")
+    stop = _utc_np(data_stop_exclusive, field="data_stop_exclusive")
     if not start < baseline.fit_cutoff:
         raise ValueError("data_start must be before fit_cutoff")
     if baseline.fit_cutoff > baseline.evaluation_start:
@@ -459,7 +503,7 @@ class CanonicalM2BootstrapConfig:
             assert research_context is not None
             assert final_start is not None
             assert final_stop is not None
-            final_start_ns = _utc_np(final_start)
+            final_start_ns = _utc_np(final_start, field="final_evaluation_start")
             for evidence in research_context.consumed_evidence:
                 evidence_stop = np.datetime64(
                     evidence.development_stop_exclusive,

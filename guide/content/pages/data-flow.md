@@ -70,6 +70,8 @@ globalのmarket return平均・標準偏差は、そのバーで利用できる�
 
 明示したnative calendarの価格・出来高特徴量を判断時刻に対応付ける追加APIでは、週・暦月・固定間隔の連続した完全なバーを使用し、特徴量の窓はバー本数、鮮度は実経過時間で扱います。公開遅延と銘柄の有効期間を考慮します。資金調達・cross-assetのnative特徴量は未対応です。別のopt-in overlayでは、元のDatasetと同じ銘柄契約を持つ完全な上位足をsource digestで固定し、3日・UTC週・暦月など複数の上位足の特徴量を既存の基準足Datasetへ一括追加できます。公開時刻・鮮度・基準足のavailabilityを検査し、既存の価格・費用・資金調達・年率・約定時間足は変更しません。新しいcontent identityで保存・再読込し、既存の共通replayへ渡せます。粗い足そのものの約定、取引所データの真正性、実データによる学習や取引の認可を意味しません。
 
+native sourceの時点整列では、判断時点までに公開されたeventのうち最も新しいcloseを選びます。長期履歴は固定サイズの基準足chunkに分けて処理し、遅れて公開された古いeventで最新値を巻き戻さず、利用可能時刻・経過時間・鮮度の数値契約を保ちます。
+
 1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。

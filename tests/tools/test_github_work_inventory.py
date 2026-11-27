@@ -964,13 +964,90 @@ def test_inventory_rejects_foreign_url_identity_before_request(
 
     monkeypatch.setattr(api._reader, "_request_json", fake_request)
     try:
-        with pytest.raises(ValueError):
-            if location == "issue":
+        if location == "issue":
+            with pytest.raises(
+                ValueError, match="Issue number must be a positive integer"
+            ):
                 api.issue_comments(_ForeignIssueFormat(123))
-            else:
+            for invalid in (True, False):
+                with pytest.raises(
+                    ValueError, match="Issue number must be a positive integer"
+                ):
+                    api.issue_comments(invalid)
+        else:
+            with pytest.raises(
+                ValueError, match=f"{location}_sha must be an exact commit SHA"
+            ):
                 api.compare_head_to_main(
                     _ForeignShaFormat("a" * 40) if location == "head" else "a" * 40,
                     _ForeignShaFormat("b" * 40) if location == "main" else "b" * 40,
                 )
     finally:
         assert not requested, f"foreign identity reached HTTP: {requested}"
+    assert api.issue_comments(123) == []
+    assert api.compare_head_to_main("a" * 40, "b" * 40) == "main_in_head"
+    assert requested == ["issues/123/comments", f"compare/{'a' * 40}...{'b' * 40}"]
+
+
+class _ForgedRepositoryName(str):
+    def casefold(self) -> str:
+        return "shuntatsu/trade_rl"
+
+
+class _ForgedRepositoryUrl(str):
+    def casefold(self) -> str:
+        return "https://api.github.com/repos/shuntatsu/trade_rl"
+
+
+class _ForeignInventoryObject(dict[str, object]):
+    def get(self, key, default=None):
+        raise AssertionError("foreign inventory lookup must not run")
+
+
+@pytest.mark.parametrize(
+    "location", ["issue-url", "issue-object", "pr-base", "pr-head", "pr-object"]
+)
+def test_inventory_rejects_foreign_repository_identity(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    api = FakeWorkApi()
+    if location.startswith("issue"):
+        row = {
+            **_complete_issue_row(comments=0),
+            "repository_url": (
+                _ForgedRepositoryUrl("https://api.github.com/repos/foreign/project")
+                if location == "issue-url"
+                else f"https://api.github.com/repos/{api.repository}"
+            ),
+        }
+        item = _ForeignInventoryObject(row) if location == "issue-object" else row
+        monkeypatch.setattr(api, "open_issues", lambda: [item])
+    else:
+        api.branch_rows += (BranchInfo("feature/current", "d" * 40, False),)
+        row = {
+            "number": 123,
+            "head": {
+                "ref": "feature/current",
+                "sha": "d" * 40,
+                "repo": {
+                    "full_name": _ForgedRepositoryName("foreign/project")
+                    if location == "pr-head"
+                    else api.repository
+                },
+            },
+            "base": {
+                "ref": "main",
+                "sha": "a" * 40,
+                "repo": {
+                    "full_name": _ForgedRepositoryName("foreign/project")
+                    if location == "pr-base"
+                    else api.repository
+                },
+            },
+        }
+        item = _ForeignInventoryObject(row) if location == "pr-object" else row
+        monkeypatch.setattr(api, "open_pulls", lambda: [item])
+    with pytest.raises(
+        ValueError, match="native|repository identity|different repository"
+    ):
+        build_inventory(api, compare_prs=True)  # type: ignore[arg-type]

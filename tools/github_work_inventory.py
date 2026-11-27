@@ -18,8 +18,8 @@ _MAX_TASK_ISSUE_COMMENTS = 1000
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be a native object with native string keys")
     return value
 
 
@@ -44,7 +44,7 @@ def _issue_identity(value: Any, repository: str) -> tuple[int, int, str, str, in
     node_id = issue.get("node_id")
     repository_url = issue.get("repository_url")
     if (
-        not isinstance(repository_url, str)
+        type(repository_url) is not str
         or repository_url.casefold()
         != f"https://api.github.com/repos/{repository}".casefold()
     ):
@@ -128,7 +128,7 @@ def _pull_identity(
     base_repo = _mapping(base.get("repo"), "PR base repository")
     base_full_name = base_repo.get("full_name")
     if (
-        not isinstance(base_full_name, str)
+        type(base_full_name) is not str
         or base_full_name.casefold() != repository.casefold()
     ):
         raise ValueError("PR base points at a different repository")
@@ -139,15 +139,19 @@ def _pull_identity(
     head_sha = _sha(head.get("sha"), "PR head SHA")
     head_name: str | None = None
     head_repo = head.get("repo")
-    if (
-        isinstance(head_repo, dict)
-        and isinstance(head_repo.get("full_name"), str)
-        and head_repo["full_name"].casefold() == repository.casefold()
-    ):
-        raw_name = head.get("ref")
-        if not isinstance(raw_name, str) or not raw_name:
-            raise ValueError("local PR head branch missing")
-        head_name = raw_name
+    if head_repo is not None:
+        head_repo = _mapping(head_repo, "PR head repository")
+        head_full_name = head_repo.get("full_name")
+        if head_full_name is not None and type(head_full_name) is not str:
+            raise ValueError("PR head repository identity must be a native string")
+        if (
+            type(head_full_name) is str
+            and head_full_name.casefold() == repository.casefold()
+        ):
+            raw_name = head.get("ref")
+            if not isinstance(raw_name, str) or not raw_name:
+                raise ValueError("local PR head branch missing")
+            head_name = raw_name
     return number, head_sha, base_name, base_sha, head_name
 
 

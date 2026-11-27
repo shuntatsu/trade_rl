@@ -351,3 +351,47 @@ def test_unknown_native_ledger_schema_refused_even_if_outer_digest_matches():
     )
     with pytest.raises(ValueError, match="identity"):
         _verify(data, changed, batches, cost)
+
+
+@pytest.mark.parametrize("unit", ["h", "s", "ms", "us"])
+def test_cash_path_reconciles_native_event_ns_for_coarser_dataset_storage(unit):
+    timestamps = _market().timestamps.astype(f"datetime64[{unit}]")
+    data = _fixture(timestamps=timestamps)
+    assert data.identity_verified
+    assert data.timestamps.dtype == timestamps.dtype
+    ledger, batches, cost = _run(data)
+    proof = _verify(data, ledger, batches, cost)
+    assert proof.interval_count == 4
+    assert proof.fill_count == 2
+    assert proof.minimum_cash == 499.5
+    assert proof.final_cash == 999.0
+    assert proof.total_execution_cost == 1.0
+    for iv in ledger.intervals.intervals:
+        for event in iv.order_events:
+            assert event.timestamp_ns == int(
+                timestamps[event.processing_index]
+                .astype("datetime64[ns]")
+                .astype(np.int64)
+            )
+
+
+def test_coarse_storage_units_are_not_accepted_as_native_event_nanoseconds():
+    data = _fixture(timestamps=_market().timestamps.astype("datetime64[s]"))
+    ledger, batches, cost = _run(data)
+    native = ledger.intervals
+    first = native.intervals[0]
+    event = first.order_events[0]
+    changed_event = replace(
+        event,
+        timestamp_ns=int(data.timestamps[event.processing_index].astype(np.int64)),
+    )
+    changed_first = replace(
+        first, order_events=(changed_event, *first.order_events[1:])
+    )
+    changed = replace(
+        ledger,
+        intervals=replace(native, intervals=(changed_first, *native.intervals[1:])),
+    )
+    # The independent event-time check, not a stale outer digest, must reject.
+    with pytest.raises(ValueError, match="native order event identity"):
+        _verify(data, changed, batches, cost)

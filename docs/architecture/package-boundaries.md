@@ -1082,6 +1082,13 @@ No local timezone inference or floating epoch conversion. Both modules are
 importable without Gymnasium/Torch/SB3/LightGBM imports; legacy transform
 serialization and private helpers stay unchanged for frozen source pins.
 
+The paired-label maturity checks, synthetic value-attempt activation check
+and strict spot cash-path order-event verification compare admitted Dataset
+timestamps in exact UTC nanoseconds, irrespective of the original supported
+datetime64 storage unit. Dataset admission already rejects lossy timestamp
+conversion. These comparisons do not rewrite the source arrays, identity
+payload, execution/label schemas, or existing artifacts.
+
 The read-only strict_spot_cash_path_v1 audit accepts a content-verified
 continuous regular Dataset, a completed native portfolio ledger and the
 ordered native fill-cash observations, with independently expected Dataset,

@@ -481,3 +481,28 @@ def test_synthetic_scope_cannot_be_relabelled_as_market_evidence() -> None:
             evaluation_start=np.datetime64("2026-01-02T00:00:00", "ns"),
             expected_reference_policy_digest="a" * 64,
         )
+
+
+@pytest.mark.parametrize("unit", ["h", "s", "ms", "us"])
+def test_paired_label_keeps_exact_event_clock_across_storage_units(unit: str) -> None:
+    market = _dataset()
+    expected = _sample(market=market)
+    alternative = replace(
+        market, timestamps=market.timestamps.astype(f"datetime64[{unit}]")
+    )
+    assert alternative.timestamps.dtype == np.dtype(f"datetime64[{unit}]")
+    actual = _sample(market=alternative)
+    assert actual == expected
+    assert actual.decision_time_ns == int(
+        np.datetime64("2026-01-01T01:00:00", "ns").astype(np.int64)
+    )
+    assert actual.terminal_time_ns == int(
+        np.datetime64("2026-01-01T07:00:00", "ns").astype(np.int64)
+    )
+    with pytest.raises(ValueError, match="settlement record cannot precede"):
+        _sample(
+            market=alternative,
+            settlement_record_available_at=np.datetime64(
+                "2026-01-01T06:59:59.999999999", "ns"
+            ),
+        )

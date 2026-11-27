@@ -181,7 +181,9 @@ def _preflight(
         raise ValueError("model and Dataset feature/symbol roster differs")
     if model.execution_policy_digest != cost.execution_policy_digest:
         raise ValueError("execution_policy_digest differs from the fitted model")
-    start_ns = int(dataset.timestamps[config.start_index].astype(np.int64))
+    start_ns = int(
+        dataset.timestamps[config.start_index].astype("datetime64[ns]").astype(np.int64)
+    )
     if start_ns < model.evaluation_start_ns:
         raise ValueError("evaluation source window precedes the model activation")
     if (

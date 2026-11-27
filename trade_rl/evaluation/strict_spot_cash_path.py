@@ -299,6 +299,13 @@ def verify_strict_spot_cash_path(
     ):
         raise ValueError("cash path requires a complete nonterminated interval roster")
     multipliers = dataset.resolved_array("contract_multipliers")
+    # Dataset admission already verifies lossless ns conversion, but retains
+    # the original datetime64 storage unit. Native event evidence is in ns.
+    timestamps_ns = (
+        dataset.timestamps[expected_start_index : expected_stop_index + 1]
+        .astype("datetime64[ns]")
+        .astype(np.int64)
+    )
     _check_roster(dataset, expected_start_index, active)
     cash = initial_cash
     lowest = cash
@@ -339,7 +346,7 @@ def verify_strict_spot_cash_path(
                 or not 0 <= event.symbol_index < dataset.n_symbols
                 or not start <= event.processing_index <= stop
                 or event.timestamp_ns
-                != int(dataset.timestamps[event.processing_index].astype(np.int64))
+                != int(timestamps_ns[event.processing_index - expected_start_index])
             ):
                 raise ValueError("native order event identity or sequence mismatch")
         events = tuple(

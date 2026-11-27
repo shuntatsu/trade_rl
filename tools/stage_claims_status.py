@@ -686,6 +686,16 @@ def render_html(report: dict[str, Any]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def _calendar_date(value: str) -> date:
+    """Accept only the declared UTC calendar-date spelling, not other ISO forms."""
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("date must be YYYY-MM-DD")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("invalid UTC calendar date") from error
+
+
 def load_schedule(path: Path) -> dict[str, dict[str, date]]:
     """Parse {protocol_digest: {STAGE: 'YYYY-MM-DD'}}; reject anything else."""
     with open_regular_binary(path, field="stage schedule") as handle:
@@ -699,9 +709,7 @@ def load_schedule(path: Path) -> dict[str, dict[str, date]]:
         for stage, due in stages.items():
             if not _STAGE.fullmatch(stage) or type(due) is not str:
                 raise ValueError("schedule stage must map a stage name to a date")
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
-                raise ValueError("schedule dates must be YYYY-MM-DD")
-            schedule[digest][stage] = date.fromisoformat(due)
+            schedule[digest][stage] = _calendar_date(due)
     return schedule
 
 
@@ -726,7 +734,7 @@ def main(
         if args.schedule is not None:
             schedule = load_schedule(args.schedule)
         if args.as_of is not None:
-            reference = date.fromisoformat(args.as_of)
+            reference = _calendar_date(args.as_of)
         else:
             reference = (today or (lambda: datetime.now(UTC).date()))()
     except (OSError, ValueError) as exc:

@@ -638,3 +638,41 @@ def test_schedule_preserves_distinct_unambiguous_protocols(tmp_path: Path) -> No
         assert final["protocol_digest"] == digest
         assert final["state"] == status.NOT_CLAIMED
         assert final["schedule_status"] == "DUE_TODAY"
+
+
+@pytest.mark.parametrize("value", ["20270110", "2027-W01-7", "2027-1-10", "2027-02-30"])
+def test_as_of_requires_canonical_calendar_date(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "INTERIM_A.claim", _legacy_claim())
+    schedule = tmp_path / "schedule.json"
+    _write(schedule, {DIGEST_A: {"FINAL": "2027-01-10"}})
+    assert (
+        status.main(
+            [str(root), "--schedule", str(schedule), "--as-of", value, "--json"]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error:" in captured.err
+
+
+def test_as_of_accepts_exact_utc_calendar_date(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "ledger"
+    _write(root / "INTERIM_A.claim", _legacy_claim())
+    schedule = tmp_path / "schedule.json"
+    _write(schedule, {DIGEST_A: {"FINAL": "2027-01-10"}})
+    assert (
+        status.main(
+            [str(root), "--schedule", str(schedule), "--as-of", "2027-01-10", "--json"]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["as_of"] == "2027-01-10"
+    final = next(e for e in report["ledgers"][0]["entries"] if e["stage"] == "FINAL")
+    assert final["schedule_status"] == "DUE_TODAY"

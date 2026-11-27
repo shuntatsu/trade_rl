@@ -7,7 +7,6 @@ import pytest
 
 from trade_rl.data.features import core
 
-
 _NAMES = ("_atr", "_adx", "_directional_indices", "ema_distance", "ema_slope")
 
 

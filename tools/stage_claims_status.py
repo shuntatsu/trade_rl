@@ -116,10 +116,9 @@ def _bounded_read(
     data = handle.read(limit + 1)
     if len(data) > limit:
         raise ValueError("file exceeds the size limit")
-    if (
-        len(data) != before.st_size
-        or _file_identity(os.fstat(handle.fileno())) != _file_identity(before)
-    ):
+    if len(data) != before.st_size or _file_identity(
+        os.fstat(handle.fileno())
+    ) != _file_identity(before):
         raise ValueError("file changed during reading")
     return data, before
 

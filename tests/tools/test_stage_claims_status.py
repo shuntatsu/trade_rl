@@ -447,9 +447,7 @@ def test_no_html_destination_can_mutate_ledger(tmp_path: Path, mode: str) -> Non
 def test_duplicate_markers_do_not_select_a_winner(tmp_path: Path, kind: str) -> None:
     root = tmp_path / "ledger"
     _write(root / "STAGE_ONE.claim", _legacy_claim("STAGE_ONE"))
-    _write(
-        root / "STAGE_ONE.result.json", _result_with_metrics("STAGE_ONE", label="A")
-    )
+    _write(root / "STAGE_ONE.result.json", _result_with_metrics("STAGE_ONE", label="A"))
     if kind == "claim":
         _write(root / "stage-STAGE_ONE.claim", _v1_claim())
         _write(root / "comment-5-22.claim", _v1_claim())

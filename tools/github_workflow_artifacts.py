@@ -41,8 +41,8 @@ class _Run(NamedTuple):
 
 
 def _mapping(value: Any, field: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{field} must be a GitHub response object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{field} must be a native JSON response object")
     return value
 
 
@@ -53,7 +53,7 @@ def _positive(value: Any, field: str) -> int:
 
 
 def _text(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise ValueError(f"{field} must be non-empty text")
     return value
 
@@ -77,7 +77,7 @@ def _run(api: ArtifactReadApi, run_id: int, repository_id: int) -> _Run:
     attempt = _positive(raw.get("run_attempt"), "run attempt")
     branch = _text(raw.get("head_branch"), "run head branch")
     sha = raw.get("head_sha")
-    if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+    if type(sha) is not str or not _SHA.fullmatch(sha):
         raise ValueError("run head SHA must be an exact Git SHA")
     if sha == "0" * 40:
         raise ValueError("run head SHA must not be a null SHA")
@@ -113,18 +113,22 @@ def _artifact(raw: Any, run: _Run) -> dict[str, Any]:
         raise ValueError("artifact expired status is invalid")
     digest = item.get("digest")
     if digest is not None and (
-        not isinstance(digest, str) or not _DIGEST.fullmatch(digest)
+        type(digest) is not str or not _DIGEST.fullmatch(digest)
     ):
         raise ValueError("artifact digest is malformed")
     origin = _mapping(item.get("workflow_run"), "artifact workflow identity")
+    origin_branch = origin.get("head_branch")
+    origin_sha = origin.get("head_sha")
     if (
         _positive(origin.get("id"), "artifact workflow run id") != run.run_id
         or _positive(origin.get("repository_id"), "artifact repository id")
         != run.repository_id
         or _positive(origin.get("head_repository_id"), "artifact head repository id")
         != run.head_repository_id
-        or origin.get("head_branch") != run.branch
-        or origin.get("head_sha") != run.sha
+        or type(origin_branch) is not str
+        or type(origin_sha) is not str
+        or origin_branch != run.branch
+        or origin_sha != run.sha
     ):
         raise ValueError("artifact workflow identity differs from pinned run")
     return {
@@ -163,7 +167,7 @@ def _scan_artifacts(api: ArtifactReadApi, run: _Run) -> list[dict[str, Any]]:
         rows = raw.get("artifacts")
         remaining = count - len(artifacts)
         if (
-            not isinstance(rows, list)
+            type(rows) is not list
             or remaining < 0
             or len(rows) != min(_PAGE_SIZE, remaining)
         ):
@@ -193,9 +197,7 @@ def observe_workflow_artifacts(
     observations are not atomic, do not bind artifacts to run attempts, and
     cannot authorize an expired-lease decision or repository cleanup.
     """
-    if not isinstance(expected_repository, str) or not _REPO.fullmatch(
-        expected_repository
-    ):
+    if type(expected_repository) is not str or not _REPO.fullmatch(expected_repository):
         raise ValueError("expected_repository must be owner/name")
     run_id = _positive(run_id, "run_id")
     repo = _repo(api, expected_repository)

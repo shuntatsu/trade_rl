@@ -65,8 +65,8 @@ class WorkflowReadApi(Protocol):
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be a native JSON object")
     return value
 
 
@@ -77,13 +77,13 @@ def _positive_int(value: Any, name: str) -> int:
 
 
 def _text(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise ValueError(f"{name} must be non-empty text")
     return value
 
 
 def _sha(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
+    if type(value) is not str or not _SHA_RE.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase 40-hex SHA")
     if value == "0" * 40:
         raise ValueError(f"{name} must not be a null SHA")
@@ -202,7 +202,7 @@ def observe_workflow_attempt(reader: WorkflowReadApi, *, run_id: int) -> dict[st
             raise ValueError("attempt job total_count changed between pages")
         records = raw_page.get("jobs")
         remaining = total - len(jobs)
-        if not isinstance(records, list) or len(records) != min(_PAGE_SIZE, remaining):
+        if type(records) is not list or len(records) != min(_PAGE_SIZE, remaining):
             raise ValueError("attempt job pagination is incomplete or inconsistent")
         for raw_job in records:
             item = _job_identity(

@@ -321,3 +321,158 @@ def test_null_job_head_is_rejected_even_with_valid_run_head() -> None:
     api.pages[0]["jobs"][0]["head_sha"] = "0" * 40
     with pytest.raises(ValueError, match="job head SHA must not be a null SHA"):
         observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+class _ForgedIdentity(str):
+    def __eq__(self, other: object) -> bool:
+        return other != "0" * 40
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _ForgedIdentity("b" * 40)),
+        ("head_branch", _ForgedIdentity("foreign")),
+    ],
+)
+def test_attempt_job_rejects_foreign_identity(field: str, value: str) -> None:
+    api = FakeReader()
+    api.pages[0]["jobs"][0][field] = value
+    with pytest.raises(ValueError, match="job head"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _ForgedIdentity("b" * 40)),
+        ("head_branch", _ForgedIdentity("foreign")),
+        ("updated_at", _ForgedIdentity("different")),
+    ],
+)
+def test_attempt_readback_rejects_foreign_identity(field: str, value: str) -> None:
+    api = FakeReader()
+    api.runs[1][field] = value
+    with pytest.raises(ValueError, match="workflow (?:head|update)"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+class _IdentityTrap(str):
+    def strip(self, *args: object, **kwargs: object) -> str:
+        raise AssertionError("foreign strip invoked")
+
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("foreign equality invoked")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("foreign inequality invoked")
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head_sha", _IdentityTrap(HEAD)),
+        ("head_branch", _IdentityTrap(BRANCH)),
+        ("updated_at", _IdentityTrap("2026-11-01T12:00:00Z")),
+    ],
+)
+def test_attempt_initial_run_rejects_foreign_hooks(field: str, value: str) -> None:
+    api = FakeReader()
+    api.runs[0][field] = value
+    with pytest.raises(ValueError, match="workflow (?:head|update)"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+def test_attempt_job_name_rejects_foreign_hook() -> None:
+    api = FakeReader()
+    api.pages[0]["jobs"][0]["name"] = _IdentityTrap("job-1")
+    with pytest.raises(ValueError, match="job name"):
+        observe_workflow_attempt(api, run_id=RUN_ID)
+
+
+class _ResponseObjectTrap(dict):
+    def get(self, *args, **kwargs):
+        raise AssertionError("foreign object lookup")
+
+    def __getitem__(self, key):
+        raise AssertionError("foreign object item lookup")
+
+    def __contains__(self, key):
+        raise AssertionError("foreign object membership")
+
+    def __iter__(self):
+        raise AssertionError("foreign object iteration")
+
+
+class _ResponseRowsTrap(list):
+    def __len__(self):
+        raise AssertionError("foreign rows length")
+
+    def __iter__(self):
+        raise AssertionError("foreign rows iteration")
+
+
+class _ResponseKey(str):
+    pass
+
+
+class _ForeignAttemptReader(FakeReader):
+    def __init__(self, location):
+        super().__init__()
+        self.location = location
+
+    def _request_json(self, method, suffix, *, query=None):
+        value = super()._request_json(method, suffix, query=query)
+        location = self.location
+        if suffix == f"actions/runs/{RUN_ID}":
+            stage = "initial" if self.runs else "readback"
+            if location == stage:
+                return _ResponseObjectTrap(value)
+            if location == stage + "_key":
+                return {
+                    _ResponseKey(k) if k == "head_sha" else k: v
+                    for k, v in value.items()
+                }
+        else:
+            if location == "page":
+                return _ResponseObjectTrap(value)
+            if location == "page_key":
+                return {
+                    _ResponseKey(k) if k == "jobs" else k: v for k, v in value.items()
+                }
+            if location == "rows":
+                value["jobs"] = _ResponseRowsTrap(value["jobs"])
+            elif location == "job":
+                value["jobs"][0] = _ResponseObjectTrap(value["jobs"][0])
+            elif location == "job_key":
+                value["jobs"][0] = {
+                    _ResponseKey(k) if k == "id" else k: v
+                    for k, v in value["jobs"][0].items()
+                }
+        return value
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "initial",
+        "initial_key",
+        "readback",
+        "readback_key",
+        "page",
+        "page_key",
+        "rows",
+        "job",
+        "job_key",
+    ],
+)
+def test_attempt_observation_refuses_foreign_json_containers(location):
+    with pytest.raises(ValueError, match="native JSON|pagination"):
+        observe_workflow_attempt(_ForeignAttemptReader(location), run_id=RUN_ID)

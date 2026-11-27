@@ -24,13 +24,13 @@ def _mapping(value: Any, name: str) -> dict[str, Any]:
 
 
 def _sha(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _SHA.fullmatch(value) or value == "0" * 40:
+    if type(value) is not str or not _SHA.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{name} must be an exact commit SHA")
     return value
 
 
 def _number(value: Any, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if type(value) is not int or value < 1:
         raise ValueError(f"{name} must be a positive integer")
     return value
 

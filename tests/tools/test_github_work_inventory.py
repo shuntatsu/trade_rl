@@ -937,3 +937,40 @@ class _CompareDict(dict[str, object]):
 def test_compare_rejects_foreign_identity_before_comparison(payload) -> None:
     with pytest.raises(ValueError):
         classify_ancestry(payload)
+
+
+class _ForeignShaFormat(str):
+    def __format__(self, spec: str) -> str:
+        return "f" * 40
+
+
+class _ForeignIssueFormat(int):
+    def __format__(self, spec: str) -> str:
+        return "999"
+
+
+@pytest.mark.parametrize("location", ["head", "main", "issue"])
+def test_inventory_rejects_foreign_url_identity_before_request(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    api = GitHubWorkApi(repository="owner/repo", token="fake")
+    requested: list[str] = []
+
+    def fake_request(method: str, suffix: str, **kwargs: object) -> object:
+        requested.append(suffix)
+        if suffix.startswith("compare/"):
+            return {"status": "behind", "ahead_by": 0, "behind_by": 1}
+        return []
+
+    monkeypatch.setattr(api._reader, "_request_json", fake_request)
+    try:
+        with pytest.raises(ValueError):
+            if location == "issue":
+                api.issue_comments(_ForeignIssueFormat(123))
+            else:
+                api.compare_head_to_main(
+                    _ForeignShaFormat("a" * 40) if location == "head" else "a" * 40,
+                    _ForeignShaFormat("b" * 40) if location == "main" else "b" * 40,
+                )
+    finally:
+        assert not requested, f"foreign identity reached HTTP: {requested}"

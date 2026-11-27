@@ -1,6 +1,6 @@
 """Evidence dependency IDs must be explicit collection entries."""
 
-from collections import deque
+from collections import UserString, deque
 
 import pytest
 
@@ -36,7 +36,9 @@ def _graph() -> DependencyGraph:
     return DependencyGraph((root, child))
 
 
-@pytest.mark.parametrize("invalid", ["A", "AB", {"A": False}, b"", ["A", 1], None])
+@pytest.mark.parametrize(
+    "invalid", ["A", "AB", UserString("A"), {"A": False}, b"", ["A", 1], None]
+)
 def test_evidence_rejects_malformed_roster(invalid: object) -> None:
     with pytest.raises(ValueError, match="evidence_task_ids"):
         _graph().evidence_dependencies_satisfied(

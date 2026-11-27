@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tools.agent_repo.coordination.model import (
@@ -17,7 +19,11 @@ from tools.agent_repo.coordination.model import (
     TaskStatus,
     WriteScope,
 )
-from tools.agent_repo.coordination.state import evidence_is_current, validate_transition
+from tools.agent_repo.coordination.state import (
+    evidence_is_current,
+    evidence_is_current_after_peer_integration,
+    validate_transition,
+)
 
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
@@ -455,3 +461,365 @@ def test_direct_text_lists_are_frozen_without_changing_canonical_identity() -> N
         source.append("later")
     assert scope.allow == ("tools/**",)
     assert packet.contract_digest() == original.contract_digest()
+
+
+class _ForgedObservedSha(str):
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+class _ComparisonTrapSha(str):
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("unvalidated identity compared")
+
+    def __ne__(self, other: object) -> bool:
+        raise AssertionError("unvalidated identity compared")
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedObservedSha, _ComparisonTrapSha])
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
+@pytest.mark.parametrize("field", ["head", "main"])
+def test_evidence_rejects_non_native_observed_sha(
+    sha_type: type[str], field: str, kind: EvidenceKind
+) -> None:
+    packet = _packet()
+    evidence = _evidence(packet, kind=kind, main_sha=MAIN_SHA)
+    assert not evidence_is_current(
+        evidence,
+        packet,
+        head_sha=sha_type(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
+        current_main_sha=sha_type(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
+    )
+
+
+class _ForgedRecordedSha(str):
+    def __eq__(self, other: object) -> bool:
+        return not (type(other) is str and other == "0" * 40)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
+class _RecordedComparisonTrapSha(_ComparisonTrapSha):
+    # The legacy constructor checks that an input SHA is not all zeroes.
+    # Allow that check, but fail on any freshness comparison.
+    def __eq__(self, other: object) -> bool:
+        if type(other) is str and other == "0" * 40:
+            return False
+        return super().__eq__(other)
+
+    def __ne__(self, other: object) -> bool:
+        if type(other) is str and other == "0" * 40:
+            return True
+        return super().__ne__(other)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
+@pytest.mark.parametrize("field", ["head", "main"])
+def test_evidence_rejects_non_native_recorded_sha(
+    field: str, kind: EvidenceKind, sha_type: type[str]
+) -> None:
+    packet = _packet()
+    evidence = _evidence(
+        packet,
+        kind=kind,
+        head_sha=sha_type(OTHER_HEAD_SHA) if field == "head" else HEAD_SHA,
+        main_sha=sha_type(OTHER_MAIN_SHA) if field == "main" else MAIN_SHA,
+    )
+    assert not evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("task_id", "T500-02"),
+        ("task_contract_digest", "f" * 64),
+        ("base_sha", OTHER_HEAD_SHA),
+    ],
+)
+def test_evidence_rejects_non_native_recorded_identity(
+    field: str, value: str, sha_type: type[str]
+) -> None:
+    packet = _packet()
+    evidence = replace(_evidence(packet), **{field: sha_type(value)})
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize(
+    "field,value", [("task_id", "T500-02"), ("base_sha", OTHER_HEAD_SHA)]
+)
+def test_evidence_rejects_non_native_packet_identity(
+    field: str, value: str, sha_type: type[str]
+) -> None:
+    # Empty dependencies avoid invoking task-id equality in legacy admission.
+    packet = replace(_packet(), dependencies=(), **{field: sha_type(value)})
+    evidence = replace(
+        _evidence(replace(_packet(), dependencies=())),
+        task_contract_digest=packet.contract_digest(),
+    )
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("kind", list(EvidenceKind))
+def test_evidence_kind_freshness_matrix(kind: EvidenceKind) -> None:
+    packet = _packet()
+    requires_main = kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}
+    evidence = _evidence(
+        packet, kind=kind, main_sha=MAIN_SHA if requires_main else None
+    )
+    assert evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    assert not evidence_is_current(
+        evidence, packet, head_sha=OTHER_HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    assert not evidence_is_current(
+        evidence,
+        packet,
+        head_sha=_ComparisonTrapSha(HEAD_SHA),
+        current_main_sha=MAIN_SHA,
+    )
+    assert evidence_is_current(evidence, packet, head_sha=HEAD_SHA) is not requires_main
+    assert (
+        evidence_is_current(
+            evidence, packet, head_sha=HEAD_SHA, current_main_sha=OTHER_MAIN_SHA
+        )
+        is not requires_main
+    )
+    assert (
+        evidence_is_current(
+            evidence,
+            packet,
+            head_sha=HEAD_SHA,
+            current_main_sha=_ComparisonTrapSha(OTHER_MAIN_SHA),
+        )
+        is not requires_main
+    )
+
+
+class _ForgedDigestPacket(TaskPacket):
+    def contract_digest(self) -> str:
+        return _ForgedRecordedSha("f" * 64)
+
+
+class _TrapDigestPacket(TaskPacket):
+    def contract_digest(self) -> str:
+        return _ComparisonTrapSha("f" * 64)
+
+
+@pytest.mark.parametrize("packet_type", [_ForgedDigestPacket, _TrapDigestPacket])
+def test_evidence_rejects_non_native_expected_digest(
+    packet_type: type[TaskPacket],
+) -> None:
+    native = _packet()
+    packet = packet_type(**vars(native))
+    assert not evidence_is_current(_evidence(native), packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("sha_type", [_ForgedRecordedSha, _RecordedComparisonTrapSha])
+@pytest.mark.parametrize("side", ["current", "peer"])
+def test_peer_integration_rejects_non_native_task_id(
+    sha_type: type[str], side: str
+) -> None:
+    native = replace(_packet(), dependencies=())
+    peer = replace(native, task_id="T500-02", resource_keys=())
+    evidence = _evidence(native)
+    packet = native
+    if side == "current":
+        packet = replace(native, task_id=sha_type(native.task_id))
+    else:
+        peer = replace(peer, task_id=sha_type(peer.task_id))
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+
+
+class _RevisionSubclass(int):
+    pass
+
+
+@pytest.mark.parametrize("revision", [True, 1.0, _RevisionSubclass(1)])
+def test_evidence_revision_requires_native_int(revision: int) -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    with pytest.raises(ValueError, match="task_revision"):
+        replace(packet, task_revision=revision)
+    with pytest.raises(ValueError, match="task_revision"):
+        replace(evidence, task_revision=revision)
+
+
+@pytest.mark.parametrize("kind", list(EvidenceKind))
+def test_evidence_kind_constructor_normalizes_native_string(kind: EvidenceKind) -> None:
+    packet = _packet()
+    requires_main = kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}
+    evidence = replace(
+        _evidence(packet, kind=kind, main_sha=MAIN_SHA if requires_main else None),
+        evidence_kind=kind.value,
+    )
+    assert evidence.evidence_kind is kind
+    assert evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=MAIN_SHA
+    )
+    with pytest.raises(ValueError):
+        replace(evidence, evidence_kind="not-a-kind")
+
+
+def test_peer_integration_native_task_id_controls() -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    assert evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence,
+        packet,
+        replace(peer, resource_keys=packet.resource_keys),
+        head_sha=HEAD_SHA,
+    )
+    with pytest.raises(ValueError, match="distinct task"):
+        evidence_is_current_after_peer_integration(
+            evidence, packet, packet, head_sha=HEAD_SHA
+        )
+
+
+class _NeverEqualTaskId(str):
+    def __eq__(self, other: object) -> bool:
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        return True
+
+
+def test_peer_integration_cannot_disguise_same_task() -> None:
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(
+        packet,
+        task_id=_NeverEqualTaskId(packet.task_id),
+        dependencies=(),
+        resource_keys=(),
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+
+
+@pytest.mark.parametrize("method", ["contract_digest", "canonical_payload"])
+def test_evidence_rejects_subclass_forging_native_contract(method: str) -> None:
+    previous = _packet()
+    changed = _packet(objective="Changed objective")
+    assert changed.contract_digest() != previous.contract_digest()
+
+    class ForgedDigestPacket(TaskPacket):
+        def contract_digest(self) -> str:
+            if method == "contract_digest":
+                return previous.contract_digest()
+            return super().contract_digest()
+
+        def canonical_payload(self):
+            if method == "canonical_payload":
+                return previous.canonical_payload()
+            return super().canonical_payload()
+
+    packet = ForgedDigestPacket(**vars(changed))
+    assert not evidence_is_current(_evidence(previous), packet, head_sha=HEAD_SHA)
+
+
+class _AlwaysEqualRevision(int):
+    def __ne__(self, other: object) -> bool:
+        return False
+
+
+@pytest.mark.parametrize("side", ["packet", "evidence"])
+def test_evidence_rejects_revision_override(side: str) -> None:
+    previous = _packet()
+    evidence = _evidence(previous)
+
+    class ForgedRevisionPacket(TaskPacket):
+        def __getattribute__(self, name: str):
+            if name == "task_revision" and vars(self).get("_armed", False):
+                return _AlwaysEqualRevision(2)
+            return super().__getattribute__(name)
+
+    class ForgedRevisionEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            if name == "task_revision" and vars(self).get("_armed", False):
+                return _AlwaysEqualRevision(2)
+            return super().__getattribute__(name)
+
+    packet = previous
+    if side == "packet":
+        packet = ForgedRevisionPacket(**vars(previous))
+        object.__setattr__(packet, "_armed", True)
+    else:
+        evidence = ForgedRevisionEvidence(**vars(evidence))
+        object.__setattr__(evidence, "_armed", True)
+    assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+
+
+@pytest.mark.parametrize("kind", [EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE])
+def test_evidence_rejects_kind_override(kind: EvidenceKind) -> None:
+    packet = _packet()
+    original = _evidence(packet, kind=kind, main_sha=MAIN_SHA)
+
+    class ForgedKindEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            if name == "evidence_kind" and vars(self).get("_armed", False):
+                return EvidenceKind.REVIEW
+            return super().__getattribute__(name)
+
+    evidence = ForgedKindEvidence(**vars(original))
+    object.__setattr__(evidence, "_armed", True)
+    assert not evidence_is_current(
+        evidence, packet, head_sha=HEAD_SHA, current_main_sha=OTHER_MAIN_SHA
+    )
+
+
+@pytest.mark.parametrize("side", ["packet", "evidence", "peer"])
+def test_freshness_rejects_subclass_before_attribute_access(side: str) -> None:
+    class TrapPacket(TaskPacket):
+        def __getattribute__(self, name: str):
+            raise AssertionError(f"unvalidated packet attribute: {name}")
+
+    class TrapEvidence(EvidenceRecord):
+        def __getattribute__(self, name: str):
+            raise AssertionError(f"unvalidated evidence attribute: {name}")
+
+    packet = _packet()
+    evidence = _evidence(packet)
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    if side == "packet":
+        packet = object.__new__(TrapPacket)
+    elif side == "evidence":
+        evidence = object.__new__(TrapEvidence)
+    else:
+        peer = object.__new__(TrapPacket)
+    if side != "peer":
+        assert not evidence_is_current(evidence, packet, head_sha=HEAD_SHA)
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+
+
+def test_peer_freshness_rejects_even_nonconflicting_packet_subclass() -> None:
+    class PeerSubclass(TaskPacket):
+        pass
+
+    packet = _packet()
+    peer = replace(packet, task_id="T500-02", resource_keys=())
+    evidence = _evidence(packet)
+    assert evidence_is_current_after_peer_integration(
+        evidence, packet, peer, head_sha=HEAD_SHA
+    )
+    assert not evidence_is_current_after_peer_integration(
+        evidence, packet, PeerSubclass(**vars(peer)), head_sha=HEAD_SHA
+    )

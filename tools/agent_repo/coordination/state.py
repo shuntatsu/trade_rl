@@ -50,20 +50,49 @@ def evidence_is_current(
     head_sha: str,
     current_main_sha: str | None = None,
 ) -> bool:
-    """Return whether evidence is bound to the current exact task snapshot."""
+    """Return freshness for native EvidenceRecord and TaskPacket snapshots.
 
+    Subclasses and duck-typed objects are not snapshots: overridden fields or
+    digest methods can detach the comparison from the original contract.
+    """
+    if type(evidence) is not EvidenceRecord or type(packet) is not TaskPacket:
+        return False
+
+    # Direct Python construction can preserve str subclasses whose equality
+    # overrides do not reflect their stored identity.
+    if any(
+        type(value) is not str
+        for value in (
+            evidence.task_id,
+            packet.task_id,
+            evidence.task_contract_digest,
+            evidence.base_sha,
+            packet.base_sha,
+        )
+    ):
+        return False
     if evidence.task_id != packet.task_id:
         return False
     if evidence.task_revision != packet.task_revision:
         return False
-    if evidence.task_contract_digest != packet.contract_digest():
+    expected_digest = packet.contract_digest()
+    if (
+        type(expected_digest) is not str
+        or evidence.task_contract_digest != expected_digest
+    ):
         return False
     if evidence.base_sha != packet.base_sha:
+        return False
+    if type(head_sha) is not str or type(evidence.head_sha) is not str:
         return False
     if evidence.head_sha != head_sha:
         return False
     if evidence.evidence_kind in {EvidenceKind.INTEGRATION, EvidenceKind.POST_MERGE}:
-        return current_main_sha is not None and evidence.main_sha == current_main_sha
+        return (
+            type(current_main_sha) is str
+            and type(evidence.main_sha) is str
+            and evidence.main_sha == current_main_sha
+        )
     return True
 
 
@@ -75,8 +104,17 @@ def evidence_is_current_after_peer_integration(
     head_sha: str,
     current_main_sha: str | None = None,
 ) -> bool:
-    """Reject evidence made stale by a semantically conflicting peer integration."""
+    """Reject stale evidence and non-native current/peer task snapshots."""
 
+    if (
+        type(evidence) is not EvidenceRecord
+        or type(packet) is not TaskPacket
+        or type(integrated_packet) is not TaskPacket
+    ):
+        return False
+
+    if type(packet.task_id) is not str or type(integrated_packet.task_id) is not str:
+        return False
     if packet.task_id == integrated_packet.task_id:
         raise ValueError("peer integration requires a distinct task")
     if classify_conflict(packet, integrated_packet) is not ConflictLevel.NONE:
@@ -95,11 +133,22 @@ def parent_completion_allowed(
     parent_acceptance_satisfied: bool,
     parent_invariants_satisfied: bool,
 ) -> bool:
-    """Require child completion plus explicit parent-level acceptance and invariants."""
+    """Require a native child-status snapshot and affirmative parent oracles.
 
+    Caller-supplied rosters do not establish authoritative task completeness.
+    """
+
+    if type(child_statuses) is not dict:
+        return False
+    children = tuple(child_statuses.items())
+    if any(
+        type(key) is not str or type(status) is not TaskStatus
+        for key, status in children
+    ):
+        return False
     children_complete = all(
         status.phase is TaskPhase.COMPLETE and status.condition is TaskCondition.HEALTHY
-        for status in child_statuses.values()
+        for _, status in children
     )
     return (
         children_complete

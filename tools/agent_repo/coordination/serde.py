@@ -44,7 +44,7 @@ _DASHBOARD_FIELDS = frozenset(DashboardSnapshot.__dataclass_fields__)
 
 
 def _mapping(value: object, *, field_name: str) -> Mapping[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if type(value) is not dict or any(type(key) is not str for key in value):
         raise ValueError(f"{field_name} must be a JSON object")
     return value
 
@@ -64,7 +64,7 @@ def _strict_fields(
 
 
 def _string(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise ValueError(f"{field_name} must be a string")
     return value
 
@@ -76,7 +76,7 @@ def _optional_string(value: object, *, field_name: str) -> str | None:
 
 
 def _integer(value: object, *, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
+    if type(value) is not int:
         raise ValueError(f"{field_name} must be an integer")
     return value
 
@@ -88,13 +88,13 @@ def _optional_integer(value: object, *, field_name: str) -> int | None:
 
 
 def _strings(value: object, *, field_name: str) -> tuple[str, ...]:
-    if not isinstance(value, list):
+    if type(value) is not list:
         raise ValueError(f"{field_name} must be a JSON array")
     return tuple(_string(item, field_name=field_name) for item in value)
 
 
 def _dependencies(value: object) -> tuple[TaskDependency, ...]:
-    if not isinstance(value, list):
+    if type(value) is not list:
         raise ValueError("dependencies must be a JSON array")
     result: list[TaskDependency] = []
     for item in value:
@@ -126,7 +126,7 @@ def task_packet_from_payload(value: object) -> TaskPacket:
 
     payload = _mapping(value, field_name="task packet")
     _strict_fields(payload, _TASK_PACKET_FIELDS, field_name="task packet")
-    if payload["schema"] != "agent_task_v1":
+    if _string(payload["schema"], field_name="schema") != "agent_task_v1":
         raise ValueError("task packet schema must be agent_task_v1")
     write_scope_payload = _mapping(payload["write_scope"], field_name="write_scope")
     _strict_fields(
@@ -240,7 +240,7 @@ def dashboard_snapshot_from_payload(value: object) -> DashboardSnapshot:
 
 
 def packet_sequence(value: object) -> tuple[TaskPacket, ...]:
-    if not isinstance(value, list):
+    if type(value) is not list:
         raise ValueError("packets must be a JSON array")
     return tuple(task_packet_from_payload(item) for item in value)
 

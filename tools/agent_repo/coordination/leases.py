@@ -34,21 +34,17 @@ def _expiry_after(now: datetime, ttl: timedelta) -> datetime:
 
 
 def _require_sha(value: str, *, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or not _FULL_SHA_RE.fullmatch(value)
-        or value == "0" * 40
-    ):
+    if type(value) is not str or not _FULL_SHA_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{field_name} must be a lowercase 40-hex Git SHA")
 
 
 def _require_digest(value: str, *, field_name: str) -> None:
-    if not isinstance(value, str) or not _FULL_DIGEST_RE.fullmatch(value):
+    if type(value) is not str or not _FULL_DIGEST_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be a lowercase 64-hex SHA-256 digest")
 
 
 def _owner_slug(owner: str) -> str:
-    if not isinstance(owner, str) or not _OWNER_RE.fullmatch(owner) or ".." in owner:
+    if type(owner) is not str or not _OWNER_RE.fullmatch(owner) or ".." in owner:
         raise ValueError("owner must contain only safe branch-name characters")
     slug = re.sub(r"[ ._]+", "-", owner.strip().lower())
     slug = re.sub(r"-+", "-", slug).strip("-")
@@ -60,7 +56,7 @@ def _owner_slug(owner: str) -> str:
 def lease_branch_name(task_id: str, epoch: int, owner: str) -> str:
     """Return the branch fence for one concrete lease epoch."""
 
-    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+    if type(task_id) is not str or not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task_id is invalid for a lease branch")
     if ".." in task_id or task_id.endswith(".lock"):
         raise ValueError("task_id is invalid for a lease branch")
@@ -84,7 +80,7 @@ class LeaseRecord:
     ttl_seconds: float
 
     def __post_init__(self) -> None:
-        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
+        if type(self.task_id) is not str or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("task_id is invalid")
         if type(self.task_revision) is not int or self.task_revision < 1:
             raise ValueError("task_revision must be a positive integer")
@@ -95,7 +91,7 @@ class LeaseRecord:
         if type(self.epoch) is not int or self.epoch < 1:
             raise ValueError("epoch must be a positive integer")
         expected_branch = lease_branch_name(self.task_id, self.epoch, self.owner)
-        if self.lease_branch != expected_branch:
+        if type(self.lease_branch) is not str or self.lease_branch != expected_branch:
             raise ValueError("lease_branch does not match task/epoch/owner fence")
         _require_aware(self.last_heartbeat_at, field_name="last_heartbeat_at")
         _require_aware(self.expires_at, field_name="expires_at")
@@ -126,14 +122,11 @@ class LeaseReconciliation:
     artifact_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.task_id, str) or not _TASK_ID_RE.fullmatch(self.task_id):
+        if type(self.task_id) is not str or not _TASK_ID_RE.fullmatch(self.task_id):
             raise ValueError("reconciliation task_id is invalid")
         if type(self.expired_epoch) is not int or self.expired_epoch < 1:
             raise ValueError("reconciliation expired_epoch must be positive")
-        if (
-            not isinstance(self.observed_branch, str)
-            or not self.observed_branch.strip()
-        ):
+        if type(self.observed_branch) is not str or not self.observed_branch.strip():
             raise ValueError("reconciliation observed_branch must be non-empty")
         if self.observed_head_sha is not None:
             _require_sha(self.observed_head_sha, field_name="observed_head_sha")

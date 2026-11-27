@@ -576,6 +576,19 @@ def _verify_run_binding(
         expected_plan.dataset_artifact_digest,
     ):
         raise ArtifactIntegrityError("EvidenceSet Run dataset identity mismatch")
+    if expected_plan is not None:
+        if (
+            run.provenance.get("implementation_digest")
+            != expected_plan.implementation_digest
+        ):
+            raise ArtifactIntegrityError(
+                "EvidenceSet Run implementation provenance mismatch"
+            )
+        if (
+            run.provenance.get("runtime_environment_digest")
+            != expected_plan.runtime_environment_digest
+        ):
+            raise ArtifactIntegrityError("EvidenceSet Run runtime provenance mismatch")
     return dataset_identity
 
 
@@ -587,9 +600,22 @@ def _verify_seed_invariance(
     research_context_digest: str,
 ) -> None:
     first_seed = seeds[0]
-    first_map = _run_return_map(runs[first_seed], expected_symbols=symbols)
+    first_run = runs[first_seed]
+    first_map = _run_return_map(first_run, expected_symbols=symbols)
     for seed in seeds:
         run = runs[seed]
+        if run.provenance.get("implementation_digest") != first_run.provenance.get(
+            "implementation_digest"
+        ):
+            raise ArtifactIntegrityError(
+                "EvidenceSet implementation provenance drifted across seeds"
+            )
+        if run.provenance.get("runtime_environment_digest") != first_run.provenance.get(
+            "runtime_environment_digest"
+        ):
+            raise ArtifactIntegrityError(
+                "EvidenceSet runtime provenance drifted across seeds"
+            )
         if run.provenance.get("research_context_digest") != research_context_digest:
             raise ArtifactIntegrityError("EvidenceSet research context mismatch")
         if _run_summary_seed(run) != seed:
@@ -687,22 +713,11 @@ def execute_evidence_set(
             run_root = staging / "runs" / f"seed-{seed}"
             publish_candidate_run(run_root, result, after)
             loaded = load_candidate_run_artifact(run_root)
-            if not _config_identity_matches(
-                _run_semantic_config(
-                    loaded,
-                    schema_version=plan.baseline_config.schema_version,
-                ),
-                _without_seed(resolved),
-            ):
-                raise ArtifactIntegrityError("EvidenceSet Run resolved config mismatch")
-            if _run_dataset_identity(loaded) != (
-                plan.dataset_id,
-                plan.dataset_artifact_schema,
-                plan.dataset_artifact_digest,
-            ):
-                raise ArtifactIntegrityError(
-                    "EvidenceSet Run dataset identity mismatch"
-                )
+            _verify_run_binding(
+                loaded,
+                semantic_config=_without_seed(resolved),
+                expected_plan=plan,
+            )
             loaded_runs[seed] = loaded
             run_digests.append((seed, loaded.artifact_digest))
 
@@ -837,6 +852,10 @@ def load_evidence_set(
 
     manifest = _read_manifest(evidence_root)
     evidence, semantic_config = _parse_evidence(manifest)
+    if expected_plan is not None and evidence.ppo_seeds != expected_plan.ppo_seeds:
+        raise ArtifactIntegrityError(
+            "EvidenceSet seed roster differs from frozen Study plan"
+        )
     runs_root = evidence_root / "runs"
     if runs_root.is_symlink() or not runs_root.is_dir():
         raise ArtifactIntegrityError("EvidenceSet runs must be a regular directory")
@@ -877,10 +896,14 @@ def load_evidence_set(
     _verify_seed_invariance(
         runs,
         seeds=evidence.ppo_seeds,
-        symbols=tuple(
-            cast(
-                Sequence[str],
-                runs[evidence.ppo_seeds[0]].summary.get("symbols"),
+        symbols=(
+            expected_plan.symbols
+            if expected_plan is not None
+            else tuple(
+                cast(
+                    Sequence[str],
+                    runs[evidence.ppo_seeds[0]].summary.get("symbols"),
+                )
             )
         ),
         research_context_digest=evidence.research_context_digest,

@@ -71,3 +71,115 @@ def test_failed_api_page_read_does_not_return_partial_roster() -> None:
     reader = FakeReader(frozenset({"main"}), RuntimeError("GitHub API 503"))
     with pytest.raises(RuntimeError, match="503"):
         stable_workflow_branch_refs(reader, known_branch_names=frozenset({"main"}))
+
+
+_INVALID_NAMES = (
+    "",
+    " ",
+    "topic/name ",
+    "topic name",
+    "topic\tname",
+    "topic\nname",
+    "topic\x00name",
+    "topic\x7fname",
+    "topic..child",
+    "topic@{child",
+    "topic/.hidden",
+    ".hidden",
+    "topic.lock",
+    "topic/child.lock",
+    "topic/child.",
+    "topic.",
+    "topic//child",
+    "/topic",
+    "topic/",
+    "topic~child",
+    "topic^child",
+    "topic:child",
+    "topic?child",
+    "topic*child",
+    "topic[child",
+    "topic\\child",
+    "topic\ud800",
+    "topic\udfff",
+)
+
+
+@pytest.mark.parametrize("name", _INVALID_NAMES)
+@pytest.mark.parametrize("where", ["known", "first", "second"])
+def test_github_ref_grammar_is_validated_at_each_untrusted_roster_boundary(
+    name: str, where: str
+) -> None:
+    safe = frozenset({"main"})
+    with_bad = frozenset({"main", name})
+    if where == "known":
+        reader = FakeReader(safe, safe)
+        with pytest.raises(ValueError, match="known branch roster is malformed"):
+            stable_workflow_branch_refs(reader, known_branch_names=with_bad)
+        assert reader.calls == 0
+    elif where == "first":
+        reader = FakeReader(with_bad, RuntimeError("unnecessary second page"))
+        with pytest.raises(
+            ValueError, match="unfinished workflow branch refs are malformed"
+        ):
+            stable_workflow_branch_refs(reader, known_branch_names=safe)
+        assert reader.calls == 1
+    else:
+        reader = FakeReader(safe, with_bad)
+        with pytest.raises(
+            ValueError, match="unfinished workflow branch refs are malformed"
+        ):
+            stable_workflow_branch_refs(reader, known_branch_names=safe)
+        assert reader.calls == 2
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        frozenset({"topic", "topic/child"}),
+        frozenset({"topic/child", "topic"}),
+        frozenset({"a/b", "a/b/c", "a/other"}),
+    ],
+)
+def test_impossible_git_ref_namespace_is_rejected_before_read(
+    names: frozenset[str],
+) -> None:
+    reader = FakeReader(frozenset(), frozenset())
+    with pytest.raises(ValueError, match="known branch roster is malformed"):
+        stable_workflow_branch_refs(reader, known_branch_names=names)
+    assert reader.calls == 0
+
+
+def test_similar_git_ref_names_are_not_false_prefix_collisions() -> None:
+    names = frozenset({"topic-other", "topic/child", "topic/child2", "main"})
+    reader = FakeReader(names, names)
+    assert stable_workflow_branch_refs(reader, known_branch_names=names) == tuple(
+        sorted(names)
+    )
+    assert reader.calls == 2
+
+
+@pytest.mark.parametrize("second", [RuntimeError("GitHub 503"), frozenset()])
+def test_initial_orphan_reference_fails_before_second_read(second: object) -> None:
+    reader = FakeReader(frozenset({"missing"}), second)
+    with pytest.raises(RuntimeError, match="missing local branches"):
+        stable_workflow_branch_refs(reader, known_branch_names=frozenset({"main"}))
+    assert reader.calls == 1
+
+
+def test_unicode_scalar_supplementary_branch_remains_legal() -> None:
+    name = "feature/\U00020000"
+    reader = FakeReader(frozenset({name}), frozenset({name}))
+    assert stable_workflow_branch_refs(
+        reader, known_branch_names=frozenset({"main", name})
+    ) == (name,)
+    assert reader.calls == 2
+
+
+def test_malformed_first_observation_masks_no_following_network_failure() -> None:
+    reader = FakeReader(frozenset({"bad..name"}), RuntimeError("network refused"))
+    with pytest.raises(
+        ValueError, match="unfinished workflow branch refs are malformed"
+    ):
+        stable_workflow_branch_refs(reader, known_branch_names=frozenset({"main"}))
+    assert reader.calls == 1

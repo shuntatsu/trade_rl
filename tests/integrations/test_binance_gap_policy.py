@@ -9,9 +9,13 @@ from typing import Any
 import numpy as np
 import pytest
 
+from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract
+from trade_rl.data.features.multitimeframe import _native_events, align_native_feature
+from trade_rl.data.source import RawMarketSeries
 from trade_rl.integrations.binance.dataset import (
     BinanceGapPolicy,
     BinanceMarketDataSource,
+    _gap_tolerant_series,
     build_binance_market_dataset,
 )
 from trade_rl.integrations.binance.derived_klines import (
@@ -233,19 +237,21 @@ def test_missing_base_bars_are_absent_rows_and_funding_in_them_is_not_accrued() 
     assert int(complete.funding_event_count.sum()) == 3
 
 
-def test_higher_clock_placeholder_is_price_carried_and_unavailable_until_range_end() -> (
+def test_higher_clock_placeholder_is_price_carried_non_tradable_and_unpublished() -> (
     None
 ):
     transport = BaseIntervalAggregatingTransport(HourlyTransport({SYMBOLS[1]: {5}}))
     source = _source(transport, hours=24, policy=BinanceGapPolicy.NON_TRADABLE_ROWS)
-    range_end = np.datetime64((START + timedelta(hours=24)).replace(tzinfo=None), "ns")
 
     four_hour = source.load_timeframe(SYMBOLS[1], "4h")
     clean = source.load_timeframe(SYMBOLS[0], "4h")
 
     assert len(four_hour.timestamps) == 6
-    # Window 1 (hours 4..7) contains the missing hour 5: placeholder slot.
-    assert four_hour.available_at[1] == range_end
+    # Window 1 (hours 4..7) contains the missing hour 5: placeholder slot. It
+    # is never published (not at the requested range end) and not tradable.
+    assert four_hour.available_at[1] == NEVER_AVAILABLE
+    assert four_hour.tradable.tolist() == [True, False, True, True, True, True]
+    assert bool(clean.tradable.all())
     assert four_hour.volume[1] == 0.0
     assert four_hour.open[1] == four_hour.close[1] == four_hour.close[0]
     assert bool(
@@ -339,16 +345,257 @@ def test_built_dataset_marks_gap_rows_non_tradable_and_masks_recursive_features(
     assert not tradable[100:104, 1].any()
     assert result.gap_report["ETHUSDT:1h"]["missing_bars"] == 4
     assert result.gap_report["BTCUSDT:1h"]["missing_bars"] == 0
-    # Recursive 4h features (26-bar EMA/MACD) never recover after the gap, the
-    # complete symbol keeps them; 1h features recover once the window clears.
-    for name in ("4h__ema_slope_26", "4h__macd_line_12_26"):
+    # The 4h window of hours 100..103 (native bar 25) is a placeholder. Native
+    # features restart after it exactly as after a base gap: no 4h value is
+    # available between the gap and the end of the new warm-up, then they
+    # recover; the complete symbol keeps them throughout.
+    for name, warmup in (("4h__ema_slope_26", 26), ("4h__macd_line_12_26", 26)):
         column = names.index(name)
-        assert available[:, 1, column].sum() <= 1
-        assert not available[200:-1, 1, column].any()
-        assert available[200:-1, 0, column].all()
+        # Base row r observes native bar floor((r + 1) / 4) - 1; the new
+        # segment starts at native bar 26, first valid at 26 + warmup - 1.
+        recovered = 4 * (26 + warmup) - 1
+        assert not available[103:recovered, 1, column].any()
+        assert available[recovered:, 1, column].all()
+        assert available[200:, 0, column].all()
     one_hour = names.index("1h__log_return_1bar")
     assert not available[100:105, 1, one_hour].all()
     assert available[300:, 1, one_hour].all()
+
+
+# --- higher-clock placeholder causality ----------------------------------------
+
+FOUR_HOUR_MS = 4 * HOUR_MS
+NEVER_AVAILABLE = np.datetime64(np.iinfo(np.int64).max, "ns")
+_RECURSIVE_KINDS = (
+    (FeatureKind.EMA_DISTANCE, 5),
+    (FeatureKind.EMA_SLOPE, 5),
+    (FeatureKind.RSI, 5),
+    (FeatureKind.ATR_PCT, 5),
+    (FeatureKind.ADX, 5),
+    (FeatureKind.LOG_RETURN, 1),
+    (FeatureKind.REALIZED_VOLATILITY, 5),
+)
+
+
+def _four_hour_rows(n_bars: int, missing: set[int]) -> list[list[Any]]:
+    rng = np.random.default_rng(1)
+    closes = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, n_bars)))
+    rows: list[list[Any]] = []
+    for index in range(n_bars):
+        if index in missing:
+            continue
+        open_ms = _ms(START) + index * FOUR_HOUR_MS
+        close = float(closes[index])
+        rows.append(
+            [open_ms, close, close * 1.01, close * 0.99, close, 1.0]
+            + [open_ms + FOUR_HOUR_MS - 1, 1_000.0]
+        )
+    return rows
+
+
+def _gap_native(n_bars: int, missing: set[int]) -> Any:
+    end_ms = _ms(START) + n_bars * FOUR_HOUR_MS
+    series, _ = _gap_tolerant_series(
+        _four_hour_rows(40, missing),
+        symbol="X",
+        interval_ms=FOUR_HOUR_MS,
+        start_ms=_ms(START),
+        end_ms=end_ms,
+        is_base_clock=False,
+        events=[],
+    )
+    return series
+
+
+def _aligned_4h(
+    n_bars: int, missing: set[int], kind: FeatureKind, lookback: int, stale: float
+) -> tuple[np.ndarray, ...]:
+    native = _gap_native(n_bars, missing)
+    base = (
+        np.datetime64(START.replace(tzinfo=None), "ns")
+        + np.timedelta64(1, "h")
+        + np.arange(n_bars * 4) * np.timedelta64(1, "h")
+    )
+    spec = FeatureSpec(
+        kind.value,
+        kind,
+        lookback=lookback,
+        timeframe="4h",
+        max_staleness_hours=stale,
+    )
+    contract = InstrumentContract("X", listed_at=START - timedelta(days=100))
+    return align_native_feature(
+        spec, native, contract, base, np.ones(len(base), bool), timeframe="4h"
+    )
+
+
+# Legacy ADX skips a segment of exactly 2 * lookback - 1 rows, a separate known
+# prefix defect (strict xfail in tests/data/test_feature_causality_fuzz.py,
+# addressed by a distinct causal ADX kind). It is excluded here only.
+@pytest.mark.parametrize(
+    ("kind", "lookback"),
+    tuple(item for item in _RECURSIVE_KINDS if item[0] is not FeatureKind.ADX),
+)
+@pytest.mark.parametrize("stale", (24.0, 1e6))
+def test_higher_clock_gap_features_do_not_depend_on_requested_range_end(
+    kind: FeatureKind, lookback: int, stale: float
+) -> None:
+    """A missing 4h bar is never published at the (caller-chosen) range end."""
+    short = _aligned_4h(30, {20}, kind, lookback, stale)
+    long = _aligned_4h(40, {20}, kind, lookback, stale)
+    rows = len(short[0])
+    for short_array, long_array in zip(short, long, strict=True):
+        assert np.array_equal(short_array, long_array[:rows])
+
+
+def test_higher_clock_placeholder_is_never_published_or_tradable() -> None:
+    native = _gap_native(30, {20})
+    origin = np.datetime64(START.replace(tzinfo=None), "ns")
+    closes = origin + (np.arange(30) + 1) * np.timedelta64(4, "h")
+
+    assert np.array_equal(native.timestamps, closes)
+    assert native.tradable.tolist() == [index != 20 for index in range(30)]
+    assert native.available_at[20] == NEVER_AVAILABLE
+    present = np.arange(30) != 20
+    assert np.array_equal(native.available_at[present], closes[present])
+
+
+@pytest.mark.parametrize(("kind", "lookback"), _RECURSIVE_KINDS)
+def test_no_native_feature_window_bridges_a_placeholder(
+    kind: FeatureKind, lookback: int
+) -> None:
+    native = _gap_native(40, {20})
+    spec = FeatureSpec(kind.value, kind, lookback=lookback, timeframe="4h")
+    contract = InstrumentContract("X", listed_at=START - timedelta(days=100))
+    values, valid, available_at = _native_events(spec, native, contract)
+
+    events = np.flatnonzero(valid)
+    assert events.size
+    assert 20 not in events
+    # Every published event depends only on present (published) bars ...
+    assert bool((available_at[events] < NEVER_AVAILABLE).all())
+    assert bool((available_at[events] == native.timestamps[events]).all())
+    # ... and the post-gap segment restarts exactly as a fresh series would.
+    after = native.timestamps > native.timestamps[20]
+    fresh = _gap_tolerant_series(
+        _four_hour_rows(40, set(range(21))),
+        symbol="X",
+        interval_ms=FOUR_HOUR_MS,
+        start_ms=_ms(START) + 21 * FOUR_HOUR_MS,
+        end_ms=_ms(START) + 40 * FOUR_HOUR_MS,
+        is_base_clock=False,
+        events=[],
+    )[0]
+    fresh_values, fresh_valid, _ = _native_events(spec, fresh, contract)
+    assert np.array_equal(valid[after], fresh_valid)
+    assert np.array_equal(values[after][fresh_valid], fresh_values[fresh_valid])
+
+
+def test_built_dataset_with_native_gap_is_identical_across_range_ends() -> None:
+    missing = {SYMBOLS[1]: {100, 101, 102, 103}}
+    short = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport(missing)), days=10
+    ).dataset
+    long = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport(missing)), days=14
+    ).dataset
+    rows = short.n_bars
+    assert np.array_equal(short.timestamps, long.timestamps[:rows])
+    for name in (
+        "features",
+        "feature_available",
+        "feature_staleness",
+        "feature_staleness_hours",
+        "tradable",
+    ):
+        assert np.array_equal(
+            np.asarray(getattr(short, name)),
+            np.asarray(getattr(long, name))[:rows],
+        ), name
+
+
+def test_sub_base_native_gap_is_identical_across_range_ends() -> None:
+    """A 1h placeholder under a 4h base clock (incl. cross-asset features)."""
+
+    def build(days: int) -> Any:
+        return build_binance_market_dataset(
+            market="usds-m",
+            symbols=SYMBOLS,
+            interval="4h",
+            start_time=START,
+            end_time=START + timedelta(days=days),
+            transport_mode="vision",
+            transport=BaseIntervalAggregatingTransport(
+                HourlyTransport({SYMBOLS[1]: {101, 230}})
+            ),
+            tick_sizes=(0.01, 0.01),
+            lot_sizes=(0.001, 0.001),
+            minimum_notionals=(5.0, 5.0),
+            listed_ats=(START - timedelta(days=100),) * 2,
+            feature_timeframes=("1h",),
+            gap_policy=BinanceGapPolicy.NON_TRADABLE_ROWS,
+        ).dataset
+
+    short, long = build(10), build(14)
+    rows = short.n_bars
+    assert "1h__rolling_beta_to_btc_24bar" in short.feature_names
+    for name in (
+        "features",
+        "feature_available",
+        "feature_staleness",
+        "feature_staleness_hours",
+    ):
+        assert np.array_equal(
+            np.asarray(getattr(short, name)),
+            np.asarray(getattr(long, name))[:rows],
+        ), name
+
+
+def test_native_event_refuses_a_tradable_never_published_row() -> None:
+    native = _gap_native(30, set())
+    available_at = native.available_at.copy()
+    available_at[3] = NEVER_AVAILABLE
+    forged = RawMarketSeries(
+        timestamps=native.timestamps,
+        available_at=available_at,
+        open=native.open,
+        high=native.high,
+        low=native.low,
+        close=native.close,
+        volume=native.volume,
+        funding_rate=native.funding_rate,
+        funding_available=native.funding_available,
+        funding_event_count=native.funding_event_count,
+        tradable=native.tradable,
+    )
+    spec = FeatureSpec("ema", FeatureKind.EMA_DISTANCE, lookback=5, timeframe="4h")
+    contract = InstrumentContract("X", listed_at=START - timedelta(days=100))
+    with pytest.raises(ValueError, match="never-published"):
+        _native_events(spec, forged, contract)
+
+
+def test_complete_range_dataset_is_identical_under_strict_and_gap_policy() -> None:
+    strict = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport()),
+        days=10,
+        policy=BinanceGapPolicy.STRICT,
+    ).dataset
+    tolerant = _build(
+        BaseIntervalAggregatingTransport(HourlyTransport()),
+        days=10,
+        policy=BinanceGapPolicy.NON_TRADABLE_ROWS,
+    ).dataset
+    for name in (
+        "timestamps",
+        "features",
+        "feature_available",
+        "feature_staleness",
+        "feature_staleness_hours",
+        "tradable",
+    ):
+        assert np.array_equal(
+            np.asarray(getattr(strict, name)), np.asarray(getattr(tolerant, name))
+        ), name
 
 
 # --- aggregation ------------------------------------------------------------

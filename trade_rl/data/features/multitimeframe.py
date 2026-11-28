@@ -17,7 +17,7 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
-from trade_rl.data.source import RawMarketSeries
+from trade_rl.data.source import NEVER_PUBLISHED_AT, RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
 # Bound temporary base-row arrays independently of the history length.
@@ -64,19 +64,18 @@ def _native_events(
         volume=raw.volume,
         funding_rate=raw.funding_rate,
         funding_available=raw.funding_available,
-        row_present=(
-            raw.tradable
-            if spec.requires_complete_native_rows
-            else np.ones(raw.timestamps.shape, dtype=np.bool_)
-        ),
+        # A native row has no separate presence field: ``tradable=False`` is a
+        # placeholder for a missing native bar. Every spec treats it as absent,
+        # exactly like a missing base row, so no window bridges the gap and
+        # warm-up restarts on the next present bar.
+        row_present=raw.tradable,
         active=active,
     )
     assert raw.available_at is not None
-    return (
-        values,
-        valid,
-        _dependency_available_at(raw.available_at, valid, source_start),
-    )
+    available_at = _dependency_available_at(raw.available_at, valid, source_start)
+    if np.any(available_at[valid] == NEVER_PUBLISHED_AT):
+        raise ValueError("native feature event depends on a never-published row")
+    return values, valid, available_at
 
 
 def _dependency_available_at(

@@ -606,15 +606,15 @@ def calculate_feature_events(
             slope=kind is FeatureKind.EMA_SLOPE,
         )
     else:
-        # OBV windows sum the signed volume of their own rows only. A
-        # segment-cumulative OBV difference would depend (at ULP level) on
-        # rows before source_start, i.e. on rows that may still be
-        # unpublished when the window's event is published.
-        signed_volume = np.zeros(n_bars, dtype=np.float64)
+        # Signed OBV flow of each row relative to its predecessor.  OBV kinds
+        # sum these flows over their declared window only, so the value at t
+        # never depends on rows before ``source_start[t]`` (not even at ulp
+        # level, as a segment-wide running total would).
+        obv_flow = np.zeros(n_bars, dtype=np.float64)
         for segment_start, segment_stop in _contiguous_segments(usable):
             for index in range(segment_start + 1, segment_stop):
                 direction = float(np.sign(close[index] - close[index - 1]))
-                signed_volume[index] = direction * volume[index]
+                obv_flow[index] = direction * volume[index]
         for index in range(n_bars):
             if not usable[index]:
                 continue
@@ -847,13 +847,22 @@ def calculate_feature_events(
                     if denominator <= _EPSILON:
                         values[index] = 0.0
                     elif kind is FeatureKind.OBV_CHANGE:
-                        change = portable_sum(signed_volume[start + 1 : index + 1])
+                        change = float(portable_sum(obv_flow[start + 1 : index + 1]))
                         values[index] = float(np.clip(change / denominator, -1.0, 1.0))
                     else:
-                        recent = portable_sum(signed_volume[middle + 1 : index + 1])
-                        previous = portable_sum(signed_volume[start + 1 : middle + 1])
+                        # (recent - previous) as one correctly rounded sum.
+                        acceleration = float(
+                            portable_sum(
+                                np.concatenate(
+                                    (
+                                        obv_flow[middle + 1 : index + 1],
+                                        -obv_flow[start + 1 : middle + 1],
+                                    )
+                                )
+                            )
+                        )
                         values[index] = float(
-                            np.clip((recent - previous) / denominator, -1.0, 1.0)
+                            np.clip(acceleration / denominator, -1.0, 1.0)
                         )
                     valid[index] = True
                     source_start[index] = start
@@ -955,7 +964,7 @@ def calculate_feature_events(
                         if denominator <= _EPSILON
                         else float(
                             np.clip(
-                                portable_sum(signed_volume[start + 1 : index + 1])
+                                portable_sum(obv_flow[start + 1 : index + 1])
                                 / denominator,
                                 -1.0,
                                 1.0,

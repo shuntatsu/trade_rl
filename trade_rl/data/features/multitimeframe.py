@@ -22,6 +22,9 @@ from trade_rl.data.source import RawMarketSeries
 _NS_PER_HOUR = 3_600_000_000_000
 # Bound temporary base-row arrays independently of the history length.
 _ALIGNMENT_BATCH_ROWS = 8192
+_AlignedFeatureColumns = tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None
+]
 
 
 def _utc_datetime64(value: datetime) -> np.datetime64:
@@ -131,9 +134,30 @@ def align_native_feature(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Calculate on the native clock and causally align to the base clock."""
 
+    values, available, ages, staleness, _ = _align_native_feature_events(
+        spec, raw, contract, base_timestamps, base_active, timeframe=timeframe
+    )
+    return values, available, ages, staleness
+
+
+def _align_native_feature_events(
+    spec: FeatureSpec,
+    raw: RawMarketSeries,
+    contract: InstrumentContract,
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+    *,
+    timeframe: str,
+    include_event_indices: bool = False,
+) -> _AlignedFeatureColumns:
     _validate_regular_native_series(raw, timeframe)
-    return _align_events(
-        spec, raw, _native_events(spec, raw, contract), base_timestamps, base_active
+    return _align_published_events(
+        spec.max_staleness_hours,
+        raw.timestamps,
+        _native_events(spec, raw, contract),
+        base_timestamps,
+        base_active,
+        include_event_indices=include_event_indices,
     )
 
 
@@ -251,9 +275,10 @@ def _align_event_values(
     base_timestamps: np.ndarray,
     base_active: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    return _align_published_events(
+    values, available, ages, staleness, _ = _align_published_events(
         max_staleness_hours, raw.timestamps, events, base_timestamps, base_active
     )
+    return values, available, ages, staleness
 
 
 def _align_published_events(
@@ -262,7 +287,9 @@ def _align_published_events(
     events: tuple[np.ndarray, np.ndarray, np.ndarray],
     base_timestamps: np.ndarray,
     base_active: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    *,
+    include_event_indices: bool = False,
+) -> _AlignedFeatureColumns:
     """As-of align events by publication time; age is measured from event close.
 
     ``event_timestamps`` must be strictly increasing event close times. The
@@ -275,10 +302,16 @@ def _align_published_events(
     available = np.zeros(len(base_timestamps), dtype=np.bool_)
     age_hours = np.full(len(base_timestamps), max_staleness_hours, dtype=np.float64)
     staleness = np.ones(len(base_timestamps), dtype=np.float64)
+    # Only the private cross-asset return channel needs the exact identity.
+    event_indices = (
+        np.full(len(base_timestamps), -1, dtype=np.int64)
+        if include_event_indices
+        else None
+    )
 
     valid_indices = np.flatnonzero(event_valid)
     if valid_indices.size == 0:
-        return values, available, age_hours, staleness
+        return values, available, age_hours, staleness, event_indices
 
     event_time_ns = event_timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
     availability_ns = event_available_at.astype("datetime64[ns]", copy=False).view(
@@ -328,8 +361,10 @@ def _align_published_events(
         fresh = age <= max_staleness_hours + 1e-12
         values[rows[fresh]] = event_values[selected[fresh]]
         available[rows[fresh]] = True
+        if event_indices is not None:
+            event_indices[rows[fresh]] = selected[fresh]
 
-    return values, available, age_hours, staleness
+    return values, available, age_hours, staleness, event_indices
 
 
 __all__ = ["align_clocked_native_feature", "align_native_feature"]

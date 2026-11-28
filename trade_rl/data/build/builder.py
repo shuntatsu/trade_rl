@@ -24,9 +24,10 @@ from trade_rl.data.features.cross_asset import (
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
 from trade_rl.data.features.multitimeframe import (
+    _AlignedFeatureColumns,
+    _align_native_feature_events,
     _align_published_events,
     _dependency_available_at,
-    align_native_feature,
 )
 from trade_rl.data.features.numerics import (
     portable_log,
@@ -325,8 +326,12 @@ class MarketDatasetBuilder:
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
 
         def feature_column(
-            spec: FeatureSpec, symbol_index: int, contract: InstrumentContract
-        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+            spec: FeatureSpec,
+            symbol_index: int,
+            contract: InstrumentContract,
+            *,
+            include_event_indices: bool = False,
+        ) -> _AlignedFeatureColumns:
             native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
             if native_timeframe == self.config.base_timeframe:
                 # Events are computed on every physically present row, then
@@ -360,6 +365,7 @@ class MarketDatasetBuilder:
                     (event_values, event_valid, event_available_at),
                     timestamps,
                     symbol_active[:, symbol_index],
+                    include_event_indices=include_event_indices,
                 )
             if not isinstance(source, MultiTimeframeMarketDataSource):
                 raise ValueError(
@@ -371,20 +377,21 @@ class MarketDatasetBuilder:
             if native is None:
                 native = source.load_timeframe(contract.symbol, native_timeframe)
                 native_cache[key] = native
-            return align_native_feature(
+            return _align_native_feature_events(
                 spec,
                 native,
                 contract,
                 timestamps,
                 symbol_active[:, symbol_index],
                 timeframe=native_timeframe,
+                include_event_indices=include_event_indices,
             )
 
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
                     continue
-                values, available, age_hours, staleness = feature_column(
+                values, available, age_hours, staleness, _ = feature_column(
                     spec, symbol_index, contract
                 )
                 features[:, symbol_index, feature_index] = values
@@ -403,11 +410,11 @@ class MarketDatasetBuilder:
         # decision row it holds the latest return whose source rows were all
         # published by that row; it is available only while that return's age
         # (hours since its close) is within the cross-asset spec's
-        # max_staleness_hours, and cross-asset statistics consume it only as
-        # a new event (see cross_asset._new_event_mask). It is never added to
-        # the public feature columns.
+        # max_staleness_hours. Exact selected native row indices distinguish
+        # newly published events from carried values even at equal ages.
+        # Neither the return channel nor its indices are public feature columns.
         return_channels: dict[
-            tuple[str, float], tuple[np.ndarray, np.ndarray, np.ndarray]
+            tuple[str, float], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         ] = {}
         for feature_index, spec in enumerate(self.config.features):
             if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
@@ -442,16 +449,28 @@ class MarketDatasetBuilder:
                 aligned_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
                 aligned_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
                 aligned_ages = np.zeros((n_bars, n_symbols), dtype=np.float64)
+                aligned_indices = np.full((n_bars, n_symbols), -1, dtype=np.int64)
                 for symbol_index, contract in enumerate(instruments):
-                    values, available, age_hours, _ = feature_column(
-                        channel_spec, symbol_index, contract
+                    values, available, age_hours, _, indices = feature_column(
+                        channel_spec,
+                        symbol_index,
+                        contract,
+                        include_event_indices=True,
                     )
+                    if indices is None:
+                        raise RuntimeError("private return channel lacks event indices")
                     aligned_returns[:, symbol_index] = values
                     aligned_available[:, symbol_index] = available
                     aligned_ages[:, symbol_index] = age_hours
-                channel = (aligned_returns, aligned_available, aligned_ages)
+                    aligned_indices[:, symbol_index] = indices
+                channel = (
+                    aligned_returns,
+                    aligned_available,
+                    aligned_ages,
+                    aligned_indices,
+                )
                 return_channels[channel_key] = channel
-            aligned_returns, aligned_available, aligned_ages = channel
+            aligned_returns, aligned_available, aligned_ages, aligned_indices = channel
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=aligned_returns,
@@ -459,6 +478,7 @@ class MarketDatasetBuilder:
                 return_age_hours=aligned_ages,
                 symbols=symbols,
                 reference_symbol=reference_symbol,
+                return_event_indices=aligned_indices,
             )
             for symbol_index in range(n_symbols):
                 values, available, age_hours, staleness = _carry_aged_feature(

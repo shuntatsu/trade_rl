@@ -104,13 +104,27 @@ def observe_registry_snapshot(
     expected_repository: str,
     ref_name: str,
     registry_path: str,
+    expected_repository_identity: tuple[int, str] | None = None,
 ) -> RegistryRefSnapshot:
-    """GET only; fail closed on changed or unavailable repository/ref/payload."""
+    """GET only; fail closed on changed or unavailable repository/ref/payload.
+
+    A caller with an earlier observation can pin its exact numeric/node ID pair;
+    both repository reads must then agree with that identity.
+    """
 
     if type(expected_repository) is not str or not _REPO_RE.fullmatch(
         expected_repository
     ):
         raise ValueError("expected repository must be owner/name")
+    if expected_repository_identity is not None and (
+        type(expected_repository_identity) is not tuple
+        or len(expected_repository_identity) != 2
+        or type(expected_repository_identity[0]) is not int
+        or expected_repository_identity[0] < 1
+        or type(expected_repository_identity[1]) is not str
+        or not expected_repository_identity[1].strip()
+    ):
+        raise ValueError("expected repository identity must be native ID and node ID")
     ref_name = validate_coordination_ref(ref_name)
     reader = GitHubRegistryObjectReader(
         api,
@@ -119,6 +133,11 @@ def observe_registry_snapshot(
     )
 
     initial_repository = _repository_state(api, expected_repository)
+    if (
+        expected_repository_identity is not None
+        and initial_repository != expected_repository_identity
+    ):
+        raise ValueError("repository identity changed before snapshot")
     initial_oid = _ref_state(api, ref_name)
     raw = reader.read_registry_bytes(expected_repository, initial_oid)
     registry = parse_registry_bytes(raw)

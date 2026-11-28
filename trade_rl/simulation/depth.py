@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 
-from trade_rl._validation import require_aware_datetime
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.quantities import exact_quantity, project_quantity
 
@@ -86,6 +85,29 @@ def _validate_depth(bids: Levels, asks: Levels) -> None:
         raise ValueError("depth must not be crossed or locked")
 
 
+def _execution_utc(value: datetime, *, field: str) -> datetime:
+    """Capture one offset and return a native, immutable UTC instant."""
+    if type(value) is not datetime:
+        raise ValueError(f"{field} must be a native timezone-aware datetime")
+    try:
+        offset = value.utcoffset()
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must have a valid UTC offset") from error
+    if offset is None:
+        raise ValueError(f"{field} must be timezone-aware")
+    if type(offset) is not timedelta:
+        raise ValueError(f"{field} UTC offset must be a native timedelta")
+    # Do not call astimezone after checking awareness: that would sample a
+    # caller-owned tzinfo a second time, possibly changing the admitted instant.
+    try:
+        wall = value.replace(tzinfo=None, fold=0)
+        return (wall - offset).replace(tzinfo=UTC, fold=0)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(
+            "paper execution timestamps must be representable in UTC"
+        ) from error
+
+
 def execute_depth_order(
     *,
     book: BookState,
@@ -103,17 +125,18 @@ def execute_depth_order(
 ) -> DepthFill:
     """Match signed lots against later recorded depth, preserving unfilled lots.
 
+    Native aware datetimes are captured as UTC instants using one native offset
+    sample each; ordering and age never re-read caller-owned timezone state.
     Notional admission uses the adverse-adjusted best quote. A maximum-notional
     guard also checks the resulting fill. Venue average-price filters and account
     restrictions are outside this paper primitive. Marks come from the book;
     fill prices never replace them or create transient valuation peaks.
     """
-    for name, timestamp in (
-        ("decision_at", decision_at),
-        ("quote_at", quote_at),
-        ("execution_at", execution_at),
-    ):
-        require_aware_datetime(timestamp, field=name)
+    # Freeze each supplied instant once before comparing it or touching the book.
+    # Equal tzinfo instances can otherwise compare by wall time across a fold.
+    decision_at = _execution_utc(decision_at, field="decision_at")
+    quote_at = _execution_utc(quote_at, field="quote_at")
+    execution_at = _execution_utc(execution_at, field="execution_at")
     if not decision_at < quote_at <= execution_at:
         raise ValueError("decision must precede quote receipt and execution")
     if (execution_at - quote_at).total_seconds() > 5 or (

@@ -475,3 +475,87 @@ def test_graphql_actor_cannot_self_declare_worker_as_coordinator() -> None:
         run(graphql, rest, objects)
     assert graphql.mutations == 0
     assert not objects.calls
+
+
+def test_repository_replacement_at_cas_preflight_never_mutates() -> None:
+    class RepositorySwitch(GraphQL):
+        def __init__(self) -> None:
+            super().__init__()
+            self.read_count = 0
+            self.mutation_targets: list[str] = []
+
+        def execute(self, document, variables):
+            if "mutation UpdateCoordinationRef" in document:
+                self.mutation_targets.append(variables["input"]["repositoryId"])
+            else:
+                self.read_count += 1
+                if self.read_count == 2:
+                    # Same name/ref/OID, different immutable repository.
+                    self.repository_id = "R_replacement"
+            return super().execute(document, variables)
+
+    _, rest, objects = fixture()
+    switched = RepositorySwitch()
+    rest.graphql = switched
+    with pytest.raises(ValueError, match="repository identity"):
+        run(switched, rest, objects)
+    assert switched.read_count == 2
+    assert switched.mutation_targets == []
+    assert switched.mutations == 0
+    assert switched.oid == BEFORE
+
+
+@pytest.mark.parametrize(
+    ("suffix", "reads", "replacement"),
+    [
+        ("", range(2, 6), {"id": 124, "node_id": "R_replacement"}),
+        ("", range(3, 5), {"id": 124}),
+        (f"issues/{ISSUE}", range(2, 4), {"updated_at": "transient-edit"}),
+    ],
+)
+def test_observed_source_switch_inside_audit_never_mutates(
+    monkeypatch: pytest.MonkeyPatch,
+    suffix: str,
+    reads: range,
+    replacement: dict[str, Any],
+) -> None:
+    graphql, rest, objects = fixture()
+    original = rest._request_json
+
+    def read(method: str, path: str, *, query: dict[str, str] | None = None) -> object:
+        data = original(method, path, query=query)
+        if path == suffix and rest.counts[path] in reads:
+            assert isinstance(data, dict)
+            data.update(replacement)
+        return data
+
+    monkeypatch.setattr(rest, "_request_json", read)
+    with pytest.raises(ValueError, match="changed"):
+        run(graphql, rest, objects)
+    assert graphql.mutations == 0
+    assert graphql.oid == BEFORE
+
+
+@pytest.mark.parametrize(
+    "replacement", [{"id": 124, "node_id": "R_replacement"}, {"id": 124}]
+)
+def test_observed_repository_switch_inside_post_cas_snapshot_is_not_success(
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: dict[str, Any],
+) -> None:
+    graphql, rest, objects = fixture()
+    original = rest._request_json
+
+    def read(method: str, path: str, *, query: dict[str, str] | None = None) -> object:
+        data = original(method, path, query=query)
+        if path == "" and rest.counts[path] in (8, 9):
+            assert isinstance(data, dict)
+            data.update(replacement)
+        return data
+
+    monkeypatch.setattr(rest, "_request_json", read)
+    with pytest.raises(ValueError, match="repository"):
+        run(graphql, rest, objects)
+    assert graphql.mutations == 1
+    assert graphql.oid == AFTER
+    assert graphql.calls.count("mutation") == 1

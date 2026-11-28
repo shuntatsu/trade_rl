@@ -305,15 +305,25 @@ class GitHubGitObjectHttpApi:
         query: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if (
-            method != "GET"
-            or not isinstance(suffix, str)
+            type(method) is not str
+            or method != "GET"
+            or type(suffix) is not str
             or not _GIT_READ_SUFFIX.fullmatch(suffix)
         ):
             raise ValueError("REST reader permits only GET exact commit/tree/blob OIDs")
         is_tree = suffix.startswith("git/trees/")
-        if (is_tree and query != {"recursive": "1"}) or (
-            not is_tree and query is not None
-        ):
+        if is_tree:
+            valid_query = (
+                type(query) is dict
+                and all(
+                    type(key) is str and type(value) is str
+                    for key, value in query.items()
+                )
+                and query == {"recursive": "1"}
+            )
+        else:
+            valid_query = query is None
+        if not valid_query:
             raise ValueError("REST reader requires exact recursive-tree query only")
         return self._get_json(suffix, is_tree=is_tree)
 
@@ -369,10 +379,11 @@ class GitHubEnrollmentReadHttpApi(GitHubGitObjectHttpApi):
     def _request_json(
         self, method: str, suffix: str, *, query: dict[str, str] | None = None
     ) -> dict[str, Any]:
-        if isinstance(suffix, str) and _GIT_READ_SUFFIX.fullmatch(suffix):
+        if type(suffix) is str and _GIT_READ_SUFFIX.fullmatch(suffix):
             return super()._request_json(method, suffix, query=query)
         if (
-            method != "GET"
+            type(method) is not str
+            or method != "GET"
             or type(suffix) is not str
             or query is not None
             or ".." in suffix

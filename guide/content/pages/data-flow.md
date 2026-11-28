@@ -76,6 +76,8 @@ native sourceの時点整列では、判断時点までに公開されたevent�
 
 MACDは明示設定でfast・slow・signalの期間を、ストキャスティクス%Dは%Kのlookbackと平滑化期間を足の本数で指定できます。明示%Dの通常の有限正値float32/float64価格配列では、各窓の最大・最小を共有する単調dequeで求め、長い%K窓の繰り返し走査を省きます。%Dの平均は従来の固定順序の計算を維持します。MACD・ATR・ADX・方向性指標・EMAの作業配列も連続区間内に限定します。欠損時のwarm-up、公開時刻、従来の設定・数値・保存identityは変えません。長い%D平滑化窓の計算量や全プロセスのメモリ上限を保証する改善ではありません。
 
+新しいADXは `adx_causal_v1` を明示して使用します。期間pの場合、連続した利用可能な足が2p−1本に達した時点で最初の値を確定し、次の足を待ちません。欠損・取引不可でwarm-upをやり直し、依存する全行の公開時刻を確認します。旧 `adx` は過去のDatasetを再現する互換用で、初回有効化に追加1本を要求する既知の制約を残します。計算方法の変更を別kindのidentityで区別し、既定rosterや保存済みデータは置き換えません。
+
 1時間足を基準に15分足などのcross-asset特徴量だけを選ぶ場合、不要なlog-return公開列は要求しません。内部では既存のnative raw sourceから1-bar returnを計算し、native clockの連続性、銘柄の有効期間、sourceの`available_at`をすべて確認したうえで基準足へ対応付けます。遅延して未利用のデータを過去の値として使ったり、基準足の価格でnative値を合成したりしません。基準足とそれ以上のnative timeframeでは、従来の明示1-bar source条件を維持します。
 
 また、fit対象銘柄をDataset全体より狭める場合は、training rowだけでなく**selected featureが参照する銘柄範囲**もfit scope内へ閉じます。cross-sectional rankやdispersionのように全銘柄universeへ依存するfeatureはholdout銘柄を間接的に見てしまうためsubset fitでは使いません。BTC等のreference-relative featureは、そのreference銘柄がfit scopeに含まれる場合だけ許可します。

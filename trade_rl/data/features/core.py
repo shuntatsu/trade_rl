@@ -324,7 +324,11 @@ def _adx(
     source_start = np.full(len(close), -1, dtype=np.int64)
     for start, stop in _contiguous_segments(usable):
         size = stop - start
-        if size < 2 * period:
+        # DI starts at offset period - 1 and the ADX seed averages the first
+        # period DX values, so the first ADX row is offset 2 * period - 2 and
+        # needs exactly 2 * period - 1 rows. Requiring one more row made this
+        # row's availability depend on a later row existing (#1567 fuzz).
+        if size < 2 * period - 1:
             continue
         atr, plus_avg, minus_avg = _directional_wilder(
             high[start:stop], low[start:stop], close[start:stop], period

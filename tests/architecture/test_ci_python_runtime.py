@@ -76,9 +76,9 @@ def test_full_core_shards_preserve_test_coverage_and_skip_reasons() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     shards = source.split("  core-tests:\n", 1)[1].split("\n  core:\n", 1)[0]
     assert "fetch-depth: 0" in shards
-    assert "ref: ${{ github.event.pull_request.head.sha }}" in shards
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in shards
     assert "run: uv sync --locked --extra dev" in shards
-    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in shards
+    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in shards
     assert "SHARD_INDEX: ${{ matrix.shard }}" in shards
     assert "path: ${{ runner.temp }}/core-shard.json" in shards
     assert "fail-fast: false" in shards
@@ -117,7 +117,7 @@ def test_lean_core_is_a_fail_closed_aggregate_of_the_exact_attempt() -> None:
         in core
     )
     assert "path: ${{ runner.temp }}/core-shards" in core
-    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in core
+    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in core
     assert "merge-multiple: false" in core
     assert "uv run --no-sync python -m tools.ci_test_shard" in core
     assert '--directory "$RUNNER_TEMP/core-shards" --count 8 --head "$HEAD_SHA"' in core
@@ -126,3 +126,49 @@ def test_lean_core_is_a_fail_closed_aggregate_of_the_exact_attempt() -> None:
         < core.index("Verify complete Core test collection")
         < core.index("- name: Build")
     )
+
+
+def test_main_push_reuses_all_exact_head_software_lanes() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    main_push = "(github.event_name == 'push' && github.ref == 'refs/heads/main')"
+    pr = (
+        "((github.event_name == 'pull_request' || "
+        "github.event_name == 'pull_request_review') && "
+        "github.event.pull_request.base.ref == 'main')"
+    )
+    predicate = f"({main_push} || {pr})"
+    for job in ("core-tests", "core", "ppo-runtime", "guide", "market-store"):
+        section = source.split(f"  {job}:\n", 1)[1]
+        section = re.split(r"^  [a-z][a-z-]*:\n", section, maxsplit=1, flags=re.M)[0]
+        expected = ("always() && " if job == "core" else "") + predicate
+        assert f"    if: {expected}\n" in section
+        assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in section
+    # Main pushes need software verification, not a fabricated PR review.
+    review = source.split("  independent-review:\n", 1)[1]
+    condition = review.split("    if: >-\n", 1)[1].split("    runs-on:", 1)[0]
+    assert "github.event_name == 'push'" not in condition
+    assert "github.event_name == 'pull_request'" in condition
+    assert "github.event_name == 'pull_request_review'" in condition
+
+
+def test_main_integrated_software_gate_refuses_skipped_or_incomplete_lanes() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    assert "  main-integrated-software-verification:\n" in source
+    section = source.split("  main-integrated-software-verification:\n", 1)[1]
+    section = re.split(r"^  [a-z][a-z-]*:\n", section, maxsplit=1, flags=re.M)[0]
+    assert "name: Main Integrated Software Verification" in section
+    assert "needs: [fast, core, ppo-runtime, guide, market-store]" in section
+    assert (
+        "if: always() && github.event_name == 'push' "
+        "&& github.ref == 'refs/heads/main'\n"
+    ) in section
+    assert "continue-on-error" not in section
+    for var, job in (
+        ("FAST_RESULT", "fast"),
+        ("CORE_RESULT", "core"),
+        ("PPO_RESULT", "ppo-runtime"),
+        ("GUIDE_RESULT", "guide"),
+        ("MARKET_STORE_RESULT", "market-store"),
+    ):
+        assert f"{var}: " + chr(36) + "{{ needs." + job + ".result }}" in section
+        assert 'test "' + chr(36) + var + '" = "success"' in section

@@ -614,3 +614,55 @@ class _ForeignResponse(FakeGet):
 def test_observation_refuses_foreign_json_containers(location: str) -> None:
     with pytest.raises(ValueError, match="native JSON|artifact pagination"):
         _observe(_ForeignResponse(location))
+
+
+@pytest.mark.parametrize(
+    ("expected", "alias"),
+    [
+        ("shuntatsu/trade_rl", "\u017fhuntatsu/trade_rl"),
+        ("owner/k", "owner/\u212a"),
+        ("owner/ffi", "owner/\ufb03"),
+    ],
+)
+@pytest.mark.parametrize("at_readback", [False, True])
+def test_artifact_repo_rejects_unicode_casefold_alias_at_both_reads(
+    expected: str, alias: str, at_readback: bool
+) -> None:
+    api = FakeGet()
+    if at_readback:
+        api.repo["full_name"] = expected
+        api.next_repo = {**api.repo, "full_name": alias}
+    else:
+        api.repo["full_name"] = alias
+
+    with pytest.raises(ValueError, match="repository identity differs"):
+        observe_workflow_artifacts(api, expected_repository=expected, run_id=RUN)
+
+    # Initial refusal must precede all run/artifact reads. Drift refusal
+    # happens only at the final repository readback.
+    assert api.repo_reads == (2 if at_readback else 1)
+    assert api.run_reads == (2 if at_readback else 0)
+    assert api.scans == (2 if at_readback else 0)
+
+
+@pytest.mark.parametrize(
+    ("expected", "observed"),
+    [
+        ("shuntatsu/trade_rl", "SHUNTATSU/TRADE_RL"),
+        ("owner/k", "Owner/K"),
+        ("owner/ffi", "OWNER/FFI"),
+    ],
+)
+def test_artifact_repo_preserves_ascii_case_insensitive_identity(
+    expected: str, observed: str
+) -> None:
+    api = FakeGet()
+    api.repo["full_name"] = observed
+    report = observe_workflow_artifacts(
+        api, expected_repository=expected, run_id=RUN
+    )
+    assert report["repository_id"] == REPO_ID
+    assert report["artifact_count"] == 2
+    assert report["artifact_history_complete"] is False
+    assert report["cleanup_authorized"] is False
+    assert api.repo_reads == 2

@@ -95,6 +95,7 @@ trade_rl/
 │   ├── __init__.py
 │   ├── accounting.py
 │   ├── bar_path.py
+│   ├── capacity_reference.py
 │   ├── depth.py
 │   ├── depth_calibration.py
 │   ├── diagnostics/
@@ -500,6 +501,10 @@ after-cost accounting ownerが供給する。objective subpackageはsimulation r
 
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
+`capacity_reference.py` owns the private, per-symbol capacity reference shared by
+stateful fills and terminal dust valuation. In causal mode it admits only the
+immediately preceding observed bar; a missing or unpublished reference yields
+zero capacity. It reads Dataset inputs without mutating book or order state.
 `liquidity.py` takes an explicit exact initial position for reduce-only requests
 and advances it in allocation priority order for all accepted fills. It owns no
 BookState mutation. `stateful/symbol_fills.py` supplies and rechecks inventory

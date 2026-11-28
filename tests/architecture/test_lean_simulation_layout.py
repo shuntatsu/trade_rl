@@ -12,6 +12,7 @@ EXPECTED_ROOT_FILES = {
     "__init__.py",
     "accounting.py",
     "bar_path.py",
+    "capacity_reference.py",
     "execution.py",
     "liquidity.py",
     "native_transition.py",
@@ -139,12 +140,13 @@ def test_liquidity_inventory_guard_does_not_own_book_or_venue_state() -> None:
         "trade_rl.simulation.orders",
         "trade_rl.integrations",
     )
-    imports = _imported_modules(SIMULATION / "liquidity.py")
-    assert not any(
-        name == prefix or name.startswith(prefix + ".")
-        for name in imports
-        for prefix in forbidden
-    )
+    for filename in ("capacity_reference.py", "liquidity.py"):
+        imports = _imported_modules(SIMULATION / filename)
+        assert not any(
+            name == prefix or name.startswith(prefix + ".")
+            for name in imports
+            for prefix in forbidden
+        )
 
 
 def test_simulation_tree_has_no_retired_private_imports_or_upward_dependencies() -> (

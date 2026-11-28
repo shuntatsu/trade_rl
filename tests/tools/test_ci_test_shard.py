@@ -26,7 +26,7 @@ def _reports(root: Path, items: list[str], count: int = 4) -> list[Path]:
         path.write_text(
             json.dumps(
                 {
-                    "schema": "ci_test_shard_v1",
+                    "schema": "ci_test_shard_v2",
                     "head": HEAD,
                     "index": index,
                     "count": count,
@@ -35,6 +35,16 @@ def _reports(root: Path, items: list[str], count: int = 4) -> list[Path]:
                     "completed": sorted(
                         item for item in items if shard_index(item, count) == index
                     ),
+                    "phase_reports": {
+                        item: [
+                            ["setup", "passed", None],
+                            ["call", "passed", None],
+                            ["teardown", "passed", None],
+                        ]
+                        for item in items
+                        if shard_index(item, count) == index
+                    },
+                    "collection_skips": [],
                 }
             )
         )

@@ -46,6 +46,7 @@ def _issue_identity(value: Any, repository: str) -> tuple[int, int, str, str, in
     repository_url = issue.get("repository_url")
     if (
         type(repository_url) is not str
+        or not repository_url.isascii()
         or repository_url.casefold()
         != f"https://api.github.com/repos/{repository}".casefold()
     ):

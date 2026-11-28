@@ -90,7 +90,7 @@ jobs:
             tests/tools/test_markdown_links.py
 
       - name: CI shard contract smoke
-        run: uv run pytest -q tests/tools/test_ci_test_shard.py tests/architecture/test_ci_python_runtime.py tests/architecture/test_ci_review_concurrency.py
+        run: uv run pytest -q tests/tools/test_ci_test_shard.py tests/tools/test_ci_test_shard_outcomes.py tests/architecture/test_ci_python_runtime.py tests/architecture/test_ci_review_concurrency.py
 
       - name: Prospective write-once evidence smoke
         run: uv run pytest -q tests/tools/test_prospective_evidence_publication.py

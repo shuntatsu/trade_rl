@@ -7,12 +7,15 @@ import math
 import numpy as np
 
 from trade_rl.data.contracts import (
+    ICHIMOKU_LEGACY_CHIKOU_LAG,
     FeatureKind,
     FeatureSpec,
     MACDPeriods,
     NormalizationMode,
 )
 from trade_rl.data.features.indicators._ichimoku_windows import (
+    _chikou_value,
+    _cloud_value,
     _configured_ichimoku_events,
     _rolling_extrema,
 )
@@ -947,18 +950,28 @@ def calculate_feature_events(
                     )
                     valid[index] = True
                     source_start[index] = start
+            elif kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE:
+                # Causal lagging-span comparison with the close 26 rows ago;
+                # the whole window [t - 26, t] must be usable (no bridging).
+                start = index - ICHIMOKU_LEGACY_CHIKOU_LAG
+                if _window_is_valid(usable, start, index + 1):
+                    values[index] = _chikou_value(
+                        float(close[index]), float(close[start])
+                    )
+                    valid[index] = True
+                    source_start[index] = start
             elif kind in {
                 FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
                 FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
                 FeatureKind.ICHIMOKU_CLOUD_POSITION,
                 FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+                FeatureKind.ICHIMOKU_CLOUD_EDGE_DISTANCE,
+                FeatureKind.ICHIMOKU_CLOUD_TWIST,
             }:
                 required = {
                     FeatureKind.ICHIMOKU_TENKAN_DISTANCE: _ICHIMOKU_TENKAN,
                     FeatureKind.ICHIMOKU_KIJUN_DISTANCE: _ICHIMOKU_KIJUN,
-                    FeatureKind.ICHIMOKU_CLOUD_POSITION: _ICHIMOKU_SENKOU_B,
-                    FeatureKind.ICHIMOKU_CLOUD_THICKNESS: _ICHIMOKU_SENKOU_B,
-                }[kind]
+                }.get(kind, _ICHIMOKU_SENKOU_B)
                 start = index - required + 1
                 if not _window_is_valid(usable, start, index + 1):
                     continue
@@ -982,8 +995,12 @@ def calculate_feature_events(
                             values[index] = (
                                 close[index] - 0.5 * (span_a + span_b)
                             ) / close[index]
-                        else:
+                        elif kind is FeatureKind.ICHIMOKU_CLOUD_THICKNESS:
                             values[index] = abs(span_a - span_b) / close[index]
+                        else:
+                            values[index] = _cloud_value(
+                                kind, span_a, span_b, float(close[index])
+                            )
                 valid[index] = True
                 source_start[index] = start
             else:

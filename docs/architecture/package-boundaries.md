@@ -1272,7 +1272,31 @@ profile. Its complete JSON object has `schema_version: ichimoku_periods_v1`,
 All periods are positive native integers; displacement is nonnegative.
 Use `lookback=1` and zero displacement for unshifted features. A positive
 displacement requires `FeatureAlignment.VISIBLE_DISPLACED_CLOUD` and a
-cloud-position or cloud-thickness kind. The profile participates in the
+cloud kind (position, thickness, edge distance, twist) or the chikou distance.
+With A = (tenkan + kijun) / 2, B = span B midpoint, top = max(A, B), bottom =
+min(A, B) and the visible close c: `ICHIMOKU_CLOUD_POSITION` is the distance to
+the cloud midpoint, `ICHIMOKU_CLOUD_THICKNESS` is |A - B| / c,
+`ICHIMOKU_CLOUD_EDGE_DISTANCE` is (c - top) / c above the cloud, (c - bottom) / c
+below it and exactly 0.0 inside, edges included, and `ICHIMOKU_CLOUD_TWIST` is
+(A - B) / c, whose sign is the cloud colour. `ICHIMOKU_CHIKOU_DISTANCE` is the
+causal lagging-span comparison (c[t] - c[t - lag]) / c[t]: with explicit periods
+lag = displacement, which must be positive, so it also requires
+`VISIBLE_DISPLACED_CLOUD`; tenkan/kijun/span B do not affect its value and only
+remain provenance. Its dependency window is the complete usable range
+[t - lag, t], never bridged, and its publication binds that full window. The
+implicit (no-profile) chikou uses the fixed lag 26 and requires `lookback=26`
+and no visible alignment; the implicit edge distance and twist use the fixed
+unshifted 9/26/52 spans and require `lookback=52`. Any other lookback is
+refused instead of ignored, unlike the four legacy Ichimoku kinds. A
+non-positive or non-finite close or span is refused, so a NaN close is never
+published as "inside the cloud".
+Displacement convention: visible row t uses the spans calculated at source row
+t - displacement, which matches platforms shifting by the full displacement
+(MT4-style). TradingView's built-in Ichimoku plots the spans with offset
+displacement - 1 and its lagging span at -(displacement - 1), so the
+TradingView-equivalent profile is `IchimokuPeriods(9, 26, 52, displacement=25)`
+with chikou lag 25. No default changes; pick the displacement that matches the
+chart being compared. The profile participates in the
 feature configuration/content digest only when explicitly selected. Tenkan
 and kijun distances use only their corresponding period; the full profile
 is retained as configuration provenance. The shared rolling midpoint

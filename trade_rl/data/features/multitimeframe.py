@@ -156,7 +156,7 @@ def align_clocked_native_feature(
     the clock must be bound externally before persisting or using a feature.
     This is not provider finality, cross-asset or funding-event admission.
     """
-    if not isinstance(clock, NativeBarClock):
+    if type(clock) is not NativeBarClock:
         raise ValueError("clock must be a NativeBarClock")
     if spec.timeframe is not None:
         raise ValueError("explicit clock requires no legacy feature timeframe")

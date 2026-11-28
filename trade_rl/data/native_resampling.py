@@ -44,6 +44,11 @@ def resample_complete_native_bars(
     This validates timing and numerical consistency, not venue finality.
     Coarse OHLCV does not imply a finer execution path or authorize replay.
     """
+    if (
+        type(source_clock) is not NativeBarClock
+        or type(target_clock) is not NativeBarClock
+    ):
+        raise ValueError("source and target clocks must be NativeBarClock values")
     source_starts, source_ends = source_clock.interval_bounds(source_closes)
     target_starts, target_ends = target_clock.interval_bounds(target_closes)
     available = _datetime64_values_to_ns_exact(

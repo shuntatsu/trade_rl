@@ -74,6 +74,8 @@ class NativeBarClock:
     interval is not necessarily a UTC week. UTC weeks close Monday 00:00;
     calendar months close on the first day of the next month at 00:00.
     NumPy datetime64 timestamps are interpreted as UTC, not local civil time.
+    Clock identity fields use native types; overridden scalar arithmetic must
+    not create a grid inconsistent with the declared and serialized clock.
 
     This additive contract does not admit a new MarketBuildConfig timeframe,
     change a Dataset/ReturnSeries schema, or grant a replay capability.
@@ -84,17 +86,16 @@ class NativeBarClock:
     fixed_anchor: np.datetime64 | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, NativeClockKind):
+        if type(self.kind) is not NativeClockKind:
             raise ValueError("unsupported native clock kind")
         if self.kind is NativeClockKind.FIXED_ELAPSED:
             seconds = self.fixed_seconds
             if (
-                isinstance(seconds, bool)
-                or not isinstance(seconds, int)
+                type(seconds) is not int
                 or not 0 < seconds <= _MAX_DATETIME64_NS // _NS_PER_SECOND
             ):
                 raise ValueError("fixed_seconds must be positive representable seconds")
-            if not isinstance(self.fixed_anchor, np.datetime64):
+            if type(self.fixed_anchor) is not np.datetime64:
                 raise ValueError("fixed clock requires an explicit datetime64 anchor")
             anchor = _datetime64_values_to_ns_exact(np.asarray(self.fixed_anchor))[()]
             object.__setattr__(self, "fixed_anchor", anchor)

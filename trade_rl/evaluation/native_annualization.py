@@ -55,7 +55,7 @@ def evaluate_native_bar_annualization(
     adjustment is inferred. Caller owns return provenance and must supply
     one return from the validated interval start through its close.
     """
-    if not isinstance(clock, NativeBarClock):
+    if type(clock) is not NativeBarClock:
         raise ValueError("clock must be a NativeBarClock")
     starts, ends = clock.interval_bounds(closes)
     # Each interval fits signed ns, but their total may not.

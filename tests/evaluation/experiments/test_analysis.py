@@ -256,3 +256,104 @@ def test_cross_symbol_summary_is_descriptive_only() -> None:
     assert summary["symbol_count"] == 2
     assert summary["worst_excess_total_return"] <= summary["median_excess_total_return"]
     assert summary["median_excess_total_return"] <= summary["best_excess_total_return"]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(np.zeros((4, 1)), id="two-dimensional"),
+        pytest.param(np.array([0.0, np.nan, 0.0, 0.0]), id="nan"),
+        pytest.param(np.array([0.0, np.inf, 0.0, 0.0]), id="inf"),
+        pytest.param(np.array([1j, 0j, 0j, 0j]), id="complex"),
+        pytest.param(np.zeros(4, dtype=np.bool_), id="bool"),
+        pytest.param(np.array(["0"] * 4), id="text"),
+    ],
+)
+def test_analysis_refuses_direct_invalid_return_arrays(values: np.ndarray) -> None:
+    run = _run(0)
+    key = "symbol_0_strategy_0"
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary=run.summary,
+        returns={**run.returns, key: values},
+        provenance=run.provenance,
+    )
+    with pytest.raises(ArtifactIntegrityError, match="candidate return array"):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize(
+    ("row_index", "invalid_index"),
+    [
+        pytest.param(0, False, id="false-equals-zero"),
+        pytest.param(1, True, id="true-equals-one"),
+        pytest.param(0, 0.0, id="float-zero"),
+        pytest.param(1, 1.0, id="float-one"),
+    ],
+)
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+def test_analysis_refuses_noninteger_symbol_index(
+    row_index: int, invalid_index: object, schema: str
+) -> None:
+    run = _run(0)
+    raw_rows = run.summary["by_symbol"]
+    assert isinstance(raw_rows, tuple)
+    rows = [dict(row) for row in raw_rows]
+    rows[row_index]["symbol_index"] = invalid_index
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary={**run.summary, "schema_version": schema, "by_symbol": rows},
+        returns=run.returns,
+        provenance=run.provenance,
+    )
+    with pytest.raises(ArtifactIntegrityError, match="candidate symbol index mismatch"):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+@pytest.mark.parametrize("invalid", ["true", 1, {}])
+def test_analysis_rejects_malformed_terminal_state_before_coverage_downgrade(
+    schema: str, invalid: object
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    summary["schema_version"] = schema
+    summary["evaluation"] = {"expected_periods": 5}
+    summary["by_symbol"][0]["strategies"][0]["terminal_settlement_complete"] = invalid
+    broken = LoadedCandidateRun(
+        root=run.root, summary=summary, returns=run.returns, provenance=run.provenance
+    )
+    assert not broken.has_verified_full_evaluation_coverage
+    with pytest.raises(
+        ArtifactIntegrityError, match="terminal-settlement state is malformed"
+    ):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_analysis_preserves_historical_missing_symbol_index(
+    explicit_null: bool,
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    for row in summary["by_symbol"]:
+        if explicit_null:
+            row["symbol_index"] = None
+        else:
+            row.pop("symbol_index")
+    legacy = LoadedCandidateRun(
+        root=run.root, summary=summary, returns=run.returns, provenance=run.provenance
+    )
+    assert analyze_evidence_set(
+        {0: legacy, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7
+    ) == analyze_evidence_set({0: run, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

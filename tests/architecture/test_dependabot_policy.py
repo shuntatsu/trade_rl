@@ -77,16 +77,7 @@ def _require_update_scope(section: str, directory: str, limit: int) -> None:
 
     # Only the schedule's own direct children count; a comment or interval
     # elsewhere in the ecosystem mapping cannot establish the cadence.
-    _, separator, suffix = section.partition("\n    schedule:\n")
-    assert separator
-    schedule_lines = []
-    for line in suffix.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if not line.startswith("      "):
-            break
-        schedule_lines.append(line)
-    schedule = _direct_mapping_fields("\n".join(schedule_lines), 6)
+    schedule = _direct_mapping_fields("\n".join(_direct_block(section, "schedule")), 6)
     assert schedule.get("interval") == '"weekly"'
 
 
@@ -213,32 +204,92 @@ def test_update_scope_refuses_directory_and_schedule_decoys(
         _require_update_scope(changed, "/guide", 2)
 
 
+def _direct_block(section: str, key: str) -> tuple[str, ...]:
+    """Read one canonical direct block, excluding only blank lines and comments."""
+    fields = _direct_mapping_fields(section, 4)
+    assert key in fields and fields[key] is None
+    lines = section.splitlines()
+    start = lines.index(f"    {key}:") + 1
+    block = []
+    for line in lines[start:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith("      "):
+            break
+        block.append(line)
+    return tuple(block)
+
+
+def _require_update_recipe(
+    section: str,
+    *,
+    strategy: str | None,
+    groups: tuple[tuple[str, str | None], ...],
+) -> None:
+    """Pin the complete canonical recipe, rather than matching decoy strings.
+
+    Unknown direct options and extra nested rule entries require review too.
+    This is a deliberately fixed-layout policy guard, not a YAML parser.
+    """
+    fields = _direct_mapping_fields(section, 4)
+    expected_fields = {"directory", "schedule", "open-pull-requests-limit", "ignore"}
+    if strategy is not None:
+        expected_fields.add("versioning-strategy")
+        assert fields.get("versioning-strategy") == f'"{strategy}"'
+    if groups:
+        expected_fields.add("groups")
+    assert set(fields) == expected_fields
+
+    if groups:
+        expected_group_lines = []
+        for name, dependency_type in groups:
+            expected_group_lines.extend(
+                (f"      {name}:", '        applies-to: "version-updates"')
+            )
+            if dependency_type is not None:
+                expected_group_lines.append(
+                    f'        dependency-type: "{dependency_type}"'
+                )
+            expected_group_lines.extend(
+                (
+                    "        patterns:",
+                    '          - "*"',
+                    "        update-types:",
+                    '          - "minor"',
+                    '          - "patch"',
+                )
+            )
+        assert _direct_block(section, "groups") == tuple(expected_group_lines)
+    assert _direct_block(section, "ignore") == (
+        '      - dependency-name: "*"',
+        "        update-types:",
+        '          - "version-update:semver-major"',
+    )
+
+
 def test_python_lockfile_only_recipe_is_retained_for_reenable() -> None:
-    uv = _ecosystem_sections()["uv"]
-    assert 'versioning-strategy: "lockfile-only"' in uv
-    assert 'applies-to: "version-updates"' in uv
-    assert "compatible-lockfile:" in uv
-    assert '          - "minor"\n          - "patch"' in uv
-    assert 'dependency-name: "*"' in uv
-    assert "version-update:semver-major" in uv
+    _require_update_recipe(
+        _ecosystem_sections()["uv"],
+        strategy="lockfile-only",
+        groups=(("compatible-lockfile", None),),
+    )
 
 
 def test_guide_runtime_and_build_updates_remain_separate() -> None:
-    npm = _ecosystem_sections()["npm"]
-    assert 'versioning-strategy: "increase-if-necessary"' in npm
-    assert "guide-runtime-minor-patch:" in npm
-    assert "guide-dev-minor-patch:" in npm
-    assert npm.count('applies-to: "version-updates"') == 2
-    assert npm.count('dependency-type: "production"') == 1
-    assert npm.count('dependency-type: "development"') == 1
-    assert npm.count('          - "minor"\n          - "patch"') == 2
-    assert "version-update:semver-major" in npm
+    _require_update_recipe(
+        _ecosystem_sections()["npm"],
+        strategy="increase-if-necessary",
+        groups=(
+            ("guide-runtime-minor-patch", "production"),
+            ("guide-dev-minor-patch", "development"),
+        ),
+    )
 
 
 def test_market_store_updates_reject_major_without_automatic_deploy() -> None:
-    compose = _ecosystem_sections()["docker-compose"]
-    assert 'dependency-name: "*"' in compose
-    assert "version-update:semver-major" in compose
+    _require_update_recipe(
+        _ecosystem_sections()["docker-compose"], strategy=None, groups=()
+    )
     source = MANIFEST.read_text(encoding="utf-8")
     assert "auto-merge" not in source
     assert "insecure-external-code-execution" not in source
@@ -279,3 +330,100 @@ def test_locked_advisory_monitor_is_read_only_and_separate_from_updater() -> Non
     ):
         assert forbidden not in workflow
     _require_version_update_limit(_ecosystem_sections()["uv"], 0)
+
+
+@pytest.mark.parametrize(
+    ("ecosystem", "original", "replacement"),
+    [
+        (
+            "uv",
+            '    versioning-strategy: "lockfile-only"',
+            '    # versioning-strategy: "lockfile-only"\n    versioning-strategy: "increase"',
+        ),
+        (
+            "npm",
+            '    versioning-strategy: "increase-if-necessary"',
+            '    versioning-strategy: "increase"\n    # versioning-strategy: "increase-if-necessary"',
+        ),
+        (
+            "uv",
+            '    versioning-strategy: "lockfile-only"',
+            '    versioning-strategy: "increase"\n    decoy:\n      versioning-strategy: "lockfile-only"',
+        ),
+        (
+            "npm",
+            '    versioning-strategy: "increase-if-necessary"',
+            '    versioning-strategy: "increase-if-necessary"\n    "versioning-strategy": "increase"',
+        ),
+        (
+            "uv",
+            '        applies-to: "version-updates"',
+            '        # applies-to: "version-updates"\n        applies-to: "security-updates"',
+        ),
+        (
+            "npm",
+            "      guide-runtime-minor-patch:",
+            "      # guide-runtime-minor-patch:\n      other-group:",
+        ),
+        (
+            "npm",
+            '        dependency-type: "production"',
+            '        # dependency-type: "production"\n        dependency-type: "development-other"',
+        ),
+        (
+            "uv",
+            '          - "minor"\n          - "patch"',
+            '          - "minor"\n          - "patch"\n          - "major"',
+        ),
+        (
+            "npm",
+            '          - "minor"\n          - "patch"',
+            '          - "minor"\n          - "patch"\n          - "major"',
+        ),
+        (
+            "uv",
+            '          - "version-update:semver-major"',
+            '          # - "version-update:semver-major"\n          - "version-update:semver-patch"',
+        ),
+        (
+            "docker-compose",
+            '          - "version-update:semver-major"',
+            '          # - "version-update:semver-major"\n          - "version-update:semver-patch"',
+        ),
+        ("uv", '          - "*"', '          - "one-dependency"'),
+    ],
+)
+def test_update_recipe_refuses_decoy_or_broadened_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    ecosystem: str,
+    original: str,
+    replacement: str,
+) -> None:
+    source = MANIFEST.read_text(encoding="utf-8")
+    section = _ecosystem_sections(source)[ecosystem]
+    assert original in section
+    changed = source.replace(section, section.replace(original, replacement, 1), 1)
+    manifest = tmp_path / "dependabot.yml"
+    manifest.write_text(changed, encoding="utf-8")
+    monkeypatch.setitem(globals(), "MANIFEST", manifest)
+    check = {
+        "uv": test_python_lockfile_only_recipe_is_retained_for_reenable,
+        "npm": test_guide_runtime_and_build_updates_remain_separate,
+        "docker-compose": test_market_store_updates_reject_major_without_automatic_deploy,
+    }[ecosystem]
+    with pytest.raises(AssertionError):
+        check()
+
+
+def test_update_recipe_allows_comment_only_changes() -> None:
+    section = _ecosystem_sections()["uv"]
+    section = section.replace(
+        '        applies-to: "version-updates"',
+        "        # The actual scalar is unchanged.\n"
+        '        applies-to: "version-updates"',
+        1,
+    )
+    _require_update_recipe(
+        section, strategy="lockfile-only", groups=(("compatible-lockfile", None),)
+    )

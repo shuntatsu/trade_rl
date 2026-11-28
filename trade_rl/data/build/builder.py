@@ -15,7 +15,7 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
     MarketCalendarKind,
-    timeframe_hours,
+    NormalizationMode,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -23,7 +23,11 @@ from trade_rl.data.features.cross_asset import (
     calculate_cross_asset_feature_events,
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
-from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.multitimeframe import (
+    _align_native_feature_events,
+    _align_published_events,
+    _dependency_available_at,
+)
 from trade_rl.data.features.numerics import (
     portable_log,
     portable_mean,
@@ -82,41 +86,6 @@ def _calculate_one_bar_returns(
     )
     returns[1:] = np.where(available[1:], portable_log(ratios), 0.0)
     return returns, available
-
-
-def _carry_feature(
-    event_values: np.ndarray,
-    event_valid: np.ndarray,
-    active: np.ndarray,
-    timestamps: np.ndarray,
-    *,
-    max_staleness_hours: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    values = np.zeros_like(event_values, dtype=np.float64)
-    available = np.zeros_like(event_valid, dtype=np.bool_)
-    age = np.full_like(event_values, max_staleness_hours, dtype=np.float64)
-    staleness = np.ones_like(event_values, dtype=np.float64)
-    timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
-    last_index: int | None = None
-    last_value = 0.0
-    for index in range(len(event_values)):
-        if not active[index]:
-            last_index = None
-            last_value = 0.0
-            continue
-        if event_valid[index]:
-            last_index = index
-            last_value = float(event_values[index])
-        if last_index is None:
-            continue
-        age_hours = float(timestamp_ns[index] - timestamp_ns[last_index]) / _NS_PER_HOUR
-        normalized = min(age_hours / max_staleness_hours, 1.0)
-        age[index] = age_hours
-        staleness[index] = normalized
-        if age_hours <= max_staleness_hours + 1e-12:
-            values[index] = last_value
-            available[index] = True
-    return values, available, age, staleness
 
 
 def _carry_aged_feature(
@@ -354,57 +323,76 @@ class MarketDatasetBuilder:
         feature_age_hours = np.ones_like(features, dtype=np.float64)
         feature_staleness = np.ones_like(features, dtype=np.float64)
         native_cache: dict[tuple[str, str], RawMarketSeries] = {}
+
+        def feature_column(
+            spec: FeatureSpec,
+            symbol_index: int,
+            contract: InstrumentContract,
+            *,
+            include_event_indices: bool = False,
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+            native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
+            if native_timeframe == self.config.base_timeframe:
+                # Events are computed on every physically present row, then
+                # published at the latest available_at of their source rows
+                # and as-of aligned to the decision clock, as on the native
+                # path. A late row is therefore hidden from every decision
+                # before its available_at (directly and through any window),
+                # and usable by later decisions instead of a permanent gap.
+                event_values, event_valid, source_start = calculate_feature_events(
+                    spec,
+                    open_price=open_price[:, symbol_index],
+                    high=high[:, symbol_index],
+                    low=low[:, symbol_index],
+                    close=close[:, symbol_index],
+                    volume=volume[:, symbol_index],
+                    funding_rate=funding_rate[:, symbol_index],
+                    funding_available=funding_available[:, symbol_index],
+                    row_present=(
+                        row_present[:, symbol_index] & tradable[:, symbol_index]
+                        if spec.requires_complete_native_rows
+                        else row_present[:, symbol_index]
+                    ),
+                    active=symbol_active[:, symbol_index],
+                )
+                event_available_at = _dependency_available_at(
+                    available_at[:, symbol_index], event_valid, source_start
+                )
+                return _align_published_events(
+                    spec.max_staleness_hours,
+                    timestamps,
+                    (event_values, event_valid, event_available_at),
+                    timestamps,
+                    symbol_active[:, symbol_index],
+                    include_event_indices=include_event_indices,
+                )
+            if not isinstance(source, MultiTimeframeMarketDataSource):
+                raise ValueError(
+                    "native multi-timeframe features require a "
+                    "MultiTimeframeMarketDataSource"
+                )
+            key = (contract.symbol, native_timeframe)
+            native = native_cache.get(key)
+            if native is None:
+                native = source.load_timeframe(contract.symbol, native_timeframe)
+                native_cache[key] = native
+            return _align_native_feature_events(
+                spec,
+                native,
+                contract,
+                timestamps,
+                symbol_active[:, symbol_index],
+                timeframe=native_timeframe,
+                include_event_indices=include_event_indices,
+            )
+
         for symbol_index, contract in enumerate(instruments):
             for feature_index, spec in enumerate(self.config.features):
                 if spec.kind in CROSS_ASSET_FEATURE_KINDS:
                     continue
-                native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
-                if native_timeframe == self.config.base_timeframe:
-                    event_values, event_valid, _ = calculate_feature_events(
-                        spec,
-                        open_price=open_price[:, symbol_index],
-                        high=high[:, symbol_index],
-                        low=low[:, symbol_index],
-                        close=close[:, symbol_index],
-                        volume=volume[:, symbol_index],
-                        funding_rate=funding_rate[:, symbol_index],
-                        funding_available=funding_available[:, symbol_index],
-                        row_present=(
-                            causal_row_present[:, symbol_index]
-                            & tradable[:, symbol_index]
-                            if spec.requires_complete_native_rows
-                            else causal_row_present[:, symbol_index]
-                        ),
-                        active=symbol_active[:, symbol_index],
-                    )
-                    values, available, age_hours, staleness = _carry_feature(
-                        event_values,
-                        event_valid,
-                        symbol_active[:, symbol_index],
-                        timestamps,
-                        max_staleness_hours=spec.max_staleness_hours,
-                    )
-                else:
-                    if not isinstance(source, MultiTimeframeMarketDataSource):
-                        raise ValueError(
-                            "native multi-timeframe features require a "
-                            "MultiTimeframeMarketDataSource"
-                        )
-                    key = (contract.symbol, native_timeframe)
-                    native = native_cache.get(key)
-                    if native is None:
-                        native = source.load_timeframe(
-                            contract.symbol, native_timeframe
-                        )
-                        native_cache[key] = native
-                    values, available, age_hours, staleness = align_native_feature(
-                        spec,
-                        native,
-                        contract,
-                        timestamps,
-                        symbol_active[:, symbol_index],
-                        timeframe=native_timeframe,
-                    )
+                values, available, age_hours, staleness, _ = feature_column(
+                    spec, symbol_index, contract
+                )
                 features[:, symbol_index, feature_index] = values
                 feature_available[:, symbol_index, feature_index] = available
                 feature_age_hours[:, symbol_index, feature_index] = age_hours
@@ -414,6 +402,19 @@ class MarketDatasetBuilder:
         # one-bar return has been causally aligned to the base decision clock.
         # This prevents symbol-order dependence and keeps rolling windows on
         # completed native events rather than repeated carried values.
+        #
+        # The aligned return channel is private: an unnormalized one-bar log
+        # return on the feature's native timeframe, computed through the same
+        # point-in-time path as a public feature of that timeframe. At a
+        # decision row it holds the latest return whose source rows were all
+        # published by that row; it is available only while that return's age
+        # (hours since its close) is within the cross-asset spec's
+        # max_staleness_hours. Exact selected native row indices distinguish
+        # newly published events from carried values even at equal ages.
+        # Neither the return channel nor its indices are public feature columns.
+        return_channels: dict[
+            tuple[str, float], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        ] = {}
         for feature_index, spec in enumerate(self.config.features):
             if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
                 continue
@@ -425,65 +426,50 @@ class MarketDatasetBuilder:
                 raise ValueError(
                     "cross-asset features require cross_asset_reference_symbol"
                 )
-            return_candidates = [
-                index
-                for index, candidate in enumerate(self.config.features)
-                if candidate.kind.value == "log_return"
-                and candidate.lookback == 1
-                and candidate.resolved_timeframe(self.config.base_timeframe)
-                == native_timeframe
-            ]
-            if len(return_candidates) == 1:
-                return_index = return_candidates[0]
-                aligned_returns = features[:, :, return_index]
-                aligned_available = feature_available[:, :, return_index]
-                aligned_ages = feature_age_hours[:, :, return_index]
-            elif (
-                not return_candidates
-                and timeframe_hours(native_timeframe) < self.config.bar_hours
-            ):
-                # A sub-base cross-asset feature can use a private 1-bar return
-                # channel, but it must still load and validate each raw native
-                # series via the same point-in-time alignment as public features.
-                if not isinstance(source, MultiTimeframeMarketDataSource):
-                    raise ValueError(
-                        "native multi-timeframe features require a "
-                        "MultiTimeframeMarketDataSource"
-                    )
-                source_spec = FeatureSpec(
-                    name="implicit_native_one_bar_log_return",
+            # The return channel is private, unnormalized and independent of
+            # every public FeatureSpec: a public log_return column may be
+            # z-scored, clipped by a short staleness or duplicated, none of
+            # which may change what "return" means for cross-asset statistics.
+            channel_key = (native_timeframe, spec.max_staleness_hours)
+            channel = return_channels.get(channel_key)
+            if channel is None:
+                channel_spec = FeatureSpec(
+                    name="implicit_one_bar_log_return",
                     kind=FeatureKind.LOG_RETURN,
                     lookback=1,
-                    timeframe=native_timeframe,
+                    normalization=NormalizationMode.NONE,
+                    timeframe=(
+                        None
+                        if native_timeframe == self.config.base_timeframe
+                        else native_timeframe
+                    ),
                     max_staleness_hours=spec.max_staleness_hours,
                 )
                 aligned_returns = np.zeros((n_bars, n_symbols), dtype=np.float64)
                 aligned_available = np.zeros((n_bars, n_symbols), dtype=np.bool_)
                 aligned_ages = np.zeros((n_bars, n_symbols), dtype=np.float64)
+                aligned_indices = np.full((n_bars, n_symbols), -1, dtype=np.int64)
                 for symbol_index, contract in enumerate(instruments):
-                    key = (contract.symbol, native_timeframe)
-                    native = native_cache.get(key)
-                    if native is None:
-                        native = source.load_timeframe(
-                            contract.symbol, native_timeframe
-                        )
-                        native_cache[key] = native
-                    values, available, age_hours, _ = align_native_feature(
-                        source_spec,
-                        native,
+                    values, available, age_hours, _, indices = feature_column(
+                        channel_spec,
+                        symbol_index,
                         contract,
-                        timestamps,
-                        symbol_active[:, symbol_index],
-                        timeframe=native_timeframe,
+                        include_event_indices=True,
                     )
+                    if indices is None:
+                        raise RuntimeError("private return channel lacks event indices")
                     aligned_returns[:, symbol_index] = values
                     aligned_available[:, symbol_index] = available
                     aligned_ages[:, symbol_index] = age_hours
-            else:
-                raise ValueError(
-                    f"cross-asset {native_timeframe} features require exactly one "
-                    "one-bar log return channel"
+                    aligned_indices[:, symbol_index] = indices
+                channel = (
+                    aligned_returns,
+                    aligned_available,
+                    aligned_ages,
+                    aligned_indices,
                 )
+                return_channels[channel_key] = channel
+            aligned_returns, aligned_available, aligned_ages, aligned_indices = channel
             events = calculate_cross_asset_feature_events(
                 spec,
                 aligned_returns=aligned_returns,
@@ -491,6 +477,7 @@ class MarketDatasetBuilder:
                 return_age_hours=aligned_ages,
                 symbols=symbols,
                 reference_symbol=reference_symbol,
+                return_event_indices=aligned_indices,
             )
             for symbol_index in range(n_symbols):
                 values, available, age_hours, staleness = _carry_aged_feature(

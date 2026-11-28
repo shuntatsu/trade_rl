@@ -948,8 +948,11 @@ anything about other configurations.
   the registry fixes the construction: USDT-M perpetuals, 1h bars from 2021-01-01 to
   2027-05-01, 4h/1d aggregated from complete 1h windows, the `non_tradable_rows` gap
   policy (a missing 1h bar is a non-tradable row with a forward-filled mark and no
-  funding accrual; a higher-clock window touching a gap is a placeholder with
-  `available_at` at the range end, so recursive features stay unavailable), zero baked-in
+  funding accrual; in the builder this policy was frozen against, a higher-clock window
+  touching a gap was a placeholder with `available_at` at the range end. The current
+  builder never publishes that placeholder and restarts native warm-up after it (see
+  the `lean-core.md` Data contract), so a rebuild with current code is not
+  feature-identical to that historical build), zero baked-in
   fees and spread, and the historical `dataset_build` builder policy retained in
   the P2 archive (not a current executable). Its digest
   (`13d404e9a8b0a87d02cf7a90f9af2bbbad412d439dae42f730e4f416efd03a34`) is part of the
@@ -1071,8 +1074,10 @@ data has been fetched**, and the data-fetch authorization is still pending.
    rows, except (a) the exchange-rule arrays (`minimum_notional`, `lot_size`,
    `tick_size`), which come from the freshly retrieved snapshot and are only recorded
    as equal or not, and (b) on the last development row only, the feature-derived arrays,
-   because a higher-clock placeholder window is visible there in the development build
-   (its `available_at` is the development range end) but not in the longer FS1 build.
+   because with the historical builder a higher-clock placeholder window is visible there
+   in the development build (its `available_at` is the development range end) but not in
+   the longer FS1 build. The current builder removed that range-end dependence; this
+   historical exception is recorded as frozen and is not current builder behavior.
    The result is recorded in the receipt (`development_span_equality`).
 5. **Outputs (the manifest is written last).** The root holds `vision-cache/`,
    `exchange-info/`, `dataset/` (the published artifact that `--dataset` takes),

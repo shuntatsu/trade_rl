@@ -340,7 +340,7 @@ def test_subbase_cross_asset_requires_valid_native_source_not_base_price_fallbac
         MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
 
 
-def test_base_cross_asset_still_requires_explicit_log_return_source() -> None:
+def test_base_cross_asset_derives_a_private_return_without_a_public_source() -> None:
     config = MarketBuildConfig(
         base_timeframe="1h",
         features=(
@@ -348,10 +348,23 @@ def test_base_cross_asset_still_requires_explicit_log_return_source() -> None:
         ),
         cross_asset_reference_symbol="BTCUSDT",
     )
-    with pytest.raises(ValueError, match="one-bar log return channel"):
-        MarketDatasetBuilder(config).build(
-            _cross_subbase_source(), _cross_subbase_contracts()
-        )
+    result = MarketDatasetBuilder(config).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+
+    assert result.feature_names == ("relative",)
+    assert result.feature_available is not None
+    np.testing.assert_array_equal(
+        result.feature_available[:, 1, 0], [False, True, True]
+    )
+    np.testing.assert_allclose(
+        result.features[1:, 1, 0],
+        [
+            np.log(207.0 / 200.0) - np.log(105.0 / 100.0),
+            np.log(220.0 / 207.0) - np.log(111.0 / 105.0),
+        ],
+        rtol=1e-6,
+    )
 
 
 def test_subbase_cross_asset_refuses_missing_native_source_protocol() -> None:
@@ -407,23 +420,41 @@ def test_subbase_cross_asset_obeys_delayed_native_source_available_at() -> None:
     assert result.feature_available[1, 0, 0]
 
 
-def test_subbase_cross_asset_rejects_duplicate_explicit_return_channels() -> None:
-    source = _cross_subbase_source()
-    config = MarketBuildConfig(
+def test_subbase_cross_asset_ignores_duplicate_public_return_channels() -> None:
+    relative = FeatureSpec(
+        name="relative",
+        kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+        timeframe="15m",
+    )
+    duplicated = MarketBuildConfig(
         base_timeframe="1h",
         features=(
             FeatureSpec(name="ret_a", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
             FeatureSpec(name="ret_b", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
-            FeatureSpec(
-                name="relative",
-                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
-                timeframe="15m",
-            ),
+            relative,
         ),
         cross_asset_reference_symbol="BTCUSDT",
     )
-    with pytest.raises(ValueError, match="one-bar log return channel"):
-        MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+    alone = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(relative,),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with_duplicates = MarketDatasetBuilder(duplicated).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+    without = MarketDatasetBuilder(alone).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+
+    np.testing.assert_array_equal(
+        with_duplicates.features[..., 2], without.features[..., 0]
+    )
+    assert with_duplicates.feature_available is not None
+    assert without.feature_available is not None
+    np.testing.assert_array_equal(
+        with_duplicates.feature_available[..., 2], without.feature_available[..., 0]
+    )
 
 
 def test_subbase_cross_asset_missing_reference_is_rejected_before_native_load() -> None:
@@ -482,3 +513,54 @@ def test_implicit_subbase_cross_asset_is_prefix_causal_under_future_mutation() -
     )
     np.testing.assert_array_equal(before.features[:2], after.features[:2])
     assert before.features[2, 1, 0] != after.features[2, 1, 0]
+
+
+@pytest.mark.parametrize(("timeframe", "steps"), [("1h", 1), ("15m", 4)])
+def test_private_return_detects_new_close_at_same_elapsed_age(
+    timeframe: str, steps: int
+) -> None:
+    # At decisions 1h, 2h, 3h and 4h the latest ETH close is 1h, 1h,
+    # 2h and 4h respectively. The new 2h close must be consumed at 3h
+    # even though its elapsed age is the same as at the previous decision.
+    indices = np.arange(8 * steps + 1)
+    times = np.datetime64("2026-01-01T00:00:00", "ns") + indices * np.timedelta64(
+        60 // steps, "m"
+    )
+    receipts = times.copy()
+    receipts[(indices > steps) & (indices <= 2 * steps)] = times[3 * steps]
+    receipts[(indices > 2 * steps) & (indices <= 3 * steps)] = times[4 * steps]
+    timestamps = np.datetime_as_string(times, unit="s").tolist()
+    published = np.datetime_as_string(receipts, unit="s").tolist()
+    eth_closes = 100.0 + indices.astype(np.float64) ** 2
+    native = {
+        ("BTCUSDT", timeframe): _series(timestamps, [100.0] * len(indices)),
+        ("ETHUSDT", timeframe): _series(
+            timestamps, eth_closes.tolist(), available_at=published
+        ),
+    }
+    source = MemoryMultiTimeframeSource(
+        {("BTCUSDT", "1h"): _base(), ("ETHUSDT", "1h"): _base(), **native}
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                "rel",
+                FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe=None if timeframe == "1h" else timeframe,
+                max_staleness_hours=4.0,
+            ),
+        ),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    contracts = tuple(
+        InstrumentContract(symbol, listed_at=datetime(2025, 1, 1, tzinfo=UTC))
+        for symbol in ("BTCUSDT", "ETHUSDT")
+    )
+    dataset = MarketDatasetBuilder(config).build(source, contracts)
+    assert dataset.feature_available is not None
+    assert dataset.feature_staleness_hours is not None
+    assert dataset.feature_available[3, 1, 0]
+    expected = np.log(eth_closes[2 * steps] / eth_closes[2 * steps - 1])
+    assert dataset.features[3, 1, 0] == pytest.approx(expected, abs=1e-7)
+    assert dataset.feature_staleness_hours[3, 1, 0] == 1.0

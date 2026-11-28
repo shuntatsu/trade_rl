@@ -99,7 +99,7 @@ def test_raw_series_rejects_availability_before_event_time() -> None:
         )
 
 
-def test_delayed_market_row_is_not_visible_to_same_time_features() -> None:
+def test_delayed_market_row_is_hidden_until_published_then_used() -> None:
     market = _build(_raw(delayed_index=10))
 
     assert market.information_available is not None
@@ -107,10 +107,15 @@ def test_delayed_market_row_is_not_visible_to_same_time_features() -> None:
     assert not market.information_available[10, 0]
     assert market.available_at[10, 0] == market.timestamps[11]
     np.testing.assert_allclose(market.features[10, 0], market.features[9, 0])
-    np.testing.assert_allclose(market.features[11, 0], market.features[9, 0])
     assert market.feature_staleness is not None
     assert market.feature_staleness[10, 0, 0] > market.feature_staleness[9, 0, 0]
-    assert market.feature_staleness[11, 0, 0] > market.feature_staleness[10, 0, 0]
+    # Row 10 is published at row 11, so the 10->11 return is a fresh event.
+    np.testing.assert_allclose(
+        market.features[11, 0, 0],
+        np.log(market.close[11, 0] / market.close[10, 0]),
+        rtol=1e-6,
+    )
+    assert market.feature_staleness[11, 0, 0] == 0.0
     assert market.feature_staleness[12, 0, 0] == 0.0
 
 
@@ -175,7 +180,9 @@ def test_delayed_close_is_rejected_before_target_row_execution_and_observation(
         first.information_available, second.information_available
     )
     np.testing.assert_array_equal(first.tradable, second.tradable)
-    np.testing.assert_allclose(first.features, second.features)
+    # The altered close reaches features only from its publication row 11.
+    np.testing.assert_allclose(first.features[:11], second.features[:11])
+    assert not np.allclose(first.features[11], second.features[11])
     np.testing.assert_allclose(first.open[:11], second.open[:11])
     np.testing.assert_allclose(first.close[:10], second.close[:10])
     assert first.close[10, 0] != second.close[10, 0]

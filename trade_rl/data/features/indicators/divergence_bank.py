@@ -3,9 +3,9 @@
 No second RSI/MACD/MFI/CCI formula is introduced. Invalid warm-up, gaps and
 non-tradable rows are represented by NaN rather than valid zero observations.
 A row published after its own timestamp (``available_at > timestamp``) is not
-information at that bar: like the Dataset builder's ``row_present &
-information_available`` rule, it is treated as a missing row, so no value reads
-it and every calculation restarts after it instead of bridging it.  The bank
+information at that bar. This bank emits on-time raw-row values rather than
+as-of aligned feature events, so a late row is treated as a missing row and
+warm-up restarts after it instead of bridging it.  The bank
 cannot see a native timestamp missing from ``raw``; callers pass a complete
 native grid or mark such rows non-tradable.
 """

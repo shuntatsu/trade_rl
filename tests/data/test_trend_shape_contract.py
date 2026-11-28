@@ -199,13 +199,14 @@ def _built_shape(
 
 
 @pytest.mark.parametrize("lag_ns", (1, 3_600_000_000_000))
-def test_delayed_native_close_is_bounded_carry_not_fresh_shape(lag_ns: int) -> None:
+def test_delayed_native_close_is_hidden_until_published_then_used(lag_ns: int) -> None:
     original = _built_shape(delayed_index=35, delayed_lag_ns=lag_ns)
     poisoned = _built_shape(
         delayed_index=35,
         delayed_close_multiplier=9.0,
         delayed_lag_ns=lag_ns,
     )
+    on_time = _built_shape()
     assert original.feature_names == ("slope24", "r2_24")
     assert original.dataset_id != poisoned.dataset_id
     assert original.information_available is not None
@@ -215,41 +216,39 @@ def test_delayed_native_close_is_bounded_carry_not_fresh_shape(lag_ns: int) -> N
         lag_ns, "ns"
     )
 
-    # The delayed close is censored from new shape events, including the
-    # 24-bar windows spanning it. No later bar can launder it into a feature.
-    np.testing.assert_array_equal(original.features, poisoned.features)
+    # Before its publication (decision row 36) the delayed close cannot reach
+    # any shape event, including the 24-bar windows spanning it.
+    published = 36
     np.testing.assert_array_equal(
-        original.feature_available, poisoned.feature_available
+        original.features[:published], poisoned.features[:published]
     )
     np.testing.assert_array_equal(
-        original.resolved_array("feature_staleness"),
-        poisoned.resolved_array("feature_staleness"),
+        original.feature_available[:published], poisoned.feature_available[:published]
     )
     np.testing.assert_array_equal(
-        original.resolved_array("feature_staleness_hours"),
-        poisoned.resolved_array("feature_staleness_hours"),
+        original.resolved_array("feature_staleness_hours")[:published],
+        poisoned.resolved_array("feature_staleness_hours")[:published],
     )
-
-    # The previous valid event stays observable at ages 1h and 2h.
+    # The previous valid event stays observable at age 1h on the late row.
+    np.testing.assert_array_equal(original.features[35, 0], original.features[34, 0])
+    assert original.feature_available[35, 0].all()
     np.testing.assert_array_equal(
-        original.features[35:37, 0],
-        np.broadcast_to(original.features[34, 0], (2, 2)),
-    )
-    assert original.feature_available[35:37, 0].all()
-    np.testing.assert_array_equal(
-        original.resolved_array("feature_staleness")[35:38, 0],
-        [[0.5, 0.5], [1.0, 1.0], [1.0, 1.0]],
-    )
-    assert not original.feature_available[37:59, 0].any()
-    np.testing.assert_array_equal(
-        original.features[37:59, 0], np.zeros((22, 2), dtype=np.float32)
+        original.resolved_array("feature_staleness")[35, 0], [0.5, 0.5]
     )
 
-    # A genuinely new event requires 24 contiguous usable closes, starting
-    # with row 36 after the unavailable row 35.
-    assert original.feature_available[59, 0].all()
+    # Once published, the close joins every later window: no permanent hole.
+    # The windows are exactly those of an on-time source.
+    for name in ("features", "feature_available", "feature_staleness_hours"):
+        np.testing.assert_array_equal(
+            original.resolved_array(name)[published:],
+            on_time.resolved_array(name)[published:],
+        )
+    assert original.feature_available[published:59, 0].all()
     np.testing.assert_array_equal(
-        original.resolved_array("feature_staleness")[59, 0], [0.0, 0.0]
+        original.resolved_array("feature_staleness")[published, 0], [0.0, 0.0]
+    )
+    assert not np.array_equal(
+        original.features[published, 0], poisoned.features[published, 0]
     )
 
 

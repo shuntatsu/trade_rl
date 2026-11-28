@@ -223,3 +223,60 @@ def test_holdout_symbol_can_change_fit_symbol_cross_sectional_value(
     )
 
     assert original.values[-1, 0] != mutated.values[-1, 0]
+
+
+def test_exact_event_indices_detect_equal_age_and_do_not_reconsume() -> None:
+    indices = np.asarray(
+        [[0, 0], [1, 0], [2, 1], [3, -1], [4, 1], [5, 3]],
+        dtype=np.int64,
+    )
+    returns = np.asarray(
+        [
+            [0.01, 0.02],
+            [0.02, 0.02],
+            [0.03, 0.05],
+            [0.04, 0.00],
+            [0.05, 0.05],
+            [0.06, 0.09],
+        ],
+        dtype=np.float64,
+    )
+    age = np.asarray(
+        [[0, 0], [0, 1], [0, 1], [0, 4], [0, 3], [0, 2]],
+        dtype=np.float64,
+    )
+    result = calculate_cross_asset_feature_events(
+        _spec(FeatureKind.RELATIVE_RETURN_TO_BTC, lookback=1, min_periods=1),
+        aligned_returns=returns,
+        return_available=indices >= 0,
+        return_age_hours=age,
+        return_event_indices=indices,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        reference_symbol="BTCUSDT",
+    )
+    assert result.valid[:, 1].tolist() == [True, False, True, False, False, True]
+    assert result.values[2, 1] == pytest.approx(0.02)
+    assert result.source_age_hours[2, 1] == 1.0
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [
+        pytest.param(np.asarray([[0.0], [1.0]]), id="float"),
+        pytest.param(np.asarray([[1], [0]], dtype=np.int64), id="retreat"),
+        pytest.param(np.asarray([[0], [-1]], dtype=np.int64), id="missing"),
+        pytest.param(np.asarray([[0, 1]], dtype=np.int64), id="shape"),
+    ],
+)
+def test_exact_event_indices_reject_invalid_identity(indices: np.ndarray) -> None:
+    returns = np.zeros((2, 1), dtype=np.float64)
+    with pytest.raises(ValueError, match="event indices"):
+        calculate_cross_asset_feature_events(
+            _spec(FeatureKind.RELATIVE_RETURN_TO_BTC, lookback=1, min_periods=1),
+            aligned_returns=returns,
+            return_available=np.ones_like(returns, dtype=np.bool_),
+            return_age_hours=np.zeros_like(returns),
+            return_event_indices=indices,
+            symbols=("BTCUSDT",),
+            reference_symbol="BTCUSDT",
+        )

@@ -44,9 +44,10 @@ def _session_boundaries(
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("invalid session elapsed return window")
-    boundaries = tuple(
-        int(x) for x in dataset.timestamps[start_index : stop_index + 1].view(np.int64)
+    timestamps = dataset.timestamps[start_index : stop_index + 1].astype(
+        "datetime64[ns]"
     )
+    boundaries = tuple(int(x) for x in timestamps.view(np.int64))
     _ordered_ns_durations(boundaries)
     return boundaries
 

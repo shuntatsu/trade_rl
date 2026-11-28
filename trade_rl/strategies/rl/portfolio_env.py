@@ -314,9 +314,10 @@ class SharedPortfolioGymEnv(gym.Env):
                     "dataset window must use one regular whole-second cadence"
                 )
         if isinstance(clock, SessionFinancialClockContract):
-            actual = tuple(
-                int(x) for x in dataset.timestamps[start : stop + 1].view(np.int64)
+            session_timestamps = dataset.timestamps[start : stop + 1].astype(
+                "datetime64[ns]"
             )
+            actual = tuple(int(x) for x in session_timestamps.view(np.int64))
             if actual != clock.boundaries_ns:
                 raise ValueError(
                     "session financial clock boundaries differ from the Dataset"

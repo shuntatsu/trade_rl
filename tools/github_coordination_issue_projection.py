@@ -45,8 +45,8 @@ class IssueProjectionObservation:
 
 
 def _object(value: object, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{label} must be an object with native string keys")
     return value
 
 
@@ -65,7 +65,11 @@ def _issue_state(
     _positive_id(issue.get("id"), "Issue id")
     number = _positive_id(issue.get("number"), "Issue number")
     if (
-        number != projection.issue_number
+        any(
+            type(issue.get(key)) is not str
+            for key in ("node_id", "repository_url", "state")
+        )
+        or number != projection.issue_number
         or issue.get("node_id") != projection.issue_node_id
         or issue.get("repository_url")
         != f"https://api.github.com/repos/{projection.repository}"
@@ -77,7 +81,7 @@ def _issue_state(
     if count > _MAX_ISSUE_COMMENTS:
         raise ValueError("Issue comments exceed bounded enumeration")
     updated_at = issue.get("updated_at")
-    if not isinstance(updated_at, str) or not updated_at.strip():
+    if type(updated_at) is not str or not updated_at.strip():
         raise ValueError("Issue updated_at is missing")
     return (
         issue["id"],
@@ -103,7 +107,7 @@ def _comment_rows(
             query={"per_page": "100", "page": str(page)},
         )
         expected = min(100, total - 100 * (page - 1))
-        if not isinstance(raw, list) or len(raw) != expected:
+        if type(raw) is not list or len(raw) != expected:
             raise ValueError("Issue comments pagination is incomplete")
         for item in raw:
             comment = _object(item, "Issue comment")
@@ -116,8 +120,8 @@ def _comment_rows(
             body = comment.get("body")
             updated_at = comment.get("updated_at")
             if (
-                not isinstance(body, str)
-                or not isinstance(updated_at, str)
+                type(body) is not str
+                or type(updated_at) is not str
                 or not updated_at.strip()
             ):
                 raise ValueError("Issue comment body or updated_at is malformed")
@@ -139,7 +143,7 @@ def observe_issue_projection(
     ordinary edits and pagination drift but cannot provide an atomic snapshot.
     No network writes, registration, or lease authorization occur here.
     """
-    if not isinstance(projection, EnrollmentProjection):
+    if type(projection) is not EnrollmentProjection:
         raise ValueError("projection must be an EnrollmentProjection")
     _positive_id(expected_publisher_user_id, "expected publisher user id")
 

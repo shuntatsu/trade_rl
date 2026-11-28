@@ -424,27 +424,56 @@ class BookState:
         value = self.portfolio_value
         if value <= 0.0 or not np.isfinite(value):
             return np.zeros_like(self.quantities)
-        return self.position_values / value
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            weights = self.position_values / value
+        if not np.isfinite(weights).all():
+            raise ValueError("account weights became non-finite")
+        return weights
 
     @property
     def cash_weight(self) -> float:
         value = self.portfolio_value
-        return 0.0 if value <= 0.0 else float(self.cash / value)
+        if value <= 0.0:
+            return 0.0
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            weight = float(self.cash / value)
+        if not math.isfinite(weight):
+            raise ValueError("cash weight became non-finite")
+        return weight
 
     @property
     def gross_exposure(self) -> float:
-        return float(np.abs(self.weights).sum())
+        weights = self.weights
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            exposure = float(np.abs(weights).sum())
+        if not math.isfinite(exposure):
+            raise ValueError("gross exposure became non-finite")
+        return exposure
 
     @property
     def net_exposure(self) -> float:
-        return float(self.weights.sum())
+        weights = self.weights
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            exposure = float(weights.sum())
+        if math.isfinite(exposure):
+            return exposure
+        # Preserve the ordinary reduction for valid results. For overflow in
+        # signed cancellation, sum the represented weights exactly instead.
+        try:
+            return float(sum(Fraction.from_float(float(weight)) for weight in weights))
+        except OverflowError as error:
+            raise ValueError("net exposure became non-finite") from error
 
     @property
     def margin_utilization(self) -> float:
         value = self.portfolio_value
         if value <= 0.0:
             return 1.0
-        return float(self.margin_used / value)
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+            utilization = float(self.margin_used / value)
+        if not math.isfinite(utilization):
+            raise ValueError("margin utilization became non-finite")
+        return utilization
 
     @property
     def n_trades(self) -> int:

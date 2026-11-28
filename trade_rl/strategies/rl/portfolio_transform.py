@@ -44,6 +44,9 @@ from trade_rl.strategies.rl.ppo_normalization import (
 PORTFOLIO_OBSERVATION_TRANSFORM_SCHEMA = "shared_portfolio_observation_transform_v1"
 _MONTH_TRANSFORM_SCHEMA = "shared_portfolio_calendar_month_observation_transform_v1"
 _CARRY_TRANSFORM_SCHEMA = "shared_portfolio_fixed_linear_carry_observation_transform_v1"
+_MONTH_CARRY_TRANSFORM_SCHEMA = (
+    "shared_portfolio_calendar_month_linear_carry_observation_transform_v1"
+)
 _SESSION_TRANSFORM_SCHEMA = "shared_portfolio_session_observation_transform_v1"
 _SESSION_RUNTIME_BINDING_SCHEMA = (
     "shared_portfolio_session_observation_runtime_binding_v1"
@@ -494,6 +497,13 @@ class PortfolioObservationRuntimeBinding:
             raise ValueError(
                 "native fixed linear carry runtime mode differs from training"
             )
+        if (
+            transform.native_calendar_month_linear_carry
+            != runtime_env.native_calendar_month_linear_carry
+        ):
+            raise ValueError(
+                "native calendar month linear carry runtime mode differs from training"
+            )
         if transform.native_fixed_linear_carry:
             runtime_env._validate_native_learning_window()
         if transform.native_interval_seconds is None and not training_session:
@@ -762,6 +772,7 @@ class PortfolioObservationTransform:
     reference_price_counts: tuple[int, ...]
     native_fixed_linear_carry: bool = False
     session_boundaries_ns: tuple[int, ...] = ()
+    native_calendar_month_linear_carry: bool = False
     _session_digest: str | None = dataclass_field(
         init=False, repr=False, compare=False, default=None
     )
@@ -808,6 +819,18 @@ class PortfolioObservationTransform:
         ):
             raise ValueError(
                 "native fixed linear carry transform requires its fixed cadence and terminal reserve"
+            )
+        if type(self.native_calendar_month_linear_carry) is not bool:
+            raise ValueError("native_calendar_month_linear_carry must be boolean")
+        if self.native_calendar_month_linear_carry and (
+            self.native_fixed_linear_carry
+            or self.native_interval_seconds is not None
+            or self.session_boundaries_ns
+            or self.agent_stop_index != self.stop_index - 1
+            or self.market_order_profile_digest is not None
+        ):
+            raise ValueError(
+                "native calendar month linear carry transform requires its calendar cadence, terminal reserve and no profile"
             )
         capital = _finite_real(self.initial_capital, field="initial_capital")
         if capital <= 0.0:
@@ -978,6 +1001,8 @@ class PortfolioObservationTransform:
             "schema": (
                 _SESSION_TRANSFORM_SCHEMA
                 if self.session_boundaries_ns
+                else _MONTH_CARRY_TRANSFORM_SCHEMA
+                if self.native_calendar_month_linear_carry
                 else _MONTH_TRANSFORM_SCHEMA
                 if self.native_interval_seconds is None
                 else _CARRY_TRANSFORM_SCHEMA
@@ -1064,12 +1089,17 @@ class PortfolioObservationTransform:
         if payload_digest != expected_digest:
             raise ValueError("transform payload digest differs from expected_digest")
         native_fixed_linear_carry = value["schema"] == _CARRY_TRANSFORM_SCHEMA
+        native_calendar_month_linear_carry = (
+            value["schema"] == _MONTH_CARRY_TRANSFORM_SCHEMA
+        )
         session_boundaries = _session_payload_boundaries(
             value, _SESSION_TRANSFORM_SCHEMA
         )
         expected_schema = (
             _SESSION_TRANSFORM_SCHEMA
             if session_boundaries
+            else _MONTH_CARRY_TRANSFORM_SCHEMA
+            if native_calendar_month_linear_carry
             else _MONTH_TRANSFORM_SCHEMA
             if value["native_interval_seconds"] is None
             else _CARRY_TRANSFORM_SCHEMA
@@ -1124,6 +1154,7 @@ class PortfolioObservationTransform:
                 reference_price_counts=tuple(value["reference_price_counts"]),
                 native_fixed_linear_carry=native_fixed_linear_carry,
                 session_boundaries_ns=session_boundaries,
+                native_calendar_month_linear_carry=native_calendar_month_linear_carry,
             )
         except (TypeError, OverflowError) as error:
             raise ValueError("invalid transform metadata") from error
@@ -1138,6 +1169,13 @@ class PortfolioObservationTransform:
         if self.native_fixed_linear_carry != env.native_fixed_linear_carry:
             raise ValueError(
                 "native fixed linear carry transform mode differs from environment"
+            )
+        if (
+            self.native_calendar_month_linear_carry
+            != env.native_calendar_month_linear_carry
+        ):
+            raise ValueError(
+                "native calendar month linear carry transform mode differs from environment"
             )
         if self.native_fixed_linear_carry:
             env._validate_native_learning_window()
@@ -1700,6 +1738,7 @@ def fit_portfolio_observation_transform(
         raise TypeError("env must be a SharedPortfolioGymEnv")
     if (
         env.native_fixed_linear_carry
+        or env.native_calendar_month_linear_carry
         or env.bound.clock.decision_interval_seconds is None
     ):
         env._validate_native_learning_window()
@@ -1773,6 +1812,7 @@ def fit_portfolio_observation_transform(
         reference_price_counts=(agent_stop - start,) * dataset.n_symbols,
         native_fixed_linear_carry=env.native_fixed_linear_carry,
         session_boundaries_ns=_session_clock_boundaries(env.bound),
+        native_calendar_month_linear_carry=env.native_calendar_month_linear_carry,
     )
 
 

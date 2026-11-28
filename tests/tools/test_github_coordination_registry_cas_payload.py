@@ -216,3 +216,26 @@ def test_mismatched_plan_repository_never_mutates() -> None:
         _cas(plan, api, objects, repository="shuntatsu/other-coordination-disposable")
     assert api.calls == []
     assert objects.calls == []
+
+
+def test_plan_cas_preserves_explicit_repository_node_identity() -> None:
+    plan, api, objects = _fixture()
+    result = _cas(plan, api, objects, expected_repository_id="R_test")
+    assert result["payload_readback_verified"] is True
+    assert api.oid == B
+
+
+def test_plan_cas_rejects_replacement_repository_before_mutation() -> None:
+    plan, api, objects = _fixture()
+    with pytest.raises(ValueError, match="repository identity"):
+        _cas(plan, api, objects, expected_repository_id="R_replacement")
+    assert api.calls == ["read"]
+    assert api.oid == A
+
+
+def test_plan_cas_rejects_invalid_repository_identity_before_object_reads() -> None:
+    plan, api, objects = _fixture()
+    with pytest.raises(ValueError, match="expected repository node id"):
+        _cas(plan, api, objects, expected_repository_id="")
+    assert not objects.calls
+    assert not api.calls

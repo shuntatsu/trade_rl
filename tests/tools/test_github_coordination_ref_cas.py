@@ -268,3 +268,33 @@ def test_deletion_noop_and_malformed_identity_are_rejected() -> None:
     with pytest.raises(ValueError, match="canonical GitHub login"):
         _cas(api, expected_coordinator_login="bad login")
     assert api.calls == []
+
+
+def test_explicit_repository_node_id_pins_mutation_target() -> None:
+    api = _api()
+    result = _cas(api, expected_repository_id="R_repo")
+    assert result["readback_verified"] is True
+    mutation = api.calls[1][1]["input"]
+    assert isinstance(mutation, dict)
+    assert mutation["repositoryId"] == "R_repo"
+
+
+def test_explicit_repository_node_id_mismatch_stops_before_mutation() -> None:
+    api = _api()
+    with pytest.raises(ValueError, match="repository identity"):
+        _cas(api, expected_repository_id="R_different")
+    assert api.oid == A
+    assert api.reads == 1
+    assert len(api.calls) == 1
+
+
+class _ForeignRepositoryId(str):
+    pass
+
+
+@pytest.mark.parametrize("node_id", ["", " ", 123, _ForeignRepositoryId("R_repo")])
+def test_invalid_repository_node_id_rejected_before_transport(node_id) -> None:
+    api = _api()
+    with pytest.raises(ValueError, match="expected repository node id"):
+        _cas(api, expected_repository_id=node_id)
+    assert api.calls == []

@@ -219,3 +219,47 @@ def test_git_valid_coordination_ref_preserves_readback(suffix: str) -> None:
     assert result.ref_oid == COMMIT
     assert result.cleanup_authorized is False
     assert api.ref_reads == 2
+
+
+@pytest.mark.parametrize("identity", [(124, "R_123"), (123, "R_replaced")])
+def test_snapshot_refuses_other_pinned_repository_before_object_reads(identity) -> None:
+    api = FakeGet()
+    with pytest.raises(ValueError, match="repository identity changed"):
+        observe_registry_snapshot(
+            api,
+            expected_repository=REPOSITORY,
+            ref_name=REF,
+            registry_path=PATH,
+            expected_repository_identity=identity,
+        )
+    assert api.calls == [""]
+
+
+@pytest.mark.parametrize(
+    "identity", [(True, "R_123"), (123, ""), [123, "R_123"], (123,), (0, "R_123")]
+)
+def test_snapshot_rejects_invalid_pin_before_any_get(identity) -> None:
+    api = FakeGet()
+    with pytest.raises(ValueError, match="native ID"):
+        observe_registry_snapshot(
+            api,
+            expected_repository=REPOSITORY,
+            ref_name=REF,
+            registry_path=PATH,
+            expected_repository_identity=identity,
+        )
+    assert api.calls == []
+
+
+def test_snapshot_accepts_exact_repository_pin_without_authority() -> None:
+    api = FakeGet()
+    result = observe_registry_snapshot(
+        api,
+        expected_repository=REPOSITORY,
+        ref_name=REF,
+        registry_path=PATH,
+        expected_repository_identity=(123, "R_123"),
+    )
+    assert api.repo_reads == api.ref_reads == 2
+    assert result.repository_node_id == "R_123"
+    assert result.cleanup_authorized is False

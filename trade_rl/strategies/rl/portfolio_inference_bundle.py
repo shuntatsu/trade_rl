@@ -95,6 +95,9 @@ _CARRY_TRAINING_CONTEXT_SCHEMA = (
     "shared_portfolio_fixed_linear_carry_training_context_v1"
 )
 _SESSION_TRAINING_CONTEXT_SCHEMA = "shared_portfolio_session_training_context_v1"
+_MONTH_CARRY_TRAINING_CONTEXT_SCHEMA = (
+    "shared_portfolio_calendar_month_linear_carry_training_context_v1"
+)
 _PORTFOLIO_METADATA_MAX_BYTES = 16 * 1024 * 1024
 _BUNDLE_SCHEMA = "shared_portfolio_inference_bundle_v1"
 _BUNDLE_FILES = {
@@ -723,10 +726,14 @@ def _validated_training_context(
     if context["schema"] not in (
         _TRAINING_CONTEXT_SCHEMA,
         _CARRY_TRAINING_CONTEXT_SCHEMA,
+        _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA,
         _SESSION_TRAINING_CONTEXT_SCHEMA,
     ):
         raise ValueError("training context schema differs")
     native_fixed_linear_carry = context["schema"] == _CARRY_TRAINING_CONTEXT_SCHEMA
+    native_calendar_month_linear_carry = (
+        context["schema"] == _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA
+    )
     session_context = context["schema"] == _SESSION_TRAINING_CONTEXT_SCHEMA
     declared_context = _strict_object(
         context["context"], field="training_context.context"
@@ -805,6 +812,12 @@ def _validated_training_context(
     bound = BoundObjectiveClock(objective, clock)
     if session_context != isinstance(clock, SessionFinancialClockContract):
         raise ValueError("session training context differs from its financial clock")
+    if native_calendar_month_linear_carry and not isinstance(
+        clock, CalendarMonthFinancialClockContract
+    ):
+        raise ValueError(
+            "native calendar month linear carry training context differs from its financial clock"
+        )
     if (
         objective.digest != context["objective_digest"]
         or clock.digest != context["financial_clock_digest"]
@@ -837,6 +850,8 @@ def _validated_training_context(
         or transform.clock_digest != clock.digest
         or transform.session_boundaries_ns != _session_clock_boundaries(bound)
         or transform.native_fixed_linear_carry != native_fixed_linear_carry
+        or transform.native_calendar_month_linear_carry
+        != native_calendar_month_linear_carry
         or transform.native_interval_seconds != clock.decision_interval_seconds
         or transform.economic_horizon_seconds != clock.economic_horizon_seconds
         or transform.objective_start_ns != _datetime_ns(objective.evaluation_start)

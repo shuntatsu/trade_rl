@@ -63,19 +63,19 @@ class _Snapshot(NamedTuple):
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be an object with native string keys")
     return value
 
 
 def _text(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise ValueError(f"{name} must be non-empty text")
     return value
 
 
 def _sha(value: Any, name: str, *, allow_zero: bool = True) -> str:
-    if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
+    if type(value) is not str or not _SHA_RE.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase 40-hex Git OID")
     if not allow_zero and value == ZERO_OID:
         raise ValueError(f"{name} must not be the zero OID")
@@ -83,7 +83,7 @@ def _sha(value: Any, name: str, *, allow_zero: bool = True) -> str:
 
 
 def _repository(value: Any) -> tuple[str, str, str]:
-    if not isinstance(value, str) or not _REPOSITORY_RE.fullmatch(value):
+    if type(value) is not str or not _REPOSITORY_RE.fullmatch(value):
         raise ValueError("repository must use owner/name form")
     owner, name = value.split("/", 1)
     return value, owner, name
@@ -91,7 +91,7 @@ def _repository(value: Any) -> tuple[str, str, str]:
 
 def _ref_name(value: Any) -> str:
     if (
-        not isinstance(value, str)
+        type(value) is not str
         or not value.startswith(_REF_PREFIX)
         or len(value) <= len(_REF_PREFIX)
         or value.endswith("/")
@@ -104,7 +104,7 @@ def _ref_name(value: Any) -> str:
 
 
 def _login(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _LOGIN_RE.fullmatch(value):
+    if type(value) is not str or not _LOGIN_RE.fullmatch(value):
         raise ValueError(f"{name} must be a canonical GitHub login")
     return value
 
@@ -112,7 +112,7 @@ def _login(value: Any, name: str) -> str:
 def _graphql_data(payload: Any, operation: str) -> dict[str, Any]:
     response = _mapping(payload, f"{operation} response")
     errors = response.get("errors")
-    if errors not in (None, []):
+    if errors is not None and (type(errors) is not list or errors):
         raise RuntimeError(f"{operation} returned GraphQL errors")
     return _mapping(response.get("data"), f"{operation} data")
 
@@ -187,13 +187,15 @@ def compare_and_swap_coordination_ref(
     after_oid: str,
     expected_coordinator_login: str,
     allow_unprotected_test_mutation: bool = False,
+    expected_repository_id: str | None = None,
 ) -> dict[str, object]:
     """Perform one exact beforeOid/afterOid CAS for disposable integration tests.
 
     The default is a hard refusal. Setting ``allow_unprotected_test_mutation``
     explicitly acknowledges that external ref protection and single-writer policy
     have NOT been established. This primitive must not be used as cleanup or Task
-    enrollment authority in the production repository.
+    enrollment authority in the production repository. An optional expected
+    repository node ID binds the final pre-mutation read to an earlier audit.
     """
 
     (
@@ -211,7 +213,17 @@ def compare_and_swap_coordination_ref(
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
     )
 
+    if expected_repository_id is not None:
+        expected_repository_id = _text(
+            expected_repository_id, "expected repository node id"
+        )
+
     before = _read_snapshot(api, repository=repository, ref_name=ref_name)
+    if (
+        expected_repository_id is not None
+        and before.repository_id != expected_repository_id
+    ):
+        raise ValueError("repository identity differs from the audited repository")
     if before.viewer_login.casefold() != expected_login.casefold():
         raise ValueError("authenticated Coordinator does not match expected login")
     if before.oid != expected_oid:
@@ -239,7 +251,8 @@ def compare_and_swap_coordination_ref(
         "coordination ref update",
     )
     update = _mapping(mutation_data.get("updateRefs"), "updateRefs result")
-    if update.get("clientMutationId") != mutation_id:
+    observed_id = update.get("clientMutationId")
+    if type(observed_id) is not str or observed_id != mutation_id:
         raise ValueError("updateRefs clientMutationId readback differs")
 
     after = _read_snapshot(api, repository=repository, ref_name=ref_name)
@@ -275,8 +288,18 @@ def _require_plan_payload(
 ) -> None:
     """Bind a proposed CAS to canonical before/after content, not just OIDs."""
 
-    if not isinstance(plan, RegistryTransitionPlan):
+    if type(plan) is not RegistryTransitionPlan:
         raise ValueError("plan must be a RegistryTransitionPlan")
+    if type(plan.after_registry) is not CoordinatorRegistry or any(
+        type(value) is not str
+        for value in (
+            plan.operation,
+            plan.task_id,
+            plan.before_digest,
+            plan.after_digest,
+        )
+    ):
+        raise ValueError("registry transition plan fields must be native")
     if plan.after_registry.repository != repository:
         raise ValueError("plan repository differs from CAS repository")
 
@@ -333,12 +356,14 @@ def compare_and_swap_registry_plan(
     after_oid: str,
     expected_coordinator_login: str,
     allow_unprotected_test_mutation: bool = False,
+    expected_repository_id: str | None = None,
 ) -> dict[str, object]:
     """Test-only CAS with canonical commit-payload checks before and after.
 
     The supplied object reader is not independently authenticated here.
-    If the final payload check fails, the remote update may already have
-    happened: fail closed, do not report success or assume rollback.
+    An expected repository node ID, when supplied, is retained through the
+    final CAS preflight. If the final payload check fails, the remote update may
+    already have happened: fail closed, do not report success or assume rollback.
     """
 
     (
@@ -355,6 +380,10 @@ def compare_and_swap_registry_plan(
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
     )
+    if expected_repository_id is not None:
+        expected_repository_id = _text(
+            expected_repository_id, "expected repository node id"
+        )
     _require_plan_payload(
         plan,
         objects,
@@ -370,6 +399,7 @@ def compare_and_swap_registry_plan(
         after_oid=after_oid,
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
+        expected_repository_id=expected_repository_id,
     )
     _require_after_payload(plan, objects, repository=repository, after_oid=after_oid)
     return {

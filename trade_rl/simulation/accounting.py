@@ -537,7 +537,9 @@ class BookState:
             for quantity, factor in zip(self._quantity_values(), factors, strict=True)
         )
         projected = np.array([project_quantity(value) for value in exact_after])
-        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        with np.errstate(
+            over="ignore", under="ignore", divide="ignore", invalid="ignore"
+        ):
             marks_after = self.mark_prices / factors
         if not np.isfinite(marks_after).all() or np.any(marks_after <= 0.0):
             raise ValueError("split produced non-finite mark prices")
@@ -550,7 +552,9 @@ class BookState:
             multipliers=multipliers,
         )
         self._set_quantity_values(exact_after)
-        self.mark_prices[:] = marks_after
+        # Commit the validated snapshot rather than mutating caller-visible
+        # storage, which may be read-only or shared with another book field.
+        self.mark_prices = marks_after
         self._refresh_economic_state()
 
     def apply_dividend(self, dividend_per_unit: np.ndarray) -> float:

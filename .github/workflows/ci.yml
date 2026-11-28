@@ -84,6 +84,7 @@ jobs:
             tests/tools/test_github_coordination_disposable_http.py \
             tests/tools/test_github_coordination_enrollment_audit.py \
             tests/tools/test_github_coordination_enrollment_transaction.py \
+            tests/tools/test_github_coordination_cas_native_boundary.py \
             tests/tools/test_agent_docs_context.py \
             tests/tools/test_docs_source_consistency.py \
             tests/tools/test_markdown_links.py

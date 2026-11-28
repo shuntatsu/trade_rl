@@ -75,10 +75,7 @@ def execute_source_bound_disposable_enrollment(
         raise ValueError("Task, lease and status require native Task contracts")
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
-    if (
-        not isinstance(expected_issue_node_id, str)
-        or not expected_issue_node_id.strip()
-    ):
+    if type(expected_issue_node_id) is not str or not expected_issue_node_id.strip():
         raise ValueError("expected Issue node identity is required")
 
     source = _read_state(
@@ -136,6 +133,7 @@ def execute_source_bound_disposable_enrollment(
         after_oid=after_oid,
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
+        expected_repository_id=source.repository[1],
     )
 
     # Check the *independent REST Git-object source*, not merely the object

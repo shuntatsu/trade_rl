@@ -475,3 +475,31 @@ def test_graphql_actor_cannot_self_declare_worker_as_coordinator() -> None:
         run(graphql, rest, objects)
     assert graphql.mutations == 0
     assert not objects.calls
+
+
+def test_repository_replacement_at_cas_preflight_never_mutates() -> None:
+    class RepositorySwitch(GraphQL):
+        def __init__(self) -> None:
+            super().__init__()
+            self.read_count = 0
+            self.mutation_targets: list[str] = []
+
+        def execute(self, document, variables):
+            if "mutation UpdateCoordinationRef" in document:
+                self.mutation_targets.append(variables["input"]["repositoryId"])
+            else:
+                self.read_count += 1
+                if self.read_count == 2:
+                    # Same name/ref/OID, different immutable repository.
+                    self.repository_id = "R_replacement"
+            return super().execute(document, variables)
+
+    _, rest, objects = fixture()
+    switched = RepositorySwitch()
+    rest.graphql = switched
+    with pytest.raises(ValueError, match="repository identity"):
+        run(switched, rest, objects)
+    assert switched.read_count == 2
+    assert switched.mutation_targets == []
+    assert switched.mutations == 0
+    assert switched.oid == BEFORE

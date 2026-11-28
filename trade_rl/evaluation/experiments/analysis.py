@@ -199,7 +199,10 @@ def _run_matrix(
             raise ArtifactIntegrityError("candidate symbol evidence is malformed")
         if symbol_entry.get("symbol") != expected_symbol:
             raise ArtifactIntegrityError("candidate symbol matrix ordering mismatch")
-        if symbol_entry.get("symbol_index") not in (None, symbol_index):
+        raw_index = symbol_entry.get("symbol_index")
+        if raw_index is not None and (
+            type(raw_index) is not int or raw_index != symbol_index
+        ):
             raise ArtifactIntegrityError("candidate symbol index mismatch")
         strategies = symbol_entry.get("strategies")
         if (

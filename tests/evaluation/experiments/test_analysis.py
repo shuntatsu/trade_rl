@@ -280,3 +280,33 @@ def test_analysis_refuses_direct_invalid_return_arrays(values: np.ndarray) -> No
     )
     with pytest.raises(ArtifactIntegrityError, match="candidate return array"):
         analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize(
+    ("row_index", "invalid_index"),
+    [
+        pytest.param(0, False, id="false-equals-zero"),
+        pytest.param(1, True, id="true-equals-one"),
+        pytest.param(0, 0.0, id="float-zero"),
+        pytest.param(1, 1.0, id="float-one"),
+    ],
+)
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+def test_analysis_refuses_noninteger_symbol_index(
+    row_index: int, invalid_index: object, schema: str
+) -> None:
+    run = _run(0)
+    raw_rows = run.summary["by_symbol"]
+    assert isinstance(raw_rows, tuple)
+    rows = [dict(row) for row in raw_rows]
+    rows[row_index]["symbol_index"] = invalid_index
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary={**run.summary, "schema_version": schema, "by_symbol": rows},
+        returns=run.returns,
+        provenance=run.provenance,
+    )
+    with pytest.raises(ArtifactIntegrityError, match="candidate symbol index mismatch"):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

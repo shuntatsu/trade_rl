@@ -10,7 +10,10 @@ from typing import Any
 
 from tools.agent_repo.coordination.github_state import parse_status_comment
 from tools.branch_hygiene import BranchInfo, GitHubApi
-from tools.github_workflow_ref_guard import stable_workflow_branch_refs
+from tools.github_workflow_ref_guard import (
+    _validated_branch_names,
+    stable_workflow_branch_refs,
+)
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY_FULL_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -238,6 +241,10 @@ def _branch_snapshot(value: Any) -> tuple[BranchInfo, ...]:
         ):
             raise ValueError("branch identity/protection must be native")
         _sha(branch.sha, "branch SHA")
+    _validated_branch_names(
+        frozenset(branch.name for branch in value),
+        invalid_message="branch roster is malformed",
+    )
     return value
 
 

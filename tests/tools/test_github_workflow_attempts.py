@@ -476,3 +476,37 @@ class _ForeignAttemptReader(FakeReader):
 def test_attempt_observation_refuses_foreign_json_containers(location):
     with pytest.raises(ValueError, match="native JSON|pagination"):
         observe_workflow_attempt(_ForeignAttemptReader(location), run_id=RUN_ID)
+
+
+@pytest.mark.parametrize(
+    "branch",
+    ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"],
+)
+@pytest.mark.parametrize("readback", [False, True])
+def test_attempt_rejects_malformed_head_ref(branch: str, readback: bool) -> None:
+    reader = FakeReader(count=1)
+    if readback:
+        reader.runs[1]["head_branch"] = branch
+    else:
+        for run in reader.runs:
+            run["head_branch"] = branch
+        reader.pages = [
+            {"total_count": 1, "jobs": [{**_job(1), "head_branch": branch}]}
+        ]
+    with pytest.raises(ValueError, match="workflow head branch is malformed"):
+        observe_workflow_attempt(reader, run_id=RUN_ID)
+    if not readback:
+        assert reader.requests == [("GET", f"actions/runs/{RUN_ID}", None)]
+
+
+@pytest.mark.parametrize("branch", ["main", "feature/日本語", "v1.2.3", "a" * 40])
+def test_attempt_accepts_valid_head_ref_without_authority(branch: str) -> None:
+    reader = FakeReader(count=1)
+    for run in reader.runs:
+        run["head_branch"] = branch
+    reader.pages = [{"total_count": 1, "jobs": [{**_job(1), "head_branch": branch}]}]
+    report = observe_workflow_attempt(reader, run_id=RUN_ID)
+    assert report["head_branch"] == branch
+    assert report["workflow_activity_checked"] is False
+    assert report["task_registry_complete"] is False
+    assert report["cleanup_authorized"] is False

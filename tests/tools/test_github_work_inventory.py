@@ -1290,3 +1290,60 @@ def test_work_inventory_rechecks_pr_roster_after_late_reads(
         assert report["cleanup_authorized"] is False
         assert report["task_registry_complete"] is False
     assert pull_reads == 3
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("bad\0ref",),
+        ("bad\nref",),
+        ("bad\ud800ref",),
+        ("bad//ref",),
+        ("bad..ref",),
+        ("bad.lock",),
+        ("parent", "parent/child"),
+        ("parent/child", "parent"),
+    ],
+)
+@pytest.mark.parametrize("readback", [False, True])
+def test_inventory_rejects_malformed_branch_roster_without_workflow_scan(
+    names: tuple[str, ...], readback: bool
+) -> None:
+    class MalformedRoster(FakeWorkApi):
+        def __init__(self) -> None:
+            super().__init__()
+            self.branch_reads = 0
+            self.pull_reads = 0
+
+        def branches(self) -> tuple[BranchInfo, ...]:
+            self.branch_reads += 1
+            if readback and self.branch_reads == 1:
+                return self.branch_rows
+            return self.branch_rows + tuple(
+                BranchInfo(name, "d" * 40, False) for name in names
+            )
+
+        def open_pulls(self) -> list[dict[str, object]]:
+            self.pull_reads += 1
+            return super().open_pulls()
+
+    api = MalformedRoster()
+    with pytest.raises(ValueError, match="branch roster is malformed"):
+        build_inventory(api)
+    if not readback:
+        assert api.pull_reads == 0
+
+
+def test_inventory_accepts_valid_unicode_and_sibling_refs_without_authority() -> None:
+    api = FakeWorkApi()
+    api.branch_rows += (
+        BranchInfo("feature/日本語", "d" * 40, False),
+        BranchInfo("feature/parent", "e" * 40, False),
+        BranchInfo("feature/parent-other/child", "1" * 40, False),
+    )
+    report = build_inventory(api)
+    names = {branch["name"] for branch in report["branches"]}
+    assert {"feature/日本語", "feature/parent", "feature/parent-other/child"} <= names
+    assert report["workflow_activity_checked"] is False
+    assert report["task_registry_complete"] is False
+    assert report["cleanup_authorized"] is False

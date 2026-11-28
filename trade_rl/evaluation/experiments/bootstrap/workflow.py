@@ -356,6 +356,21 @@ def _validate_study_against_config(
         (frozen.fit_symbol_indices, lean.fit_symbol_indices, "fit_symbol_indices"),
         (frozen.ppo_seed, config.ppo_seeds[0], "ppo_seed"),
         (
+            frozen.forecast_switch_cost,
+            lean.forecast_switch_cost,
+            "forecast_switch_cost",
+        ),
+        (
+            frozen.ppo_training_layout,
+            lean.ppo_training_layout,
+            "ppo_training_layout",
+        ),
+        (
+            frozen.ppo_rollout_steps_per_env,
+            lean.ppo_rollout_steps_per_env,
+            "ppo_rollout_steps_per_env",
+        ),
+        (
             frozen.ppo_observation_schema,
             config.baseline.ppo_observation_schema,
             "ppo_observation_schema",

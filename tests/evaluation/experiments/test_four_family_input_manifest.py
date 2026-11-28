@@ -409,8 +409,26 @@ def test_valid_ppo_clock_mismatches_are_rejected(input_manifest, field, changed_
 def test_manifest_digest_matches_fixed_current_v1_compatibility_vector(
     input_manifest,
 ) -> None:
-    # Fixed domain-separated vector for this fixture; keep the expected value literal.
+    # The new causal default has a new digest, not the historical v1 vector.
+    causal_cost = input_manifest.ppo_training.execution_cost
+    assert causal_cost.processing_bar_volume_capacity is False
     assert input_manifest.digest == (
+        "ad1389501a2700a1e42edf6a94a6b2f53cd80d559aae39c1658b040be4e8e058"
+    )
+
+    # Explicit old capacity mode must still reproduce the historical digest.
+    # Rebind both attempt identities and the PPO financial declaration together.
+    legacy_cost = replace(causal_cost, processing_bar_volume_capacity=True)
+    legacy_ppo = replace(input_manifest.ppo_training, execution_cost=legacy_cost)
+    legacy_attempts = tuple(
+        replace(
+            attempt,
+            identity=replace(attempt.identity, execution_cost=legacy_cost),
+        )
+        for attempt in input_manifest.attempts
+    )
+    legacy = replace(input_manifest, ppo_training=legacy_ppo, attempts=legacy_attempts)
+    assert legacy.digest == (
         "cd0fad5d97f957210429ddf8c9cb99e0c1084bad0a975084f28825c8eefb154b"
     )
 

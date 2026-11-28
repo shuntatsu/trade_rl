@@ -45,7 +45,12 @@ def test_causal_adx_seed_does_not_need_a_future_row(period, direction):
     # A one-row Wilder seed has zero directional movement. Larger monotone
     # seeds have only one nonzero direction and therefore DX/100 exactly one.
     assert values[-1] == (0.0 if period == 1 else 1.0)
-    assert not _events(legacy, close[:seed_rows], present[:seed_rows])[1].any()
+    # #1570 pinned the legacy kind to an extra-row admission here. Per the
+    # owner decision of 2026-11-28 (all research is reset; no legacy-compatible
+    # mode) the legacy kind now uses the same causal 2p-1 seed.
+    legacy_seed = _events(legacy, close[:seed_rows], present[:seed_rows])
+    for expected, actual in zip((values, valid, starts), legacy_seed, strict=True):
+        np.testing.assert_array_equal(expected, actual)
     full = _events(spec, close, present)
     for expected, actual in zip((values, valid, starts), full, strict=True):
         np.testing.assert_array_equal(expected, actual[:seed_rows])

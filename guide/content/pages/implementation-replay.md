@@ -169,7 +169,7 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
 
-特徴量を新規構成するときは、ADXのseedが確定した時点で有効になる `adx_causal_v1` を明示できます。旧 `adx` の追加1本を要求する互換挙動と別identityであり、過去のDatasetや学習済みモデルを自動変更しません。
+特徴量を新規構成するときは、取引不可の足でもwarm-upをやり直す `adx_causal_v1` を明示できます。旧 `adx` と同じくADXのseedが確定した時点で有効になりますが、別identityであり、保存済みのDatasetや学習済みモデルを自動変更しません。
 
 UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_month=True` を明示した共有ポートフォリオ経路だけで受理します。実際の月の長さを保持して約定・現金利息・年率を計算し、通常の固定時間足へ流しません。
 

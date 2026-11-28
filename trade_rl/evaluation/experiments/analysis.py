@@ -240,8 +240,6 @@ def _run_matrix(
                 )
             metrics = cast(Mapping[str, object], metrics_raw)
             terminal_settlement_complete = strategy.get("terminal_settlement_complete")
-            if not full_coverage:
-                terminal_settlement_complete = False
             if terminal_settlement_complete is not None and not isinstance(
                 terminal_settlement_complete,
                 bool,
@@ -249,6 +247,8 @@ def _run_matrix(
                 raise ArtifactIntegrityError(
                     "candidate terminal-settlement state is malformed"
                 )
+            if not full_coverage:
+                terminal_settlement_complete = False
             matrix[key] = _Cell(
                 symbol=expected_symbol,
                 strategy=name,

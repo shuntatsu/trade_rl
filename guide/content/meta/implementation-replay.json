@@ -49,12 +49,12 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "827b0e8a72dee2db609bea4c972a13018e466218191d654e5c46b0aa5ff8a81e"
+      "sha256": "b048075041b418a010307f50aac30deec8372d957bcb5a5e3bce7a00e2023396"
     },
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "85679d57bb69d0ce5a6c0f77ed7b4980bb0c5d87866af7fb270265d3ccefae99"
+      "sha256": "a19f23d9622d6211d9e8a72a5efabb68a56278b7e9a9ed2cf5ff262c513433b4"
     },
     {
       "path": "docs/architecture/lean-core.md",

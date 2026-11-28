@@ -114,11 +114,8 @@ def _features(
         volume=s["volume"][window],
         funding_rate=s["funding"][window],
         funding_available=s["funding_available"][window],
-        # Every kind runs with unusable rows except legacy ADX; see
-        # test_legacy_adx_gap_availability_depends_on_later_rows.
-        row_present=_present(n, gaps=spec.kind is not FeatureKind.ADX)
-        if gaps is None
-        else _present(n, gaps=gaps),
+        # Every kind, legacy ADX included, runs with unusable rows.
+        row_present=_present(n, gaps=True if gaps is None else gaps),
         active=np.ones(n, dtype=bool),
     )
 
@@ -216,23 +213,17 @@ def test_feature_prefix_truncation_and_future_mutation_invariance(trials):
     assert checks > 1000
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "pre-existing: legacy ADX skips a usable segment of fewer than "
-        "2 * lookback rows although its first value needs 2 * lookback - 1, "
-        "so a prefix ending inside a later segment marks that segment's first "
-        "ADX row unavailable while the full series marks it available. Values "
-        "never differ; fixing it changes the Dataset availability of adx rows."
-    ),
-)
-def test_legacy_adx_gap_availability_depends_on_later_rows():
+def test_legacy_adx_gap_availability_is_independent_of_later_rows():
+    # Former strict-xfail witness: the segment after the gap at row 35 starts
+    # at 36 and its first ADX row is 36 + 2 * 14 - 2 = 62. A 63-row prefix
+    # leaves that segment exactly 2 * 14 - 1 rows long, which must suffice.
     s = _series(np.random.default_rng(_SEED), _N)
     spec = FeatureSpec("adx", FeatureKind.ADX, lookback=14)
     full = _features(spec, s, gaps=True)
-    # Segment after the gap at row 35 starts at 36; first ADX row is 36 + 26.
     prefix = _features(spec, s, 36 + 27, gaps=True)
-    np.testing.assert_array_equal(full[1][: 36 + 27], prefix[1])
+    assert full[1][62] and prefix[1][62] and not full[1][61]
+    for index in range(3):
+        np.testing.assert_array_equal(full[index][: 36 + 27], prefix[index])
 
 
 def _raw(s: dict[str, np.ndarray], stop: int | None = None) -> RawMarketSeries:

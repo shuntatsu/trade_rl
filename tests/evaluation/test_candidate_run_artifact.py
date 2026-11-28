@@ -812,3 +812,71 @@ def test_shared_cash_candidate_roster_rejects_invalid_evidence_before_decode(
     ):
         with pytest.raises(ValueError, match=match):
             reader(artifact.root)
+
+
+@pytest.mark.parametrize("scope", ["per_symbol", "shared_cash"])
+@pytest.mark.parametrize("n_periods", [2, 4])
+def test_candidate_writer_rejects_mismatched_return_period_count(
+    tmp_path, shared_cash_candidate_result, scope: str, n_periods: int
+) -> None:
+    result = shared_cash_candidate_result
+    comparison = result.comparison
+    if scope == "per_symbol":
+        symbol = comparison.by_symbol[0]
+        entry = symbol.comparison.entries[0]
+        assert len(entry.replay.returns.values) == 3
+        entry = replace(entry, metrics=replace(entry.metrics, n_periods=n_periods))
+        symbol = replace(
+            symbol, comparison=replace(symbol.comparison, entries=(entry,))
+        )
+        comparison = replace(comparison, by_symbol=(symbol, *comparison.by_symbol[1:]))
+    else:
+        shared = comparison.shared_cash_ppo
+        assert shared is not None and len(shared.replay.returns.values) == 3
+        comparison = replace(
+            comparison,
+            shared_cash_ppo=replace(
+                shared, metrics=replace(shared.metrics, n_periods=n_periods)
+            ),
+        )
+    result = replace(result, comparison=comparison)
+    destination = tmp_path / "unreadable-run"
+    with pytest.raises(ValueError, match="return period count is inconsistent"):
+        candidate_artifact.publish_candidate_run(
+            destination, result, build_candidate_run_provenance()
+        )
+    assert not destination.exists()
+
+
+def test_candidate_writer_preserves_valid_short_per_symbol_replay(
+    tmp_path, shared_cash_candidate_result
+) -> None:
+    result = shared_cash_candidate_result
+    comparison = result.comparison
+    symbol = comparison.by_symbol[0]
+    entry = symbol.comparison.entries[0]
+    shortened = replace(entry.replay.returns, values=(0.0, 0.0))
+    entry = replace(
+        entry,
+        replay=replace(entry.replay, returns=shortened),
+        metrics=replace(entry.metrics, n_periods=2),
+    )
+    symbol = replace(symbol, comparison=replace(symbol.comparison, entries=(entry,)))
+    result = replace(
+        result,
+        comparison=replace(comparison, by_symbol=(symbol, *comparison.by_symbol[1:])),
+    )
+    artifact = candidate_artifact.publish_candidate_run(
+        tmp_path / "short-run", result, build_candidate_run_provenance()
+    )
+    loaded = candidate_artifact.load_candidate_run_artifact(artifact.root)
+    assert not loaded.has_verified_full_evaluation_coverage
+    np.testing.assert_array_equal(loaded.returns["symbol_0_strategy_0"], np.zeros(2))
+    assert (
+        loaded.summary["by_symbol"][0]["strategies"][0]["terminal_settlement_complete"]
+        is False
+    )
+    assert (
+        candidate_artifact.inspect_candidate_run_artifact(artifact.root).artifact_digest
+        == loaded.artifact_digest
+    )

@@ -310,3 +310,50 @@ def test_analysis_refuses_noninteger_symbol_index(
     )
     with pytest.raises(ArtifactIntegrityError, match="candidate symbol index mismatch"):
         analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+@pytest.mark.parametrize("invalid", ["true", 1, {}])
+def test_analysis_rejects_malformed_terminal_state_before_coverage_downgrade(
+    schema: str, invalid: object
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    summary["schema_version"] = schema
+    summary["evaluation"] = {"expected_periods": 5}
+    summary["by_symbol"][0]["strategies"][0]["terminal_settlement_complete"] = invalid
+    broken = LoadedCandidateRun(
+        root=run.root, summary=summary, returns=run.returns, provenance=run.provenance
+    )
+    assert not broken.has_verified_full_evaluation_coverage
+    with pytest.raises(
+        ArtifactIntegrityError, match="terminal-settlement state is malformed"
+    ):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_analysis_preserves_historical_missing_symbol_index(
+    explicit_null: bool,
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    for row in summary["by_symbol"]:
+        if explicit_null:
+            row["symbol_index"] = None
+        else:
+            row.pop("symbol_index")
+    legacy = LoadedCandidateRun(
+        root=run.root, summary=summary, returns=run.returns, provenance=run.provenance
+    )
+    assert analyze_evidence_set(
+        {0: legacy, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7
+    ) == analyze_evidence_set({0: run, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

@@ -575,7 +575,12 @@ def publish_candidate_run(
     provenance_payload = dict(provenance)
     _validate_provenance(provenance_payload)
     summary, returns = _result_payload(result)
-    _require_coverage_roster(summary)
+    expected_keys = _require_coverage_roster(summary)
+    if expected_keys != set(returns):
+        raise ValueError("candidate return keys do not match summary")
+    expected_counts = _expected_return_period_counts(summary)
+    for key, values in returns.items():
+        _validate_return_vector(values, expected_count=expected_counts[key])
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=str(output.parent))
@@ -1381,6 +1386,18 @@ def _validate_return_member_extent(
     return shape[0]
 
 
+def _validate_return_vector(value: np.ndarray, *, expected_count: int) -> None:
+    """Apply the common persisted return-vector contract before publication or load."""
+    if value.dtype.kind not in {"i", "u", "f"}:
+        raise ValueError("candidate return arrays must be real numeric")
+    if value.ndim != 1:
+        raise ValueError("candidate return arrays must be one-dimensional")
+    if value.size != expected_count:
+        raise ValueError("candidate return period count is inconsistent")
+    if not np.isfinite(value).all():
+        raise ValueError("candidate return arrays must be finite")
+
+
 def _load_returns(
     payload: bytes,
     *,
@@ -1434,14 +1451,7 @@ def _load_returns(
                     raise ValueError(
                         "candidate return arrays must be real numeric and pickle-free"
                     ) from error
-                if value.dtype.kind not in {"i", "u", "f"}:
-                    raise ValueError("candidate return arrays must be real numeric")
-                if value.ndim != 1:
-                    raise ValueError("candidate return arrays must be one-dimensional")
-                if value.size != declared_periods[key]:
-                    raise ValueError("candidate return period count is inconsistent")
-                if not np.isfinite(value).all():
-                    raise ValueError("candidate return arrays must be finite")
+                _validate_return_vector(value, expected_count=declared_periods[key])
                 loaded[key] = np.ascontiguousarray(value).copy()
     except _ARCHIVE_DECODE_ERRORS as error:
         raise ValueError("malformed candidate returns archive") from error
@@ -1493,6 +1503,12 @@ def _expected_return_period_counts(
             portfolio.get("return_key"), str
         ):
             raise ValueError("candidate shared-cash return evidence is malformed")
+        metrics = portfolio.get("metrics")
+        n_periods = metrics.get("n_periods") if isinstance(metrics, Mapping) else None
+        if type(n_periods) is not int or n_periods != expected_periods:
+            raise ValueError(
+                "candidate shared-cash return period count is inconsistent"
+            )
         counts[portfolio["return_key"]] = expected_periods
     return counts
 

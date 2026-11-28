@@ -138,7 +138,7 @@ target_weight
 
 全区間を処理した後、raw interval returns、decisions、execution diagnosticsに加えて、最後のstateful executionが持つactive order remainderとterminal order reasonを`SingleSymbolReplayResult`へまとめます。
 
-保有期間比較のRun artifactはPPOの抑制・解除、年齢、fill前後quantity、risk理由を記録します。 現行のRun publicationとv6–v10 readerは非空で順序の整合した銘柄・戦略行列と一意なreturn keyを要求します。全期間のcoverage判定は有限な実数の一次元return配列と期間数の一致が条件です。直接構築した不正配列もStudy analysisで数値へ暗黙変換しません。共通terminal settlementの後にもpositionや注文残があるseed-symbol accountは未決済として識別され、PPO期間選定のeligible armにはできません。
+保有期間比較のRun artifactはPPOの抑制・解除、年齢、fill前後quantity、risk理由を記録します。 現行のRun publicationとv6–v10 readerは非空で順序の整合した銘柄・戦略行列と一意なreturn keyを要求します。全期間のcoverage判定は有限な実数の一次元return配列と期間数の一致が条件です。保存前にもreturn key・配列の型・次元・有限性・報告期間数を照合します。直接構築した不正配列もStudy analysisで数値へ暗黙変換せず、終端決済の型不正はcoverage不足によるfalse化の前に拒否します。共通terminal settlementの後にもpositionや注文残があるseed-symbol accountは未決済として識別され、PPO期間選定のeligible armにはできません。
 
 このためposition数量が0でも未約定orderが残っている状態を「完全にflat」と誤認せず、research hard guard側でterminal execution stateを検査できます。order evidenceは同じ`MarketExecutor`のobserverから取得し、別のexecutionを再計算しません。
 
@@ -169,7 +169,7 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
 
-特徴量を新規構成するときは、ADXのseedが確定した時点で有効になる `adx_causal_v1` を明示できます。旧 `adx` の追加1本を要求する互換挙動と別identityであり、過去のDatasetや学習済みモデルを自動変更しません。
+特徴量を新規構成するときは、取引不可の足でもwarm-upをやり直す `adx_causal_v1` を明示できます。旧 `adx` と同じくADXのseedが確定した時点で有効になりますが、別identityであり、保存済みのDatasetや学習済みモデルを自動変更しません。
 
 UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_month=True` を明示した共有ポートフォリオ経路だけで受理します。実際の月の長さを保持して約定・現金利息・年率を計算し、通常の固定時間足へ流しません。
 

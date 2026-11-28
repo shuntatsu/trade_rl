@@ -629,21 +629,36 @@ def test_late_unselected_flat_symbol_does_not_block_selected_target() -> None:
     assert result.book.fill_count == 1
 
 
-def test_on_time_price_clock_allows_explicitly_unavailable_information_flag() -> None:
+@pytest.mark.parametrize("same_bar", [False, True])
+def test_on_time_price_clock_separates_admission_from_capacity(same_bar: bool) -> None:
     dataset = market(
         information_available=np.zeros((5, 1), dtype=np.bool_),
     )
     assert not dataset.information_available[1, 0]
     assert dataset.available_at[1, 0] == dataset.timestamps[1]
 
-    result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
+    # An on-time price clock permits admission. Causal capacity still requires
+    # an observed completed bar; explicit same-bar mode retains its old fill.
+    result = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), processing_bar_volume_capacity=same_bar),
+    ).execute_interval(
         BookState.zero(1, 1_000.0),
         np.array([0.5]),
         start_index=1,
         bars=1,
     )
 
-    assert result.book.fill_count == 1
+    assert result.requested_notional_by_symbol == pytest.approx([500.0])
+    if same_bar:
+        assert result.book.fill_count == 1
+        assert result.book.quantities == pytest.approx([5.0])
+        assert result.filled_notional_by_symbol == pytest.approx([500.0])
+    else:
+        assert result.book.fill_count == 0
+        assert result.book.quantities == pytest.approx([0.0])
+        assert result.book.cash == 1_000.0
+        assert result.filled_notional_by_symbol == pytest.approx([0.0])
 
 
 def test_late_future_bar_remains_available_to_physical_interval_processing() -> None:

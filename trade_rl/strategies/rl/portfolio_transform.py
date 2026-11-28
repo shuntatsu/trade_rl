@@ -486,12 +486,10 @@ class PortfolioObservationRuntimeBinding:
             raise ValueError("session runtime mode or training boundaries differ")
         if training_session:
             runtime_env._validate_native_learning_window()
-            actual_training = tuple(
-                int(x)
-                for x in runtime_env.dataset.timestamps[
-                    transform.start_index : transform.stop_index + 1
-                ].view(np.int64)
-            )
+            timestamps = runtime_env.dataset.timestamps[
+                transform.start_index : transform.stop_index + 1
+            ].astype("datetime64[ns]")
+            actual_training = tuple(int(x) for x in timestamps.view(np.int64))
             if actual_training != training_session:
                 raise ValueError(
                     "session training boundaries differ from the runtime Dataset"

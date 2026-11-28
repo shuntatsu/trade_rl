@@ -235,7 +235,8 @@ def _require_native_execution_rows(
         nominal_seconds = round(seconds)
         if nominal_seconds / 3600 != nominal_hours:
             raise ValueError("session requires whole-second nominal bars")
-        boundaries = tuple(int(x) for x in dataset.timestamps[span].view(np.int64))
+        timestamps = dataset.timestamps[span].astype("datetime64[ns]")
+        boundaries = tuple(int(x) for x in timestamps.view(np.int64))
         _require_nominal_session_seconds(
             nominal_seconds, _ordered_ns_durations(boundaries)
         )

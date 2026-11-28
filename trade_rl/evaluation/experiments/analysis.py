@@ -268,6 +268,8 @@ def _run_matrix(
         portfolio_key = portfolio.get("return_key")
         if not isinstance(portfolio_key, str) or portfolio_key not in run.returns:
             raise ArtifactIntegrityError("shared-cash PPO return evidence is missing")
+        if portfolio_key in used_return_keys:
+            raise ArtifactIntegrityError("candidate return evidence is duplicated")
         used_return_keys.add(portfolio_key)
     if set(run.returns) != used_return_keys:
         raise ArtifactIntegrityError("candidate return evidence has extra matrix cells")

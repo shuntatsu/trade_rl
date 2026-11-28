@@ -143,16 +143,15 @@ def _pull_identity(
     base_sha = _sha(base.get("sha"), "PR base SHA")
     head_sha = _sha(head.get("sha"), "PR head SHA")
     head_name: str | None = None
-    head_repo = head.get("repo")
+    if "repo" not in head:
+        raise ValueError("PR head repository is missing")
+    head_repo = head["repo"]
     if head_repo is not None:
         head_repo = _mapping(head_repo, "PR head repository")
         head_full_name = head_repo.get("full_name")
-        if head_full_name is not None and type(head_full_name) is not str:
-            raise ValueError("PR head repository identity must be a native string")
-        if (
-            type(head_full_name) is str
-            and head_full_name.casefold() == repository.casefold()
-        ):
+        if type(head_full_name) is not str or not head_full_name.strip():
+            raise ValueError("PR head repository requires a native nonblank name")
+        if head_full_name.casefold() == repository.casefold():
             raw_name = head.get("ref")
             if type(raw_name) is not str or not raw_name:
                 raise ValueError("local PR head branch missing")

@@ -664,3 +664,43 @@ def test_artifact_repo_preserves_ascii_case_insensitive_identity(
     assert report["artifact_history_complete"] is False
     assert report["cleanup_authorized"] is False
     assert api.repo_reads == 2
+
+
+@pytest.mark.parametrize(
+    "branch", ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"]
+)
+@pytest.mark.parametrize("readback", [False, True])
+def test_artifact_observation_rejects_malformed_head_ref(
+    branch: str, readback: bool
+) -> None:
+    api = FakeGet()
+    if readback:
+        api.next_run = {**api.run, "head_branch": branch}
+    else:
+        api.run["head_branch"] = branch
+        for artifact in api.artifacts:
+            origin = artifact["workflow_run"]
+            assert type(origin) is dict
+            origin["head_branch"] = branch
+    with pytest.raises(ValueError, match="run head branch is malformed"):
+        _observe(api)
+    if not readback:
+        assert api.scans == 0
+        assert api.run_reads == 1
+
+
+@pytest.mark.parametrize("branch", ["main", "feature/日本語", "v1.2.3", "a" * 40])
+def test_artifact_observation_accepts_valid_head_ref_without_authority(branch: str) -> None:
+    api = FakeGet()
+    api.run["head_branch"] = branch
+    for artifact in api.artifacts:
+        origin = artifact["workflow_run"]
+        assert type(origin) is dict
+        origin["head_branch"] = branch
+    report = _observe(api)
+    assert report["head_branch"] == branch
+    assert report["artifact_attempt_binding_verified"] is False
+    assert report["workflow_activity_checked"] is False
+    assert report["task_registry_complete"] is False
+    assert report["lease_reassignment_authorized"] is False
+    assert report["cleanup_authorized"] is False

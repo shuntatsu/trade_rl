@@ -96,7 +96,7 @@ jobs:
 
   core-tests:
     name: Lean Core tests (${{ matrix.shard }}/8)
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -107,7 +107,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -129,7 +129,7 @@ jobs:
       - name: Core tests shard
         env:
           PYTEST_ADDOPTS: "-rs"
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SHARD_INDEX: ${{ matrix.shard }}
         shell: bash
         run: |
@@ -151,7 +151,7 @@ jobs:
   core:
     name: Lean Core
     needs: [core-tests]
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     steps:
       - name: Require all test shards to succeed
@@ -211,7 +211,7 @@ jobs:
 
       - name: Verify complete Core test collection
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -273,7 +273,7 @@ jobs:
 
   ppo-runtime:
     name: PPO Runtime
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -302,7 +302,7 @@ jobs:
 
   guide:
     name: Human Guide
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     env:
       GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -365,7 +365,7 @@ jobs:
 
   market-store:
     name: Market Store PostgreSQL
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -419,6 +419,30 @@ jobs:
           uv run python -m trade_rl.integrations.market_store migrate
           uv run python -m trade_rl.integrations.market_store migrate
           uv run python -m trade_rl.integrations.market_store status
+
+  # A post-merge push verifies the actual integrated commit, even if the
+  # reviewed PR head and final merge tree differ because the target advanced.
+  main-integrated-software-verification:
+    name: Main Integrated Software Verification
+    needs: [fast, core, ppo-runtime, guide, market-store]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require complete integrated software verification
+        env:
+          FAST_RESULT: ${{ needs.fast.result }}
+          CORE_RESULT: ${{ needs.core.result }}
+          PPO_RESULT: ${{ needs.ppo-runtime.result }}
+          GUIDE_RESULT: ${{ needs.guide.result }}
+          MARKET_STORE_RESULT: ${{ needs.market-store.result }}
+        run: |
+          set -euo pipefail
+          test "$FAST_RESULT" = "success"
+          test "$CORE_RESULT" = "success"
+          test "$PPO_RESULT" = "success"
+          test "$GUIDE_RESULT" = "success"
+          test "$MARKET_STORE_RESULT" = "success"
 
   independent-review:
     name: Generic Independent Research Review

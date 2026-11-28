@@ -112,6 +112,6 @@ def test_malformed_base_repository_name_fails_closed(full_name: str) -> None:
 def test_native_ascii_repository_names_keep_local_and_fork_contract(
     full_name: str, expected_head: str | None
 ) -> None:
-    assert _pull_identity(
-        _pr({"repo": {"full_name": full_name}}), _REPOSITORY
-    )[-1] == expected_head
+    pull = _pr({"repo": {"full_name": full_name}})
+    actual_head = _pull_identity(pull, _REPOSITORY)[-1]
+    assert actual_head == expected_head

@@ -165,6 +165,33 @@ def audit_task_enrollment(
     catches ordinary race/drift, but can't prove writer identity, roster
     completeness or exclusion of an ABA update between reads.
     """
+    return _audit_task_enrollment(
+        api,
+        packet=packet,
+        lease=lease,
+        status=status,
+        repository=repository,
+        registry_ref=registry_ref,
+        registry_path=registry_path,
+        expected_issue_node_id=expected_issue_node_id,
+        now=now,
+    )
+
+
+def _audit_task_enrollment(
+    api: GitObjectReadApi,
+    *,
+    packet: TaskPacket,
+    lease: LeaseRecord,
+    status: TaskStatusRecord,
+    repository: str,
+    registry_ref: str,
+    registry_path: str,
+    expected_issue_node_id: str,
+    now: datetime,
+    _expected_source: _ReadState | None = None,
+) -> EnrollmentAudit:
+    """Internal audit; the transaction may pin its own native source read."""
     if (
         type(packet) is not TaskPacket
         or type(lease) is not LeaseRecord
@@ -186,6 +213,8 @@ def audit_task_enrollment(
         issue_number=packet.parent_issue,
         lease_branch=lease.lease_branch,
     )
+    if _expected_source is not None and initial != _expected_source:
+        raise ValueError("GitHub source changed before enrollment audit")
     if initial.issue[2] != expected_issue_node_id:
         raise ValueError("Issue immutable node identity differs")
     snapshot = observe_registry_snapshot(
@@ -193,6 +222,7 @@ def audit_task_enrollment(
         expected_repository=repository,
         ref_name=registry_ref,
         registry_path=registry_path,
+        expected_repository_identity=initial.repository,
     )
     if initial.repository[1] != snapshot.repository_node_id:
         raise ValueError("repository changed during enrollment")

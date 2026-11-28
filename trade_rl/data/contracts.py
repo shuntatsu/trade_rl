@@ -52,6 +52,9 @@ class FeatureKind(StrEnum):
     ICHIMOKU_KIJUN_DISTANCE = "ichimoku_kijun_distance"
     ICHIMOKU_CLOUD_POSITION = "ichimoku_cloud_position"
     ICHIMOKU_CLOUD_THICKNESS = "ichimoku_cloud_thickness"
+    ICHIMOKU_CLOUD_EDGE_DISTANCE = "ichimoku_cloud_edge_distance"
+    ICHIMOKU_CLOUD_TWIST = "ichimoku_cloud_twist"
+    ICHIMOKU_CHIKOU_DISTANCE = "ichimoku_chikou_distance"
     BODY_RETURN = "body_return"
     HIGH_LOW_RANGE = "high_low_range"
     UPPER_WICK_RATIO = "upper_wick_ratio"
@@ -100,6 +103,23 @@ class FeatureAlignment(StrEnum):
     UNSHIFTED_DECISION_TIME = "unshifted_decision_time"
     VISIBLE_DISPLACED_CLOUD = "visible_displaced_cloud"
 
+
+ICHIMOKU_LEGACY_CHIKOU_LAG = 26
+ICHIMOKU_LEGACY_SPAN_B_PERIOD = 52
+
+_ICHIMOKU_CLOUD_KINDS = frozenset(
+    {
+        FeatureKind.ICHIMOKU_CLOUD_POSITION,
+        FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+        FeatureKind.ICHIMOKU_CLOUD_EDGE_DISTANCE,
+        FeatureKind.ICHIMOKU_CLOUD_TWIST,
+    }
+)
+_ICHIMOKU_VISIBLE_KINDS = _ICHIMOKU_CLOUD_KINDS | {FeatureKind.ICHIMOKU_CHIKOU_DISTANCE}
+_ICHIMOKU_KINDS = _ICHIMOKU_VISIBLE_KINDS | {
+    FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+    FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+}
 
 PORTABLE_FEATURE_NUMERICS_SCHEMA = "portable_feature_numerics_v1"
 
@@ -259,6 +279,14 @@ class IchimokuPeriods:
 
     Zero displacement denotes the unshifted decision-time calculation.
     Positive displacement requires explicit visible-cloud feature alignment.
+
+    Displacement convention: a visible row t uses the spans calculated at
+    source row t - displacement, the full shift drawn by MT4. TradingView's
+    built-in Ichimoku plots the spans at offset displacement - 1 and the
+    lagging span at -(displacement - 1), so its default 26 chart equals
+    ``IchimokuPeriods(9, 26, 52, displacement=25)``, whose chikou lag is 25.
+    The chikou distance uses lag = displacement; its value ignores the three
+    periods, which remain configuration provenance. No default is changed.
     """
 
     tenkan_period: int = 9
@@ -363,6 +391,29 @@ class FeatureSpec:
                     "explicit stochastic lookback must be a native integer"
                 )
         periods = self.ichimoku_periods
+        # The implicit 9/26/52 calculation ignores lookback. The new kinds do
+        # not inherit that silence: they must declare the fixed dependency.
+        if periods is None:
+            if (
+                self.kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE
+                and self.lookback != ICHIMOKU_LEGACY_CHIKOU_LAG
+            ):
+                raise ValueError(
+                    "implicit Ichimoku chikou distance uses a fixed 26-bar lag; "
+                    "declare lookback=26"
+                )
+            if (
+                self.kind
+                in {
+                    FeatureKind.ICHIMOKU_CLOUD_EDGE_DISTANCE,
+                    FeatureKind.ICHIMOKU_CLOUD_TWIST,
+                }
+                and self.lookback != ICHIMOKU_LEGACY_SPAN_B_PERIOD
+            ):
+                raise ValueError(
+                    "implicit Ichimoku cloud edge distance and twist use the "
+                    "fixed 52-bar span B window; declare lookback=52"
+                )
         visible = self.alignment is FeatureAlignment.VISIBLE_DISPLACED_CLOUD
         if periods is None:
             if visible:
@@ -374,18 +425,19 @@ class FeatureSpec:
                 raise ValueError(
                     "explicit Ichimoku periods require the default lookback"
                 )
-            if self.kind not in {
-                FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
-                FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
-                FeatureKind.ICHIMOKU_CLOUD_POSITION,
-                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
-            }:
+            if self.kind not in _ICHIMOKU_KINDS:
                 raise ValueError("Ichimoku periods require an Ichimoku feature kind")
-            if visible and self.kind not in {
-                FeatureKind.ICHIMOKU_CLOUD_POSITION,
-                FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
-            }:
-                raise ValueError("visible alignment is only for cloud features")
+            if visible and self.kind not in _ICHIMOKU_VISIBLE_KINDS:
+                raise ValueError(
+                    "visible alignment is only for cloud and chikou features"
+                )
+            if (
+                self.kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE
+                and periods.displacement == 0
+            ):
+                raise ValueError(
+                    "Ichimoku chikou distance requires a positive displacement lag"
+                )
             if visible != (periods.displacement > 0):
                 raise ValueError("Ichimoku displacement and feature alignment disagree")
         if (

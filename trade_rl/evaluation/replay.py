@@ -21,7 +21,11 @@ from trade_rl.evaluation.replay_exposure import (
     PreIntervalMarkEvidence,
     ReplayExposureEvidence,
 )
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.evaluation.series import (
+    ReturnKind,
+    ReturnSeries,
+    SessionElapsedReturnSeries,
+)
 from trade_rl.risk import PreTradeRisk
 from trade_rl.risk.pretrade import (
     RiskConstrainedTarget,
@@ -973,6 +977,7 @@ def _run_shared_cash_replay_core(
     native_calendar_month: bool = False,
     native_fixed_linear_carry: bool = False,
     native_calendar_month_linear_carry: bool = False,
+    native_session_linear_carry: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> tuple[SharedCashReplayResult, tuple[SharedCashPortfolioReplayDecision, ...]]:
@@ -1004,6 +1009,17 @@ def _run_shared_cash_replay_core(
     ):
         raise ValueError(
             "native calendar month linear carry requires explicit settled portfolio replay without a sparse schedule"
+        )
+    if type(native_session_linear_carry) is not bool or (
+        native_session_linear_carry
+        and (
+            not portfolio_mode
+            or not settle_terminal_position
+            or _actor_decision_indices is not None
+        )
+    ):
+        raise ValueError(
+            "native session linear carry requires explicit settled portfolio replay without a sparse schedule"
         )
     if (
         type(native_calendar_month) is not bool
@@ -1163,6 +1179,7 @@ def _run_shared_cash_replay_core(
             native_calendar_month=native_calendar_month,
             native_fixed_linear_carry=native_fixed_linear_carry,
             native_calendar_month_linear_carry=native_calendar_month_linear_carry,
+            native_session_linear_carry=native_session_linear_carry,
             execution_observer=retain_latest_execution_observation,
             fill_cash_observer=fill_cash_observer,
         )
@@ -1760,6 +1777,16 @@ def _run_shared_cash_replay_core(
                     dataset, tuple(returns), start_index=start_index
                 )
                 if native_calendar_month
+                else SessionElapsedReturnSeries.from_boundaries(
+                    tuple(returns),
+                    boundaries_ns=tuple(
+                        int(x)
+                        for x in dataset.timestamps[
+                            start_index : start_index + len(returns) + 1
+                        ].view(np.int64)
+                    ),
+                )
+                if native_session_linear_carry
                 else ReturnSeries(
                     values=tuple(returns),
                     kind=ReturnKind.BASE_BAR,
@@ -1829,6 +1856,7 @@ def run_shared_portfolio_replay(
     native_calendar_month: bool = False,
     native_fixed_linear_carry: bool = False,
     native_calendar_month_linear_carry: bool = False,
+    native_session_linear_carry: bool = False,
     on_native_advance: Callable[[NativeReplayAdvance], None] | None = None,
     fill_cash_observer: Callable[[NativeFillCashObservation], None] | None = None,
 ) -> SharedCashPortfolioReplayResult:
@@ -1864,7 +1892,11 @@ def run_shared_portfolio_replay(
     event reconstruction. Calendar month linear carry is a distinct opt-in
     with the same declared close-event model and actual calendar durations,
     requiring native_calendar_month=True. It excludes sparse schedules,
-    profiles and rule stress. Terminal settlement is required.
+    profiles and rule stress. Native session linear carry uses the same close
+    event, with pre-open gap carry on previous inventory and post-open
+    processing carry, actual session returns and an explicit nominal bar
+    duration. The separate session wrapper pins an independent boundary list.
+    Terminal settlement is required for all signed modes.
     Defaults preserve existing replay behavior and v1 ledger bytes.
     """
 
@@ -1912,6 +1944,7 @@ def run_shared_portfolio_replay(
         native_calendar_month=native_calendar_month,
         native_fixed_linear_carry=native_fixed_linear_carry,
         native_calendar_month_linear_carry=native_calendar_month_linear_carry,
+        native_session_linear_carry=native_session_linear_carry,
         on_native_advance=on_native_advance,
         fill_cash_observer=fill_cash_observer,
     )

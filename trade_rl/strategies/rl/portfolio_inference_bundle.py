@@ -95,6 +95,9 @@ _CARRY_TRAINING_CONTEXT_SCHEMA = (
     "shared_portfolio_fixed_linear_carry_training_context_v1"
 )
 _SESSION_TRAINING_CONTEXT_SCHEMA = "shared_portfolio_session_training_context_v1"
+_SESSION_CARRY_TRAINING_CONTEXT_SCHEMA = (
+    "shared_portfolio_session_linear_carry_training_context_v1"
+)
 _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA = (
     "shared_portfolio_calendar_month_linear_carry_training_context_v1"
 )
@@ -728,13 +731,20 @@ def _validated_training_context(
         _CARRY_TRAINING_CONTEXT_SCHEMA,
         _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA,
         _SESSION_TRAINING_CONTEXT_SCHEMA,
+        _SESSION_CARRY_TRAINING_CONTEXT_SCHEMA,
     ):
         raise ValueError("training context schema differs")
     native_fixed_linear_carry = context["schema"] == _CARRY_TRAINING_CONTEXT_SCHEMA
     native_calendar_month_linear_carry = (
         context["schema"] == _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA
     )
-    session_context = context["schema"] == _SESSION_TRAINING_CONTEXT_SCHEMA
+    native_session_linear_carry = (
+        context["schema"] == _SESSION_CARRY_TRAINING_CONTEXT_SCHEMA
+    )
+    session_context = context["schema"] in (
+        _SESSION_TRAINING_CONTEXT_SCHEMA,
+        _SESSION_CARRY_TRAINING_CONTEXT_SCHEMA,
+    )
     declared_context = _strict_object(
         context["context"], field="training_context.context"
     )
@@ -852,6 +862,7 @@ def _validated_training_context(
         or transform.native_fixed_linear_carry != native_fixed_linear_carry
         or transform.native_calendar_month_linear_carry
         != native_calendar_month_linear_carry
+        or transform.native_session_linear_carry != native_session_linear_carry
         or transform.native_interval_seconds != clock.decision_interval_seconds
         or transform.economic_horizon_seconds != clock.economic_horizon_seconds
         or transform.objective_start_ns != _datetime_ns(objective.evaluation_start)

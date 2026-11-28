@@ -21,7 +21,7 @@ from trade_rl.evaluation.series import SessionElapsedReturnSeries
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
-    _preflight_session_spot_execution_window,
+    _preflight_session_execution_window,
 )
 from trade_rl.strategies.portfolio import PortfolioPolicy
 
@@ -118,6 +118,7 @@ def run_session_elapsed_portfolio_replay(
     initial_capital: float,
     execution_cost: ExecutionCostConfig,
     risk: PreTradeRisk | None = None,
+    native_session_linear_carry: bool = False,
 ) -> SharedCashPortfolioReplayResult:
     """Replay a caller-pinned session grid, returning duration-bound evidence.
 
@@ -126,16 +127,20 @@ def run_session_elapsed_portfolio_replay(
     established independently by the caller; equality is not venue-calendar
     authentication or missing-bar discovery.
     Existing session gap/processing carry and next-open execution are used
-    without alteration. Only complete deterministic settled Spot windows
-    with integer-second nominal processing bars are admitted.
+    without alteration. The default is Spot; explicit native_session_linear_carry
+    admits verified contract-unit data with one declared funding event per
+    processing close, available borrow, and the same deterministic restrictions
+    as native calendar carry. Only complete settled windows with whole-second
+    nominal processing bars are admitted.
     """
-    boundaries = _preflight_session_spot_execution_window(
+    boundaries = _preflight_session_execution_window(
         dataset,
         execution_cost,
         start_index=start_index,
         stop_index=stop_index,
         expected_boundaries_ns=expected_boundaries_ns,
         expected_nominal_bar_seconds=expected_nominal_bar_seconds,
+        native_session_linear_carry=native_session_linear_carry,
     )
     replay = run_shared_portfolio_replay(
         dataset,
@@ -146,7 +151,8 @@ def run_session_elapsed_portfolio_replay(
         execution_cost=execution_cost,
         risk=risk,
         settle_terminal_position=True,
-        strict_spot_cash=True,
+        strict_spot_cash=not native_session_linear_carry,
+        native_session_linear_carry=native_session_linear_carry,
         capture_ledger_evidence=True,
     )
     ledger = replay.ledger_evidence
@@ -162,6 +168,14 @@ def run_session_elapsed_portfolio_replay(
         raise ValueError(
             "session elapsed replay did not complete its declared settled window"
         )
+    if native_session_linear_carry:
+        # The signed native replay already produces the duration-bound series.
+        if (
+            type(replay.returns) is not SessionElapsedReturnSeries
+            or replay.returns.boundaries_ns != boundaries
+        ):
+            raise RuntimeError("signed session replay returned inconsistent boundaries")
+        return replay
     return replace(
         replay,
         returns=SessionElapsedReturnSeries.from_boundaries(

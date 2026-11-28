@@ -105,6 +105,7 @@ class SharedPortfolioSession:
         native_calendar_month: bool = False,
         native_fixed_linear_carry: bool = False,
         native_calendar_month_linear_carry: bool = False,
+        native_session_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
         execution_trace_observer: Callable[[StatefulExecutionObservation], None]
@@ -140,8 +141,12 @@ class SharedPortfolioSession:
             raise ValueError("native_fixed_linear_carry must be boolean")
         if type(native_calendar_month_linear_carry) is not bool:
             raise ValueError("native_calendar_month_linear_carry must be boolean")
+        if type(native_session_linear_carry) is not bool:
+            raise ValueError("native_session_linear_carry must be boolean")
         if (
-            native_fixed_linear_carry or native_calendar_month_linear_carry
+            native_fixed_linear_carry
+            or native_calendar_month_linear_carry
+            or native_session_linear_carry
         ) and not settle_terminal_position:
             raise ValueError("native linear carry requires terminal settlement")
         if execution_observer is not None and not callable(execution_observer):
@@ -183,6 +188,7 @@ class SharedPortfolioSession:
             native_calendar_month=native_calendar_month,
             native_fixed_linear_carry=native_fixed_linear_carry,
             native_calendar_month_linear_carry=native_calendar_month_linear_carry,
+            native_session_linear_carry=native_session_linear_carry,
             execution_observer=execution_observer,
             execution_trace_observer=execution_trace_observer,
             fill_cash_observer=fill_cash_observer,
@@ -193,6 +199,7 @@ class SharedPortfolioSession:
                 start_index=start_index,
                 stop_index=stop_index,
                 native_linear_carry=True,
+                native_session_linear_carry=executor.native_session_linear_carry,
             )
         risk_controller = (
             PreTradeRisk.default_for_execution(max_leverage=executor.cost.max_leverage)

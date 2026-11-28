@@ -377,6 +377,7 @@ _RECURSIVE_KINDS = (
     (FeatureKind.RSI, 5),
     (FeatureKind.ATR_PCT, 5),
     (FeatureKind.ADX, 5),
+    (FeatureKind.ADX_CAUSAL, 5),
     (FeatureKind.LOG_RETURN, 1),
     (FeatureKind.REALIZED_VOLATILITY, 5),
 )
@@ -434,13 +435,7 @@ def _aligned_4h(
     )
 
 
-# Legacy ADX skips a segment of exactly 2 * lookback - 1 rows, a separate known
-# prefix defect (strict xfail in tests/data/test_feature_causality_fuzz.py,
-# addressed by a distinct causal ADX kind). It is excluded here only.
-@pytest.mark.parametrize(
-    ("kind", "lookback"),
-    tuple(item for item in _RECURSIVE_KINDS if item[0] is not FeatureKind.ADX),
-)
+@pytest.mark.parametrize(("kind", "lookback"), _RECURSIVE_KINDS)
 @pytest.mark.parametrize("stale", (24.0, 1e6))
 def test_higher_clock_gap_features_do_not_depend_on_requested_range_end(
     kind: FeatureKind, lookback: int, stale: float

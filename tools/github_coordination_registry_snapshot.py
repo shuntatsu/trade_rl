@@ -42,8 +42,8 @@ class RegistryRefSnapshot:
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be a GitHub response object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{label} must be a GitHub response object with native keys")
     return value
 
 
@@ -67,13 +67,14 @@ def _repository_state(
     api: GitObjectReadApi, expected_repository: str
 ) -> tuple[int, str]:
     value = _mapping(api._request_json("GET", ""), "repository identity")
-    if value.get("full_name") != expected_repository:
+    full_name = value.get("full_name")
+    if type(full_name) is not str or full_name != expected_repository:
         raise ValueError("repository identity differs from expected repository")
     number = value.get("id")
     node_id = value.get("node_id")
     if type(number) is not int or number < 1:
         raise ValueError("repository identity requires positive native id")
-    if not isinstance(node_id, str) or not node_id.strip():
+    if type(node_id) is not str or not node_id.strip():
         raise ValueError("repository identity requires nonempty node_id")
     return number, node_id
 
@@ -84,13 +85,15 @@ def _ref_state(api: GitObjectReadApi, ref_name: str) -> str:
         api._request_json("GET", f"git/ref/{suffix}"),
         "coordination ref",
     )
-    if value.get("ref") != ref_name:
+    observed_ref = value.get("ref")
+    if type(observed_ref) is not str or observed_ref != ref_name:
         raise ValueError("coordination ref identity differs from requested ref")
     target = _mapping(value.get("object"), "coordination ref target")
     oid = target.get("sha")
-    if target.get("type") != "commit":
+    kind = target.get("type")
+    if type(kind) is not str or kind != "commit":
         raise ValueError("coordination ref target must be a commit")
-    if not isinstance(oid, str) or not _SHA_RE.fullmatch(oid) or oid == "0" * 40:
+    if type(oid) is not str or not _SHA_RE.fullmatch(oid) or oid == "0" * 40:
         raise ValueError("coordination ref must have a nonzero commit OID")
     return oid
 
@@ -104,7 +107,7 @@ def observe_registry_snapshot(
 ) -> RegistryRefSnapshot:
     """GET only; fail closed on changed or unavailable repository/ref/payload."""
 
-    if not isinstance(expected_repository, str) or not _REPO_RE.fullmatch(
+    if type(expected_repository) is not str or not _REPO_RE.fullmatch(
         expected_repository
     ):
         raise ValueError("expected repository must be owner/name")

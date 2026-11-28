@@ -16,9 +16,9 @@ updates:
       time: "03:30"
       timezone: "Asia/Tokyo"
     versioning-strategy: "lockfile-only"
-    # HOLD (#1175): the upstream updater pin was 0.13.7; no
-    # actual updater E2E for the security-fixed uv 0.13.10 yet. Do not enable
-    # version-update PRs until a real hosted Dependabot run succeeds.
+    # Python version updates are managed by uv-lock-proposals.yml (#1175).
+    # Keep hosted uv version-update PRs disabled; the separate advisory
+    # inventory and other Dependabot ecosystems remain active.
     open-pull-requests-limit: 0
     groups:
       compatible-lockfile:

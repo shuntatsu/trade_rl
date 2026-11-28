@@ -165,6 +165,8 @@ def parse_status_comment(text: str) -> TaskStatusRecord:
         decoded = json.loads(blocks[0], object_pairs_hook=_reject_duplicate_json_fields)
     except json.JSONDecodeError as error:
         raise ValueError("status comment JSON is invalid") from error
+    except RecursionError as error:
+        raise ValueError("status comment JSON nesting is too deep") from error
     if not isinstance(decoded, dict):
         raise ValueError("status comment JSON must be an object")
     if any(not isinstance(key, str) for key in decoded):

@@ -209,6 +209,8 @@ def parse_registry_bytes(data: bytes) -> CoordinatorRegistry:
         decoded = json.loads(text, object_pairs_hook=_reject_duplicate_json_fields)
     except json.JSONDecodeError as error:
         raise ValueError("registry JSON is invalid") from error
+    except RecursionError as error:
+        raise ValueError("registry JSON nesting is too deep") from error
 
     payload = _mapping(decoded, "registry")
     _exact_fields(payload, _REGISTRY_FIELDS, "registry")

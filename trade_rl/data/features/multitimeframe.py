@@ -55,6 +55,10 @@ def _native_events(
     *,
     active: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    assert raw.available_at is not None
+    # Sentinel consistency is an input invariant, even during warm-up.
+    if np.any(raw.tradable & (raw.available_at == NEVER_PUBLISHED_AT)):
+        raise ValueError("tradable native row is never-published")
     if active is None:
         active = _active_mask(raw, contract)
     assert raw.funding_available is not None
@@ -74,7 +78,6 @@ def _native_events(
         row_present=raw.tradable,
         active=active,
     )
-    assert raw.available_at is not None
     # An absent native row contributes to no value: gap-tolerant kinds (e.g. the
     # volume z-score) sample only present rows inside a window that may still
     # contain the placeholder. Its (never-published) availability must therefore

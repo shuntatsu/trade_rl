@@ -646,10 +646,13 @@ def test_sub_base_native_gap_is_identical_across_range_ends() -> None:
         ), name
 
 
-def test_native_event_refuses_a_tradable_never_published_row() -> None:
-    native = _gap_native(30, set())
+@pytest.mark.parametrize(("n_bars", "sentinel_index"), ((3, 0), (30, 3)))
+def test_native_event_refuses_a_tradable_never_published_row(
+    n_bars: int, sentinel_index: int
+) -> None:
+    native = _gap_native(n_bars, set())
     available_at = native.available_at.copy()
-    available_at[3] = NEVER_AVAILABLE
+    available_at[sentinel_index] = NEVER_AVAILABLE
     forged = RawMarketSeries(
         timestamps=native.timestamps,
         available_at=available_at,

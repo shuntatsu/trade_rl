@@ -11,6 +11,7 @@ from tests.evaluation.experiments.bootstrap.test_workflow import (
     _install_fakes,
 )
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.evaluation.experiments import inspect_study
 from trade_rl.evaluation.experiments.bootstrap.workflow import (
     bootstrap_canonical_m2_study,
     inspect_canonical_m2_bootstrap,
@@ -122,4 +123,43 @@ def test_bootstrap_config_and_manifest_cannot_be_rewritten_after_study_creation(
     )
 
     with pytest.raises(ValueError, match="research question|Study|study"):
+        inspect_canonical_m2_bootstrap(output)
+
+
+@pytest.mark.parametrize(
+    ("changes", "field"),
+    [
+        ({"forecast_switch_cost": 0.001}, "forecast_switch_cost"),
+        ({"forecast_switch_cost": 0.0}, "forecast_switch_cost"),
+        (
+            {
+                "ppo_training_layout": "interleaved",
+                "ppo_rollout_steps_per_env": 16,
+            },
+            "ppo_training_layout",
+        ),
+    ],
+)
+def test_self_consistent_study_cannot_change_omitted_baseline_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changes: dict[str, object],
+    field: str,
+) -> None:
+    output = _published(tmp_path, monkeypatch)
+    plan_path = output / "study" / "plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert plan["baseline_config"]["schema_version"] == "resolved_run_config_v7"
+    assert all(plan["baseline_config"][key] != value for key, value in changes.items())
+    plan["baseline_config"].update(changes)
+    plan_path.write_text(json.dumps(plan, sort_keys=True), encoding="utf-8")
+    _rewrite_manifest(
+        output,
+        lambda payload: payload.__setitem__("study_digest", content_digest(plan)),
+    )
+
+    # The changed Study is itself valid, and its recomputed digest matches.
+    # Only comparison to the original bootstrap config can detect this drift.
+    assert inspect_study(output / "study").plan.digest == content_digest(plan)
+    with pytest.raises(ValueError, match=field):
         inspect_canonical_m2_bootstrap(output)

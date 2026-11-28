@@ -318,13 +318,18 @@ def _adx(
     close: np.ndarray,
     usable: np.ndarray,
     period: int,
+    *,
+    causal_warmup: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     values = np.zeros_like(close, dtype=np.float64)
     valid = np.zeros_like(usable, dtype=np.bool_)
     source_start = np.full(len(close), -1, dtype=np.int64)
+    # The causal seed needs exactly 2 * period - 1 rows. Keep the historical
+    # extra-row admission only for the old feature identity.
+    minimum_rows = 2 * period - (1 if causal_warmup else 0)
     for start, stop in _contiguous_segments(usable):
         size = stop - start
-        if size < 2 * period:
+        if size < minimum_rows:
             continue
         atr, plus_avg, minus_avg = _directional_wilder(
             high[start:stop], low[start:stop], close[start:stop], period
@@ -580,8 +585,15 @@ def calculate_feature_events(
         values, valid, source_start = _atr_change(
             high, low, close, usable, spec.lookback
         )
-    elif kind is FeatureKind.ADX:
-        values, valid, source_start = _adx(high, low, close, usable, spec.lookback)
+    elif kind in {FeatureKind.ADX, FeatureKind.ADX_CAUSAL}:
+        values, valid, source_start = _adx(
+            high,
+            low,
+            close,
+            usable,
+            spec.lookback,
+            causal_warmup=kind is FeatureKind.ADX_CAUSAL,
+        )
     elif kind in {FeatureKind.PLUS_DI, FeatureKind.MINUS_DI, FeatureKind.DI_SPREAD}:
         plus_di, minus_di, valid, source_start = _directional_indices(
             high, low, close, usable, spec.lookback

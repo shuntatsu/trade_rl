@@ -90,6 +90,7 @@ class FeatureKind(StrEnum):
     ROLLING_BETA_TO_BTC = "rolling_beta_to_btc"
     CROSS_SECTIONAL_MOMENTUM_RANK = "cross_sectional_momentum_rank"
     CROSS_ASSET_DISPERSION = "cross_asset_dispersion"
+    ADX_CAUSAL = "adx_causal_v1"
 
 
 class NormalizationMode(StrEnum):
@@ -356,6 +357,12 @@ class FeatureSpec:
 
     def __post_init__(self) -> None:
         require_non_empty(self.name, field="feature name")
+        if self.kind == FeatureKind.ADX_CAUSAL and (
+            type(self.kind) is not FeatureKind or type(self.lookback) is not int
+        ):
+            raise ValueError(
+                "causal ADX requires its native feature kind and integer lookback"
+            )
         if self.timeframe is not None:
             require_non_empty(self.timeframe, field="feature timeframe")
             timeframe_hours(self.timeframe)
@@ -471,9 +478,10 @@ class FeatureSpec:
 
     @property
     def requires_complete_native_rows(self) -> bool:
-        """Explicit period contracts reset warm-up on unavailable tradable rows."""
+        """Explicit causal contracts reset warm-up on unavailable tradable rows."""
         return (
-            self.ichimoku_periods is not None
+            self.kind is FeatureKind.ADX_CAUSAL
+            or self.ichimoku_periods is not None
             or self.macd_periods is not None
             or self.stochastic_smoothing_period is not None
         )

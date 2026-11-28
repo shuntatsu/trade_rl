@@ -187,9 +187,41 @@ def test_causal_capacity_preserves_previous_quote_notional_semantics() -> None:
 
 
 def test_capacity_mode_is_already_execution_policy_identity_bound() -> None:
-    legacy = ExecutionCostConfig.zero()
-    causal = replace(legacy, processing_bar_volume_capacity=False)
+    causal = ExecutionCostConfig.zero()
+    same_bar = replace(causal, processing_bar_volume_capacity=True)
 
-    assert legacy.processing_bar_volume_capacity is True
     assert causal.processing_bar_volume_capacity is False
-    assert legacy.execution_policy_digest != causal.execution_policy_digest
+    assert same_bar.processing_bar_volume_capacity is True
+    assert causal.execution_policy_digest != same_bar.execution_policy_digest
+
+
+def test_default_capacity_is_the_causal_previous_completed_bar() -> None:
+    # The fill bar's own total volume is unknown at its open, so the default
+    # capacity pool is the previous completed bar's volume and close.
+    assert ExecutionCostConfig().processing_bar_volume_capacity is False
+    dataset = _market(
+        previous_close=50.0,
+        processing_open=100.0,
+        previous_volume=2.0,
+        processing_volume=1_000.0,
+    )
+    executor = MarketExecutor(
+        dataset,
+        replace(
+            ExecutionCostConfig.zero(),
+            max_participation_rate=1.0,
+            path_mode="conservative",
+        ),
+    )
+    result = executor.execute_orders(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        OrderBookState.empty(),
+        (_intent(executor),),
+        start_index=0,
+        bars=1,
+    )
+
+    evidence = result.capacity_evidence[0]
+    assert evidence.processing_volume == pytest.approx(2.0)
+    assert evidence.capacity_reference_price == pytest.approx(50.0)
+    assert result.filled_notional == pytest.approx(100.0)

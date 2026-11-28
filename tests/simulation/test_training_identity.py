@@ -38,13 +38,22 @@ def test_training_execution_identity_retains_old_literal_zero_digest():
     assert payload == asdict(cost)
     assert set(payload) == {field.name for field in fields(cost)}
     assert "schema_version" not in payload
+    # The zero config now defaults to causal previous-bar capacity.
     assert training_execution_config_digest(cost) == (
-        "e7180ee4fdda175e579200e3c80145bbc11131d8c7da8cc8e8d24827dbcd2ec8"
+        "89907eb0fe96c086386b5d19454a6af6008ce8e931e035b822b912bd154954fa"
     )
     assert cost.execution_policy_digest == (
-        "5937ffc05c71f2f8410b218db7a7026bc174892b279110a53f8bd94d259467f3"
+        "78cf8bef738cca451ff716fb8a644d94027bd93195c2110d556cf7e3059ffaf2"
     )
     assert training_execution_config_digest(cost) != cost.execution_policy_digest
+    # The literal digest rule is unchanged for the explicit same-bar policy.
+    same_bar = replace(cost, processing_bar_volume_capacity=True)
+    assert training_execution_config_digest(same_bar) == (
+        "e7180ee4fdda175e579200e3c80145bbc11131d8c7da8cc8e8d24827dbcd2ec8"
+    )
+    assert same_bar.execution_policy_digest == (
+        "5937ffc05c71f2f8410b218db7a7026bc174892b279110a53f8bd94d259467f3"
+    )
 
 
 @pytest.mark.parametrize(

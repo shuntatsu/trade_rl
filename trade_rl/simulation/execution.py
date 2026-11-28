@@ -120,7 +120,7 @@ class ExecutionCostConfig:
     order_type: str = "market"
     limit_offset_rate: float = 0.0005
     path_mode: str = "conservative"
-    processing_bar_volume_capacity: bool = True
+    processing_bar_volume_capacity: bool = False
     partial_fill_carry: bool = True
     trigger_volume_fractions: tuple[float, float, float, float] = (
         1.0,

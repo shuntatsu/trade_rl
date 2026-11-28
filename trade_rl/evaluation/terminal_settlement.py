@@ -43,8 +43,9 @@ def terminal_dust(
     The valuation is conservative: mark value minus the exit cost, notional x
     multiplier x (fee + venue taker fee + spread + impact x sqrt(participation)),
     re-derived from the Dataset with the executor's market-order rates; the
-    participation uses the executor's capacity-volume basis (the processing bar, or
-    the previous completed bar when ``processing_bar_volume_capacity`` is off).
+    participation uses the executor's capacity-volume basis (the default previous
+    completed bar, or the processing bar when ``processing_bar_volume_capacity`` is
+    explicitly on).
     """
 
     final_row = int(final_interval.next_index)

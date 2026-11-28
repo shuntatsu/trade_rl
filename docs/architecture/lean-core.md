@@ -849,10 +849,10 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 
 `MarketExecutor` の標準executionはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になる。participation capacityのvolume authorityは `ExecutionCostConfig.processing_bar_volume_capacity` に明示bindする。
 
-- `True` は既存互換のlegacy modeであり、processing bar全体のvolumeをcapacity poolへ使う。同一barのopen時点ではbar最終volumeは未確定なので、これはpoint-in-time liquidity forecastではない。既存canonical Dataset / Study / Runの意味を変えないためdefaultとして保持する。
-- `False` はcausal stress modeであり、processing barの直前に完全終了したbarのvolumeをcapacity poolへ使う。base-volumeをmarket notionalへ換算するときも、その前barのcloseをreference priceに使う。current processing barの最終volumeはcapacityへ使わない。
+- `False` が**default**のcausal modeであり、processing barの直前に完全終了したbarのvolumeをcapacity poolへ使う。base-volumeをmarket notionalへ換算するときも、その前barのcloseをreference priceに使う。current processing barの最終volumeはcapacityへ使わない。native fixed / calendar-month / strict spot cash経路と現行candidate run・carry・directional経路は従来からこのmodeを要求する。
+- `True` は明示opt-inのsame-bar modeであり、processing bar全体のvolumeをcapacity poolへ使う。同一barのopen時点ではbar最終volumeは未確定なので、これはpoint-in-time liquidity forecastではなく軽度のlook-aheadである。2026-11-28まではこのmodeがdefaultだったが、研究resetに伴い互換modeを残さずdefaultを`False`へ変更した。default `ExecutionCostConfig()` / `ExecutionCostConfig.zero()` のexecution-policy digestと学習config digestは変わる（digest計算式は不変で、明示`True`は従来のdigestを再現する）。保存済みrun・evidenceは再分類しない。
 - volume unitもcapacity authorityの一部である。QUOTE_NOTIONALは既存のquote-notional poolだけを使う。BASE_ASSETとCONTRACTSは既存reference-price quote-notional poolに加えて、raw base quantity / raw contract countから導くnative quantity poolも同じparticipation limitで拘束し、actual fill priceがreferenceより低いだけでsource volume以上のquantityを生成しない。BASE_ASSETの注文quantity換算は `raw base volume / contract_multiplier`、CONTRACTSはraw countをそのまま使う。trigger-segmentのavailable-volume fractionはquote/native両poolへ同じ割合で適用する。
-- どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的stressである。
+- どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的な既定値である。
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。
 

@@ -35,6 +35,9 @@ MINIMUM_NOTIONAL = 5.0
 CAPITAL = 100.0
 DROP_ROW = 8
 COST = ExecutionCostConfig(max_participation_rate=0.5)
+# The default causal capacity pool of the terminal processing bar (the last
+# row) is the completed bar before it, so liquidity is thinned on that row.
+CAPACITY_ROW = -2
 
 
 def _dataset(
@@ -63,7 +66,7 @@ def _dataset(
         highs[-1] = 100.0
     volume = np.full(shape, 1.0e12)
     if thin_last_volume:
-        volume[-1] = 1.0e-9  # no liquidity on the terminal bar
+        volume[CAPACITY_ROW] = 1.0e-9  # no liquidity for the terminal fill
     fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
     fields.update(
         open=opens,
@@ -95,7 +98,7 @@ def _replay(dataset: MarketDataset, *, execution_cost: ExecutionCostConfig = COS
 def _unit_cost(notional: float, dataset: MarketDataset, symbol: int) -> float:
     """Independent fee + spread + impact rate of one market exit (zero slippage)."""
 
-    market_notional = float(dataset.volume[-1, symbol]) * 50.0
+    market_notional = float(dataset.volume[CAPACITY_ROW, symbol]) * 50.0
     participation = notional / market_notional
     return COST.multiplier * (
         COST.fee_rate + COST.spread_rate + COST.impact_rate * math.sqrt(participation)
@@ -189,7 +192,7 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
 
     base = _dataset(drop=True)
     volume = np.array(base.volume, copy=True)
-    volume[-1, :] = 0.25
+    volume[CAPACITY_ROW, :] = 0.25
     symbol_caps = np.full(volume.shape, 0.50, dtype=np.float64)
     symbol_caps[-1, :] = symbol_cap  # the actual processing row, not a prior bar
     dataset = dataclasses.replace(
@@ -207,8 +210,8 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
         if event.event_type == "rejected"
     } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
 
-    # The residual is 3 USDT at the terminal open; the market's last-bar
-    # capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
+    # The residual is 3 USDT at the terminal open; the completed previous
+    # bar's capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
     # participation, below the global 0.50 but above the symbol 0.20 cap.
     assert COST.max_participation_rate == 0.50
     assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
@@ -226,16 +229,16 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
         assert report["terminal_dust_exit_cost_usdt"] == 0.0
 
 
-def test_symbol_cap_uses_processing_row_with_previous_volume_basis() -> None:
-    """Capacity volume can use a prior bar; the symbol rule cannot."""
+def test_symbol_cap_uses_processing_row_with_same_bar_volume_opt_in() -> None:
+    """The explicit same-bar volume mode still uses the processing-row cap."""
 
     base = _dataset(drop=True)
     volume = np.array(base.volume, copy=True)
-    volume[-2, :] = 0.25  # prior completed bar supplies volume capacity
+    volume[-1, :] = 0.25  # opt-in: the processing bar supplies volume capacity
     limits = np.full(volume.shape, 0.50, dtype=np.float64)
     limits[-1, :] = 0.20  # processing bar enforces the tighter symbol rule
     dataset = dataclasses.replace(base, volume=volume, max_participation_rate=limits)
-    cost = dataclasses.replace(COST, processing_bar_volume_capacity=False)
+    cost = dataclasses.replace(COST, processing_bar_volume_capacity=True)
     result = _replay(dataset, execution_cost=cost)
     assert cost.max_participation_rate == 0.50
     assert limits[-2, 0] == 0.50 and limits[-1, 0] == 0.20
@@ -419,7 +422,7 @@ def test_unrepresentable_or_unfillable_dust_exit_never_passes(
     """Neither numerical overflow nor capacity above the limit certifies dust."""
     dataset = _dataset(drop=True)
     volume = np.array(dataset.volume, copy=True)
-    volume[-1, :] = last_volume
+    volume[CAPACITY_ROW, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
     replayed = _replay(dataset)
     report = reconcile_ledger(replayed, dataset, CAPITAL, execution_cost=COST)
@@ -436,7 +439,7 @@ def test_finite_positive_volume_remains_valued_dust_control(last_volume: float) 
     """Within capacity, a finite dust exit estimate retains its valid control."""
     dataset = _dataset(drop=True)
     volume = np.array(dataset.volume, copy=True)
-    volume[-1, :] = last_volume
+    volume[CAPACITY_ROW, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
     report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
     assert report["passed"] is True

@@ -1783,7 +1783,7 @@ def _run_shared_cash_replay_core(
                         int(x)
                         for x in dataset.timestamps[
                             start_index : start_index + len(returns) + 1
-                        ].view(np.int64)
+                        ].astype("datetime64[ns]").view(np.int64)
                     ),
                 )
                 if native_session_linear_carry

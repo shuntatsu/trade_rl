@@ -340,7 +340,7 @@ def test_subbase_cross_asset_requires_valid_native_source_not_base_price_fallbac
         MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
 
 
-def test_base_cross_asset_still_requires_explicit_log_return_source() -> None:
+def test_base_cross_asset_derives_a_private_return_without_a_public_source() -> None:
     config = MarketBuildConfig(
         base_timeframe="1h",
         features=(
@@ -348,10 +348,23 @@ def test_base_cross_asset_still_requires_explicit_log_return_source() -> None:
         ),
         cross_asset_reference_symbol="BTCUSDT",
     )
-    with pytest.raises(ValueError, match="one-bar log return channel"):
-        MarketDatasetBuilder(config).build(
-            _cross_subbase_source(), _cross_subbase_contracts()
-        )
+    result = MarketDatasetBuilder(config).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+
+    assert result.feature_names == ("relative",)
+    assert result.feature_available is not None
+    np.testing.assert_array_equal(
+        result.feature_available[:, 1, 0], [False, True, True]
+    )
+    np.testing.assert_allclose(
+        result.features[1:, 1, 0],
+        [
+            np.log(207.0 / 200.0) - np.log(105.0 / 100.0),
+            np.log(220.0 / 207.0) - np.log(111.0 / 105.0),
+        ],
+        rtol=1e-6,
+    )
 
 
 def test_subbase_cross_asset_refuses_missing_native_source_protocol() -> None:
@@ -407,23 +420,41 @@ def test_subbase_cross_asset_obeys_delayed_native_source_available_at() -> None:
     assert result.feature_available[1, 0, 0]
 
 
-def test_subbase_cross_asset_rejects_duplicate_explicit_return_channels() -> None:
-    source = _cross_subbase_source()
-    config = MarketBuildConfig(
+def test_subbase_cross_asset_ignores_duplicate_public_return_channels() -> None:
+    relative = FeatureSpec(
+        name="relative",
+        kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
+        timeframe="15m",
+    )
+    duplicated = MarketBuildConfig(
         base_timeframe="1h",
         features=(
             FeatureSpec(name="ret_a", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
             FeatureSpec(name="ret_b", kind=FeatureKind.LOG_RETURN, timeframe="15m"),
-            FeatureSpec(
-                name="relative",
-                kind=FeatureKind.RELATIVE_RETURN_TO_BTC,
-                timeframe="15m",
-            ),
+            relative,
         ),
         cross_asset_reference_symbol="BTCUSDT",
     )
-    with pytest.raises(ValueError, match="one-bar log return channel"):
-        MarketDatasetBuilder(config).build(source, _cross_subbase_contracts())
+    alone = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(relative,),
+        cross_asset_reference_symbol="BTCUSDT",
+    )
+    with_duplicates = MarketDatasetBuilder(duplicated).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+    without = MarketDatasetBuilder(alone).build(
+        _cross_subbase_source(), _cross_subbase_contracts()
+    )
+
+    np.testing.assert_array_equal(
+        with_duplicates.features[..., 2], without.features[..., 0]
+    )
+    assert with_duplicates.feature_available is not None
+    assert without.feature_available is not None
+    np.testing.assert_array_equal(
+        with_duplicates.feature_available[..., 2], without.feature_available[..., 0]
+    )
 
 
 def test_subbase_cross_asset_missing_reference_is_rejected_before_native_load() -> None:

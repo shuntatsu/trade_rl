@@ -60,3 +60,58 @@ def test_complete_head_repository_identity_is_preserved(
         "a" * 40,
         expected_ref,
     )
+
+
+@pytest.mark.parametrize(
+    "full_name",
+    (
+        " shuntatsu/trade_rl",
+        "shuntatsu/trade_rl ",
+        "shuntatsu//trade_rl",
+        "shuntatsu/trade_rl/extra",
+        "shuntatsu/",
+        "/trade_rl",
+        "shuntatsu",
+        "\u017fhuntatsu/trade_rl",
+        "shuntatsu/trade_RL\t",
+        "shuntatsu/../trade_rl",
+        "shuntatsu/\ud800",
+    ),
+)
+def test_malformed_head_repository_name_fails_closed(full_name: str) -> None:
+    with pytest.raises(ValueError, match="PR head repository"):
+        _pull_identity(_pr({"repo": {"full_name": full_name}}), _REPOSITORY)
+
+
+@pytest.mark.parametrize(
+    "full_name",
+    (
+        "\u017fhuntatsu/trade_rl",
+        "\u017fHUNTATSU/TRADE_RL",
+        " shuntatsu/trade_rl",
+        "shuntatsu/trade_rl ",
+    ),
+)
+def test_malformed_base_repository_name_fails_closed(full_name: str) -> None:
+    pull = _pr({"repo": {"full_name": _REPOSITORY}})
+    base = pull["base"]
+    assert isinstance(base, dict)
+    base["repo"] = {"full_name": full_name}
+    with pytest.raises(ValueError, match="PR base"):
+        _pull_identity(pull, _REPOSITORY)
+
+
+@pytest.mark.parametrize(
+    ("full_name", "expected_head"),
+    (
+        ("SHUNTATSU/TRADE_RL", "feature/current"),
+        ("organization-with-hyphen/repo.with.dot", None),
+        ("organization/repo_a-b", None),
+    ),
+)
+def test_native_ascii_repository_names_keep_local_and_fork_contract(
+    full_name: str, expected_head: str | None
+) -> None:
+    assert _pull_identity(
+        _pr({"repo": {"full_name": full_name}}), _REPOSITORY
+    )[-1] == expected_head

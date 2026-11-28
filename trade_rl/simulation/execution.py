@@ -647,9 +647,10 @@ def _preflight_session_execution_window(
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
         raise ValueError("invalid session elapsed execution window")
-    boundaries = tuple(
-        int(x) for x in dataset.timestamps[start_index : stop_index + 1].view(np.int64)
+    timestamps = dataset.timestamps[start_index : stop_index + 1].astype(
+        "datetime64[ns]"
     )
+    boundaries = tuple(int(x) for x in timestamps.view(np.int64))
     durations = _ordered_ns_durations(expected_boundaries_ns)
     if boundaries != expected_boundaries_ns:
         raise ValueError("session Dataset differs from the expected boundary sequence")

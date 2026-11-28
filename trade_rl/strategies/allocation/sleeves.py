@@ -11,6 +11,8 @@ The combiner cannot attest the chronology of supplied rows. The history is a bar
 the rows the caller passes, oldest first; the function reads nothing else and
 only the most recent ``lookback`` rows. The caller owns the contract that every
 passed row is a realized sleeve return strictly before the decision time.
+Sleeve names and symbol identifiers must be native strings; reject subclasses
+before any caller-defined equality or hash operation can affect identity.
 
 Order of operations (exact):
 
@@ -93,12 +95,12 @@ class SleeveTarget:
     weights: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name:
-            raise TypeError("sleeve name must be a non-empty string")
+        if type(self.name) is not str or not self.name:
+            raise TypeError("sleeve name must be a non-empty native string")
         if type(self.symbols) is not tuple or not self.symbols:
             raise TypeError("sleeve symbols must be a non-empty tuple")
-        if any(not isinstance(value, str) or not value for value in self.symbols):
-            raise TypeError("sleeve symbols must be non-empty strings")
+        if any(type(value) is not str or not value for value in self.symbols):
+            raise TypeError("sleeve symbols must be non-empty native strings")
         if type(self.weights) is not tuple:
             raise TypeError("sleeve weights must be a tuple")
         if len(self.weights) != len(self.symbols):
@@ -293,6 +295,8 @@ def combine_sleeves(
         raise TypeError("config must be a SleeveCombinerConfig")
     if type(symbols) is not tuple or not symbols:
         raise TypeError("symbols must be a non-empty tuple")
+    if any(type(symbol) is not str or not symbol for symbol in symbols):
+        raise TypeError("symbols must be non-empty native strings")
     if len(set(symbols)) != len(symbols):
         raise SleeveCombinerError("symbols", "symbols must be unique")
     sleeve_list = tuple(sleeves)

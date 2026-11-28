@@ -49,7 +49,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "548838c2cba9ea3aafab5d23aa9cdb0279ab43b9a684698b90797f129e3f08fd"
+      "sha256": "51155a509cf76728d436cebb2986b3f1ab8e89fec59c1311732ab18c2c3f6cef"
     },
     {
       "path": "docs/architecture/lean-core.md",

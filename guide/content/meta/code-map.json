@@ -322,7 +322,7 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "4b1c3183264260add43e3c801d64e503ca00e9b9fbe0443ae95f2835efbf2184",
+      "source_sha256": "2714f9c284e3477b4869f137c1343c7c81c06c050629e3ace9462cd38473755b",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
       "description_ja": "各native decisionでsymbol順のMultiDiscrete actionを受け、同じstrategy snapshot builderとsimulation sessionを使います。fixed-shape observationはpartialであり、reserved terminal settlementを含むnet-equity差を固定初期資本で正規化します。Gym adapter自体はtrainerでもlegacy PPO defaultの変更でもありません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、Spotと明示sessionキャリーを同じ会計で検証します。sessionキャリーは別mode/schema/digestを使います。",
       "variables": [],

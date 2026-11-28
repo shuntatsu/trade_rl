@@ -241,7 +241,9 @@ def verify_reports(
         ):
             raise ValueError("invalid or incomplete phase reports")
         if _collection_skip_roster(record["collection_skips"]) != expected_skips:
-            raise ValueError("collection skip roster differs from independent collection")
+            raise ValueError(
+                "collection skip roster differs from independent collection"
+            )
         indices.add(index)
         fingerprints.add((size, digest))
         all_items.extend(items)

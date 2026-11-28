@@ -92,9 +92,7 @@ def test_real_shard_retains_phase_outcomes_and_collection_skip(tmp_path: Path) -
     }
     for name, outcome in expected.items():
         other = [
-            row
-            for row in phases[f"tests/test_sample.py::{name}"]
-            if row[1] != "passed"
+            row for row in phases[f"tests/test_sample.py::{name}"] if row[1] != "passed"
         ]
         if outcome is None:
             assert other == []

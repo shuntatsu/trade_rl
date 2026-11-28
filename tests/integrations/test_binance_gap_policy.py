@@ -9,7 +9,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+)
+from trade_rl.data.features.cross_asset import CROSS_ASSET_FEATURE_KINDS
 from trade_rl.data.features.multitimeframe import _native_events, align_native_feature
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.integrations.binance.dataset import (
@@ -396,7 +401,7 @@ def _four_hour_rows(n_bars: int, missing: set[int]) -> list[list[Any]]:
 def _gap_native(n_bars: int, missing: set[int]) -> Any:
     end_ms = _ms(START) + n_bars * FOUR_HOUR_MS
     series, _ = _gap_tolerant_series(
-        _four_hour_rows(40, missing),
+        _four_hour_rows(n_bars, missing),
         symbol="X",
         interval_ms=FOUR_HOUR_MS,
         start_ms=_ms(START),
@@ -489,6 +494,101 @@ def test_no_native_feature_window_bridges_a_placeholder(
     fresh_values, fresh_valid, _ = _native_events(spec, fresh, contract)
     assert np.array_equal(valid[after], fresh_valid)
     assert np.array_equal(values[after][fresh_valid], fresh_values[fresh_valid])
+
+
+def _single_symbol_kind_specs() -> list[FeatureSpec]:
+    specs: list[FeatureSpec] = []
+    for kind in FeatureKind:
+        if kind in CROSS_ASSET_FEATURE_KINDS:
+            continue
+        for lookback in (5, 14, 26, 52):
+            try:
+                specs.append(
+                    FeatureSpec(f"{kind.value}_{lookback}", kind, lookback=lookback)
+                )
+            except ValueError:
+                continue
+    return specs
+
+
+def test_every_native_kind_restarts_after_a_placeholder() -> None:
+    """No single-symbol kind lets a window span the placeholder (full roster)."""
+    specs = _single_symbol_kind_specs()
+    assert {spec.kind for spec in specs} == set(FeatureKind) - set(
+        CROSS_ASSET_FEATURE_KINDS
+    )
+    contract = InstrumentContract("X", listed_at=START - timedelta(days=100))
+    native = _gap_native(120, {70})
+    fresh = _gap_tolerant_series(
+        _four_hour_rows(120, set(range(71))),
+        symbol="X",
+        interval_ms=FOUR_HOUR_MS,
+        start_ms=_ms(START) + 71 * FOUR_HOUR_MS,
+        end_ms=_ms(START) + 120 * FOUR_HOUR_MS,
+        is_base_clock=False,
+        events=[],
+    )[0]
+    after = native.timestamps > native.timestamps[70]
+    for spec in specs:
+        values, valid, available_at = _native_events(spec, native, contract)
+        fresh_values, fresh_valid, _ = _native_events(spec, fresh, contract)
+        assert not valid[70], spec.name
+        assert bool((available_at[valid] < NEVER_AVAILABLE).all()), spec.name
+        if spec.kind is FeatureKind.VOLUME_ZSCORE:
+            # Gap-tolerant by contract (samples present rows only): covered by
+            # its own oracle test below, not by the restart equality.
+            continue
+        assert np.array_equal(valid[after], fresh_valid), spec.name
+        assert np.array_equal(values[after][fresh_valid], fresh_values[fresh_valid]), (
+            spec.name
+        )
+
+
+@pytest.mark.parametrize("lookback", (5, 14))
+def test_gap_tolerant_volume_zscore_uses_only_present_rows_and_their_availability(
+    lookback: int,
+) -> None:
+    """The z-score samples present rows; the placeholder never gates it."""
+    spec = FeatureSpec("vz", FeatureKind.VOLUME_ZSCORE, lookback=lookback)
+    contract = InstrumentContract("X", listed_at=START - timedelta(days=100))
+    rows = _four_hour_rows(60, {30})
+    rng = np.random.default_rng(7)
+    for row in rows:
+        row[5] = float(rng.uniform(1.0, 10.0))
+    kwargs: dict[str, Any] = {
+        "symbol": "X",
+        "interval_ms": FOUR_HOUR_MS,
+        "start_ms": _ms(START),
+        "is_base_clock": False,
+        "events": [],
+    }
+    short = _gap_tolerant_series(rows, end_ms=_ms(START) + 40 * FOUR_HOUR_MS, **kwargs)[
+        0
+    ]
+    full = _gap_tolerant_series(rows, end_ms=_ms(START) + 60 * FOUR_HOUR_MS, **kwargs)[
+        0
+    ]
+    short_values, short_valid, short_at = _native_events(spec, short, contract)
+    values, valid, available_at = _native_events(spec, full, contract)
+
+    # Range-end independence at every shared row, including windows holding the gap.
+    assert np.array_equal(valid[:40], short_valid)
+    assert np.array_equal(values[:40][short_valid], short_values[short_valid])
+    assert np.array_equal(available_at[:40][short_valid], short_at[short_valid])
+    # Oracle: z-score over the present rows of the trailing window; published at
+    # the event's own close, never at a range end or the sentinel.
+    volume = np.asarray(full.volume)
+    present = np.asarray(full.tradable)
+    for index in np.flatnonzero(valid):
+        window = slice(max(0, index - lookback + 1), index + 1)
+        sample = volume[window][present[window]]
+        assert sample.size >= spec.min_periods
+        spread = float(sample.std())
+        expected = 0.0 if spread <= 1e-12 else (volume[index] - sample.mean()) / spread
+        assert values[index] == pytest.approx(expected, rel=1e-12)
+        assert available_at[index] == full.timestamps[index]
+    assert not valid[30]
+    assert valid[31:].any()
 
 
 def test_built_dataset_with_native_gap_is_identical_across_range_ends() -> None:

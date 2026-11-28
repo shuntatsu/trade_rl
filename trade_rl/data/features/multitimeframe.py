@@ -20,6 +20,9 @@ from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
 from trade_rl.data.source import NEVER_PUBLISHED_AT, RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
+# Smallest valid ``datetime64[ns]`` (``NaT`` is the int64 minimum): an absent
+# row never raises the dependency availability of an event.
+_NO_DEPENDENCY_AT = np.datetime64(np.iinfo(np.int64).min + 1, "ns")
 # Bound temporary base-row arrays independently of the history length.
 _ALIGNMENT_BATCH_ROWS = 8192
 
@@ -72,7 +75,12 @@ def _native_events(
         active=active,
     )
     assert raw.available_at is not None
-    available_at = _dependency_available_at(raw.available_at, valid, source_start)
+    # An absent native row contributes to no value: gap-tolerant kinds (e.g. the
+    # volume z-score) sample only present rows inside a window that may still
+    # contain the placeholder. Its (never-published) availability must therefore
+    # not enter the dependency maximum of an event that did not use it.
+    contributing = np.where(raw.tradable, raw.available_at, _NO_DEPENDENCY_AT)
+    available_at = _dependency_available_at(contributing, valid, source_start)
     if np.any(available_at[valid] == NEVER_PUBLISHED_AT):
         raise ValueError("native feature event depends on a never-published row")
     return values, valid, available_at

@@ -658,9 +658,7 @@ def test_artifact_repo_preserves_ascii_case_insensitive_identity(
 ) -> None:
     api = FakeGet()
     api.repo["full_name"] = observed
-    report = observe_workflow_artifacts(
-        api, expected_repository=expected, run_id=RUN
-    )
+    report = observe_workflow_artifacts(api, expected_repository=expected, run_id=RUN)
     assert report["repository_id"] == REPO_ID
     assert report["artifact_count"] == 2
     assert report["artifact_history_complete"] is False

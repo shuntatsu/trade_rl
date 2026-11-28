@@ -300,3 +300,21 @@ def test_leaderboard_digest_binds_one_snapshot_during_append(monkeypatch, late_f
     updated = build_family_leaderboard(ledger, "fam")
     assert updated.n_trials == (3 if late_family == "fam" else 2)
     assert updated.ledger_digest == ledger.digest()
+
+
+@pytest.mark.parametrize("entrypoint", ["family_records", "leaderboard"])
+def test_family_selection_refuses_foreign_text_before_equality(entrypoint):
+    class ForeignFamily(str):
+        def __eq__(self, other):
+            pytest.fail("foreign family equality must not run")
+
+    ledger = TrialLedger(
+        [_completed("a", 0.05), _completed("b", 0.12, family="other")]
+    )
+    family = ForeignFamily("absent")
+    with pytest.raises(TrialLedgerError, match="family"):
+        if entrypoint == "family_records":
+            ledger.family_records(family)
+        else:
+            build_family_leaderboard(ledger, family)
+    assert [record.trial_id for record in ledger.family_records("fam")] == ["a"]

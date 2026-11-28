@@ -134,8 +134,8 @@ def build_family_leaderboard(
 
     if not isinstance(ledger, TrialLedger):
         raise TrialLedgerError("ledger must be a TrialLedger")
-    if not isinstance(family, str):
-        raise TrialLedgerError("family must be a string")
+    if type(family) is not str:
+        raise TrialLedgerError("family must be a string of the native type")
     # Freeze the full roster once: a concurrent append must not change the
     # digest independently of the trials counted and scored below.
     ledger = TrialLedger(ledger.records)

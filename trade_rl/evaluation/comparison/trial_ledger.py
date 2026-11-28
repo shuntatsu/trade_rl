@@ -265,6 +265,8 @@ class TrialLedger:
             return self._by_id.get(trial_id)
 
     def family_records(self, family: str) -> tuple[TrialRecord, ...]:
+        if type(family) is not str:
+            raise TrialLedgerError("family must be a string of the native type")
         return tuple(item for item in self.records if item.family == family)
 
     def family_counts(self) -> dict[str, int]:

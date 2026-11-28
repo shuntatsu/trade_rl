@@ -227,6 +227,7 @@ def test_default_capacity_is_the_causal_previous_completed_bar() -> None:
     assert evidence.capacity_reference_price == pytest.approx(50.0)
     assert result.filled_notional == pytest.approx(100.0)
 
+
 @pytest.mark.parametrize("unit", list(VolumeUnit))
 @pytest.mark.parametrize("late", [False, True])
 def test_unobserved_previous_volume_cannot_fund_a_stateful_fill(

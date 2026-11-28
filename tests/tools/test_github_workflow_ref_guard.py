@@ -119,12 +119,16 @@ def test_github_ref_grammar_is_validated_at_each_untrusted_roster_boundary(
         assert reader.calls == 0
     elif where == "first":
         reader = FakeReader(with_bad, RuntimeError("unnecessary second page"))
-        with pytest.raises(ValueError, match="unfinished workflow branch refs are malformed"):
+        with pytest.raises(
+            ValueError, match="unfinished workflow branch refs are malformed"
+        ):
             stable_workflow_branch_refs(reader, known_branch_names=safe)
         assert reader.calls == 1
     else:
         reader = FakeReader(safe, with_bad)
-        with pytest.raises(ValueError, match="unfinished workflow branch refs are malformed"):
+        with pytest.raises(
+            ValueError, match="unfinished workflow branch refs are malformed"
+        ):
             stable_workflow_branch_refs(reader, known_branch_names=safe)
         assert reader.calls == 2
 
@@ -174,6 +178,8 @@ def test_unicode_scalar_supplementary_branch_remains_legal() -> None:
 
 def test_malformed_first_observation_masks_no_following_network_failure() -> None:
     reader = FakeReader(frozenset({"bad..name"}), RuntimeError("network refused"))
-    with pytest.raises(ValueError, match="unfinished workflow branch refs are malformed"):
+    with pytest.raises(
+        ValueError, match="unfinished workflow branch refs are malformed"
+    ):
         stable_workflow_branch_refs(reader, known_branch_names=frozenset({"main"}))
     assert reader.calls == 1

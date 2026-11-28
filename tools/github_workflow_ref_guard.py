@@ -20,33 +20,33 @@ def _valid_branch_name(value: object) -> bool:
         return False
     if ".." in value or "@{" in value:
         return False
-    if any(
-        ord(char) < 32
-        or ord(char) == 127
-        or 0xD800 <= ord(char) <= 0xDFFF
-        or char in " ~^:?*[\\"
-        for char in value
-    ):
-        return False
-    return all(
-        component and not component.startswith(".") and not component.endswith(".lock")
-        for component in value.split("/")
-    )
+    for char in value:
+        codepoint = ord(char)
+        if (
+            codepoint < 32
+            or codepoint == 127
+            or 0xD800 <= codepoint <= 0xDFFF
+            or char in " ~^:?*[\\"
+        ):
+            return False
+    for component in value.split("/"):
+        if not component or component.startswith(".") or component.endswith(".lock"):
+            return False
+    return True
 
 
 def _validated_branch_names(value: object, *, invalid_message: str) -> frozenset[str]:
-    if type(value) is not frozenset or any(
-        not _valid_branch_name(name) for name in value
-    ):
+    if type(value) is not frozenset:
         raise ValueError(invalid_message)
     names = cast(frozenset[str], value)
     for name in names:
-        components = name.split("/")
-        if any(
-            "/".join(components[:index]) in names
-            for index in range(1, len(components))
-        ):
+        if not _valid_branch_name(name):
             raise ValueError(invalid_message)
+    for name in names:
+        components = name.split("/")
+        for index in range(1, len(components)):
+            if "/".join(components[:index]) in names:
+                raise ValueError(invalid_message)
     return names
 
 

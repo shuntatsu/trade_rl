@@ -10,7 +10,14 @@ from tools.agent_repo.source_index import ImportCollector, within_module
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl"
 ALLOCATION = PACKAGE / "strategies" / "allocation"
-MODULES = ("solver.py", "cost_aware.py", "buy_and_hold.py", "costs.py", "spot_cash.py")
+MODULES = (
+    "solver.py",
+    "cost_aware.py",
+    "buy_and_hold.py",
+    "costs.py",
+    "spot_cash.py",
+    "sleeves.py",
+)
 
 
 def _imports(path: Path) -> set[str]:
@@ -49,6 +56,7 @@ def test_allocation_modules_only_use_numpy_and_the_detached_portfolio_contract()
     None
 ):
     assert _trade_rl_imports(ALLOCATION / "solver.py") == set()
+    assert _trade_rl_imports(ALLOCATION / "sleeves.py") == set()
     assert _trade_rl_imports(ALLOCATION / "buy_and_hold.py") == {
         "trade_rl.strategies.portfolio"
     }

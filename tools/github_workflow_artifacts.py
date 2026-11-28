@@ -61,7 +61,7 @@ def _text(value: Any, field: str) -> str:
 def _repo(api: ArtifactReadApi, expected: str) -> tuple[str, int, str]:
     raw = _mapping(api._request_json("GET", ""), "repository identity")
     name = _text(raw.get("full_name"), "repository identity")
-    if name.casefold() != expected.casefold():
+    if not name.isascii() or name.casefold() != expected.casefold():
         raise ValueError("repository identity differs from requested repository")
     return (
         name.casefold(),

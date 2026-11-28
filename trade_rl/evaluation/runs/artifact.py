@@ -542,7 +542,6 @@ def _result_payload(
                 "terminal_exact_quantities": list(ledger.terminal_exact_quantities),
             },
         }
-    _require_coverage_roster(summary)
     return summary, returns
 
 
@@ -568,6 +567,7 @@ def publish_candidate_run(
     provenance_payload = dict(provenance)
     _validate_provenance(provenance_payload)
     summary, returns = _result_payload(result)
+    _require_coverage_roster(summary)
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=str(output.parent))

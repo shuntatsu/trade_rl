@@ -503,7 +503,7 @@ def test_shared_ledger_reconciliation_rejects_invalid_tolerance(tolerance):
 
 @pytest.mark.parametrize("unit", list(VolumeUnit))
 @pytest.mark.parametrize("multiplier", [1.0, 2.0])
-def test_terminal_dust_requires_native_quantity_capacity(
+def test_dust_requires_native_quantity_capacity(
     unit: VolumeUnit, multiplier: float
 ) -> None:
     base = _dataset(drop=True)
@@ -514,11 +514,12 @@ def test_terminal_dust_requires_native_quantity_capacity(
     # Each residual is 6 / (100 * multiplier) units. At terminal open 50
     # the quote pool permits 3 USDT, but the native pool permits only 4 USDT
     # at the previous close, i.e. 0.04 / multiplier rather than 0.06 / multiplier.
-    volume[-2] = {
+    reference_volumes = {
         VolumeUnit.BASE_ASSET: 0.08,
         VolumeUnit.CONTRACTS: 0.08 / multiplier,
         VolumeUnit.QUOTE_NOTIONAL: 8.0,
-    }[unit]
+    }
+    volume[-2] = reference_volumes[unit]
     dataset = dataclasses.replace(
         base,
         close=close,
@@ -546,9 +547,7 @@ def test_terminal_dust_requires_native_quantity_capacity(
 
 
 @pytest.mark.parametrize("unit", [VolumeUnit.BASE_ASSET, VolumeUnit.CONTRACTS])
-def test_terminal_dust_impact_uses_larger_native_participation(
-    unit: VolumeUnit,
-) -> None:
+def test_dust_impact_uses_larger_native_participation(unit: VolumeUnit) -> None:
     base = _dataset(drop=True)
     close = base.close.copy()
     high = base.high.copy()
@@ -565,12 +564,13 @@ def test_terminal_dust_impact_uses_larger_native_participation(
     )
     report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
     assert report["passed"] is True
-    expected = 3.0 * COST.multiplier * (
+    unit_cost = (
         COST.fee_rate
         + COST.taker_fee_rate
         + COST.spread_rate
         + COST.impact_rate * math.sqrt(0.06 / 0.16)
     )
+    expected = 3.0 * COST.multiplier * unit_cost
     for item in report["terminal_dust"]:
         assert item["exit_cost_usdt"] == pytest.approx(expected, rel=1e-12)
 

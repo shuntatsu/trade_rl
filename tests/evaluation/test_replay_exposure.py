@@ -35,7 +35,7 @@ def _fixture():
         [[100.0, 200.0], [110.0, 195.0], [90.0, 210.0], [120.0, 180.0], [105.0, 205.0]]
     )
     volume = np.full(close.shape, 1_000_000.0)
-    volume[1, 0] = 0.2
+    volume[0, 0] = 0.2  # causal capacity pool of the bar-1 fill
     return replace(
         _market(close=close, volume=volume), contract_multipliers=np.array([2.0, 3.0])
     )

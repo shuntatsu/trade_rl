@@ -321,7 +321,7 @@ def test_terminal_reward_aggregates_reserved_close_and_reconciles_literal_fees()
     None
 ):
     volume = np.full((6, 1), 1_000_000.0)
-    volume[1, 0] = 2.0
+    volume[0, 0] = 2.0  # causal capacity pool: the completed bar before the fill
     cost = replace(
         ExecutionCostConfig.zero(),
         fee_rate=0.01,
@@ -361,7 +361,7 @@ def test_terminal_reward_aggregates_reserved_close_and_reconciles_literal_fees()
 
 def test_exact_hold_preserves_filled_quantity_and_cancels_pending_remainder() -> None:
     volume = np.full((6, 1), 1_000_000.0)
-    volume[1, 0] = 2.0
+    volume[0, 0] = 2.0  # causal capacity pool: the completed bar before the fill
     observed: list[StatefulExecutionObservation] = []
     cost = replace(
         ExecutionCostConfig.zero(),
@@ -433,7 +433,7 @@ def test_split_cancels_partial_remainder_and_retarget_uses_adjusted_book() -> No
         [[100.0], [100.0], [50.0], [50.0], [50.0], [50.0], [50.0], [50.0]]
     )
     volume = np.full((8, 1), 1_000_000.0)
-    volume[1, 0] = 2.0
+    volume[0, 0] = 2.0  # causal capacity pool: the completed bar before the fill
     split_factor = np.ones((8, 1), dtype=np.float64)
     split_factor[2, 0] = 2.0
     cost = replace(
@@ -519,7 +519,7 @@ def test_risk_stop_overrides_hold_and_capacity_failure_is_not_settled_success() 
     assert observation["account"][0, 0] == 0.0
 
     volume = np.full((6, 1), 1_000_000.0)
-    volume[5, 0] = 0.0
+    volume[4, 0] = 0.0  # causal capacity pool: the completed bar before the fill
     capacity_env = _env(
         _dataset(volume=volume),
         target_abs_weights=(0.5,),

@@ -36,16 +36,39 @@ class CrossAssetFeatureEvents:
     source_age_hours: np.ndarray
 
 
-def _new_event_mask(available: np.ndarray, age_hours: np.ndarray) -> np.ndarray:
+def _new_event_mask(
+    available: np.ndarray,
+    age_hours: np.ndarray,
+    event_indices: np.ndarray | None = None,
+) -> np.ndarray:
     if available.shape != age_hours.shape or available.ndim != 2:
         raise ValueError("aligned return availability and age must be [time, asset]")
     result = np.zeros_like(available, dtype=np.bool_)
+    if event_indices is None:
+        # Keep the existing direct-call contract for callers without indices.
+        # The builder always supplies exact selected native event identities.
+        if len(available):
+            result[0] = available[0]
+            result[1:] = available[1:] & (
+                (age_hours[1:] <= _EPSILON)
+                | ~available[:-1]
+                | (age_hours[1:] < age_hours[:-1] - _EPSILON)
+            )
+        return result
+    indices = np.asarray(event_indices)
+    if indices.shape != available.shape or indices.dtype != np.dtype(np.int64):
+        raise ValueError("aligned return event indices must be int64 [time, asset]")
+    if np.any(indices[available] < 0) or np.any(indices[~available] != -1):
+        raise ValueError("aligned return event indices disagree with availability")
+    if not len(available):
+        return result
+    # A selected native close cannot retreat. Remember the latest consumed
+    # index across unavailable decisions, not the rounded elapsed age.
+    seen = np.maximum.accumulate(indices, axis=0)
+    if np.any(available[1:] & (indices[1:] < seen[:-1])):
+        raise ValueError("aligned return event indices cannot move backwards")
     result[0] = available[0]
-    result[1:] = available[1:] & (
-        (age_hours[1:] <= _EPSILON)
-        | ~available[:-1]
-        | (age_hours[1:] < age_hours[:-1] - _EPSILON)
-    )
+    result[1:] = available[1:] & (indices[1:] > seen[:-1])
     return result
 
 
@@ -73,8 +96,15 @@ def calculate_cross_asset_feature_events(
     return_age_hours: np.ndarray,
     symbols: tuple[str, ...],
     reference_symbol: str,
+    return_event_indices: np.ndarray | None = None,
 ) -> CrossAssetFeatureEvents:
-    """Calculate one feature using only native return events available by each row."""
+    """Calculate one feature using only native return events available by each row.
+
+    With exact per-symbol native event indices, consume each newly selected
+    close once; unavailable rows have index -1. Direct callers that omit the
+    indices retain the older age-based inference, which cannot distinguish
+    every delayed publication.
+    """
 
     if spec.kind not in CROSS_ASSET_FEATURE_KINDS:
         raise ValueError("feature is not a maintained cross-asset kind")
@@ -95,7 +125,7 @@ def calculate_cross_asset_feature_events(
             "cross-asset reference symbol must occur exactly once in the universe"
         )
     btc_index = reference_matches[0]
-    event_mask = _new_event_mask(available, ages)
+    event_mask = _new_event_mask(available, ages, return_event_indices)
     n_bars, n_symbols = returns.shape
     values = np.zeros((n_bars, n_symbols), dtype=np.float64)
     valid = np.zeros((n_bars, n_symbols), dtype=np.bool_)

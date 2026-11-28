@@ -259,10 +259,14 @@ def test_block_mean_interval_reuses_the_repository_bootstrap_unchanged() -> None
 # ------------------------------------------------------------------------------- targets
 
 
+def _observed(values: np.ndarray) -> np.ndarray:
+    return np.ones(np.shape(values), dtype=np.bool_)
+
+
 def test_forward_log_returns_hand_check_and_unmatured_tail() -> None:
     close = np.array([[100.0, 10.0], [110.0, 10.0], [121.0, 20.0], [121.0, 20.0]])
 
-    out = forward_log_returns(close, 2)
+    out = forward_log_returns(close, 2, information_available=_observed(close))
 
     assert out[0, 0] == pytest.approx(math.log(121.0 / 100.0))
     assert out[0, 1] == pytest.approx(math.log(2.0))
@@ -270,9 +274,37 @@ def test_forward_log_returns_hand_check_and_unmatured_tail() -> None:
     assert np.isnan(out[2:]).all()
     for bad in (0, -1, 2.0, True):
         with pytest.raises(SignalMeasurementError):
-            forward_log_returns(close, bad)  # type: ignore[arg-type]
+            forward_log_returns(  # type: ignore[arg-type]
+                close, bad, information_available=_observed(close)
+            )
+    one = np.array([[1.0], [0.0]])
     with pytest.raises(SignalMeasurementError):
-        forward_log_returns(np.array([[1.0], [0.0]]), 1)
+        forward_log_returns(one, 1, information_available=_observed(one))
+
+
+def test_forward_log_returns_never_start_or_end_on_a_missing_row() -> None:
+    # Row 2 of the first symbol is a gap whose close was carried forward.
+    close = np.array(
+        [[100.0, 10.0], [110.0, 11.0], [110.0, 12.0], [130.0, 13.0], [140.0, 14.0]]
+    )
+    observed = _observed(close)
+    observed[2, 0] = False
+
+    out = forward_log_returns(close, 2, information_available=observed)
+
+    assert np.isnan(out[0, 0])  # ends on the gap
+    assert np.isnan(out[2, 0])  # starts on the gap
+    assert out[1, 0] == pytest.approx(math.log(130.0 / 110.0))
+    np.testing.assert_allclose(out[:3, 1], np.log(close[2:, 1] / close[:3, 1]))
+    # An unobserved entry need not hold a valid price at all.
+    hole = close.copy()
+    hole[2, 0] = np.nan
+    np.testing.assert_array_equal(
+        forward_log_returns(hole, 2, information_available=observed), out
+    )
+    for bad_mask in (observed.astype(np.int8), observed[:, :1], observed.tolist()):
+        with pytest.raises(SignalMeasurementError):
+            forward_log_returns(close, 2, information_available=bad_mask)
 
 
 def test_cross_sectional_demean_removes_the_same_time_mean_only() -> None:

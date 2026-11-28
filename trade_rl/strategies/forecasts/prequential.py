@@ -194,13 +194,15 @@ class PrequentialSchedule:
     ``first_fit_time + k * refit_interval_days`` and becomes usable at
     ``fit_time = cutoff + activation_delay_hours`` (zero by default: the fit is
     assumed to finish instantly, which is the right model for a backtest whose
-    cutoff is the fit instant).  A positive delay is required when the dataset's
-    ``available_at`` lags the bar timestamp enough that a label becomes
-    available exactly at the cutoff: it only moves ``fit_time`` after the last
-    admitted label's availability.  It does *not* relax decision-row
-    availability: a decision row whose ``available_at`` is later than its own
-    timestamp is never servable and ``packet`` fails closed.  The training
-    window always starts at the dataset's first row, so it only grows.
+    cutoff is the fit instant).  The shared training builder admits only label
+    endpoints that are ``information_available`` (published on time) and
+    published strictly before the cutoff, so every admitted label is already
+    available strictly before a zero-delay ``fit_time``.  A positive delay
+    models fit/deployment latency only.  It does *not* relax decision-row or
+    label availability: a row whose ``available_at`` is later than its own
+    timestamp is never a label endpoint or a servable decision row, and
+    ``packet`` fails closed.  The training window always starts at the
+    dataset's first row, so it only grows.
     """
 
     first_fit_time: np.datetime64
@@ -399,9 +401,10 @@ class ForecastVintage:
     of the vintage, so it understates out-of-sample error (most for flexible
     models such as LightGBM, which biases a later ``expm1(mu + s2 / 2)``
     log-to-simple conversion low).  ``max_training_label_available_at`` is
-    taken over all rows of the label end bars that the builder could have
-    admitted, which is exact for the default ``available_at == timestamp`` and
-    otherwise a conservative (possibly later) bound.
+    taken over the fit-symbol rows of the label end bars that the builder
+    could have admitted (``information_available`` and published strictly
+    before the cutoff), which is exact for one fit symbol and otherwise a
+    conservative (possibly later) bound.
     """
 
     vintage_id: str
@@ -430,11 +433,14 @@ def _max_label_available_at_ns(
     ):
         raise ValueError("training label end times must be dataset timestamps")
     available = dataset.resolved_array("available_at").astype("datetime64[ns]")
+    information = dataset.resolved_array("information_available")
     cutoff = training.fit_cutoff
-    # The builder admits only rows whose end-bar availability is <= cutoff, so
-    # larger values belong to excluded rows and are ignored here.
-    block = available[positions][:, list(symbols)]
-    admitted = block[block <= cutoff]
+    # The builder admits only on-time end rows published strictly before the
+    # cutoff, so other values belong to excluded rows and are ignored here.
+    columns = list(symbols)
+    block = available[positions][:, columns]
+    eligible = information[positions][:, columns] & (block < cutoff)
+    admitted = block[eligible]
     if admitted.size == 0:
         raise ValueError("training labels have no admitted availability timestamps")
     return int(admitted.max().astype(np.int64))

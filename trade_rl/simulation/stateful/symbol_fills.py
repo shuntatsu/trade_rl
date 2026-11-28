@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from trade_rl.data.contracts import VolumeUnit
 from trade_rl.simulation.accounting import SpotCashAdmissionError
 from trade_rl.simulation.bar_path import (
     BarPath,
@@ -18,6 +17,7 @@ from trade_rl.simulation.bar_path import (
     evaluate_trigger,
     select_bar_path,
 )
+from trade_rl.simulation.capacity_reference import _capacity_reference_for_symbol
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashRecord
 from trade_rl.simulation.liquidity import (
     LiquidityAllocation,
@@ -75,34 +75,14 @@ def _capacity_reference(
     *,
     symbol: int,
 ) -> tuple[float, float, float, float | None]:
-    executor = runtime.executor
-    dataset = executor.dataset
-    processing_index = context.processing_index
-    if executor.cost.processing_bar_volume_capacity:
-        reference_index = processing_index
-        reference_prices = context.open_prices
-    else:
-        reference_index = processing_index - 1
-        if reference_index < 0:
-            return 0.0, 0.0, float(context.open_prices[symbol]), None
-        reference_prices = dataset.close[reference_index]
-    market_notional = float(
-        dataset.market_notional(reference_index, reference_prices)[symbol]
-    )
-    processing_volume = float(dataset.volume[reference_index, symbol])
-    volume_unit = dataset.volume_units[symbol]
-    contract_multiplier = float(dataset.resolved_array("contract_multipliers")[symbol])
-    if volume_unit is VolumeUnit.BASE_ASSET:
-        quantity_capacity = processing_volume / contract_multiplier
-    elif volume_unit is VolumeUnit.CONTRACTS:
-        quantity_capacity = processing_volume
-    else:
-        quantity_capacity = None
-    return (
-        processing_volume,
-        market_notional,
-        float(reference_prices[symbol]),
-        quantity_capacity,
+    return _capacity_reference_for_symbol(
+        runtime.executor.dataset,
+        processing_index=context.processing_index,
+        processing_open_prices=context.open_prices,
+        symbol=symbol,
+        processing_bar_volume_capacity=(
+            runtime.executor.cost.processing_bar_volume_capacity
+        ),
     )
 
 

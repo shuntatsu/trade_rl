@@ -1,7 +1,10 @@
 """Forecast targets of the signal diagnosis (Issue #1146, card SD1).
 
 All arrays are ``(time, symbol)`` matrices of bar-close prices or returns. A missing
-label is ``NaN`` and stays ``NaN``; nothing is imputed.
+label is ``NaN`` and stays ``NaN``; nothing is imputed. A forward label exists only
+when both of its close endpoints are observed rows: the caller passes the Dataset's
+``information_available`` mask, and a gap row whose close was carried forward never
+starts or ends a label.
 
 Two different "market removal" targets live here on purpose, because they answer
 different questions and the second one is **not** the first:
@@ -34,15 +37,35 @@ def _horizon(value: object) -> int:
     return value
 
 
-def forward_log_returns(close: object, horizon_bars: int) -> np.ndarray:
-    """``ln(close[t+h] / close[t])``; the last ``h`` rows have no matured label."""
+def forward_log_returns(
+    close: object, horizon_bars: int, *, information_available: object
+) -> np.ndarray:
+    """``ln(close[t+h] / close[t])`` on observed endpoints only.
+
+    ``information_available`` is a boolean ``(time, symbol)`` mask of the rows whose
+    close is an observed, on-time price (a Dataset's ``information_available``).
+    The label at ``t`` is ``NaN`` unless both ``t`` and ``t + h`` are observed; the
+    last ``h`` rows have no matured label. Closes must be finite and positive on
+    observed rows only; unobserved entries are never read.
+    """
 
     prices = _matrix(close, "close")
     horizon = _horizon(horizon_bars)
-    if not (np.isfinite(prices) & (prices > 0.0)).all():
-        raise SignalMeasurementError("close must be finite and positive")
+    observed = information_available
+    if (
+        type(observed) is not np.ndarray
+        or observed.dtype != np.dtype(np.bool_)
+        or observed.shape != prices.shape
+    ):
+        raise SignalMeasurementError(
+            "information_available must be a boolean array shaped like close"
+        )
+    if not (np.isfinite(prices[observed]) & (prices[observed] > 0.0)).all():
+        raise SignalMeasurementError("observed close must be finite and positive")
     out = np.full(prices.shape, np.nan, dtype=np.float64)
     if prices.shape[0] > horizon:
+        both = observed[horizon:] & observed[:-horizon]
+        prices = np.where(observed, prices, 1.0)
         # Keep the direct ratio for normal finite values (better relative
         # precision near 1), but use log differences when the intermediate
         # ratio overflows or enters the subnormal range and loses precision.
@@ -51,7 +74,9 @@ def forward_log_returns(close: object, horizon_bars: int) -> np.ndarray:
             direct = np.log(ratio)
             stable = np.log(prices[horizon:]) - np.log(prices[:-horizon])
         reliable_ratio = np.isfinite(direct) & (ratio >= np.finfo(np.float64).tiny)
-        out[:-horizon] = np.where(reliable_ratio, direct, stable)
+        out[:-horizon] = np.where(
+            both, np.where(reliable_ratio, direct, stable), np.nan
+        )
     return out
 
 

@@ -15,6 +15,14 @@ import numpy as np
 from trade_rl.data._timestamps import _datetime64_values_to_ns_exact
 from trade_rl.data.native_clock import _require_unmasked_array_owners
 
+NEVER_PUBLISHED_AT = np.datetime64(np.iinfo(np.int64).max, "ns")
+"""``available_at`` of a row that is never published (a non-tradable placeholder).
+
+It is the largest ``datetime64[ns]``: no decision time reaches it, so the row is
+never observable. Native-feature calculation additionally treats such rows as
+absent and rejects a published event that would depend on one.
+"""
+
 
 def _readonly(
     value: np.ndarray,

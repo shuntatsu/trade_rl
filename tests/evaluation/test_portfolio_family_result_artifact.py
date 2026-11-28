@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -333,10 +334,29 @@ def test_legacy_integer_switch_cost_has_fixed_v1_identity_digest() -> None:
         _identity(ridge_one_way_switch_cost=0.0)
     )
 
+    # The fixture's default execution cost uses causal previous-completed-bar
+    # capacity since 2026-11-28, so its identity vector changed with it.
     assert content_digest(legacy_payload) == (
-        "b589eb0a57f2e448a12875f2da4ea35714558b54c89b61eb008b456aa7aba6d5"
+        "f62e7c45c09776ac6716ed59f3967dc1c19f6535ad739e6669721dee0bec2d73"
     )
     assert content_digest(current_payload) == (
+        "41cc2828d761c57724d7ef01b6ab6d56dc580f0854296355ac3676385677b57e"
+    )
+    # The identity rule is unchanged: explicit same-bar capacity reproduces
+    # the previously captured v1 vectors.
+    same_bar = _identity(ridge_one_way_switch_cost=0.0)
+    same_bar = replace(
+        same_bar,
+        execution_cost=replace(
+            same_bar.execution_cost, processing_bar_volume_capacity=True
+        ),
+    )
+    same_bar_legacy = four_family_portfolio_attempt_identity_payload(same_bar)
+    same_bar_legacy["ridge_one_way_switch_cost"] = 0
+    assert content_digest(same_bar_legacy) == (
+        "b589eb0a57f2e448a12875f2da4ea35714558b54c89b61eb008b456aa7aba6d5"
+    )
+    assert content_digest(four_family_portfolio_attempt_identity_payload(same_bar)) == (
         "a6af36396db55a089373ec4fec21d7fe7088db04b873eca457d2479c033f6b86"
     )
 

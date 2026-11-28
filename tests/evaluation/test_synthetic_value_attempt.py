@@ -243,7 +243,7 @@ def test_unliquidated_native_arm_keeps_bad_row_without_usable_result(
 ) -> None:
     dataset = _dataset(signal=0.8, move=0.018)
     volume = dataset.volume.copy()
-    volume[-1, 0] = 0.0
+    volume[-2, 0] = 0.0  # causal capacity of the terminal fill
     blocked = replace(dataset, volume=volume)
     root = tmp_path / "blocked"
     with pytest.raises(RuntimeError, match="endpoint"):

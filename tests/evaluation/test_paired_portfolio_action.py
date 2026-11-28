@@ -61,7 +61,8 @@ def _dataset(*, rise: float = 10.0) -> MarketDataset:
     )
     opening = np.vstack((close[0], close[:-1]))
     volume = np.full_like(close, 1_000_000.0)
-    volume[1, 0] = 1.0
+    # Thin the completed bar 0: the causal capacity pool of the bar-1 fill.
+    volume[0, 0] = 1.0
     return MarketDataset(
         dataset_id="1" * 64,
         symbols=("AAA", "BBB"),
@@ -243,7 +244,9 @@ def test_reference_factory_must_return_independent_actors() -> None:
 def test_unsettled_terminal_keeps_raw_arms_but_blocks_label() -> None:
     market = _dataset()
     volume = np.asarray(market.volume).copy()
-    volume[-1, 0] = 0.0  # no capacity to liquidate the held AAA unit
+    # No causal capacity (the completed bar before the terminal fill) to
+    # liquidate the held AAA unit.
+    volume[-2, 0] = 0.0
     blocked = replace(market, volume=volume)
     paired = _paired(market=blocked)
 
@@ -395,7 +398,7 @@ def test_untrusted_lineage_or_forged_pair_cannot_form_label() -> None:
 def test_invalid_settlement_never_becomes_fit_sample() -> None:
     market = _dataset()
     volume = market.volume.copy()
-    volume[-1, 0] = 0.0
+    volume[-2, 0] = 0.0  # causal capacity of the terminal fill
     blocked = replace(market, volume=volume)
     pair = _paired(market=blocked)
     assert not pair.eligible_for_label

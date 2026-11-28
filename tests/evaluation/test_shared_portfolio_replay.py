@@ -120,7 +120,7 @@ def test_portfolio_policy_gets_detached_shared_state_and_exact_hold_cancels_resi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     volume = np.full((4, 2), 1_000_000.0)
-    volume[1, 0] = 1.0
+    volume[0, 0] = 1.0  # causal capacity pool: the completed bar before the fill
     dataset = _market(volume=volume)
     policy = _HoldPartialFill()
     risk = PreTradeRisk(

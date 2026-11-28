@@ -1,7 +1,8 @@
 """Additional causal oscillators not maintained by the canonical FeatureKind bank.
 
 Each indicator is isolated from divergence detection and portfolio policy.
-Calculations restart at non-tradable gaps; warm-up remains NaN. These opt-in
+Calculations restart at non-tradable gaps and at rows published after their own
+timestamp; warm-up remains NaN. These opt-in
 research formulas are not claimed to match TradingView byte-for-byte.
 """
 
@@ -76,9 +77,16 @@ def _vwma_segment(
 
 
 def build_extra_indicators(
-    raw: RawMarketSeries, *, names: Iterable[str]
+    raw: RawMarketSeries,
+    *,
+    names: Iterable[str],
+    usable: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Compute selected optional raw-scale oscillators using only past bars."""
+    """Compute selected optional raw-scale oscillators using only past bars.
+
+    ``usable`` defaults to tradable rows published on time
+    (``available_at <= timestamp``); a caller may only narrow that mask.
+    """
     selected = tuple(names)
     if set(selected) - EXTRA_INDICATOR_NAMES:
         raise ValueError("unsupported extra indicator")
@@ -86,7 +94,17 @@ def build_extra_indicators(
     outputs = {name: np.full(n, np.nan, dtype=np.float64) for name in selected}
     if not selected:
         return outputs
-    for start, stop in _segments(raw.tradable):
+    assert raw.available_at is not None
+    rows = raw.tradable & (
+        raw.available_at.astype("datetime64[ns]")
+        <= raw.timestamps.astype("datetime64[ns]")
+    )
+    if usable is not None:
+        mask = np.asarray(usable)
+        if mask.dtype != np.dtype(np.bool_) or mask.shape != rows.shape:
+            raise ValueError("usable must be a boolean mask shaped like the series")
+        rows = rows & mask
+    for start, stop in _segments(rows):
         close, volume, high, low = raw.close, raw.volume, raw.high, raw.low
         length = stop - start
         if "MOM" in outputs and length > 10:

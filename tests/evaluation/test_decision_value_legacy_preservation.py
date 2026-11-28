@@ -180,9 +180,30 @@ def test_pre_td8_fitted_models_match_original_main_numerical_contract() -> None:
     )
 
 
-def test_legacy_b1_b1c_fixed_artifact_bytes_remain_identical_to_old_main() -> None:
+def _old_main_same_bar_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reproduce the old-main fixture's execution identity for byte pins.
+
+    These digests were computed on old main, whose ExecutionCostConfig default
+    was same-bar volume capacity. The byte oracle compares serializers on an
+    identical fixture, so the fixture opts into that policy explicitly; the
+    production default is the causal previous-completed-bar pool.
+    """
+    import tests.evaluation.test_decision_value_fit as fit_fixture
+
+    monkeypatch.setattr(
+        fit_fixture,
+        "_COST",
+        replace(fit_fixture._COST, processing_bar_volume_capacity=True),
+    )
+
+
+def test_legacy_b1_b1c_fixed_artifact_bytes_remain_identical_to_old_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Separate serialized-v1 byte identity from a fresh BLAS-dependent fit."""
     import hashlib
+
+    _old_main_same_bar_cost(monkeypatch)
 
     from tests.evaluation.test_decision_value_fit import _CANDIDATES, _fit_batch
     from trade_rl.evaluation.decision_value_fit import (
@@ -324,9 +345,13 @@ def test_td8_solver_produces_new_model_schemas_with_unchanged_v1_loaders() -> No
         )
 
 
-def test_v1_shallow_serialization_keeps_original_field_shape() -> None:
+def test_v1_shallow_serialization_keeps_original_field_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A fixed model pins old exact JSON; no backend-dependent fitted bytes."""
     import hashlib
+
+    _old_main_same_bar_cost(monkeypatch)
     import json
     from dataclasses import asdict
 

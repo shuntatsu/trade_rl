@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from tests.evaluation.generated_market_fixture import synthetic_dataset
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.ledger_reconciliation import reconcile_ledger
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
@@ -35,6 +36,9 @@ MINIMUM_NOTIONAL = 5.0
 CAPITAL = 100.0
 DROP_ROW = 8
 COST = ExecutionCostConfig(max_participation_rate=0.5)
+# The default causal capacity pool of the terminal processing bar (the last
+# row) is the completed bar before it, so liquidity is thinned on that row.
+CAPACITY_ROW = -2
 
 
 def _dataset(
@@ -63,7 +67,7 @@ def _dataset(
         highs[-1] = 100.0
     volume = np.full(shape, 1.0e12)
     if thin_last_volume:
-        volume[-1] = 1.0e-9  # no liquidity on the terminal bar
+        volume[CAPACITY_ROW] = 1.0e-9  # no liquidity for the terminal fill
     fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base) if f.init}
     fields.update(
         open=opens,
@@ -95,7 +99,7 @@ def _replay(dataset: MarketDataset, *, execution_cost: ExecutionCostConfig = COS
 def _unit_cost(notional: float, dataset: MarketDataset, symbol: int) -> float:
     """Independent fee + spread + impact rate of one market exit (zero slippage)."""
 
-    market_notional = float(dataset.volume[-1, symbol]) * 50.0
+    market_notional = float(dataset.volume[CAPACITY_ROW, symbol]) * 50.0
     participation = notional / market_notional
     return COST.multiplier * (
         COST.fee_rate + COST.spread_rate + COST.impact_rate * math.sqrt(participation)
@@ -189,7 +193,7 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
 
     base = _dataset(drop=True)
     volume = np.array(base.volume, copy=True)
-    volume[-1, :] = 0.25
+    volume[CAPACITY_ROW, :] = 0.25
     symbol_caps = np.full(volume.shape, 0.50, dtype=np.float64)
     symbol_caps[-1, :] = symbol_cap  # the actual processing row, not a prior bar
     dataset = dataclasses.replace(
@@ -207,8 +211,8 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
         if event.event_type == "rejected"
     } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
 
-    # The residual is 3 USDT at the terminal open; the market's last-bar
-    # capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
+    # The residual is 3 USDT at the terminal open; the completed previous
+    # bar's capacity is 0.25 x 50 = 12.5 USDT. A full virtual exit needs 0.24
     # participation, below the global 0.50 but above the symbol 0.20 cap.
     assert COST.max_participation_rate == 0.50
     assert 3.0 / (0.25 * 50.0) == pytest.approx(0.24)
@@ -226,16 +230,16 @@ def test_terminal_dust_uses_processing_bar_symbol_capacity_limit(
         assert report["terminal_dust_exit_cost_usdt"] == 0.0
 
 
-def test_symbol_cap_uses_processing_row_with_previous_volume_basis() -> None:
-    """Capacity volume can use a prior bar; the symbol rule cannot."""
+def test_symbol_cap_uses_processing_row_with_same_bar_volume_opt_in() -> None:
+    """The explicit same-bar volume mode still uses the processing-row cap."""
 
     base = _dataset(drop=True)
     volume = np.array(base.volume, copy=True)
-    volume[-2, :] = 0.25  # prior completed bar supplies volume capacity
+    volume[-1, :] = 0.25  # opt-in: the processing bar supplies volume capacity
     limits = np.full(volume.shape, 0.50, dtype=np.float64)
     limits[-1, :] = 0.20  # processing bar enforces the tighter symbol rule
     dataset = dataclasses.replace(base, volume=volume, max_participation_rate=limits)
-    cost = dataclasses.replace(COST, processing_bar_volume_capacity=False)
+    cost = dataclasses.replace(COST, processing_bar_volume_capacity=True)
     result = _replay(dataset, execution_cost=cost)
     assert cost.max_participation_rate == 0.50
     assert limits[-2, 0] == 0.50 and limits[-1, 0] == 0.20
@@ -419,7 +423,7 @@ def test_unrepresentable_or_unfillable_dust_exit_never_passes(
     """Neither numerical overflow nor capacity above the limit certifies dust."""
     dataset = _dataset(drop=True)
     volume = np.array(dataset.volume, copy=True)
-    volume[-1, :] = last_volume
+    volume[CAPACITY_ROW, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
     replayed = _replay(dataset)
     report = reconcile_ledger(replayed, dataset, CAPITAL, execution_cost=COST)
@@ -436,7 +440,7 @@ def test_finite_positive_volume_remains_valued_dust_control(last_volume: float) 
     """Within capacity, a finite dust exit estimate retains its valid control."""
     dataset = _dataset(drop=True)
     volume = np.array(dataset.volume, copy=True)
-    volume[-1, :] = last_volume
+    volume[CAPACITY_ROW, :] = last_volume
     dataset = dataclasses.replace(dataset, volume=volume)
     report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
     assert report["passed"] is True
@@ -495,3 +499,97 @@ def test_shared_ledger_reconciliation_rejects_invalid_tolerance(tolerance):
             execution_cost=COST,
             reconciliation_tolerance=tolerance,
         )
+
+
+@pytest.mark.parametrize("unit", list(VolumeUnit))
+@pytest.mark.parametrize("multiplier", [1.0, 2.0])
+def test_dust_requires_native_quantity_capacity(
+    unit: VolumeUnit, multiplier: float
+) -> None:
+    base = _dataset(drop=True)
+    close = base.close.copy()
+    high = base.high.copy()
+    close[-2] = high[-2] = 100.0
+    volume = base.volume.copy()
+    # Each residual is 6 / (100 * multiplier) units. At terminal open 50
+    # the quote pool permits 3 USDT, but the native pool permits only 4 USDT
+    # at the previous close, i.e. 0.04 / multiplier rather than 0.06 / multiplier.
+    reference_volumes = {
+        VolumeUnit.BASE_ASSET: 0.08,
+        VolumeUnit.CONTRACTS: 0.08 / multiplier,
+        VolumeUnit.QUOTE_NOTIONAL: 8.0,
+    }
+    volume[-2] = reference_volumes[unit]
+    dataset = dataclasses.replace(
+        base,
+        close=close,
+        high=high,
+        mark_price=close,
+        volume=volume,
+        volume_units=(unit, unit),
+        contract_multipliers=np.full(2, multiplier),
+    )
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
+    for value in ledger.intervals.terminal_exact_quantities:
+        assert abs(float(Fraction(value))) == pytest.approx(0.06 / multiplier)
+    assert report["terminal_flat"] is False
+    expected = unit is VolumeUnit.QUOTE_NOTIONAL
+    assert report["terminal_dust_only"] is expected
+    assert report["passed"] is expected
+
+
+@pytest.mark.parametrize("unit", [VolumeUnit.BASE_ASSET, VolumeUnit.CONTRACTS])
+def test_dust_impact_uses_larger_native_participation(unit: VolumeUnit) -> None:
+    base = _dataset(drop=True)
+    close = base.close.copy()
+    high = base.high.copy()
+    close[-2] = high[-2] = 100.0
+    volume = base.volume.copy()
+    volume[-2] = 0.16
+    dataset = dataclasses.replace(
+        base,
+        close=close,
+        high=high,
+        mark_price=close,
+        volume=volume,
+        volume_units=(unit, unit),
+    )
+    report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
+    assert report["passed"] is True
+    unit_cost = (
+        COST.fee_rate
+        + COST.taker_fee_rate
+        + COST.spread_rate
+        + COST.impact_rate * math.sqrt(0.06 / 0.16)
+    )
+    expected = 3.0 * COST.multiplier * unit_cost
+    for item in report["terminal_dust"]:
+        assert item["exit_cost_usdt"] == pytest.approx(expected, rel=1e-12)
+
+
+def test_terminal_dust_obeys_open_segment_capacity() -> None:
+    base = _dataset(drop=True)
+    volume = base.volume.copy()
+    volume[-2] = 0.25
+    dataset = dataclasses.replace(base, volume=volume)
+    cost = dataclasses.replace(COST, trigger_volume_fractions=(0.1, 0.05, 0.025, 0.0))
+    result = _replay(dataset, execution_cost=cost)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=cost)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["passed"] is False

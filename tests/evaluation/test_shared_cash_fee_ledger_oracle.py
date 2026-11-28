@@ -88,7 +88,7 @@ def _two_symbol_constant_price_market(
     n_bars = 6
     prices = np.tile(np.asarray([[100.0, 200.0]], dtype=np.float64), (n_bars, 1))
     volume = np.tile(np.asarray([[2.0, 1.0]], dtype=np.float64), (n_bars, 1))
-    volume[-2:, :] = 1_000.0
+    volume[-3:, :] = 1_000.0  # causal capacity pool: the completed bar before the fill
     symbol_order = (1, 0) if reverse_symbols else (0, 1)
     symbols = ("AAA", "BBB")
     prices = prices[:, symbol_order]
@@ -127,7 +127,7 @@ def _delayed_two_symbol_split_market() -> MarketDataset:
     open_prices = np.vstack((close[0], close[:-1]))
     open_prices[4:, 0] = 50.0
     volume = np.full((n_bars, 2), 1_000_000.0, dtype=np.float64)
-    volume[1:6] = (
+    volume[0:5] = (  # causal capacity pool: the completed bar before the fill
         (2.0, 1.0),
         (1.0, 0.25),
         (0.5, 0.25),

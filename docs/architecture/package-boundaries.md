@@ -95,6 +95,7 @@ trade_rl/
 │   ├── __init__.py
 │   ├── accounting.py
 │   ├── bar_path.py
+│   ├── capacity_reference.py
 │   ├── depth.py
 │   ├── depth_calibration.py
 │   ├── diagnostics/
@@ -500,6 +501,10 @@ after-cost accounting ownerが供給する。objective subpackageはsimulation r
 
 `orders/model.py` owns explicit MARKET reduce-only identity, strict decoding and
 event evidence; `orders/admission.py` rejects requests beyond exact inventory.
+`capacity_reference.py` owns the private, per-symbol capacity reference shared by
+stateful fills and terminal dust valuation. In causal mode it admits only the
+immediately preceding observed bar; a missing or unpublished reference yields
+zero capacity. It reads Dataset inputs without mutating book or order state.
 `liquidity.py` takes an explicit exact initial position for reduce-only requests
 and advances it in allocation priority order for all accepted fills. It owns no
 BookState mutation. `stateful/symbol_fills.py` supplies and rechecks inventory
@@ -1001,7 +1006,7 @@ Phase 3 roster（turnover aversion `kappa` とex-ante volatility target `VT12`�
 
 ## Signal measurement boundary (Issue #1146 SD1)
 
-`evaluation/signal_measurement/` holds the **pure measurement tools** of the signal diagnosis (card SD1) and nothing else: `leakage.py` (a future-perturbation probe that rebuilds a feature after perturbing every input row after a cutoff and checks whether any earlier row changes—evidence of future dependence for a deterministic builder, not proof of causality if unchanged—plus a narrow affine/monotone label-copy screen that is not a substitute for the probe), `payoff.py` (the signed after-cost payoff `s*r - |s|*cost` with entry only when `|forecast| > k*cost`, the zero-cost drift-sign comparator, and the drift-excess payoff = signal payoff minus comparator on the same row and cost multiplier, which is **not** a beta-adjusted alpha; checked against a slow independent loop reference in the tests), `ic.py` (Spearman rank IC with average ranks, Pearson linear IC, per-UTC-day IC pooled over the day's rows with skipped days counted, and the daily rank-IC increment of a forecast over a baseline on identical rows), `targets.py` (forward log returns, the cross-sectional demean `r(i,t) - mean_j r(j,t)`, and a causal beta residual), `multitest.py` (Holm and Benjamini-Hochberg adjusted p-values where equality with the level counts as a rejection, and a 95% moving-block bootstrap interval that calls the unchanged `comparison.bootstrap.moving_block_mean_test`), `profile.py` (per-feature, per-period z-scores against the expanding window of strictly earlier periods) and `significance.py` (`ewc_mean_test`, the one-sided equal-weighted cosine Student-t test of a positive mean of a day series that the SD0 protocol freezes as the p-value of the Benjamini-Hochberg gate, its exact integer term rule `ewc_terms` and the Student-t tail; deterministic, no resampling, p exactly 1.0 for a non-positive mean, fewer than four days or a constant series, checked against a slow reference from the definition and calibrated on seeded synthetic series by the [research-side SD0 calibration harness](https://github.com/shuntatsu/trade_rl_research/blob/main/src/trade_rl_research/studies/signal_diagnosis/calibration.py)).
+`evaluation/signal_measurement/` holds the **pure measurement tools** of the signal diagnosis (card SD1) and nothing else: `leakage.py` (a future-perturbation probe that rebuilds a feature after perturbing every input row after a cutoff and checks whether any earlier row changes—evidence of future dependence for a deterministic builder, not proof of causality if unchanged—plus a narrow affine/monotone label-copy screen that is not a substitute for the probe), `payoff.py` (the signed after-cost payoff `s*r - |s|*cost` with entry only when `|forecast| > k*cost`, the zero-cost drift-sign comparator, and the drift-excess payoff = signal payoff minus comparator on the same row and cost multiplier, which is **not** a beta-adjusted alpha; checked against a slow independent loop reference in the tests), `ic.py` (Spearman rank IC with average ranks, Pearson linear IC, per-UTC-day IC pooled over the day's rows with skipped days counted, and the daily rank-IC increment of a forecast over a baseline on identical rows), `targets.py` (forward log returns that require the caller's boolean `information_available` mask and are `NaN` unless both close endpoints are observed rows, the cross-sectional demean `r(i,t) - mean_j r(j,t)`, and a causal beta residual), `multitest.py` (Holm and Benjamini-Hochberg adjusted p-values where equality with the level counts as a rejection, and a 95% moving-block bootstrap interval that calls the unchanged `comparison.bootstrap.moving_block_mean_test`), `profile.py` (per-feature, per-period z-scores against the expanding window of strictly earlier periods) and `significance.py` (`ewc_mean_test`, the one-sided equal-weighted cosine Student-t test of a positive mean of a day series that the SD0 protocol freezes as the p-value of the Benjamini-Hochberg gate, its exact integer term rule `ewc_terms` and the Student-t tail; deterministic, no resampling, p exactly 1.0 for a non-positive mean, fewer than four days or a constant series, checked against a slow reference from the definition and calibrated on seeded synthetic series by the [research-side SD0 calibration harness](https://github.com/shuntatsu/trade_rl_research/blob/main/src/trade_rl_research/studies/signal_diagnosis/calibration.py)).
 
 The future-perturbation probe is a seeded **falsifier**, not proof that a feature is causal when no change is detected. It perturbs nonzero future input cells multiplicatively and zero-valued future cells additively; non-finite inputs and future-cell no-ops/overflow fail closed instead of silently certifying causality. These are synthetic software checks, not research/economic authorization.
 
@@ -1091,6 +1096,8 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.evaluation.runs.external_provenance` | `PackageFilePin`, `PackageSourcePin`, `ExternalPackageInput`, `ExternalSourceProvenance`, `verify_external_source_provenance` |
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
+
+`build_divergence_bank` treats a raw row published after its own timestamp (`available_at > timestamp`) like a missing row: no indicator reads it and every calculation restarts after it (no gap bridging), matching the Dataset builder's `row_present & information_available` rule; the extra oscillators restart at the same rows. `STOCH_D` is a 14-period %K with an explicit 3-period `stochastic_smoothing_period` (14/3; until 2026-11-28 it was registered as a 17-bar %K by mistake and changed without a compatibility mode). The bank cannot detect a native timestamp absent from `RawMarketSeries`; the caller supplies a complete native grid or marks such rows non-tradable.
 
 The opt-in external source record (external_source_provenance_v1) verifies
 two explicitly pinned package closures: reviewed repository/commit/tree,

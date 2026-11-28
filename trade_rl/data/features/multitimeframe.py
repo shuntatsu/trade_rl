@@ -17,11 +17,17 @@ from trade_rl.data.contracts import (
 )
 from trade_rl.data.features import calculate_feature_events
 from trade_rl.data.native_clock import NativeBarClock, _native_unmasked_array
-from trade_rl.data.source import RawMarketSeries
+from trade_rl.data.source import NEVER_PUBLISHED_AT, RawMarketSeries
 
 _NS_PER_HOUR = 3_600_000_000_000
+# Smallest valid ``datetime64[ns]`` (``NaT`` is the int64 minimum): an absent
+# row never raises the dependency availability of an event.
+_NO_DEPENDENCY_AT = np.datetime64(np.iinfo(np.int64).min + 1, "ns")
 # Bound temporary base-row arrays independently of the history length.
 _ALIGNMENT_BATCH_ROWS = 8192
+_AlignedFeatureColumns = tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None
+]
 
 
 def _utc_datetime64(value: datetime) -> np.datetime64:
@@ -52,6 +58,10 @@ def _native_events(
     *,
     active: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    assert raw.available_at is not None
+    # Sentinel consistency is an input invariant, even during warm-up.
+    if np.any(raw.tradable & (raw.available_at == NEVER_PUBLISHED_AT)):
+        raise ValueError("tradable native row is never-published")
     if active is None:
         active = _active_mask(raw, contract)
     assert raw.funding_available is not None
@@ -64,19 +74,22 @@ def _native_events(
         volume=raw.volume,
         funding_rate=raw.funding_rate,
         funding_available=raw.funding_available,
-        row_present=(
-            raw.tradable
-            if spec.requires_complete_native_rows
-            else np.ones(raw.timestamps.shape, dtype=np.bool_)
-        ),
+        # A native row has no separate presence field: ``tradable=False`` is a
+        # placeholder for a missing native bar. Every spec treats it as absent,
+        # exactly like a missing base row, so no window bridges the gap and
+        # warm-up restarts on the next present bar.
+        row_present=raw.tradable,
         active=active,
     )
-    assert raw.available_at is not None
-    return (
-        values,
-        valid,
-        _dependency_available_at(raw.available_at, valid, source_start),
-    )
+    # An absent native row contributes to no value: gap-tolerant kinds (e.g. the
+    # volume z-score) sample only present rows inside a window that may still
+    # contain the placeholder. Its (never-published) availability must therefore
+    # not enter the dependency maximum of an event that did not use it.
+    contributing = np.where(raw.tradable, raw.available_at, _NO_DEPENDENCY_AT)
+    available_at = _dependency_available_at(contributing, valid, source_start)
+    if np.any(available_at[valid] == NEVER_PUBLISHED_AT):
+        raise ValueError("native feature event depends on a never-published row")
+    return values, valid, available_at
 
 
 def _dependency_available_at(
@@ -131,9 +144,30 @@ def align_native_feature(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Calculate on the native clock and causally align to the base clock."""
 
+    values, available, ages, staleness, _ = _align_native_feature_events(
+        spec, raw, contract, base_timestamps, base_active, timeframe=timeframe
+    )
+    return values, available, ages, staleness
+
+
+def _align_native_feature_events(
+    spec: FeatureSpec,
+    raw: RawMarketSeries,
+    contract: InstrumentContract,
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+    *,
+    timeframe: str,
+    include_event_indices: bool = False,
+) -> _AlignedFeatureColumns:
     _validate_regular_native_series(raw, timeframe)
-    return _align_events(
-        spec, raw, _native_events(spec, raw, contract), base_timestamps, base_active
+    return _align_published_events(
+        spec.max_staleness_hours,
+        raw.timestamps,
+        _native_events(spec, raw, contract),
+        base_timestamps,
+        base_active,
+        include_event_indices=include_event_indices,
     )
 
 
@@ -251,18 +285,45 @@ def _align_event_values(
     base_timestamps: np.ndarray,
     base_active: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    values, available, ages, staleness, _ = _align_published_events(
+        max_staleness_hours, raw.timestamps, events, base_timestamps, base_active
+    )
+    return values, available, ages, staleness
+
+
+def _align_published_events(
+    max_staleness_hours: float,
+    event_timestamps: np.ndarray,
+    events: tuple[np.ndarray, np.ndarray, np.ndarray],
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+    *,
+    include_event_indices: bool = False,
+) -> _AlignedFeatureColumns:
+    """As-of align events by publication time; age is measured from event close.
+
+    ``event_timestamps`` must be strictly increasing event close times. The
+    base builder passes its own decision clock here so a late-published base
+    row is used from its publication onward, exactly as on the native path.
+    """
     # Multiple columns from a single native event share one publication frontier.
     event_values, event_valid, event_available_at = events
     values = np.zeros((len(base_timestamps), *event_values.shape[1:]), dtype=np.float64)
     available = np.zeros(len(base_timestamps), dtype=np.bool_)
     age_hours = np.full(len(base_timestamps), max_staleness_hours, dtype=np.float64)
     staleness = np.ones(len(base_timestamps), dtype=np.float64)
+    # Only the private cross-asset return channel needs the exact identity.
+    event_indices = (
+        np.full(len(base_timestamps), -1, dtype=np.int64)
+        if include_event_indices
+        else None
+    )
 
     valid_indices = np.flatnonzero(event_valid)
     if valid_indices.size == 0:
-        return values, available, age_hours, staleness
+        return values, available, age_hours, staleness, event_indices
 
-    event_time_ns = raw.timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
+    event_time_ns = event_timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
     availability_ns = event_available_at.astype("datetime64[ns]", copy=False).view(
         np.int64
     )
@@ -310,8 +371,10 @@ def _align_event_values(
         fresh = age <= max_staleness_hours + 1e-12
         values[rows[fresh]] = event_values[selected[fresh]]
         available[rows[fresh]] = True
+        if event_indices is not None:
+            event_indices[rows[fresh]] = selected[fresh]
 
-    return values, available, age_hours, staleness
+    return values, available, age_hours, staleness, event_indices
 
 
 __all__ = ["align_clocked_native_feature", "align_native_feature"]

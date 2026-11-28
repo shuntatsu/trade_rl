@@ -118,10 +118,12 @@ def test_default_and_explicit_floor_keep_captured_economic_digests():
     implicit = MarketExecutor(market(), cost())
     explicit = MarketExecutor(market(), cost(), insolvency_valuation="floor_zero")
     assert implicit.insolvency_valuation == "floor_zero"
+    # The default capacity pool became the causal previous completed bar
+    # (2026-11-28), which is a different execution policy identity.
     assert (
         implicit.execution_policy_digest
         == explicit.execution_policy_digest
-        == ("4ea34eb7e769a941e0bb83c8a9cab0d393052d3b47a3b8dba66735e6fabb6102")
+        == ("d27237a1ddf0c1377896a822559eff84c04d3ec4381cf21a4fa54cf68c3f0e74")
     )
     assert implicit.execution_policy_digest == implicit.cost.execution_policy_digest
     stressed = MarketExecutor(
@@ -130,6 +132,19 @@ def test_default_and_explicit_floor_keep_captured_economic_digests():
         rule_stress=ExecutionRuleStress(name="double", tick_size_factor=2.0),
     )
     assert stressed.execution_policy_digest == (
+        "62e3be6cf479081b5dabb3d5dcfcfc3da4550720785bd2a4b051c1308368be62"
+    )
+    # The digest function itself is unchanged: the explicit same-bar policy
+    # still reproduces the previously captured digests.
+    same_bar = replace(cost(), processing_bar_volume_capacity=True)
+    assert MarketExecutor(market(), same_bar).execution_policy_digest == (
+        "4ea34eb7e769a941e0bb83c8a9cab0d393052d3b47a3b8dba66735e6fabb6102"
+    )
+    assert MarketExecutor(
+        market(),
+        same_bar,
+        rule_stress=ExecutionRuleStress(name="double", tick_size_factor=2.0),
+    ).execution_policy_digest == (
         "979a8ac04943591c4bda3d22a5d8ecb7dd224896c8df8dad49388f4ef6f092eb"
     )
 

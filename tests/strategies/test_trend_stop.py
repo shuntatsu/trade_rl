@@ -332,7 +332,8 @@ def test_unusable_rows_never_open_a_position() -> None:
 
 # -- a stop exit that fills only in part -------------------------------------------------
 
-# Volume from row 8 on caps every fill: 50% participation of 8 units is 4 units, so the
+# Volume from row 7 on (the causal capacity pool of fills from row 8 on) caps every
+# fill: 50% participation of 8 units is 4 units, so the
 # 50/6 = 8.33 unit position needs three exit fills (4, 4 and 1/3).
 PARTIAL_EXIT_COST = replace(ExecutionCostConfig.zero(), max_participation_rate=0.5)
 
@@ -340,7 +341,7 @@ PARTIAL_EXIT_COST = replace(ExecutionCostConfig.zero(), max_participation_rate=0
 def partial_exit_dataset(bars: list[Bar]) -> MarketDataset:
     dataset = _dataset({"AAA": bars})
     volume = np.full(dataset.volume.shape, 1.0e12)
-    volume[8:] = 8.0
+    volume[7:] = 8.0
     return replace(dataset, identity_payload_json=None, volume=volume)
 
 
@@ -402,13 +403,18 @@ def test_a_partial_stop_exit_continues_after_the_price_recovers_above_the_stop()
     result, policy = replay_partial_exit(bars)
 
     quantity = Fraction(50, 6)
+    # The causal quote-notional pool is 50% of 8 units at the previous close,
+    # so a fill at a higher open buys back fewer than 4 units: 4 * 107 / 108
+    # at the row-8 open and 4 * 108 / 109 at the row-9 open.
+    first_exit = Fraction(4 * 107, 108)
+    second_exit = Fraction(4 * 108, 109)
     _assert_fills(
         result,
         [
             (4, 0, quantity),
-            (7, 0, Fraction(-4)),
-            (8, 0, Fraction(-4)),
-            (9, 0, -(quantity - 8)),
+            (7, 0, -first_exit),
+            (8, 0, -second_exit),
+            (9, 0, -(quantity - first_exit - second_exit)),
         ],
     )
     # The stop fired once, so the remainder is exited although row 8 is above the stop.

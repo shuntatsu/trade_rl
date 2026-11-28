@@ -103,17 +103,32 @@ def test_initial_cash_book_without_prices_sizes_at_current_market_mark(
     assert book.mark_prices == pytest.approx([1.0])
 
 
-def test_next_open_execution_uses_processing_bar_volume() -> None:
+def test_next_open_execution_capacity_defaults_to_previous_completed_bar() -> None:
+    # The previous completed bar traded one unit; the fill bar's own volume is
+    # not known at its open, so by default it does not widen the capacity pool.
     volume = np.array([[1.0], [1_000.0], [1_000.0], [1_000.0], [1_000.0]])
     dataset = market(volume=volume)
-    result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
+    causal = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
         BookState.zero(1, 1_000.0, dataset.close[0]),
         np.array([1.0]),
         start_index=0,
         bars=1,
     )
-    assert result.filled_turnover == pytest.approx(1.0)
-    assert result.unfilled_turnover == pytest.approx(0.0)
+    assert causal.filled_turnover == pytest.approx(0.1)
+    assert causal.unfilled_turnover == pytest.approx(0.9)
+
+    # The same-bar mode remains available only as an explicit opt-in.
+    same_bar = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), processing_bar_volume_capacity=True),
+    ).execute_interval(
+        BookState.zero(1, 1_000.0, dataset.close[0]),
+        np.array([1.0]),
+        start_index=0,
+        bars=1,
+    )
+    assert same_bar.filled_turnover == pytest.approx(1.0)
+    assert same_bar.unfilled_turnover == pytest.approx(0.0)
 
 
 def test_native_transition_applies_risk_then_executes_one_native_bar() -> None:
@@ -149,7 +164,8 @@ def test_native_transition_applies_risk_then_executes_one_native_bar() -> None:
 
 def test_native_transition_hold_cancels_partial_remainder_without_resizing() -> None:
     volume = np.full((5, 1), 1_000_000.0)
-    volume[1, 0] = 1.0
+    # The causal capacity pool of the processing bar 1 is completed bar 0.
+    volume[0, 0] = 1.0
     dataset = market(volume=volume)
     execution_cost = replace(
         ExecutionCostConfig.zero(),
@@ -613,21 +629,36 @@ def test_late_unselected_flat_symbol_does_not_block_selected_target() -> None:
     assert result.book.fill_count == 1
 
 
-def test_on_time_price_clock_allows_explicitly_unavailable_information_flag() -> None:
+@pytest.mark.parametrize("same_bar", [False, True])
+def test_on_time_price_clock_separates_admission_from_capacity(same_bar: bool) -> None:
     dataset = market(
         information_available=np.zeros((5, 1), dtype=np.bool_),
     )
     assert not dataset.information_available[1, 0]
     assert dataset.available_at[1, 0] == dataset.timestamps[1]
 
-    result = MarketExecutor(dataset, ExecutionCostConfig.zero()).execute_interval(
+    # An on-time price clock permits admission. Causal capacity still requires
+    # an observed completed bar; explicit same-bar mode retains its old fill.
+    result = MarketExecutor(
+        dataset,
+        replace(ExecutionCostConfig.zero(), processing_bar_volume_capacity=same_bar),
+    ).execute_interval(
         BookState.zero(1, 1_000.0),
         np.array([0.5]),
         start_index=1,
         bars=1,
     )
 
-    assert result.book.fill_count == 1
+    assert result.requested_notional_by_symbol == pytest.approx([500.0])
+    if same_bar:
+        assert result.book.fill_count == 1
+        assert result.book.quantities == pytest.approx([5.0])
+        assert result.filled_notional_by_symbol == pytest.approx([500.0])
+    else:
+        assert result.book.fill_count == 0
+        assert result.book.quantities == pytest.approx([0.0])
+        assert result.book.cash == 1_000.0
+        assert result.filled_notional_by_symbol == pytest.approx([0.0])
 
 
 def test_late_future_bar_remains_available_to_physical_interval_processing() -> None:

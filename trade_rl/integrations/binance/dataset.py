@@ -21,7 +21,11 @@ from trade_rl.data.contracts import (
     VolumeUnit,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.data.source import (
+    NEVER_PUBLISHED_AT,
+    MarketDataSource,
+    RawMarketSeries,
+)
 from trade_rl.integrations.binance.derived_klines import (
     BaseIntervalAggregatingTransport,
 )
@@ -68,9 +72,12 @@ class BinanceGapPolicy(StrEnum):
       requested final boundary at least one symbol must have a published
       bar or the Binance builder refuses the truncated range;
     * a missing bar on a higher native clock keeps the regular native grid with
-      a price-carried zero-volume placeholder whose ``available_at`` is the end
-      of the requested range, so every recursive/rolling feature that touches
-      it stays unavailable (causal masking) instead of using invented data;
+      a price-carried zero-volume ``tradable=False`` placeholder whose
+      ``available_at`` is the never-published sentinel (the largest
+      ``datetime64[ns]``), independent of the requested range end. Native
+      features treat ``tradable=False`` as an absent bar: no feature window
+      bridges the placeholder, rolling/recursive warm-up restarts after it and
+      the placeholder's invented OHLCV never enters a published value;
     * funding events inside a missing base bar are not accrued.
     """
 
@@ -178,7 +185,6 @@ def _gap_tolerant_series(
     end_ms: int,
     is_base_clock: bool,
     events: Sequence[tuple[int, float]],
-    range_end: np.datetime64,
     source_close_policy: BinanceSourceClosePolicy
     | str = BinanceSourceClosePolicy.RECONSTRUCTED_V1,
 ) -> tuple[RawMarketSeries, dict[str, int]]:
@@ -230,9 +236,12 @@ def _gap_tolerant_series(
         timestamps = close_ns[keep]
         available_at = timestamps
     else:
+        # A higher-clock placeholder keeps the regular native grid, but it is
+        # never published: neither the requested range end nor any other
+        # caller-dependent time may make its invented values observable.
         keep = np.ones(len(opens), dtype=np.bool_)
         timestamps = close_ns
-        available_at = np.where(present, close_ns, range_end)
+        available_at = np.where(present, close_ns, NEVER_PUBLISHED_AT)
     series = RawMarketSeries(
         timestamps=timestamps,
         available_at=available_at,
@@ -244,7 +253,7 @@ def _gap_tolerant_series(
         funding_rate=funding[keep],
         funding_available=funding_available[keep],
         funding_event_count=funding_count[keep],
-        tradable=np.ones(int(keep.sum()), dtype=np.bool_),
+        tradable=present[keep],
     )
     report = {
         "expected_bars": int(len(opens)),
@@ -451,10 +460,6 @@ class BinanceMarketDataSource(MarketDataSource):
                 end_ms=end_ms,
                 is_base_clock=timeframe == self.interval,
                 events=self._funding_events(symbol),
-                range_end=np.datetime64(
-                    self.end_time.replace(tzinfo=None),
-                    "ns",
-                ),
                 source_close_policy=self.source_close_policy,
             )
             if v3:

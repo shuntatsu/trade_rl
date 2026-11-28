@@ -327,7 +327,9 @@ def _adx(
         # DI starts at offset period - 1 and the ADX seed averages the first
         # period DX values, so the first ADX row is offset 2 * period - 2 and
         # needs exactly 2 * period - 1 rows. Requiring one more row made this
-        # row's availability depend on a later row existing (#1567 fuzz).
+        # row's availability depend on a later row existing (#1567 fuzz). Both
+        # adx and adx_causal_v1 use this seed (owner decision 2026-11-28: no
+        # legacy-compatible mode); they differ only in tradable-row resets.
         if size < 2 * period - 1:
             continue
         atr, plus_avg, minus_avg = _directional_wilder(
@@ -584,7 +586,7 @@ def calculate_feature_events(
         values, valid, source_start = _atr_change(
             high, low, close, usable, spec.lookback
         )
-    elif kind is FeatureKind.ADX:
+    elif kind in {FeatureKind.ADX, FeatureKind.ADX_CAUSAL}:
         values, valid, source_start = _adx(high, low, close, usable, spec.lookback)
     elif kind in {FeatureKind.PLUS_DI, FeatureKind.MINUS_DI, FeatureKind.DI_SPREAD}:
         plus_di, minus_di, valid, source_start = _directional_indices(

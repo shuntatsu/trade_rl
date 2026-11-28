@@ -114,10 +114,11 @@ def _layout(lookback: int, tail: int) -> tuple[np.ndarray, list[tuple[int, int]]
 
 
 @pytest.mark.parametrize("lookback", [2, 3, 5, 14])
-def test_adx_first_row_needs_exactly_two_lookback_minus_one_rows(lookback):
+@pytest.mark.parametrize("kind", [FeatureKind.ADX, FeatureKind.ADX_CAUSAL])
+def test_adx_first_row_needs_exactly_two_lookback_minus_one_rows(kind, lookback):
     present, segments = _layout(lookback, tail=3 * lookback)
     p = _prices(len(present), seed=lookback)
-    values, valid, source_start = _calculate(FeatureKind.ADX, lookback, p, present)
+    values, valid, source_start = _calculate(kind, lookback, p, present)
 
     expected_valid = np.zeros(len(present), dtype=bool)
     for start, stop in segments:
@@ -171,7 +172,9 @@ def test_directional_indices_first_row_needs_exactly_lookback_rows(kind, lookbac
     assert np.all(source_start[~valid] == -1)
 
 
-@pytest.mark.parametrize("kind", [FeatureKind.ADX, *_DIRECTIONAL])
+@pytest.mark.parametrize(
+    "kind", [FeatureKind.ADX, FeatureKind.ADX_CAUSAL, *_DIRECTIONAL]
+)
 @pytest.mark.parametrize("lookback", [3, 14])
 def test_directional_availability_never_depends_on_later_rows(kind, lookback):
     present, _ = _layout(lookback, tail=3 * lookback)

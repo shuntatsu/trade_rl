@@ -47,19 +47,46 @@ def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.nda
 
 
 def _cloud_value(kind: FeatureKind, a: float, b: float, close: float) -> float:
-    """Return one cloud-relative ratio from span A, span B and the visible close."""
+    """Return one cloud-relative ratio from span A, span B and the visible close.
+
+    Fail closed: a non-positive or non-finite close, a non-finite span or a
+    nonrepresentable ratio raises instead of yielding a valid value. The edge
+    comparison alone would otherwise map a NaN close or span to 0.0 ("inside").
+    """
+    if not math.isfinite(close) or close <= 0.0:
+        raise ValueError("Ichimoku feature requires a positive finite close")
+    if not (math.isfinite(a) and math.isfinite(b)):
+        raise ValueError("Ichimoku feature must be finite")
     if kind is FeatureKind.ICHIMOKU_CLOUD_POSITION:
-        return (close - _midpoint(a, b)) / close
-    if kind is FeatureKind.ICHIMOKU_CLOUD_THICKNESS:
-        return abs(a - b) / close
-    if kind is FeatureKind.ICHIMOKU_CLOUD_TWIST:
-        return (a - b) / close
-    top, bottom = max(a, b), min(a, b)
-    if close > top:
-        return (close - top) / close
-    if close < bottom:
-        return (close - bottom) / close
-    return 0.0
+        value = (close - _midpoint(a, b)) / close
+    elif kind is FeatureKind.ICHIMOKU_CLOUD_THICKNESS:
+        value = abs(a - b) / close
+    elif kind is FeatureKind.ICHIMOKU_CLOUD_TWIST:
+        value = (a - b) / close
+    elif kind is FeatureKind.ICHIMOKU_CLOUD_EDGE_DISTANCE:
+        top, bottom = max(a, b), min(a, b)
+        if close > top:
+            value = (close - top) / close
+        elif close < bottom:
+            value = (close - bottom) / close
+        else:
+            value = 0.0
+    else:
+        raise ValueError(f"not an Ichimoku cloud feature kind: {kind}")
+    if not math.isfinite(value):
+        raise ValueError("Ichimoku feature must be finite")
+    return value
+
+
+def _chikou_value(close: float, lagged: float) -> float:
+    """Return (close - lagged) / close for two causal closes; fail closed."""
+    for price in (close, lagged):
+        if not math.isfinite(price) or price <= 0.0:
+            raise ValueError("Ichimoku feature requires a positive finite close")
+    value = (close - lagged) / close
+    if not math.isfinite(value):
+        raise ValueError("Ichimoku feature must be finite")
+    return value
 
 
 def _configured_ichimoku_events(
@@ -127,12 +154,7 @@ def _configured_ichimoku_events(
             if not math.isfinite(c) or c <= 0.0:
                 raise ValueError("Ichimoku feature requires a positive finite close")
             if kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE:
-                lagged = float(close[t - displacement])
-                if not math.isfinite(lagged) or lagged <= 0.0:
-                    raise ValueError(
-                        "Ichimoku feature requires a positive finite close"
-                    )
-                value = (c - lagged) / c
+                value = _chikou_value(c, float(close[t - displacement]))
             elif len(windows) == 1:
                 value = (c - float(mids[windows[0]][s])) / c
             else:

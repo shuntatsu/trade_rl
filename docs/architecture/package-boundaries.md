@@ -1285,7 +1285,11 @@ lag = displacement, which must be positive, so it also requires
 remain provenance. Its dependency window is the complete usable range
 [t - lag, t], never bridged, and its publication binds that full window. The
 implicit (no-profile) chikou uses the fixed lag 26 and requires `lookback=26`
-and no visible alignment; any other lookback is refused instead of ignored.
+and no visible alignment; the implicit edge distance and twist use the fixed
+unshifted 9/26/52 spans and require `lookback=52`. Any other lookback is
+refused instead of ignored, unlike the four legacy Ichimoku kinds. A
+non-positive or non-finite close or span is refused, so a NaN close is never
+published as "inside the cloud".
 Displacement convention: visible row t uses the spans calculated at source row
 t - displacement, which matches platforms shifting by the full displacement
 (MT4-style). TradingView's built-in Ichimoku plots the spans with offset

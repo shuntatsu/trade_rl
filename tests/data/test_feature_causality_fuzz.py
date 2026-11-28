@@ -96,7 +96,13 @@ def _present(n: int, *, gaps: bool = True) -> np.ndarray:
     return mask
 
 
-def _features(spec: FeatureSpec, s: dict[str, np.ndarray], stop: int | None = None):
+def _features(
+    spec: FeatureSpec,
+    s: dict[str, np.ndarray],
+    stop: int | None = None,
+    *,
+    gaps: bool | None = None,
+):
     window = slice(None, stop)
     n = len(s["close"][window])
     return calculate_feature_events(
@@ -108,12 +114,11 @@ def _features(spec: FeatureSpec, s: dict[str, np.ndarray], stop: int | None = No
         volume=s["volume"][window],
         funding_rate=s["funding"][window],
         funding_available=s["funding_available"][window],
-        # Explicit Ichimoku profiles reset warm-up at unusable rows, so they get
-        # gaps. Implicit kinds run gap-free: legacy ADX, for a usable segment of
-        # exactly 2 * lookback - 1 rows, reports its first row unavailable in a
-        # prefix yet available once later rows exist (availability only, never a
-        # different value). That pre-existing behavior is outside this test.
-        row_present=_present(n, gaps=spec.ichimoku_periods is not None),
+        # Every kind runs with unusable rows except legacy ADX; see
+        # test_legacy_adx_gap_availability_depends_on_later_rows.
+        row_present=_present(n, gaps=spec.kind is not FeatureKind.ADX)
+        if gaps is None
+        else _present(n, gaps=gaps),
         active=np.ones(n, dtype=bool),
     )
 
@@ -209,6 +214,25 @@ def test_feature_prefix_truncation_and_future_mutation_invariance(trials):
                             err_msg=f"{spec.name} cut={cut}",
                         )
     assert checks > 1000
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "pre-existing: legacy ADX skips a usable segment of fewer than "
+        "2 * lookback rows although its first value needs 2 * lookback - 1, "
+        "so a prefix ending inside a later segment marks that segment's first "
+        "ADX row unavailable while the full series marks it available. Values "
+        "never differ; fixing it changes the Dataset availability of adx rows."
+    ),
+)
+def test_legacy_adx_gap_availability_depends_on_later_rows():
+    s = _series(np.random.default_rng(_SEED), _N)
+    spec = FeatureSpec("adx", FeatureKind.ADX, lookback=14)
+    full = _features(spec, s, gaps=True)
+    # Segment after the gap at row 35 starts at 36; first ADX row is 36 + 26.
+    prefix = _features(spec, s, 36 + 27, gaps=True)
+    np.testing.assert_array_equal(full[1][: 36 + 27], prefix[1])
 
 
 def _raw(s: dict[str, np.ndarray], stop: int | None = None) -> RawMarketSeries:
@@ -389,6 +413,14 @@ def test_divergence_prefix_mutation_invariance_and_no_backdating(trials, config)
                 )
         for event in full.events:
             events_seen += 1
+            # A pivot is confirmed only pivot_period bars after it; the event
+            # is marked at its observation row, never at the pivot or anchor.
             assert event.observed_at >= event.pivot_at + config.pivot_period
-            assert event.anchor_at < event.observed_at
+            assert event.anchor_at == event.observed_at - 1
+            assert getattr(full, event.kind)[event.observed_at] > 0
+        marked = sum(
+            int(getattr(full, name).sum())
+            for name in ("bull_regular", "bear_regular", "bull_hidden", "bear_hidden")
+        )
+        assert marked == len(full.events)
     assert events_seen > 0

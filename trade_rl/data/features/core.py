@@ -14,6 +14,7 @@ from trade_rl.data.contracts import (
     NormalizationMode,
 )
 from trade_rl.data.features.indicators._ichimoku_windows import (
+    _chikou_value,
     _cloud_value,
     _configured_ichimoku_events,
     _rolling_extrema,
@@ -950,10 +951,13 @@ def calculate_feature_events(
                     valid[index] = True
                     source_start[index] = start
             elif kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE:
-                # Causal lagging-span comparison with the close 26 rows ago.
+                # Causal lagging-span comparison with the close 26 rows ago;
+                # the whole window [t - 26, t] must be usable (no bridging).
                 start = index - ICHIMOKU_LEGACY_CHIKOU_LAG
                 if _window_is_valid(usable, start, index + 1):
-                    values[index] = (close[index] - close[start]) / close[index]
+                    values[index] = _chikou_value(
+                        float(close[index]), float(close[start])
+                    )
                     valid[index] = True
                     source_start[index] = start
             elif kind in {

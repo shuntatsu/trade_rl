@@ -105,6 +105,7 @@ class FeatureAlignment(StrEnum):
 
 
 ICHIMOKU_LEGACY_CHIKOU_LAG = 26
+ICHIMOKU_LEGACY_SPAN_B_PERIOD = 52
 
 _ICHIMOKU_CLOUD_KINDS = frozenset(
     {
@@ -280,11 +281,11 @@ class IchimokuPeriods:
     Positive displacement requires explicit visible-cloud feature alignment.
 
     Displacement convention: a visible row t uses the spans calculated at
-    source row t - displacement (platforms that shift by the full
-    displacement). TradingView's built-in Ichimoku draws the spans with
-    offset displacement - 1, so its equivalent profile is displacement=25
-    with 9/26/52; the lagging-span lag is likewise displacement - 1 = 25.
-    The chikou distance uses lag = displacement and ignores the three
+    source row t - displacement, the full shift drawn by MT4. TradingView's
+    built-in Ichimoku plots the spans at offset displacement - 1 and the
+    lagging span at -(displacement - 1), so its default 26 chart equals
+    ``IchimokuPeriods(9, 26, 52, displacement=25)``, whose chikou lag is 25.
+    The chikou distance uses lag = displacement; its value ignores the three
     periods, which remain configuration provenance. No default is changed.
     """
 
@@ -390,15 +391,29 @@ class FeatureSpec:
                     "explicit stochastic lookback must be a native integer"
                 )
         periods = self.ichimoku_periods
-        if (
-            periods is None
-            and self.kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE
-            and self.lookback != ICHIMOKU_LEGACY_CHIKOU_LAG
-        ):
-            raise ValueError(
-                "implicit Ichimoku chikou distance uses a fixed 26-bar lag; "
-                "declare lookback=26"
-            )
+        # The implicit 9/26/52 calculation ignores lookback. The new kinds do
+        # not inherit that silence: they must declare the fixed dependency.
+        if periods is None:
+            if (
+                self.kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE
+                and self.lookback != ICHIMOKU_LEGACY_CHIKOU_LAG
+            ):
+                raise ValueError(
+                    "implicit Ichimoku chikou distance uses a fixed 26-bar lag; "
+                    "declare lookback=26"
+                )
+            if (
+                self.kind
+                in {
+                    FeatureKind.ICHIMOKU_CLOUD_EDGE_DISTANCE,
+                    FeatureKind.ICHIMOKU_CLOUD_TWIST,
+                }
+                and self.lookback != ICHIMOKU_LEGACY_SPAN_B_PERIOD
+            ):
+                raise ValueError(
+                    "implicit Ichimoku cloud edge distance and twist use the "
+                    "fixed 52-bar span B window; declare lookback=52"
+                )
         visible = self.alignment is FeatureAlignment.VISIBLE_DISPLACED_CLOUD
         if periods is None:
             if visible:

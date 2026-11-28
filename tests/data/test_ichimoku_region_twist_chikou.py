@@ -314,6 +314,24 @@ def test_publication_binds_the_full_dependency_window(kind):
     assert delayed and not valid[:span].any()
 
 
+@pytest.mark.parametrize(("kind", "lookback"), [(CHIKOU, 26), (EDGE, 52), (TWIST, 52)])
+def test_implicit_publication_binds_the_full_dependency_window(kind, lookback):
+    n = 70
+    times = np.datetime64("2024-01-01", "ns") + np.arange(n) * np.timedelta64(1, "h")
+    receipts = times.copy()
+    receipts[3] = times[60] + np.timedelta64(1, "ns")  # late receipt of row 3
+    raw = _source(times, receipts)
+    spec = FeatureSpec("f", kind, lookback=lookback, max_staleness_hours=100.0)
+    span = 26 if kind is CHIKOU else 51  # window [t - span, t]
+    _, valid, at = mtf._native_events(spec, raw, InstrumentContract("SYNTH"))
+    assert np.flatnonzero(valid).tolist() == list(range(span, n))
+    for t in range(span, n):
+        assert at[t] == max(receipts[t - span : t + 1])
+    # Row 3 delays exactly the events whose window still contains it.
+    late = [t for t in range(span, n) if at[t] == receipts[3]]
+    assert late == list(range(span, min(n, span + 4)))
+
+
 @pytest.mark.parametrize("kind", [EDGE, TWIST, CHIKOU])
 def test_nonfinite_or_nonpositive_inputs_are_refused(kind):
     prices = np.array([1e-308, 1e308, 1e-308, 1e-308])
@@ -323,6 +341,42 @@ def test_nonfinite_or_nonpositive_inputs_are_refused(kind):
     bad = np.array([5.0, 0.0, 5.0, 5.0])
     with pytest.raises(ValueError, match="positive finite close"):
         _events(_explicit(kind, IchimokuPeriods(1, 1, 1, 1)), bad + 1, bad, bad)
+
+
+def test_implicit_nonfinite_and_nonpositive_inputs_are_refused():
+    high, low, close = _ramp(80, True)
+    # A NaN close would compare as "inside" (neither above top nor below
+    # bottom); it must be refused, never published as 0.0.
+    for bad in (np.nan, np.inf, 0.0, -1.0):
+        broken = close.copy()
+        broken[60] = bad
+        for spec in (
+            FeatureSpec("f", EDGE, lookback=52),
+            FeatureSpec("f", TWIST, lookback=52),
+            FeatureSpec("f", CHIKOU, lookback=26),
+        ):
+            with pytest.raises(ValueError, match="positive finite close"):
+                _events(spec, high, low, broken)
+    # The lagged close of the chikou window is checked as well.
+    broken = close.copy()
+    broken[30] = np.nan
+    with pytest.raises(ValueError, match="positive finite close"):
+        _events(FeatureSpec("f", CHIKOU, lookback=26), high, low, broken)
+    # A non-finite span is refused even where the edge comparison is finite.
+    spiked = high.copy()
+    spiked[40] = np.inf
+    for kind in (EDGE, TWIST):
+        with pytest.raises(ValueError, match="must be finite"):
+            _events(FeatureSpec("f", kind, lookback=52), spiked, low, close)
+
+
+def test_explicit_nan_close_inside_cloud_is_refused():
+    close = list(VISIBLE_CLOSE)
+    close[6] = float("nan")  # row 6 lies inside the visible cloud
+    for kind in (EDGE, TWIST, CHIKOU):
+        spec = _explicit(kind, IchimokuPeriods(1, 2, 3, 2))
+        with pytest.raises(ValueError, match="positive finite close"):
+            _events(spec, HIGH, LOW, close)
 
 
 def test_huge_displacement_skips_without_allocating():
@@ -354,6 +408,22 @@ def test_validation_refusals_for_new_kinds():
             FeatureSpec("f", CHIKOU, lookback=lookback)
     for alignment in (None, FeatureAlignment.UNSHIFTED_DECISION_TIME):
         assert FeatureSpec("f", CHIKOU, lookback=26, alignment=alignment)
+    # Implicit edge distance and twist declare the fixed 52-bar span B window.
+    for kind in (EDGE, TWIST):
+        for lookback in (1, 9, 26, 51, 53):
+            with pytest.raises(ValueError, match="52-bar span B"):
+                FeatureSpec("f", kind, lookback=lookback)
+        for alignment in (None, FeatureAlignment.UNSHIFTED_DECISION_TIME):
+            assert FeatureSpec("f", kind, lookback=52, alignment=alignment)
+        with pytest.raises(ValueError, match="explicit Ichimoku periods"):
+            FeatureSpec("f", kind, lookback=52, alignment=VISIBLE)
+    # Legacy kinds keep ignoring lookback exactly as before.
+    for kind in (
+        FeatureKind.ICHIMOKU_CLOUD_POSITION,
+        FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+        FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+    ):
+        assert FeatureSpec("f", kind, lookback=5)
     # Cloud kinds follow the existing displacement/alignment pairing.
     for kind in (EDGE, TWIST):
         with pytest.raises(ValueError, match="displacement"):
@@ -364,8 +434,6 @@ def test_validation_refusals_for_new_kinds():
             )
         with pytest.raises(ValueError, match="lookback"):
             FeatureSpec("f", kind, ichimoku_periods=IchimokuPeriods(), lookback=52)
-        with pytest.raises(ValueError, match="period"):
-            FeatureSpec("f", kind, alignment=VISIBLE)
     # Line-distance kinds still cannot be displaced.
     for kind in (
         FeatureKind.ICHIMOKU_TENKAN_DISTANCE,

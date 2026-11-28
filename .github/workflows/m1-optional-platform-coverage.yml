@@ -6,6 +6,9 @@ on:
     paths:
       - .github/workflows/m1-optional-platform-coverage.yml
       - tests/architecture/test_ci_optional_platform_coverage.py
+      - tests/architecture/test_worktree_windows_coverage.py
+      - tests/tools/test_worktree_hygiene.py
+      - tools/worktree_hygiene.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
@@ -60,6 +63,9 @@ on:
     paths:
       - .github/workflows/m1-optional-platform-coverage.yml
       - tests/architecture/test_ci_optional_platform_coverage.py
+      - tests/architecture/test_worktree_windows_coverage.py
+      - tests/tools/test_worktree_hygiene.py
+      - tools/worktree_hygiene.py
       - tests/tools/tier_d_nonrl/test_process_containment.py
       - tools/tier_d_nonrl/tier_d_process_containment.py
       - tests/tools/tier_d_nonrl/test_task18_recovery_native.py
@@ -202,6 +208,16 @@ jobs:
 
       - name: Require both native Windows cases to execute without skips
         run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows.xml 2
+
+      - name: Execute native Windows worktree safety tests
+        run: >-
+          uv run --no-sync python -m pytest -q -rs
+          --junitxml="${{ runner.temp }}/m1-windows-worktree.xml"
+          tests/tools/test_worktree_hygiene.py::test_open_handle_blocks_removal_on_windows
+          tests/tools/test_worktree_hygiene.py::test_windows_case_and_slash_variants_are_equivalent
+
+      - name: Require native Windows worktree cases without skips
+        run: uv run --no-sync python -m tools.ci_exact_pytest_counts m1-windows-worktree.xml 2
 
       - name: Execute native Windows stopped-arm recovery
         run: >-

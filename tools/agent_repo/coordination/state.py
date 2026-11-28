@@ -32,6 +32,8 @@ _ALLOWED_TRANSITIONS: dict[TaskPhase, frozenset[TaskPhase]] = {
 def validate_transition(current: TaskPhase, target: TaskPhase) -> None:
     """Raise when a requested phase transition is outside the v1 protocol."""
 
+    if type(current) not in (TaskPhase, str) or type(target) not in (TaskPhase, str):
+        raise ValueError("task phases must be native str or TaskPhase")
     current_phase = TaskPhase(current)
     target_phase = TaskPhase(target)
     if current_phase is TaskPhase.COMPLETE:

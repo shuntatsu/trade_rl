@@ -5,9 +5,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.evaluation.test_native_fixed_linear_carry import _HoldAfterEntry, _cost
-from tests.evaluation.test_session_elapsed_replay import _Policy
+from tests.evaluation.test_native_fixed_linear_carry import _cost, _HoldAfterEntry
 from tests.evaluation.test_session_elapsed_replay import _dataset as _spot_dataset
+from tests.evaluation.test_session_elapsed_replay import _Policy
 from tests.evaluation.test_session_elapsed_replay import _run as _run_spot
 from tests.evaluation.test_session_linear_carry import _dataset as _signed_dataset
 from tests.evaluation.test_session_linear_carry import _run as _run_signed

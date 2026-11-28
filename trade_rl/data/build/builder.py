@@ -23,7 +23,11 @@ from trade_rl.data.features.cross_asset import (
     calculate_cross_asset_feature_events,
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
-from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.multitimeframe import (
+    _align_published_events,
+    _dependency_available_at,
+    align_native_feature,
+)
 from trade_rl.data.features.numerics import (
     portable_log,
     portable_mean,
@@ -82,41 +86,6 @@ def _calculate_one_bar_returns(
     )
     returns[1:] = np.where(available[1:], portable_log(ratios), 0.0)
     return returns, available
-
-
-def _carry_feature(
-    event_values: np.ndarray,
-    event_valid: np.ndarray,
-    active: np.ndarray,
-    timestamps: np.ndarray,
-    *,
-    max_staleness_hours: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    values = np.zeros_like(event_values, dtype=np.float64)
-    available = np.zeros_like(event_valid, dtype=np.bool_)
-    age = np.full_like(event_values, max_staleness_hours, dtype=np.float64)
-    staleness = np.ones_like(event_values, dtype=np.float64)
-    timestamp_ns = timestamps.astype("datetime64[ns]").astype(np.int64)
-    last_index: int | None = None
-    last_value = 0.0
-    for index in range(len(event_values)):
-        if not active[index]:
-            last_index = None
-            last_value = 0.0
-            continue
-        if event_valid[index]:
-            last_index = index
-            last_value = float(event_values[index])
-        if last_index is None:
-            continue
-        age_hours = float(timestamp_ns[index] - timestamp_ns[last_index]) / _NS_PER_HOUR
-        normalized = min(age_hours / max_staleness_hours, 1.0)
-        age[index] = age_hours
-        staleness[index] = normalized
-        if age_hours <= max_staleness_hours + 1e-12:
-            values[index] = last_value
-            available[index] = True
-    return values, available, age, staleness
 
 
 def _carry_aged_feature(
@@ -360,7 +329,13 @@ class MarketDatasetBuilder:
         ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
             native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
             if native_timeframe == self.config.base_timeframe:
-                event_values, event_valid, _ = calculate_feature_events(
+                # Events are computed on every physically present row, then
+                # published at the latest available_at of their source rows
+                # and as-of aligned to the decision clock, as on the native
+                # path. A late row is therefore hidden from every decision
+                # before its available_at (directly and through any window),
+                # and usable by later decisions instead of a permanent gap.
+                event_values, event_valid, source_start = calculate_feature_events(
                     spec,
                     open_price=open_price[:, symbol_index],
                     high=high[:, symbol_index],
@@ -370,18 +345,21 @@ class MarketDatasetBuilder:
                     funding_rate=funding_rate[:, symbol_index],
                     funding_available=funding_available[:, symbol_index],
                     row_present=(
-                        causal_row_present[:, symbol_index] & tradable[:, symbol_index]
+                        row_present[:, symbol_index] & tradable[:, symbol_index]
                         if spec.requires_complete_native_rows
-                        else causal_row_present[:, symbol_index]
+                        else row_present[:, symbol_index]
                     ),
                     active=symbol_active[:, symbol_index],
                 )
-                return _carry_feature(
-                    event_values,
-                    event_valid,
-                    symbol_active[:, symbol_index],
+                event_available_at = _dependency_available_at(
+                    available_at[:, symbol_index], event_valid, source_start
+                )
+                return _align_published_events(
+                    spec.max_staleness_hours,
                     timestamps,
-                    max_staleness_hours=spec.max_staleness_hours,
+                    (event_values, event_valid, event_available_at),
+                    timestamps,
+                    symbol_active[:, symbol_index],
                 )
             if not isinstance(source, MultiTimeframeMarketDataSource):
                 raise ValueError(

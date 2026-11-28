@@ -251,6 +251,24 @@ def _align_event_values(
     base_timestamps: np.ndarray,
     base_active: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return _align_published_events(
+        max_staleness_hours, raw.timestamps, events, base_timestamps, base_active
+    )
+
+
+def _align_published_events(
+    max_staleness_hours: float,
+    event_timestamps: np.ndarray,
+    events: tuple[np.ndarray, np.ndarray, np.ndarray],
+    base_timestamps: np.ndarray,
+    base_active: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """As-of align events by publication time; age is measured from event close.
+
+    ``event_timestamps`` must be strictly increasing event close times. The
+    base builder passes its own decision clock here so a late-published base
+    row is used from its publication onward, exactly as on the native path.
+    """
     # Multiple columns from a single native event share one publication frontier.
     event_values, event_valid, event_available_at = events
     values = np.zeros((len(base_timestamps), *event_values.shape[1:]), dtype=np.float64)
@@ -262,7 +280,7 @@ def _align_event_values(
     if valid_indices.size == 0:
         return values, available, age_hours, staleness
 
-    event_time_ns = raw.timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
+    event_time_ns = event_timestamps.astype("datetime64[ns]", copy=False).view(np.int64)
     availability_ns = event_available_at.astype("datetime64[ns]", copy=False).view(
         np.int64
     )

@@ -122,3 +122,38 @@ def test_native_transition_matrix_unchanged(
     else:
         with pytest.raises(ValueError):
             validate_transition(before, after)
+
+
+@pytest.mark.parametrize("which", ["current", "target"])
+@pytest.mark.parametrize("spoof", [False, True])
+def test_foreign_phase_metaclass_cannot_run_equality_or_spoof_type(
+    which: str, spoof: bool
+) -> None:
+    hooks: list[str] = []
+
+    class ForeignMeta(type):
+        __hash__ = type.__hash__
+
+        def __eq__(self, other: object) -> bool:
+            hooks.append("metaclass equality")
+            if not spoof:
+                raise AssertionError("foreign metaclass equality invoked")
+            return True
+
+    class ForeignPhase(str, metaclass=ForeignMeta):
+        def __hash__(self) -> int:
+            hooks.append("value hash")
+            return hash("ready")
+
+        def __eq__(self, other: object) -> bool:
+            hooks.append("value equality")
+            return other == "ready"
+
+    values = (
+        (ForeignPhase("complete"), TaskPhase.EXECUTING)
+        if which == "current"
+        else (TaskPhase.PLANNED, ForeignPhase("complete"))
+    )
+    with pytest.raises(ValueError, match="native str or TaskPhase"):
+        validate_transition(*values)
+    assert hooks == []

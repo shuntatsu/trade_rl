@@ -96,6 +96,7 @@ def validate_workflow_state(
     name: str,
 ) -> tuple[str, str | None]:
     """Validate explicit native state/conclusion fields in read-only observations."""
+    value = _mapping(value, name)
     status = value.get("status")
     if type(status) is not str or status not in _RUN_STATES:
         raise ValueError(f"{name} status is unknown")
@@ -116,7 +117,13 @@ def validate_attempt_job_states(
     jobs: Sequence[Mapping[str, Any]],
 ) -> None:
     """Use the same run/job consistency rules at both producer and consumer."""
+    status, conclusion = validate_workflow_state(
+        {"status": status, "conclusion": conclusion}, name="run"
+    )
+    if type(jobs) is not list and type(jobs) is not tuple:
+        raise ValueError("attempt jobs must be a native list or tuple")
     for job in jobs:
+        job = _mapping(job, "job")
         name = job.get("name")
         if type(name) is not str or not name.strip():
             raise ValueError("job name must be non-empty text")

@@ -171,6 +171,8 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_month=True` を明示した共有ポートフォリオ経路だけで受理します。実際の月の長さを保持して約定・現金利息・年率を計算し、通常の固定時間足へ流しません。
 
+契約数量単位の暦月リプレイは、別途 `native_calendar_month_linear_carry=True` を併用します。検証済みv9 Datasetの明示イベント価格率、前足容量と次の始値での約定、終端の最大1件のfunding、実際の月日数による借入・現金利息を既存の会計で処理します。全windowの借入可否、利用可能性、費用と終端予約を先に検査します。複数・月内イベント、遅延、企業行動、負の現金金利、market profile、rule stress、疎なactorスケジュールは拒否します。固定足・Spot既定モードとは別の実行ポリシーdigestを使用し、Dataset・月足return形式は維持します。月足signed PPO・デリバティブ取得builder・実取引所認証は対象外です。
+
 任意のfill_cash_observerは成功したnative invocationごとに、各実約定直前・直後のcash・exact quantity・実費用を順序付きの別レコードで通知します。終端の通常約定も対象ですが、marginによる非注文清算やcarryは含みません。旧ledger形式・既定の会計はそのままです。callbackの失敗は実行を中断し、すでに外部へ書いた観測は自動的に取り消しません。
 
 この数値portfolio経路は既存の`run_shared_cash_replay` intent APIとは別のopt-in結果型・ledger schemaを使います。既存intent result、schema、default behaviorは変更しません。これは将来のactor接続点であり、PPO学習、fit、研究結果、収益性の証拠を追加するものではありません。

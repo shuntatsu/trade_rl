@@ -89,6 +89,8 @@ def consume(source: MarketDataSource, instruments: tuple[InstrumentContract, ...
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=False), str)
     assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=True, native_fixed_linear_carry=True), str)
     assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, settle_terminal_position=True, native_fixed_linear_carry=True), SharedCashPortfolioReplayResult)
+    assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=True, native_calendar_month_linear_carry=True), str)
+    assert_type(run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, settle_terminal_position=True, native_calendar_month=True, native_calendar_month_linear_carry=True), SharedCashPortfolioReplayResult)
 def external_sources(core: PackageSourcePin, research: PackageSourcePin, wheel: Path, package: Path) -> None:
     source = assert_type(ExternalPackageInput(core, wheel, package), ExternalPackageInput)
     other = ExternalPackageInput(research, wheel, package)
@@ -222,6 +224,7 @@ def bad_fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) 
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month_linear_carry="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """
 )

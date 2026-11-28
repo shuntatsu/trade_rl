@@ -46,6 +46,22 @@ def _rolling_midpoints(high: np.ndarray, low: np.ndarray, period: int) -> np.nda
     return result
 
 
+def _cloud_value(kind: FeatureKind, a: float, b: float, close: float) -> float:
+    """Return one cloud-relative ratio from span A, span B and the visible close."""
+    if kind is FeatureKind.ICHIMOKU_CLOUD_POSITION:
+        return (close - _midpoint(a, b)) / close
+    if kind is FeatureKind.ICHIMOKU_CLOUD_THICKNESS:
+        return abs(a - b) / close
+    if kind is FeatureKind.ICHIMOKU_CLOUD_TWIST:
+        return (a - b) / close
+    top, bottom = max(a, b), min(a, b)
+    if close > top:
+        return (close - top) / close
+    if close < bottom:
+        return (close - bottom) / close
+    return 0.0
+
+
 def _configured_ichimoku_events(
     kind: FeatureKind,
     periods: IchimokuPeriods,
@@ -59,6 +75,13 @@ def _configured_ichimoku_events(
     A visible-row event binds every source row from the longest required
     trailing window through that visible row, including displacement and
     the current close denominator. Do not bridge unusable intervals.
+
+    Cloud kinds share the span arithmetic (top = max(a, b), bottom =
+    min(a, b)): position uses the midpoint, thickness |a - b|, edge distance
+    the signed distance to the nearest edge (exactly zero inside, edges
+    included) and twist a - b, each divided by the visible close. Chikou
+    distance compares the close with the close ``displacement`` rows earlier;
+    its window is [t - displacement, t] and uses no midpoint window.
     """
     n = len(close)
     values = np.zeros(n, dtype=np.float64)
@@ -70,13 +93,15 @@ def _configured_ichimoku_events(
         periods.span_b_period,
     )
     windows: tuple[int, ...]
-    if kind is FeatureKind.ICHIMOKU_TENKAN_DISTANCE:
+    if kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE:
+        windows = ()
+    elif kind is FeatureKind.ICHIMOKU_TENKAN_DISTANCE:
         windows = (tenkan,)
     elif kind is FeatureKind.ICHIMOKU_KIJUN_DISTANCE:
         windows = (kijun,)
     else:
         windows = (tenkan, kijun, span_b)
-    required = max(windows)
+    required = max(windows, default=1)
     displacement = periods.displacement
     if required + displacement > n:
         return values, valid, starts
@@ -101,16 +126,19 @@ def _configured_ichimoku_events(
             c = float(close[t])
             if not math.isfinite(c) or c <= 0.0:
                 raise ValueError("Ichimoku feature requires a positive finite close")
-            if len(windows) == 1:
+            if kind is FeatureKind.ICHIMOKU_CHIKOU_DISTANCE:
+                lagged = float(close[t - displacement])
+                if not math.isfinite(lagged) or lagged <= 0.0:
+                    raise ValueError(
+                        "Ichimoku feature requires a positive finite close"
+                    )
+                value = (c - lagged) / c
+            elif len(windows) == 1:
                 value = (c - float(mids[windows[0]][s])) / c
             else:
                 a = _midpoint(float(mids[tenkan][s]), float(mids[kijun][s]))
                 b = float(mids[span_b][s])
-                value = (
-                    (c - _midpoint(a, b)) / c
-                    if kind is FeatureKind.ICHIMOKU_CLOUD_POSITION
-                    else abs(a - b) / c
-                )
+                value = _cloud_value(kind, a, b, c)
             if not math.isfinite(value):
                 raise ValueError("Ichimoku feature must be finite")
             values[t] = value

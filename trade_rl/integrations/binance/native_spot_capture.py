@@ -122,6 +122,11 @@ def resample_captured_spot_klines(
         raise ValueError("expected uppercase Spot symbol")
     if timestamp_unit not in ("ms", "us"):
         raise ValueError("capture timestamp unit must be ms or us")
+    if (
+        type(source_clock) is not NativeBarClock
+        or type(target_clock) is not NativeBarClock
+    ):
+        raise ValueError("source and target clocks must be NativeBarClock values")
     _validate_interval(source_clock, source_interval)
     _, closes = source_clock.interval_bounds(source_closes)
     if len(captures) != closes.size:

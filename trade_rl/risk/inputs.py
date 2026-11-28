@@ -270,7 +270,7 @@ class RollingPortfolioRiskInputsProvider:
         *,
         native_clock: NativeBarClock | None = None,
     ) -> None:
-        if native_clock is not None and not isinstance(native_clock, NativeBarClock):
+        if native_clock is not None and type(native_clock) is not NativeBarClock:
             raise ValueError("native_clock must be a NativeBarClock")
         self.config = config or RollingPortfolioRiskInputsConfig()
         self._native_clock = native_clock

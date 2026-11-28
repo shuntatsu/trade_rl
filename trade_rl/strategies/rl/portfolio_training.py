@@ -21,6 +21,7 @@ from trade_rl.strategies.rl.portfolio_episode_journal import (
 )
 from trade_rl.strategies.rl.portfolio_inference_bundle import (
     _CARRY_TRAINING_CONTEXT_SCHEMA,
+    _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA,
     _PORTFOLIO_METADATA_MAX_BYTES,
     _SESSION_TRAINING_CONTEXT_SCHEMA,
     _TRAINING_CONTEXT_SCHEMA,
@@ -659,6 +660,8 @@ def fit_shared_portfolio_ppo(
         "schema": (
             _SESSION_TRAINING_CONTEXT_SCHEMA
             if transform.session_boundaries_ns
+            else _MONTH_CARRY_TRAINING_CONTEXT_SCHEMA
+            if env.native_calendar_month_linear_carry
             else _CARRY_TRAINING_CONTEXT_SCHEMA
             if env.native_fixed_linear_carry
             else _TRAINING_CONTEXT_SCHEMA

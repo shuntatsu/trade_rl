@@ -54,7 +54,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "4fc0c577e4304be233bf4310597f4b79f9d3278ec4550144e68e8df4581d5721"
+      "sha256": "a19f23d9622d6211d9e8a72a5efabb68a56278b7e9a9ed2cf5ff262c513433b4"
     },
     {
       "path": "docs/architecture/lean-core.md",
@@ -180,31 +180,33 @@
       "id": "shared-portfolio-gym-adapter",
       "symbol": "trade_rl.strategies.rl.portfolio_env.SharedPortfolioGymEnv",
       "kind": "class",
-      "source_sha256": "8b04e00aa12793728a3255bcaf3e38c68f0fe9f0c846d63e090d284561959ee4",
+      "source_sha256": "2ff73b4c3aedda56a133d795f83f1e3af11fb0a8bc8fcca946d01253f52e2380",
       "label_ja": "既存のshared portfolio sessionを使うjoint Gym adapter",
-      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "各native decisionでsymbol順の固定actionを受け、既存sessionを一つだけ進めます。fixed-shape observationはpartialで、rewardには予約済みterminal settlementの全intervalが含まれます。objective_endpoint_validはsettled valuation条件のみを表し、trainerやstudy admissionは提供しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
         "tests/strategies/rl/test_portfolio_native_calendar_month.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
       "id": "shared-portfolio-ppo-trainer",
       "symbol": "trade_rl.strategies.rl.portfolio_training.fit_shared_portfolio_ppo",
       "kind": "function",
-      "source_sha256": "f6c85b39b05aeb14a4862609716347d6b00246da077f661afa9d4dc41af23395",
+      "source_sha256": "8a00967409094b7fdc0ad25fb1ad6aa4e4a2b3430925edeecf182fb168770bb1",
       "label_ja": "共通portfolioのopt-in PPO training entrypoint",
-      "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "1環境のCPU PPO rolloutを明示的に実行し、policy sampleとnative eventのjoin、checkpoint、optimizer step呼出数、失敗を記録します。inference bundle、利益・研究gateの証拠、legacy PPO default変更は提供しません。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_training.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
@@ -213,13 +215,14 @@
       "kind": "function",
       "source_sha256": "c08db217e277ad500e492fc34d2344a3f1d51c1e8090cf126492b2e5df4bcd54",
       "label_ja": "学習attemptを検証するopt-in inference bundle",
-      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
+      "description_ja": "exact completed attemptから別schemaのbundleをpublishし、外部のtrusted digest・forward environment・実際のGym spacesをSB3 deserialization前に検証してloadします。source/runtime manifestはDatasetと共有timestamp normalizerを含むselected direct owner群の記録で、完全なtransitive closureや独立したfit証明ではありません。研究結果やdeployment readinessは示しません。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
         "tests/strategies/rl/test_portfolio_native_calendar_month.py",
-        "tests/strategies/rl/test_portfolio_native_fixed_carry.py"
+        "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
@@ -238,60 +241,64 @@
       "id": "published-portfolio-inference-replay",
       "symbol": "trade_rl.evaluation.portfolio_inference.run_published_portfolio_inference_replay",
       "kind": "function",
-      "source_sha256": "f15385adc3aae214b266c1124b981a1e4ffed206cc48a6bb0e905654a5ebb8e4",
+      "source_sha256": "38a8aa82416a73d157382c56685f83ce647c50ce71d6e5b5bd837d869b8d2232",
       "label_ja": "paired dataとfrozen policyを共通replayへ接続",
-      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度実行します。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "paired loaderでDatasetを一度読み、unreset Gym shellでbundle contextを検証後、同じDataset/configでshared portfolio replayを一度実行します。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_inference_bundle.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
         "tests/strategies/rl/test_portfolio_native_calendar_month.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-transform",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationTransform",
       "kind": "class",
-      "source_sha256": "d5e7297b5987ae70748b5eec0dc6839db4cda9d4094b3bd1a4c58229b79b3b4e",
+      "source_sha256": "8fb93575fb50faee9fc65881ede38d41c6569944cad2deb0bb040c9d5e863df2",
       "label_ja": "fit範囲と環境へbindする観測変換",
-      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "raw Gym Dictをversionedな固定shape Dictへ変換します。統計はactor-fit rowsだけで固定し、availabilityとterminal paddingを保ちます。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/strategies/rl/test_portfolio_native_calendar_month.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-transform-fit",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.fit_portfolio_observation_transform",
       "kind": "function",
-      "source_sha256": "8685084305fc985cfb73cf5102abb331119b99e86d92a948bdb6b1721c80a07c",
+      "source_sha256": "108cc996c4e4d931949b9a7980d1b7c4591b51ca29e61edf62844e2d641acb16",
       "label_ja": "actor-fit範囲だけで観測統計を固定",
-      "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "local/global feature statisticsと銘柄別mark referenceをactor-fit rowsから作り、Dataset・clock・objective・risk・execution contextへbindします。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {
       "id": "portfolio-observation-runtime-binding",
       "symbol": "trade_rl.strategies.rl.portfolio_transform.PortfolioObservationRuntimeBinding",
       "kind": "class",
-      "source_sha256": "1aa00d722d9c3cb5420a51ef32684ea898b58c687368256fd878d4a685e02b29",
+      "source_sha256": "a6c87e62d019b2e1c5cd9c6ed1653366aaddb541cad5a80ec8ce2f680f1ced5d",
       "label_ja": "学習統計を将来windowへbind",
-      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
+      "description_ja": "typedなtraining BoundObjectiveClockと既存transform digestを確認し、同じDataset・非時間契約のままexclusive training stop以後のruntime clockを別metadataでbindします。fit統計やtransform-v1 payloadは変更しません。 明示UTC暦月は固定秒へ近似せず、実際の月境界と経過時間を使います。 明示固定足・暦月キャリー学習のmodeを別schema/digestで束縛し、既定Spotとの取り違えを拒否します。 明示sessionの時刻列と金融clockを専用schema/digestで束縛し、同じSpot会計で検証します。",
       "variables": [],
       "tests": [
         "tests/strategies/rl/test_portfolio_env.py",
         "tests/strategies/rl/test_portfolio_native_calendar_month.py",
         "tests/strategies/rl/test_portfolio_native_fixed_carry.py",
-        "tests/strategies/rl/test_portfolio_session_elapsed.py"
+        "tests/strategies/rl/test_portfolio_session_elapsed.py",
+        "tests/strategies/rl/test_portfolio_native_month_carry.py"
       ]
     },
     {

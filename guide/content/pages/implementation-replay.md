@@ -169,9 +169,11 @@ policyは各symbolのtarget weightをすべて返します。明示的なexact-q
 
 現物のcash-only評価では `run_shared_portfolio_replay(..., strict_spot_cash=True)` を明示できます。long-only・非レバレッジ・決定論的な費用設定が前提で、処理行のFundingや負の非取引cash flowを拒否します。実際の約定数量・価格・費用を反映するとcashまたはexact inventoryが負になるfillは、同じBookStateのcommit前に拒否し、no-fillとして記録します。別会計を作らず、未約定・再試行・終端決済もnative経路に従います。注文全体を拒否する初期仕様であり、取引所の現物認証や混合spot/perpの証拠金契約ではありません。既定モードと過去の実行識別子は変更しません。
 
+特徴量を新規構成するときは、取引不可の足でもwarm-upをやり直す `adx_causal_v1` を明示できます。旧 `adx` と同じくADXのseedが確定した時点で有効になりますが、別identityであり、保存済みのDatasetや学習済みモデルを自動変更しません。
+
 UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_month=True` を明示した共有ポートフォリオ経路だけで受理します。実際の月の長さを保持して約定・現金利息・年率を計算し、通常の固定時間足へ流しません。
 
-契約数量単位の暦月リプレイは、別途 `native_calendar_month_linear_carry=True` を併用します。検証済みv9 Datasetの明示イベント価格率、前足容量と次の始値での約定、終端の最大1件のfunding、実際の月日数による借入・現金利息を既存の会計で処理します。全windowの借入可否、利用可能性、費用と終端予約を先に検査します。複数・月内イベント、遅延、企業行動、負の現金金利、market profile、rule stress、疎なactorスケジュールは拒否します。固定足・Spot既定モードとは別の実行ポリシーdigestを使用し、Dataset・月足return形式は維持します。月足signed PPO・デリバティブ取得builder・実取引所認証は対象外です。
+契約数量単位の暦月リプレイは、別途 `native_calendar_month_linear_carry=True` を併用します。検証済みv9 Datasetの明示イベント価格率、前足容量と次の始値での約定、終端の最大1件のfunding、実際の月日数による借入・現金利息を既存の会計で処理します。全windowの借入可否、利用可能性、費用と終端予約を先に検査します。複数・月内イベント、遅延、企業行動、負の現金金利、market profile、rule stress、疎なactorスケジュールは拒否します。固定足・Spot既定モードとは別の実行ポリシーdigestを使用し、Dataset・月足return形式は維持します。デリバティブ取得builder・実取引所認証は対象外です。
 
 任意のfill_cash_observerは成功したnative invocationごとに、各実約定直前・直後のcash・exact quantity・実費用を順序付きの別レコードで通知します。終端の通常約定も対象ですが、marginによる非注文清算やcarryは含みません。旧ledger形式・既定の会計はそのままです。callbackの失敗は実行を中断し、すでに外部へ書いた観測は自動的に取り消しません。
 
@@ -199,7 +201,9 @@ UTC暦月の現物リプレイは、専用Datasetを作り `native_calendar_mont
 
 共有口座PPOにも同じ明示 `native_fixed_linear_carry=True` を指定できます。上記のDataset・費用・全windowの制約を再利用し、LONG/SHORT/HOLD/FLAT、gamma=1の固定初期資本equity delta、終端決済を共通sessionで処理します。観測変換・training contextにはキャリー専用schemaを使い、modeの違うモデルは同じデータ・費用でも読込前に拒否します。固定/月足の既存payloadは変更せず、外部pin付きのDatasetとbundleのpaired replayにも明示flagを引き継ぎます。固定scenario-v2・four-family評価・月足先物・複数funding eventや不規則sessionは対象外です。
 
-UTC暦月Spotの共有口座PPOは、検証済みv9 Datasetと明示 `CalendarMonthFinancialClockContract` の組合せだけを受理します。1ステップは実際の暦月、期間は月数と実経過秒を検査し、固定30日へ換算しません。gamma=1、固定初期資本のequity delta、GAE lambdaとrollout・latency・終端予約はnative step単位です。観測変換とforward bindingは別schemaで、実際のUTC境界を各indexへ照合し、従来の統計fit範囲と同じ帳簿を維持します。学習済みbundleは月足のclockとtransformを別payloadで固定し、同一Datasetの互換forward windowと外部pinを検証してから読込みます。固定scenario-v2・four-family manifest、月足先物・資金調達、任意不規則session、月内の約定推定は未対応で拒否します。
+UTC暦月Spotの共有口座PPOは、検証済みv9 Datasetと明示 `CalendarMonthFinancialClockContract` の組合せだけを受理します。1ステップは実際の暦月、期間は月数と実経過秒を検査し、固定30日へ換算しません。gamma=1、固定初期資本のequity delta、GAE lambdaとrollout・latency・終端予約はnative step単位です。観測変換とforward bindingは別schemaで、実際のUTC境界を各indexへ照合し、従来の統計fit範囲と同じ帳簿を維持します。学習済みbundleは月足のclockとtransformを別payloadで固定し、同一Datasetの互換forward windowと外部pinを検証してから読込みます。既定Spotモードは月足先物・資金調達を拒否します。固定scenario-v2・four-family manifest、任意不規則session、月内の約定推定も対象外です。
+
+契約数量単位の暦月PPOは `SharedPortfolioGymEnv(..., native_calendar_month_linear_carry=True)` の明示モードでのみ受理します。暦月キャリーの執行・borrow/funding・終端決済をそのまま使い、同じ月足clock、actor行のみのfit統計とgamma=1 equity deltaを維持します。観測変換とtraining contextは月足signed専用schema、forward bindingは変換digestとmodeを照合します。読込前に月足Spotや固定足キャリーとの取り違えを拒否し、paired replayにも明示flagを渡します。既存payload・既存checkpoint readerは変更しません。実取引所の月内event、複数funding、研究や経済結果の証明ではありません。
 
 このraw Dictを学習前に整えるopt-in経路が`PortfolioObservationTransform`です。payloadはversioned field layoutとDataset・symbol/feature order・objective/clock・risk/execution・fit scopeをbindします。local featureは既存PPO normalizerを使い、global featureと銘柄別geometric mark referenceは`[start_index, agent_stop_index)`のactor-fit rowsだけから求めます。availability maskを残し、account・active-order notionalはfixed initial capital基準、maintenance-margin rateはdimensionlessのまま保ち、UTC nanosecondsはfloat変換前に整数差分を取ります。serialized payloadの読込には別途保持したtrusted expected digestが必要です。これはmetadata改変を検出しますが、署名やfit実施の証明ではありません。raw validationはrisk flagと注文indexの型も検査します。`PortfolioGymObservationWrapper`はnative reward・termination・infoを変えず、terminal時は固定paddingを返します。raw stepの後に変換が失敗した場合は、そのtransitionを取り消したと主張せず、wrapperを記録付きでpoisonし、reset成功まで次のstepを拒否します。
 

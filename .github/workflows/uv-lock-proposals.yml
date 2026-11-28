@@ -1,6 +1,14 @@
 name: Python lockfile update proposals
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/uv-lock-proposals.yml
+      - tools/uv_lock_proposal.py
+      - tools/uv_advisory_audit.py
+      - pyproject.toml
   schedule:
     - cron: "45 19 * * 1"
   workflow_dispatch:

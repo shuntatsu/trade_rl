@@ -434,6 +434,16 @@ def test_repo_owned_uv_proposals_are_main_only_and_read_only() -> None:
         encoding="utf-8"
     )
     for required in (
+        "on:\n"
+        "  push:\n"
+        "    branches:\n"
+        "      - main\n"
+        "    paths:\n"
+        "      - .github/workflows/uv-lock-proposals.yml\n"
+        "      - tools/uv_lock_proposal.py\n"
+        "      - tools/uv_advisory_audit.py\n"
+        "      - pyproject.toml\n"
+        "  schedule:",
         'cron: "45 19 * * 1"',
         "workflow_dispatch:",
         "permissions:\n  contents: read",

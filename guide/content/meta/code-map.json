@@ -240,14 +240,15 @@
       "id": "market-executor",
       "symbol": "trade_rl.simulation.execution.MarketExecutor",
       "kind": "class",
-      "source_sha256": "0fb8a4b613479d4b9a14cdb1e39cc41d129852cd9efe0e5192b627eb9d5ed1cd",
+      "source_sha256": "6cb0e4f6e79e39049f3aa1b905338422806e63e1203362333bd4f417b9172cde",
       "label_ja": "約定・会計の所有者",
-      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
+      "description_ja": "注文、fill、各種コスト、資金調達、borrow、margin、BookState更新を共通の経済モデルで処理します。約定に紐づく非ゼロの料率・費用が浮動小数点の境界でゼロになる場合は帳簿更新前に拒否し、真のゼロ費用や正の極小費用は区別します。 任意のfill_cash_observerは旧ledgerとは別に、実約定直前・直後のcash・exact quantity・費用を通知し、非注文cash flowは含みません。 明示の固定足・暦月linear carryでは契約数量単位Datasetと宣言済み単一終端funding eventを受理し、実経過時間の借入・現金利息を共通会計で処理します。各モードの実行identityは別で、暦月の疎なactor・market profile・rule stressは拒否します。",
       "variables": [],
       "tests": [
         "tests/simulation/test_execution_v2.py",
         "tests/simulation/test_execution_cost_representability.py",
-        "tests/evaluation/test_native_fixed_linear_carry.py"
+        "tests/evaluation/test_native_fixed_linear_carry.py",
+        "tests/evaluation/test_native_month_linear_carry.py"
       ]
     },
     {
@@ -285,31 +286,33 @@
       "id": "shared-portfolio-policy-replay",
       "symbol": "trade_rl.evaluation.replay.run_shared_portfolio_replay",
       "kind": "function",
-      "source_sha256": "1b56b7f901630ef676ec816e6d6319f8e886aa23f3501cf770b24f1804d42a2e",
+      "source_sha256": "0259b0da832ecb9853c46365550c9b537c5b7414d33bdfc8bd251dcffebdf491",
       "label_ja": "全銘柄portfolio policyの共通replay",
-      "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
+      "description_ja": "既定は各native barでpolicyを一度呼び、全symbolの目標を共通risk/execution/accountingへ渡します。明示のactor indexでは判断のない区間にrisk検査付き残注文継続を使い、予定と実actorを別のv3台帳へ記録します。既存の終端予約・HOLD・債務保持・observer契約と既定の台帳は維持します。 明示の固定足・暦月linear carryでは契約数量単位Datasetと宣言済み単一終端funding eventを受理し、実経過時間の借入・現金利息を共通会計で処理します。各モードの実行identityは別で、暦月の疎なactor・market profile・rule stressは拒否します。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/architecture/test_lean_dependency_boundaries.py",
         "tests/evaluation/test_clocked_native_replay.py",
-        "tests/evaluation/test_native_fixed_linear_carry.py"
+        "tests/evaluation/test_native_fixed_linear_carry.py",
+        "tests/evaluation/test_native_month_linear_carry.py"
       ]
     },
     {
       "id": "shared-portfolio-session",
       "symbol": "trade_rl.simulation.stateful.portfolio_session.SharedPortfolioSession",
       "kind": "class",
-      "source_sha256": "615c5db57414f76776c9b6ab6d4f2274055f6baf37f32c777055515ebeebf4e9",
+      "source_sha256": "b08c64ad0e0bbef31ac0dd835d5fddf264021e01b04e7f18f0c3cab5d62ca5c9",
       "label_ja": "native barごとにportfolio状態を継続",
-      "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。 明示native fixed linear carryでは契約数量単位の固定足と宣言済み単一終端funding eventのみを受理し、既定Spotと別の実行identityを使います。",
+      "description_ja": "同じBookState・MarketExecutor・native indexを継続し、book viewはcloneを返します。新規判断のない区間は決定論的な成行残注文を現在markでrisk再検査し、許容時はIDと残量を維持、拒否時は通常のHOLD・hard riskへ戻します。終端予約、observer、失敗後の再試行拒否は既存契約のままです。 明示の固定足・暦月linear carryでは契約数量単位Datasetと宣言済み単一終端funding eventを受理し、実経過時間の借入・現金利息を共通会計で処理します。各モードの実行identityは別で、暦月の疎なactor・market profile・rule stressは拒否します。",
       "variables": [],
       "tests": [
         "tests/evaluation/test_shared_cash_fee_ledger_oracle.py",
         "tests/evaluation/test_shared_portfolio_replay.py",
         "tests/architecture/test_lean_simulation_layout.py",
         "tests/simulation/test_portfolio_pending_continuation.py",
-        "tests/evaluation/test_native_fixed_linear_carry.py"
+        "tests/evaluation/test_native_fixed_linear_carry.py",
+        "tests/evaluation/test_native_month_linear_carry.py"
       ]
     },
     {

@@ -13,9 +13,9 @@ from tools.agent_repo.coordination.github_state import TaskStatusRecord
 from tools.agent_repo.coordination.leases import LeaseRecord
 from tools.agent_repo.coordination.model import TaskPacket
 from tools.github_coordination_enrollment_audit import (
+    _audit_task_enrollment,
     _commit_ref,
     _read_state,
-    audit_task_enrollment,
 )
 from tools.github_coordination_ref_cas import (
     GraphQLApi,
@@ -93,7 +93,7 @@ def execute_source_bound_disposable_enrollment(
         or actor_ref.oid != expected_oid
     ):
         raise ValueError("GraphQL coordinator or repository identity differs from REST")
-    audit = audit_task_enrollment(
+    audit = _audit_task_enrollment(
         rest,
         packet=packet,
         lease=lease,
@@ -103,6 +103,7 @@ def execute_source_bound_disposable_enrollment(
         registry_path=registry_path,
         expected_issue_node_id=expected_issue_node_id,
         now=now,
+        _expected_source=source,
     )
     if audit.registry_oid != expected_oid:
         raise ValueError("audited registry OID differs from expected CAS version")
@@ -153,6 +154,7 @@ def execute_source_bound_disposable_enrollment(
         expected_repository=repository,
         ref_name=ref_name,
         registry_path=registry_path,
+        expected_repository_identity=source.repository,
     )
     if (
         after_snapshot.ref_oid != after_oid

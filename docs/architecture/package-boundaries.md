@@ -96,6 +96,7 @@ trade_rl/
 │   ├── accounting.py
 │   ├── bar_path.py
 │   ├── depth.py
+│   ├── depth_calibration.py
 │   ├── diagnostics/
 │   ├── execution.py
 │   ├── liquidity.py
@@ -532,6 +533,33 @@ The shared-cash replay's explicit exact-quantity HOLD is carried through
 `targets/execution.py` to reconciliation, which accepts it only when its target
 weight exactly matches the current book weight; it cancels residual orders without
 resizing the native quantity. Ordinary weight targets use the existing path.
+
+`depth_calibration.py` is a pure, exact-arithmetic bound calculator for cumulative
+depth-band snapshots (such as Binance `bookDepth`). The caller builds immutable
+`DepthBandSnapshot` values; a native zero-offset datetime is admitted once
+and normalized to immutable UTC without retaining caller-owned timezone state.
+Native exact numbers and native band tuples/pairs are required; numeric and
+tuple subclasses are refused before conversion or indexing. Calculation entry
+points also refuse snapshot subclasses. Side keys are native strings, UTC-hour
+keys are native integers in 0..23 (or None), and invalid keys are refused before
+hashing or comparison. The module imports no store or integration, fits nothing,
+and is not re-exported from the simulation facade. For a market order
+of quote notional Q it derives distribution-free bounds on the marginal fill
+distance and on the notional-weighted average distance from mid (the upper bound
+puts each band's liquidity at its outer edge; positive lower bounds are
+unattained infima and zero can be attained in the abstract model), reports `BeyondObservedDepth` instead of extrapolating, aggregates
+type-1 quantiles over snapshots, finds the exact capacity at a cost threshold,
+refuses a positive selected capacity outside the public bounded notional domain
+rather than rounding or returning a value the query APIs cannot consume,
+and classifies an assumed cost as below, within, above, unresolvable or beyond
+depth. Band data cannot resolve the spread or the impact of an order that fits
+inside the first band, so such assumptions are `UNRESOLVABLE`, never validated.
+Band/grid/solver inputs outside the documented numeric domain are refused
+with a `ValueError` that does not echo the value; exact classifier and existing
+cell comparisons intentionally accept derived values outside those magnitude
+and Fraction bit limits, retaining their conversion guards. The input digest identifies the snapshots only; query
+grids, sides, grouping and threshold are separate result fields. It authorizes no
+economic experiment or profitability claim.
 
 ### `strategies`
 

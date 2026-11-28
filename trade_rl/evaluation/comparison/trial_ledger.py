@@ -311,9 +311,12 @@ def encode_trial_ledger_jsonl(ledger: TrialLedger) -> bytes:
 
     Lines keep append order and each ends with ``\\n``; an empty ledger is
     empty bytes. Refuse output beyond the decoder's byte limit, before
-    accumulating a line that would exceed it.
+    accumulating a line that would exceed it. Only a native TrialLedger is
+    admitted, so an overridden roster cannot emit duplicate or foreign records.
     """
 
+    if type(ledger) is not TrialLedger:
+        raise TrialLedgerError("ledger must be a TrialLedger of the native type")
     encoded = bytearray()
     for item in ledger.records:
         line = canonical_json_bytes(_record_payload(item))
@@ -413,8 +416,10 @@ def decode_trial_ledger_jsonl(
     cannot detect a consistent rewrite of the whole file.
     """
 
-    if not isinstance(data, bytes):
-        raise TrialLedgerError("ledger data must be bytes")
+    # A bytes subclass can report a different decoded string or byte count
+    # from its underlying bytes, invalidating canonical content/digest checks.
+    if type(data) is not bytes:
+        raise TrialLedgerError("ledger data must be native bytes")
     if len(data) > MAX_LEDGER_BYTES:
         raise TrialLedgerError("ledger data exceeds the size limit")
     if expected_digest is not None:

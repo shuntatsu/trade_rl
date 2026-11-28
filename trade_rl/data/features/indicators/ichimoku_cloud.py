@@ -4,6 +4,14 @@ A span computed at source bar s is conventionally *drawn* at s+26. At decision
 bar t the visible cloud therefore comes from s=t-26, never from a later bar.
 The existing core cloud-position feature instead uses unshifted spans for
 decision-time analysis; this opt-in series intentionally has different semantics.
+
+Displacement convention: visible row t uses source row t - displacement, as
+platforms that shift by the full displacement (MT4-style) draw it. TradingView's
+built-in Ichimoku plots the spans with offset displacement - 1, so its
+equivalent is ``displacement=25`` with 9/26/52 (and chikou lag 25). The default
+of 26 is unchanged; choose the displacement that matches the chart being
+compared. Cloud region (edge distance), colour (twist) and the lagging span
+are Dataset features over the same arithmetic; see ``FeatureKind``.
 """
 
 from __future__ import annotations
@@ -47,6 +55,10 @@ def visible_ichimoku_cloud(
     displacement: int = 26,
 ) -> VisibleCloud:
     """Compute the visible top/bottom from past native bars in linear time.
+
+    Visible row t uses the spans of source row t - ``displacement`` (26 is the
+    full-displacement convention; TradingView's offset is displacement - 1,
+    i.e. ``displacement=25``).
 
     Readiness describes completed native-row arithmetic, not publication
     availability or grid completeness. Those remain caller-owned boundaries.

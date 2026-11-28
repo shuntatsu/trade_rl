@@ -202,12 +202,12 @@ def _require_close_assigned_linear_funding_rows(
         raise ValueError("linear carry requires a finite positive funding event price")
 
 
-def _require_native_fixed_execution_rows(
+def _require_native_execution_rows(
     dataset: MarketDataset,
     *,
     start_index: int,
     stop_index: int,
-    native_fixed_linear_carry: bool = False,
+    native_linear_carry: bool = False,
 ) -> None:
     """Check the complete declared native window without invoking an actor.
 
@@ -221,7 +221,7 @@ def _require_native_fixed_execution_rows(
         or type(stop_index) is not int
         or not 0 <= start_index < stop_index < dataset.n_bars
     ):
-        raise ValueError("native fixed execution window is outside the Dataset")
+        raise ValueError("native execution window is outside the Dataset")
     span = slice(start_index, stop_index + 1)
     processing = slice(start_index + 1, stop_index + 1)
     unavailable = np.any(
@@ -238,7 +238,7 @@ def _require_native_fixed_execution_rows(
         )
     if (
         (
-            not native_fixed_linear_carry
+            not native_linear_carry
             and np.any(dataset.resolved_array("funding_event_count")[processing] != 0)
         )
         or np.any(dataset.resolved_array("dividend")[processing] != 0.0)
@@ -250,11 +250,11 @@ def _require_native_fixed_execution_rows(
         raise ValueError(
             "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
         )
-    if native_fixed_linear_carry:
+    if native_linear_carry:
         _require_close_assigned_linear_funding_rows(dataset, processing)
         # A coarse bar cannot reconstruct a recall or replacement borrow.
         if np.any(~dataset.resolved_array("borrow_available")[span]):
-            raise ValueError("native fixed linear carry requires available borrow")
+            raise ValueError("native linear carry requires available borrow")
 
 
 def _execute_stateful_orders_impl(
@@ -282,12 +282,12 @@ def _execute_stateful_orders_impl(
     executor._validate_native_fixed_configuration()
     native_fixed = dataset.native_clock is not None
     if native_fixed:
-        if executor.native_fixed_linear_carry:
-            _require_native_fixed_execution_rows(
+        if executor._native_linear_carry:
+            _require_native_execution_rows(
                 dataset,
                 start_index=start_index,
                 stop_index=start_index + bars,
-                native_fixed_linear_carry=True,
+                native_linear_carry=True,
             )
         else:
             book.require_nonnegative_spot_cash()
@@ -344,8 +344,8 @@ def _execute_stateful_orders_impl(
     for offset in range(bars):
         previous_index = start_index + offset
         processing_index = previous_index + 1
-        if native_fixed and not executor.native_fixed_linear_carry:
-            _require_native_fixed_execution_rows(
+        if native_fixed and not executor._native_linear_carry:
+            _require_native_execution_rows(
                 dataset, start_index=previous_index, stop_index=processing_index
             )
         if executor.strict_spot_cash:
@@ -369,7 +369,7 @@ def _execute_stateful_orders_impl(
                 )
         lifecycle.finish_bar(runtime, context)
         if executor.strict_spot_cash or (
-            native_fixed and not executor.native_fixed_linear_carry
+            native_fixed and not executor._native_linear_carry
         ):
             runtime.book.require_nonnegative_spot_cash()
         bars_advanced += 1

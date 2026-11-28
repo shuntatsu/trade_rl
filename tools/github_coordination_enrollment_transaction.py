@@ -133,6 +133,7 @@ def execute_source_bound_disposable_enrollment(
         after_oid=after_oid,
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
+        expected_repository_id=source.repository[1],
     )
 
     # Check the *independent REST Git-object source*, not merely the object

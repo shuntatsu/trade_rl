@@ -187,13 +187,15 @@ def compare_and_swap_coordination_ref(
     after_oid: str,
     expected_coordinator_login: str,
     allow_unprotected_test_mutation: bool = False,
+    expected_repository_id: str | None = None,
 ) -> dict[str, object]:
     """Perform one exact beforeOid/afterOid CAS for disposable integration tests.
 
     The default is a hard refusal. Setting ``allow_unprotected_test_mutation``
     explicitly acknowledges that external ref protection and single-writer policy
     have NOT been established. This primitive must not be used as cleanup or Task
-    enrollment authority in the production repository.
+    enrollment authority in the production repository. An optional expected
+    repository node ID binds the final pre-mutation read to an earlier audit.
     """
 
     (
@@ -211,7 +213,17 @@ def compare_and_swap_coordination_ref(
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
     )
 
+    if expected_repository_id is not None:
+        expected_repository_id = _text(
+            expected_repository_id, "expected repository node id"
+        )
+
     before = _read_snapshot(api, repository=repository, ref_name=ref_name)
+    if (
+        expected_repository_id is not None
+        and before.repository_id != expected_repository_id
+    ):
+        raise ValueError("repository identity differs from the audited repository")
     if before.viewer_login.casefold() != expected_login.casefold():
         raise ValueError("authenticated Coordinator does not match expected login")
     if before.oid != expected_oid:
@@ -344,12 +356,14 @@ def compare_and_swap_registry_plan(
     after_oid: str,
     expected_coordinator_login: str,
     allow_unprotected_test_mutation: bool = False,
+    expected_repository_id: str | None = None,
 ) -> dict[str, object]:
     """Test-only CAS with canonical commit-payload checks before and after.
 
     The supplied object reader is not independently authenticated here.
-    If the final payload check fails, the remote update may already have
-    happened: fail closed, do not report success or assume rollback.
+    An expected repository node ID, when supplied, is retained through the
+    final CAS preflight. If the final payload check fails, the remote update may
+    already have happened: fail closed, do not report success or assume rollback.
     """
 
     (
@@ -366,6 +380,10 @@ def compare_and_swap_registry_plan(
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
     )
+    if expected_repository_id is not None:
+        expected_repository_id = _text(
+            expected_repository_id, "expected repository node id"
+        )
     _require_plan_payload(
         plan,
         objects,
@@ -381,6 +399,7 @@ def compare_and_swap_registry_plan(
         after_oid=after_oid,
         expected_coordinator_login=expected_coordinator_login,
         allow_unprotected_test_mutation=allow_unprotected_test_mutation,
+        expected_repository_id=expected_repository_id,
     )
     _require_after_payload(plan, objects, repository=repository, after_oid=after_oid)
     return {

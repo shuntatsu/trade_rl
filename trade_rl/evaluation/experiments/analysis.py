@@ -112,17 +112,9 @@ def _return_series(
         kind = ReturnKind(kind_raw)
     except ValueError as error:
         raise ArtifactIntegrityError("candidate return kind is unsupported") from error
-    if (
-        isinstance(periods_raw, bool)
-        or not isinstance(periods_raw, int)
-        or periods_raw <= 0
-    ):
+    if type(periods_raw) is not int or periods_raw <= 0:
         raise ArtifactIntegrityError("candidate periods_per_year is malformed")
-    if (
-        isinstance(n_periods_raw, bool)
-        or not isinstance(n_periods_raw, int)
-        or n_periods_raw != int(values.size)
-    ):
+    if type(n_periods_raw) is not int or n_periods_raw != int(values.size):
         raise ArtifactIntegrityError("candidate n_periods does not match raw returns")
     return ReturnSeries(
         values=tuple(float(value) for value in values),

@@ -357,3 +357,48 @@ def test_analysis_preserves_historical_missing_symbol_index(
     assert analyze_evidence_set(
         {0: legacy, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7
     ) == analyze_evidence_set({0: run, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+
+class _ForgedAnalysisPeriodCount(int):
+    def __eq__(self, other: object) -> bool:
+        return other == 4
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
+class _ForgedAnnualFrequency(int):
+    def __int__(self) -> int:
+        return 730
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("n_periods", _ForgedAnalysisPeriodCount(5)),
+        ("periods_per_year", _ForgedAnnualFrequency(365)),
+    ],
+)
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+def test_analysis_rejects_non_native_integer_period_metadata(
+    schema: str, field: str, invalid: int
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    summary["schema_version"] = schema
+    summary["evaluation"] = {"expected_periods": 4}
+    metrics = summary["by_symbol"][0]["strategies"][0]["metrics"]
+    metrics[field] = invalid
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary=summary,
+        returns=run.returns,
+        provenance=run.provenance,
+    )
+    with pytest.raises(ArtifactIntegrityError, match=f"candidate {field}"):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

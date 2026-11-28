@@ -239,11 +239,7 @@ class LoadedCandidateRun:
         ):
             return False
         expected_periods = evaluation.get("expected_periods")
-        if (
-            isinstance(expected_periods, bool)
-            or not isinstance(expected_periods, int)
-            or expected_periods <= 0
-        ):
+        if type(expected_periods) is not int or expected_periods <= 0:
             return False
         for symbol in by_symbol:
             strategies = (
@@ -264,8 +260,7 @@ class LoadedCandidateRun:
                 )
                 if (
                     values is None
-                    or isinstance(n_periods, bool)
-                    or not isinstance(n_periods, int)
+                    or type(n_periods) is not int
                     or n_periods != expected_periods
                     or values.size != expected_periods
                 ):
@@ -284,8 +279,7 @@ class LoadedCandidateRun:
             )
             if (
                 values is None
-                or isinstance(n_periods, bool)
-                or not isinstance(n_periods, int)
+                or type(n_periods) is not int
                 or n_periods != expected_periods
                 or values.size != expected_periods
             ):

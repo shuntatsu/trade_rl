@@ -201,6 +201,8 @@ Integration invariant: tested PR head contains current `main`. PRの成功証拠
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
 
+統合後の `main` push は実際に反映された commit SHA で Fast Push・全Core shard/aggregate・PPO・Guide・PostgreSQL を再検証し、`Main Integrated Software Verification` がすべての success を要求する。PR以外の作業branch pushは従来のFastのみ、PRとレビューのFullおよびreview gateは従来どおりとする。main上のpushにはPR review receiptを捏造・流用しない。新mainによる旧runのcancelは旧commitの成功証明ではない。実際のmerge treeが検証済みPR treeと異なれば、事後の成功もpremergeの祖先条件を遡及的に充足させない。GitHubのexpected-head指定は対象branchのCASではなく、真の並行merge防止には外部の単一Integratorまたはmerge queue/保護が必要である。追加のmain Fullによるrunner負荷とGuide deploy開始の遅延は、実統合treeの検証を優先する明示的なtrade-offである。
+
 通常のCI workflowの`concurrency.group = ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` は、同じPR refでも通常`pull_request` Fullと`pull_request_review` Fullを異なる待機・実行グループに分離し、通常PRの再実行がレビューFullのpending枠を置換することを防ぐ。`cancel-in-progress`のtruth tableは各イベント群内で維持する：レビュー`submitted`かつ`commented`はfalse、レビュー`edited`/`dismissed`や`changes_requested`/`approved`はtrue、新HEADの`pull_request/synchronize`やpushもそれぞれの群内でtrue。異なるイベント群は並行実行可能になる一方、新HEADのPR同期は旧HEADのレビューイベントFullを途中cancelせず、不要なrunner時間が生じ得る。GitHub既定の単一pending枠は**同じレビューイベント群内**には残り、重複コメント間のpending置換までは解決しない。GitHubの実スケジューラでの全挙動は静的testだけでは保証できない。両Fullの**exact final HEAD**での全job SUCCESS、review receipt有効性、unresolved blocking 0、最新main祖先関係を必須とし、旧HEAD・取消run・Fast Push・一部job Greenではマージしない。
 
 ### Independent Research Review / PR lifecycle

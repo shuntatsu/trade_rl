@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from fractions import Fraction
 
 from trade_rl._validation import require_aware_datetime
@@ -103,6 +103,7 @@ def execute_depth_order(
 ) -> DepthFill:
     """Match signed lots against later recorded depth, preserving unfilled lots.
 
+    Timestamp ordering and age are evaluated on UTC instants.
     Notional admission uses the adverse-adjusted best quote. A maximum-notional
     guard also checks the resulting fill. Venue average-price filters and account
     restrictions are outside this paper primitive. Marks come from the book;
@@ -114,6 +115,17 @@ def execute_depth_order(
         ("execution_at", execution_at),
     ):
         require_aware_datetime(timestamp, field=name)
+    # Equal tzinfo objects can compare by wall time across a repeated hour.
+    # Causality and staleness instead require one absolute UTC timeline.
+    try:
+        decision_at, quote_at, execution_at = (
+            timestamp.astimezone(UTC)
+            for timestamp in (decision_at, quote_at, execution_at)
+        )
+    except (OverflowError, ValueError) as error:
+        raise ValueError(
+            "paper execution timestamps must be representable in UTC"
+        ) from error
     if not decision_at < quote_at <= execution_at:
         raise ValueError("decision must precede quote receipt and execution")
     if (execution_at - quote_at).total_seconds() > 5 or (

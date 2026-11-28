@@ -129,6 +129,11 @@ def fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> N
     assert_type(env.native_fixed_linear_carry, bool)
     transform = assert_type(fit_portfolio_observation_transform(env), PortfolioObservationTransform)
     assert_type(transform.native_fixed_linear_carry, bool)
+def month_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
+    env = assert_type(SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_calendar_month_linear_carry=True), SharedPortfolioGymEnv)
+    assert_type(env.native_calendar_month_linear_carry, bool)
+    transform = assert_type(fit_portfolio_observation_transform(env), PortfolioObservationTransform)
+    assert_type(transform.native_calendar_month_linear_carry, bool)
 def session_learning_clock(objective: ObjectiveContract, boundaries: tuple[int, ...]) -> None:
     clock = assert_type(SessionFinancialClockContract(boundaries_ns=boundaries, nominal_bar_seconds=3600, economic_horizon_seconds=7200, rollout_steps=4, gamma=1.0, gae_lambda=0.95, reward_schema="equity_delta_v1"), SessionFinancialClockContract)
     assert_type(BoundObjectiveClock(objective, clock), BoundObjectiveClock)
@@ -221,6 +226,7 @@ def bad_session(market: MarketDataset) -> None:
     evaluate_session_elapsed_annualization((0.01,), boundaries_ns=("0","1"))  # expect: arg-type
 def bad_fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
     SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry="yes")  # expect: arg-type
+    SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_calendar_month_linear_carry="yes")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type

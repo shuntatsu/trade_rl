@@ -384,7 +384,7 @@ def test_work_inventory_rejects_pr_created_during_readback() -> None:
         return [
             {
                 "number": 1057,
-                "head": {"sha": "a" * 40, "ref": "feature/new"},
+                "head": {"sha": "a" * 40, "ref": "feature/new", "repo": None},
                 "base": {
                     "ref": "main",
                     "sha": "a" * 40,

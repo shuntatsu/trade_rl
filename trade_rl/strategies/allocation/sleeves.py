@@ -37,7 +37,9 @@ Order of operations (exact):
    no target. ``scaled = scale * netted``.
 8. Optional per-symbol absolute caps: ``clip(scaled_j, -cap_j, cap_j)``.
 9. Optional gross cap: if ``sum |.| > max_gross`` multiply every weight by
-   ``max_gross / sum |.|`` (which cannot break the symbol caps).
+   ``max_gross / sum |.|``. Compare the exact gross of the represented weights
+   with the cap and round scaled magnitudes toward zero. Refuse a nonzero
+   scaled weight that would round to zero; neither cap can be exceeded.
 
 The result reports the weights and arithmetic only; it makes no claim about
 profitability and is not a ``PortfolioPolicy``. The existing policy contract
@@ -52,6 +54,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from fractions import Fraction
 
 import numpy as np
 
@@ -448,15 +451,7 @@ def combine_sleeves(
             combined = clipped
         gross_binding = False
         if config.max_gross is not None:
-            # Scale-stable gross: sum |c| = peak * sum(|c| / peak), never overflowing.
-            peak = float(np.max(np.abs(combined)))
-            if peak > 0.0:
-                unit = combined / peak
-                unit_gross = float(np.abs(unit).sum())
-                factor = config.max_gross / unit_gross
-                if peak > factor:
-                    combined = unit * factor
-                    gross_binding = True
+            combined, gross_binding = _apply_gross_cap(combined, config.max_gross)
         _require_finite(combined, "combined weights")
 
     return SleeveCombination(
@@ -483,6 +478,32 @@ def combine_sleeves(
             gross_cap_binding=gross_binding,
         ),
     )
+
+
+def _apply_gross_cap(values: np.ndarray, max_gross: float) -> tuple[np.ndarray, bool]:
+    """Cap represented weights by exact comparison and conservative rounding."""
+    exact = tuple(Fraction(float(value)) for value in values)
+    gross = sum((abs(value) for value in exact), Fraction(0))
+    cap = Fraction(max_gross)
+    if gross <= cap:
+        return values, False
+
+    ratio = cap / gross
+    result: list[float] = []
+    for value, original in zip(exact, values, strict=True):
+        if not value:
+            result.append(float(original))
+            continue
+        target = value * ratio
+        rounded = float(target)
+        if abs(Fraction(rounded)) > abs(target):
+            rounded = math.nextafter(rounded, 0.0)
+        if rounded == 0.0:
+            raise SleeveCombinerError(
+                "non_representable", "gross-capped weight underflows the float range"
+            )
+        result.append(rounded)
+    return np.asarray(result, dtype=np.float64), True
 
 
 def _real(value: object, *, name: str) -> float:

@@ -308,9 +308,7 @@ def test_family_selection_refuses_foreign_text_before_equality(entrypoint):
         def __eq__(self, other):
             pytest.fail("foreign family equality must not run")
 
-    ledger = TrialLedger(
-        [_completed("a", 0.05), _completed("b", 0.12, family="other")]
-    )
+    ledger = TrialLedger([_completed("a", 0.05), _completed("b", 0.12, family="other")])
     family = ForeignFamily("absent")
     with pytest.raises(TrialLedgerError, match="family"):
         if entrypoint == "family_records":

@@ -545,9 +545,7 @@ def test_terminal_dust_requires_native_quantity_capacity(
 
 
 @pytest.mark.parametrize("unit", [VolumeUnit.BASE_ASSET, VolumeUnit.CONTRACTS])
-def test_terminal_dust_impact_uses_larger_native_participation(
-    unit: VolumeUnit,
-) -> None:
+def test_terminal_dust_impact_uses_larger_native_participation(unit: VolumeUnit) -> None:
     base = _dataset(drop=True)
     close = base.close.copy()
     high = base.high.copy()

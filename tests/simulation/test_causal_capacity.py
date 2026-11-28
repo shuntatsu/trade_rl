@@ -250,10 +250,11 @@ def test_unobserved_previous_volume_cannot_fund_a_stateful_fill(
 def test_no_previous_row_has_zero_causal_capacity(unit: VolumeUnit) -> None:
     dataset = _market(volume_unit=unit)
     expected_quantity = None if unit is VolumeUnit.QUOTE_NOTIONAL else 0.0
-    assert _capacity_reference_for_symbol(
+    actual = _capacity_reference_for_symbol(
         dataset,
         processing_index=0,
         processing_open_prices=dataset.open[0],
         symbol=0,
         processing_bar_volume_capacity=False,
-    ) == (0.0, 0.0, float(dataset.open[0, 0]), expected_quantity)
+    )
+    assert actual == (0.0, 0.0, float(dataset.open[0, 0]), expected_quantity)

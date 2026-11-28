@@ -256,3 +256,27 @@ def test_cross_symbol_summary_is_descriptive_only() -> None:
     assert summary["symbol_count"] == 2
     assert summary["worst_excess_total_return"] <= summary["median_excess_total_return"]
     assert summary["median_excess_total_return"] <= summary["best_excess_total_return"]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(np.zeros((4, 1)), id="two-dimensional"),
+        pytest.param(np.array([0.0, np.nan, 0.0, 0.0]), id="nan"),
+        pytest.param(np.array([0.0, np.inf, 0.0, 0.0]), id="inf"),
+        pytest.param(np.array([1j, 0j, 0j, 0j]), id="complex"),
+        pytest.param(np.zeros(4, dtype=np.bool_), id="bool"),
+        pytest.param(np.array(["0"] * 4), id="text"),
+    ],
+)
+def test_analysis_refuses_direct_invalid_return_arrays(values: np.ndarray) -> None:
+    run = _run(0)
+    key = "symbol_0_strategy_0"
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary=run.summary,
+        returns={**run.returns, key: values},
+        provenance=run.provenance,
+    )
+    with pytest.raises(ArtifactIntegrityError, match="candidate return array"):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

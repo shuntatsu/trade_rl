@@ -180,11 +180,12 @@ class LoadedCandidateRun:
 
         immutable_returns: dict[str, np.ndarray] = {}
         for key, value in self.returns.items():
-            contiguous = np.ascontiguousarray(value)
+            raw = np.asarray(value)
+            contiguous = np.ascontiguousarray(raw)
             immutable_returns[key] = np.frombuffer(
                 contiguous.tobytes(order="C"),
                 dtype=contiguous.dtype,
-            ).reshape(contiguous.shape)
+            ).reshape(raw.shape)
 
         object.__setattr__(self, "summary", frozen_summary)
         object.__setattr__(self, "returns", MappingProxyType(immutable_returns))
@@ -223,6 +224,13 @@ class LoadedCandidateRun:
         except ValueError:
             return False
         if keys != set(self.returns):
+            return False
+        if any(
+            values.ndim != 1
+            or values.dtype.kind not in {"i", "u", "f"}
+            or not np.isfinite(values).all()
+            for values in self.returns.values()
+        ):
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")

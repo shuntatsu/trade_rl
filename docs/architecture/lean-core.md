@@ -261,7 +261,7 @@ unchanged: if they prevent a full close, the actual residual quantity or active
 order remains visible and exact-flat validation still fails. This includes the
 venue minimum notional: no argument or entry point waives it, so a holding that
 decayed below it stays a position. The study ledger reconciliation
-(`dev_realdata_study.runner.reconcile_ledger`, reused by the trend-stop study)
+(`trade_rl.evaluation.ledger_reconciliation.reconcile_ledger`)
 records such a residual as terminal dust (symbol, exact quantity, notional, reason
 `below_minimum_notional`) only when the engine itself rejected its terminal close for
 `below_minimum_notional` (every non-submission order event of the symbol on the
@@ -269,7 +269,10 @@ final interval carries that reason; a residual left open for any other reason, s
 as no liquidity or a participation cap, is never dust whatever its mark value), and
 values it at mark minus the modelled exit cost
 (fee, venue taker fee, spread and impact from the same cost model, with the
-executor's capacity-volume basis for participation); the equity
+executor's capacity-volume basis for participation). The hypothetical close must
+fit both quote and native quantity pools under the processing-row participation
+limit and open-segment fraction; impact uses the larger participation rate. An
+unobserved previous reference in causal mode supplies no capacity. The equity
 path used for metrics is reduced by that cost, so an exit that could not happen is
 never credited. `terminal_flat` stays false, `terminal_dust_only` is true when
 every residual is such dust, and the reconciliation passes when cash and the
@@ -852,9 +855,9 @@ true flag without changing the ID fails. Pending partials preserve the flag.
 
 `MarketExecutor` の標準executionはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になる。participation capacityのvolume authorityは `ExecutionCostConfig.processing_bar_volume_capacity` に明示bindする。
 
-- `False` が**default**のcausal modeであり、processing barの直前に完全終了したbarのvolumeをcapacity poolへ使う。base-volumeをmarket notionalへ換算するときも、その前barのcloseをreference priceに使う。current processing barの最終volumeはcapacityへ使わない。native fixed / calendar-month / strict spot cash経路とcarry・directional経路は従来からこのmodeを要求する。candidate runの`zero_overlay_dataset_fields_authoritative` overlayは従来same-bar defaultを暗黙に継承していたが、同じく因果modeへ変更し、`zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity` overlayと実行上同一になる（overlay名は別のrun identityとして残る）。
+- `False` が**default**のcausal modeであり、processing barの直前に完全終了したbarのvolumeをcapacity poolへ使う。base-volumeをmarket notionalへ換算するときも、その前barのcloseをreference priceに使う。直前barが未観測（`information_available=False`、遅延公開・欠損等）または存在しない場合はcapacityを0とし、他barへfallbackしない。銘柄別に参照し、他銘柄の未公開volumeを計算に入れない。current processing barの最終volumeはcapacityへ使わない。native fixed / calendar-month / strict spot cash経路とcarry・directional経路は従来からこのmodeを要求する。candidate runの`zero_overlay_dataset_fields_authoritative` overlayは従来same-bar defaultを暗黙に継承していたが、同じく因果modeへ変更し、`zero_overlay_dataset_fields_authoritative_previous_completed_bar_capacity` overlayと実行上同一になる（overlay名は別のrun identityとして残る）。
 - `True` は明示opt-inのsame-bar modeであり、processing bar全体のvolumeをcapacity poolへ使う。同一barのopen時点ではbar最終volumeは未確定なので、これはpoint-in-time liquidity forecastではなく軽度のlook-aheadである。2026-11-28まではこのmodeがdefaultだったが、研究resetに伴い互換modeを残さずdefaultを`False`へ変更した。default `ExecutionCostConfig()` / `ExecutionCostConfig.zero()` のexecution-policy digestと学習config digestは変わる（digest計算式は不変で、明示`True`は従来のdigestを再現する）。保存済みrun・evidenceは再分類しない。
-- volume unitもcapacity authorityの一部である。QUOTE_NOTIONALは既存のquote-notional poolだけを使う。BASE_ASSETとCONTRACTSは既存reference-price quote-notional poolに加えて、raw base quantity / raw contract countから導くnative quantity poolも同じparticipation limitで拘束し、actual fill priceがreferenceより低いだけでsource volume以上のquantityを生成しない。BASE_ASSETの注文quantity換算は `raw base volume / contract_multiplier`、CONTRACTSはraw countをそのまま使う。trigger-segmentのavailable-volume fractionはquote/native両poolへ同じ割合で適用する。
+- volume unitもcapacity authorityの一部である。QUOTE_NOTIONALは既存のquote-notional poolだけを使う。BASE_ASSETとCONTRACTSは既存reference-price quote-notional poolに加えて、raw base quantity / raw contract countから導くnative quantity poolも同じparticipation limitで拘束し、actual fill priceがreferenceより低いだけでsource volume以上のquantityを生成しない。BASE_ASSETの注文quantity換算は `raw base volume / contract_multiplier`、CONTRACTSはraw countをそのまま使う。trigger-segmentのavailable-volume fractionはquote/native両poolへ同じ割合で適用する。terminal dustの仮想決済も同じcapacity authorityを使い、open segmentで両上限を満たす残存数量だけを評価し、impactはquote/native participationの大きい方を使う。
 - どちらのmodeも同じspread / impact / fee / accounting経路を使い、mode差だけで別のexecution-policy digestになる。`False` は将来volumeの予測モデルではなく、同一bar最終volumeへの依存を除くための保守的な既定値である。
 
 Candidate runのexecution overlayがzeroでも、datasetに含まれるpoint-in-time fee/spread等までzeroになるわけではない。既存execution fieldはcanonical executorを通る。

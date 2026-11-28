@@ -9,6 +9,7 @@ from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.capacity_reference import _capacity_reference_for_symbol
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.orders.model import (
     OrderBookState,
@@ -225,3 +226,34 @@ def test_default_capacity_is_the_causal_previous_completed_bar() -> None:
     assert evidence.processing_volume == pytest.approx(2.0)
     assert evidence.capacity_reference_price == pytest.approx(50.0)
     assert result.filled_notional == pytest.approx(100.0)
+
+@pytest.mark.parametrize("unit", list(VolumeUnit))
+@pytest.mark.parametrize("late", [False, True])
+def test_unobserved_previous_volume_cannot_fund_a_stateful_fill(
+    unit: VolumeUnit, late: bool
+) -> None:
+    for volume in (2.0, 200.0):
+        base = _market(previous_volume=volume, volume_unit=unit)
+        observed = base.resolved_array("information_available").copy()
+        observed[0, 0] = False
+        available = base.resolved_array("available_at").copy()
+        if late:
+            available[0, 0] += np.timedelta64(2, "h")
+        dataset = replace(base, information_available=observed, available_at=available)
+        result = _execute(dataset, quantity=5.0)
+        assert result.book.quantities[0] == 0.0
+        assert result.filled_notional == 0.0
+        assert result.capacity_evidence[0].market_notional == 0.0
+
+
+@pytest.mark.parametrize("unit", list(VolumeUnit))
+def test_no_previous_row_has_zero_causal_capacity(unit: VolumeUnit) -> None:
+    dataset = _market(volume_unit=unit)
+    expected_quantity = None if unit is VolumeUnit.QUOTE_NOTIONAL else 0.0
+    assert _capacity_reference_for_symbol(
+        dataset,
+        processing_index=0,
+        processing_open_prices=dataset.open[0],
+        symbol=0,
+        processing_bar_volume_capacity=False,
+    ) == (0.0, 0.0, float(dataset.open[0, 0]), expected_quantity)

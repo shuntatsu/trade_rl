@@ -19,6 +19,8 @@ from trade_rl.evaluation.replay import (
     SharedCashReplayLedgerEvidence,
 )
 from trade_rl.simulation import ExecutionCostConfig
+from trade_rl.simulation.capacity_reference import _capacity_reference_for_symbol
+from trade_rl.simulation.quantities import exact_quantity
 
 
 def terminal_dust(
@@ -45,7 +47,8 @@ def terminal_dust(
     re-derived from the Dataset with the executor's market-order rates; the
     participation uses the executor's capacity-volume basis (the default previous
     completed bar, or the processing bar when ``processing_bar_volume_capacity`` is
-    explicitly on).
+    explicitly on). The open-segment fraction limits both quote and native
+    quantity pools; impact uses the larger of their participation rates.
     """
 
     final_row = int(final_interval.next_index)
@@ -57,13 +60,6 @@ def terminal_dust(
         final_row
     ]
     valued = execution_cost is not None and execution_cost.slippage_std == 0.0
-    if execution_cost is not None and execution_cost.processing_bar_volume_capacity:
-        capacity_row, capacity_prices = final_row, opens
-    elif final_row > 0:
-        capacity_row, capacity_prices = final_row - 1, dataset.close[final_row - 1]
-    else:
-        capacity_row, capacity_prices = final_row, opens
-    market_notional = dataset.market_notional(capacity_row, capacity_prices)
     reasons: dict[int, set[str | None]] = {}
     for event in final_interval.order_events:
         if event.event_type == "submitted":
@@ -89,7 +85,15 @@ def terminal_dust(
         multiplier = float(multipliers[index])
         notional = abs(float(quantity)) * float(marks[index]) * multiplier
         open_notional = abs(float(quantity)) * float(opens[index]) * multiplier
-        capacity_notional = float(market_notional[index])
+        _, capacity_notional, _, native_capacity = _capacity_reference_for_symbol(
+            dataset,
+            processing_index=final_row,
+            processing_open_prices=opens,
+            symbol=index,
+            processing_bar_volume_capacity=(
+                execution_cost.processing_bar_volume_capacity
+            ),
+        )
         # A zero-capacity bar or an overflowing participation ratio has no
         # finite, defensible hypothetical exit-cost value. Keep the holding
         # non-dust so the ledger validity gate fails closed.
@@ -103,15 +107,30 @@ def terminal_dust(
             continue
         participation = open_notional / capacity_notional
         symbol_limit = float(symbol_participation_limits[index])
-        # A minimum-notional rejection alone does not prove that a virtual
-        # close is liquid enough under the same processing-row per-symbol
-        # and global capacity limits enforced by the actual fill allocator.
+        # A minimum-notional rejection is not a waiver of either capacity pool.
+        limit = min(execution_cost.max_participation_rate, symbol_limit)
+        fraction = execution_cost.trigger_volume_fractions[0]
         if (
-            not math.isfinite(participation)
-            or not math.isfinite(symbol_limit)
-            or symbol_limit <= 0.0
-            or participation > min(execution_cost.max_participation_rate, symbol_limit)
+            not math.isfinite(symbol_limit)
+            or limit <= 0.0
+            or fraction <= 1e-12
+            or capacity_notional * limit * fraction <= 1e-12
+            or not math.isfinite(participation)
+            or participation > limit * fraction
         ):
+            other.append(symbol)
+            continue
+        if native_capacity is not None:
+            native_limit = native_capacity * limit * fraction
+            if (
+                not math.isfinite(native_limit)
+                or native_limit <= 1e-12
+                or abs(quantity) > exact_quantity(native_limit)
+            ):
+                other.append(symbol)
+                continue
+            participation = max(participation, abs(float(quantity)) / native_capacity)
+        if not math.isfinite(participation) or participation > limit * fraction:
             other.append(symbol)
             continue
         unit_cost = execution_cost.multiplier * (

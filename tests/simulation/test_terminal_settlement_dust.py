@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from tests.evaluation.generated_market_fixture import synthetic_dataset
+from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.ledger_reconciliation import reconcile_ledger
 from trade_rl.evaluation.replay import run_shared_portfolio_replay
@@ -498,3 +499,96 @@ def test_shared_ledger_reconciliation_rejects_invalid_tolerance(tolerance):
             execution_cost=COST,
             reconciliation_tolerance=tolerance,
         )
+
+@pytest.mark.parametrize("unit", list(VolumeUnit))
+@pytest.mark.parametrize("multiplier", [1.0, 2.0])
+def test_terminal_dust_requires_native_quantity_capacity(
+    unit: VolumeUnit, multiplier: float
+) -> None:
+    base = _dataset(drop=True)
+    close = base.close.copy()
+    high = base.high.copy()
+    close[-2] = high[-2] = 100.0
+    volume = base.volume.copy()
+    # Each residual is 6 / (100 * multiplier) units. At terminal open 50
+    # the quote pool permits 3 USDT, but the native pool permits only 4 USDT
+    # at the previous close, i.e. 0.04 / multiplier rather than 0.06 / multiplier.
+    volume[-2] = {
+        VolumeUnit.BASE_ASSET: 0.08,
+        VolumeUnit.CONTRACTS: 0.08 / multiplier,
+        VolumeUnit.QUOTE_NOTIONAL: 8.0,
+    }[unit]
+    dataset = dataclasses.replace(
+        base,
+        close=close,
+        high=high,
+        mark_price=close,
+        volume=volume,
+        volume_units=(unit, unit),
+        contract_multipliers=np.full(2, multiplier),
+    )
+    result = _replay(dataset)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=COST)
+    for value in ledger.intervals.terminal_exact_quantities:
+        assert abs(float(Fraction(value))) == pytest.approx(0.06 / multiplier)
+    assert report["terminal_flat"] is False
+    expected = unit is VolumeUnit.QUOTE_NOTIONAL
+    assert report["terminal_dust_only"] is expected
+    assert report["passed"] is expected
+
+
+@pytest.mark.parametrize("unit", [VolumeUnit.BASE_ASSET, VolumeUnit.CONTRACTS])
+def test_terminal_dust_impact_uses_larger_native_participation(
+    unit: VolumeUnit,
+) -> None:
+    base = _dataset(drop=True)
+    close = base.close.copy()
+    high = base.high.copy()
+    close[-2] = high[-2] = 100.0
+    volume = base.volume.copy()
+    volume[-2] = 0.16
+    dataset = dataclasses.replace(
+        base,
+        close=close,
+        high=high,
+        mark_price=close,
+        volume=volume,
+        volume_units=(unit, unit),
+    )
+    report = reconcile_ledger(_replay(dataset), dataset, CAPITAL, execution_cost=COST)
+    assert report["passed"] is True
+    expected = 3.0 * COST.multiplier * (
+        COST.fee_rate
+        + COST.taker_fee_rate
+        + COST.spread_rate
+        + COST.impact_rate * math.sqrt(0.06 / 0.16)
+    )
+    for item in report["terminal_dust"]:
+        assert item["exit_cost_usdt"] == pytest.approx(expected, rel=1e-12)
+
+
+def test_terminal_dust_obeys_open_segment_capacity() -> None:
+    base = _dataset(drop=True)
+    volume = base.volume.copy()
+    volume[-2] = 0.25
+    dataset = dataclasses.replace(base, volume=volume)
+    cost = dataclasses.replace(COST, trigger_volume_fractions=(0.1, 0.05, 0.025, 0.0))
+    result = _replay(dataset, execution_cost=cost)
+    ledger = result.ledger_evidence
+    assert ledger is not None
+    assert {
+        (event.symbol_index, event.reason)
+        for event in ledger.intervals.intervals[-1].order_events
+        if event.event_type == "rejected"
+    } == {(0, "below_minimum_notional"), (1, "below_minimum_notional")}
+    report = reconcile_ledger(result, dataset, CAPITAL, execution_cost=cost)
+    assert report["terminal_flat"] is False
+    assert report["terminal_dust_only"] is False
+    assert report["passed"] is False

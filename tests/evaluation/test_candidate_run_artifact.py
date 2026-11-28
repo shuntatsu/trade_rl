@@ -880,3 +880,53 @@ def test_candidate_writer_preserves_valid_short_per_symbol_replay(
         candidate_artifact.inspect_candidate_run_artifact(artifact.root).artifact_digest
         == loaded.artifact_digest
     )
+
+
+class _ForgedPeriodCount(int):
+    """An underlying wrong count that compares equal to the three-bar fixture."""
+
+    def __eq__(self, other: object) -> bool:
+        return other == 3
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
+@pytest.mark.parametrize("version", [7, 9, 10])
+@pytest.mark.parametrize("member", ["expected", "symbol", "shared_cash"])
+def test_direct_coverage_refuses_forged_period_count(
+    shared_cash_candidate_artifact, version: int, member: str
+) -> None:
+    artifact = shared_cash_candidate_artifact
+    loaded = candidate_artifact.load_candidate_run_artifact(artifact.root)
+    assert loaded.has_verified_full_evaluation_coverage
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = f"lean_candidate_result_v{version}"
+    if member == "expected":
+        target = summary["evaluation"]
+        field = "expected_periods"
+    elif member == "symbol":
+        target = summary["by_symbol"][0]["strategies"][0]["metrics"]
+        field = "n_periods"
+    else:
+        target = summary["shared_cash_ppo"]["metrics"]
+        field = "n_periods"
+    assert target[field] == 3
+
+    def direct_coverage(value: object) -> bool:
+        target[field] = value
+        run = candidate_artifact.LoadedCandidateRun(
+            root=loaded.root,
+            summary=summary,
+            returns=loaded.returns,
+            provenance=loaded.provenance,
+        )
+        return run.has_verified_full_evaluation_coverage
+
+    assert direct_coverage(3)
+    for invalid in (4, True, 3.0):
+        assert not direct_coverage(invalid)
+    forged = _ForgedPeriodCount(4)
+    assert int(forged) == 4
+    assert forged == 3
+    assert not direct_coverage(forged)

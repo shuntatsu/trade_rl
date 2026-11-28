@@ -16,6 +16,7 @@ from trade_rl.evaluation.runs.artifact import (
     inspect_candidate_run_artifact,
     load_candidate_run_artifact,
     publish_candidate_run,
+    supports_shared_cash_result_schema,
 )
 
 
@@ -216,3 +217,53 @@ def test_direct_candidate_coverage_keeps_valid_numeric_vectors(
     assert load_candidate_run_artifact(
         artifact.root
     ).has_verified_full_evaluation_coverage
+
+
+class _ForgedResultSchema(str):
+    """Its actual value is unsupported but Python's equality claims v10."""
+
+    def __hash__(self) -> int:
+        return hash("lean_candidate_result_v10")
+
+    def __eq__(self, other: object) -> bool:
+        return other == "lean_candidate_result_v10"
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("lean_candidate_result_v7", True),
+        ("lean_candidate_result_v9", True),
+        ("lean_candidate_result_v10", True),
+        ("lean_candidate_result_v6", False),
+        ("lean_candidate_result_v8", False),
+        ("lean_candidate_result_v11", False),
+    ],
+)
+def test_shared_cash_schema_capability_accepts_only_declared_native_versions(
+    version: str, expected: bool
+) -> None:
+    assert supports_shared_cash_result_schema(version) is expected
+
+
+def test_forged_result_schema_cannot_claim_shared_cash_support() -> None:
+    schema = _ForgedResultSchema("lean_candidate_result_v11")
+    assert str(schema) == "lean_candidate_result_v11"
+    assert schema in {"lean_candidate_result_v10"}
+    assert not supports_shared_cash_result_schema(schema)
+
+
+def test_direct_run_coverage_rejects_forged_result_schema(tmp_path: Path) -> None:
+    artifact = publish_candidate_run(tmp_path / "run", _result(), _provenance())
+    loaded = load_candidate_run_artifact(artifact.root)
+    assert loaded.has_verified_full_evaluation_coverage
+    summary = dict(loaded.summary)
+    summary["schema_version"] = _ForgedResultSchema("lean_candidate_result_v11")
+    direct = LoadedCandidateRun(
+        root=loaded.root,
+        summary=summary,
+        returns=loaded.returns,
+        provenance=loaded.provenance,
+    )
+    assert type(direct.summary["schema_version"]) is _ForgedResultSchema
+    assert not direct.has_verified_full_evaluation_coverage

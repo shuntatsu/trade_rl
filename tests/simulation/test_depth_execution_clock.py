@@ -165,3 +165,105 @@ def test_valid_fold_fill_matches_utc_and_independent_cash_ledger(lots):
     assert book.portfolio_value == pytest.approx(float(expected_cash + 100 * lots))
     assert book.total_cost == pytest.approx(float(fee))
     assert book.mark_prices.tolist() == [100.0]
+
+
+class _ForeignTimestamp(datetime):
+    conversion_calls = 0
+
+    def astimezone(self, tz=None):
+        type(self).conversion_calls += 1
+        return _utc(5, 0)
+
+
+class _ChangingOffset(tzinfo):
+    def __init__(self, first: timedelta, later: timedelta) -> None:
+        self.first = first
+        self.later = later
+        self.calls = 0
+
+    def utcoffset(self, dt: datetime | None) -> timedelta:
+        self.calls += 1
+        return self.first if self.calls == 1 else self.later
+
+
+def test_foreign_datetime_cannot_replace_decision_instant():
+    _ForeignTimestamp.conversion_calls = 0
+    book = BookState.zero(1, 1000, np.array([100.0]))
+    decision = _ForeignTimestamp(2026, 11, 1, 6, tzinfo=UTC)
+    clock = (decision, _utc(5, 1), _utc(5, 2))
+    with pytest.raises(ValueError, match="native"):
+        _execute(book, clock, 2)
+    assert _ForeignTimestamp.conversion_calls == 0
+    assert book.cash == 1000
+    assert book.exact_quantities == (Fraction(0),)
+    assert book.fill_count == 0
+    assert book.total_cost == 0
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_foreign_datetime_refused_in_each_clock_position(index):
+    class ForeignDatetime(datetime):
+        def utcoffset(self):
+            raise AssertionError("foreign datetime offset hook invoked")
+
+    clock = [_utc(5, 0), _utc(5, 1), _utc(5, 2)]
+    clock[index] = ForeignDatetime(2026, 11, 1, 5, 0, index, tzinfo=UTC)
+    with pytest.raises(ValueError, match="native"):
+        _execute(cast(BookState, _UnreachableBook()), tuple(clock), 0)
+
+
+def test_changing_offset_cannot_turn_future_decision_into_past():
+    zone = _ChangingOffset(timedelta(hours=-5), timedelta(hours=-4))
+    decision = datetime(2026, 11, 1, 1, tzinfo=zone)
+    book = BookState.zero(1, 1000, np.array([100.0]))
+    # First sample declares 06:00 UTC. A second sample would turn it into 05:00.
+    with pytest.raises(ValueError, match="decision must precede"):
+        _execute(book, (decision, _utc(5, 1), _utc(5, 2)), 2)
+    assert zone.calls == 1
+    assert book.cash == 1000
+    assert book.exact_quantities == (Fraction(0),)
+    assert book.fill_count == 0
+    assert book.total_cost == 0
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_each_utc_offset_is_sampled_once_for_valid_fill(index):
+    zone = _ChangingOffset(timedelta(hours=-4), timedelta(hours=-5))
+    clock = [_utc(5, 0), _utc(5, 1), _utc(5, 2)]
+    clock[index] = datetime(2026, 11, 1, 1, 0, index, tzinfo=zone)
+    book = BookState.zero(1, 1000, np.array([100.0]))
+    control = BookState.zero(1, 1000, np.array([100.0]))
+    assert _execute(book, tuple(clock), 2) == _execute(
+        control, (_utc(5, 0), _utc(5, 1), _utc(5, 2)), 2
+    )
+    assert zone.calls == 1
+    assert book.cash == control.cash
+    assert book.exact_quantities == control.exact_quantities
+    assert book.fill_count == 1
+
+
+def test_foreign_offset_refused_without_arithmetic():
+    class ForeignOffset(timedelta):
+        def __rsub__(self, other):
+            raise AssertionError("foreign offset arithmetic invoked")
+
+    class ForeignOffsetZone(tzinfo):
+        def utcoffset(self, dt):
+            return ForeignOffset(hours=-4)
+
+    book = BookState.zero(1, 1000, np.array([100.0]))
+    decision = datetime(2026, 11, 1, 1, tzinfo=ForeignOffsetZone())
+    with pytest.raises(ValueError, match="native timedelta"):
+        _execute(book, (decision, _utc(5, 1), _utc(5, 2)), 2)
+    assert book.cash == 1000
+    assert book.exact_quantities == (Fraction(0),)
+    assert book.fill_count == 0
+
+
+def test_naive_clock_still_refused_before_book_mutation():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _execute(
+            cast(BookState, _UnreachableBook()),
+            (_utc(5, 0).replace(tzinfo=None), _utc(5, 1), _utc(5, 2)),
+            2,
+        )

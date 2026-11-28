@@ -6,8 +6,16 @@ import pytest
 
 from trade_rl.data.native_clock import NativeBarClock, NativeClockKind
 from trade_rl.evaluation.metrics import evaluate_performance
-from trade_rl.evaluation.native_annualization import evaluate_native_bar_annualization
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.evaluation.native_annualization import (
+    evaluate_native_bar_annualization,
+    evaluate_session_elapsed_annualization,
+)
+from trade_rl.evaluation.series import (
+    CalendarMonthReturnSeries,
+    ReturnKind,
+    ReturnSeries,
+    SessionElapsedReturnSeries,
+)
 
 
 @pytest.mark.parametrize("days", [1, 3, 7])
@@ -198,3 +206,80 @@ def test_native_annualization_total_can_exceed_signed_nanoseconds() -> None:
     assert result.annualized_volatility == pytest.approx(
         math.hypot(0.015, 0.015) / math.sqrt(float(expected_years))
     )
+
+
+def _native_return_entrypoint(mode: str, values: tuple):
+    month_closes = np.array(["2024-02-01", "2024-03-01"], dtype="datetime64[D]")
+    boundaries = (0, 3600 * 10**9, 3 * 3600 * 10**9)
+    if mode == "fixed_series":
+        return ReturnSeries(values, ReturnKind.BASE_BAR, Fraction(365, 7))
+    if mode == "month_series":
+        return CalendarMonthReturnSeries.from_closes(values, month_closes)
+    if mode == "session_series":
+        return SessionElapsedReturnSeries.from_boundaries(
+            values, boundaries_ns=boundaries
+        )
+    if mode == "weekly_metric":
+        return evaluate_native_bar_annualization(
+            values,
+            clock=NativeBarClock(NativeClockKind.UTC_WEEK),
+            closes=np.array(["2024-01-08", "2024-01-15"], dtype="datetime64[D]"),
+        )
+    if mode == "month_metric":
+        return evaluate_native_bar_annualization(
+            values,
+            clock=NativeBarClock(NativeClockKind.UTC_MONTH),
+            closes=month_closes,
+        )
+    assert mode == "session_metric"
+    return evaluate_session_elapsed_annualization(values, boundaries_ns=boundaries)
+
+
+_NATIVE_RETURN_MODES = [
+    "fixed_series",
+    "month_series",
+    "session_series",
+    "weekly_metric",
+    "month_metric",
+    "session_metric",
+]
+
+
+@pytest.mark.parametrize("mode", _NATIVE_RETURN_MODES)
+@pytest.mark.parametrize("value", [Fraction(1, 10**400), Fraction(-1, 10**400)])
+def test_native_return_entrypoints_refuse_nonzero_underflow(mode, value):
+    assert value != 0 and float(value) == 0.0
+    with pytest.raises(ValueError, match="not representable"):
+        _native_return_entrypoint(mode, (value, 0.0))
+
+
+@pytest.mark.parametrize("mode", _NATIVE_RETURN_MODES)
+@pytest.mark.parametrize(
+    "value",
+    [
+        0.0,
+        -0.0,
+        Fraction(0),
+        Fraction(1, 8),
+        Fraction(-1, 8),
+        Fraction.from_float(math.ulp(0.0)),
+        -Fraction.from_float(math.ulp(0.0)),
+    ],
+)
+def test_native_return_entrypoints_preserve_representable_inputs(mode, value):
+    assert _native_return_entrypoint(mode, (value, 0.0)) == _native_return_entrypoint(
+        mode, (float(value), 0.0)
+    )
+
+
+@pytest.mark.parametrize("value", [True, "0.125"])
+def test_explicit_native_fixed_series_requires_real_returns(value):
+    with pytest.raises(ValueError, match="real numbers"):
+        ReturnSeries((value,), ReturnKind.BASE_BAR, Fraction(365, 7))
+
+
+@pytest.mark.parametrize("value", [Fraction(1, 10**400), Fraction(-1, 10**400)])
+def test_legacy_integer_return_series_keeps_existing_coercion(value):
+    actual = ReturnSeries((value, 0.125), ReturnKind.BASE_BAR, 365)
+    assert actual.values == (float(value), 0.125)
+    assert math.copysign(1.0, actual.values[0]) == math.copysign(1.0, float(value))

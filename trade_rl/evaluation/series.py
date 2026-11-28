@@ -41,10 +41,14 @@ class ReturnSeries:
     elapsed_years: float | None = None
 
     def __post_init__(self) -> None:
-        normalized = tuple(float(value) for value in self.values)
+        periods_per_year: object = self.periods_per_year
+        normalized = (
+            _normalize_duration_returns(self.values, label="native fixed")
+            if type(periods_per_year) is Fraction
+            else tuple(float(value) for value in self.values)
+        )
         if not normalized:
             raise ValueError("return series must not be empty")
-        periods_per_year: object = self.periods_per_year
         if type(periods_per_year) is Fraction:
             try:
                 frequency = float(periods_per_year)
@@ -149,7 +153,7 @@ class CalendarMonthReturnSeries(ReturnSeries):
 def _normalize_duration_returns(
     values: tuple[float, ...], *, label: str
 ) -> tuple[float, ...]:
-    """Strict real, finite simple-return boundary shared by duration contracts."""
+    """Strict native-return boundary; never erase nonzero values on conversion."""
     normalized: list[float] = []
     for raw_item in values:
         item: object = raw_item
@@ -161,6 +165,8 @@ def _normalize_duration_returns(
             raise ValueError(f"{label} return is not representable") from exc
         if not math.isfinite(value) or value <= -1.0:
             raise ValueError(f"{label} returns must be finite and greater than -1")
+        if value == 0.0 and item != 0:
+            raise ValueError(f"{label} nonzero return is not representable")
         normalized.append(value)
     return tuple(normalized)
 

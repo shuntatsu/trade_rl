@@ -403,6 +403,7 @@ def test_analysis_rejects_non_native_integer_period_metadata(
     with pytest.raises(ArtifactIntegrityError, match=f"candidate {field}"):
         analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
 
+
 class _ForgedReturnKind(str):
     def __hash__(self) -> int:
         return hash("base_bar")

@@ -13,6 +13,7 @@ from tools.branch_hygiene import BranchInfo, GitHubApi
 from tools.github_workflow_ref_guard import stable_workflow_branch_refs
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_REPOSITORY_FULL_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _TASK_MARKER = "<!-- agent-coordination:"
 _MAX_TASK_ISSUE_COMMENTS = 1000
 
@@ -134,6 +135,7 @@ def _pull_identity(
     base_full_name = base_repo.get("full_name")
     if (
         type(base_full_name) is not str
+        or _REPOSITORY_FULL_NAME.fullmatch(base_full_name) is None
         or base_full_name.casefold() != repository.casefold()
     ):
         raise ValueError("PR base points at a different repository")
@@ -149,7 +151,10 @@ def _pull_identity(
     if head_repo is not None:
         head_repo = _mapping(head_repo, "PR head repository")
         head_full_name = head_repo.get("full_name")
-        if type(head_full_name) is not str or not head_full_name.strip():
+        if (
+            type(head_full_name) is not str
+            or _REPOSITORY_FULL_NAME.fullmatch(head_full_name) is None
+        ):
             raise ValueError("PR head repository requires a native nonblank name")
         if head_full_name.casefold() == repository.casefold():
             raw_name = head.get("ref")

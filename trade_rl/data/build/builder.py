@@ -24,7 +24,6 @@ from trade_rl.data.features.cross_asset import (
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
 from trade_rl.data.features.multitimeframe import (
-    _AlignedFeatureColumns,
     _align_native_feature_events,
     _align_published_events,
     _dependency_available_at,
@@ -331,7 +330,9 @@ class MarketDatasetBuilder:
             contract: InstrumentContract,
             *,
             include_event_indices: bool = False,
-        ) -> _AlignedFeatureColumns:
+        ) -> tuple[
+            np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None
+        ]:
             native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
             if native_timeframe == self.config.base_timeframe:
                 # Events are computed on every physically present row, then

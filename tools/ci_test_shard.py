@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-_SCHEMA = "ci_test_shard_v1"
+_SCHEMA = "ci_test_shard_v2"
 _MAX_SHARDS = 16
 # Four-way placement from #1416 run 45542520830 and #1420 run 45553392392:
 # keep the costly module-scoped fixtures together, without changing the
@@ -99,10 +99,86 @@ def _unique_receipt_object(pairs: list[tuple[str, object]]) -> dict[str, object]
     return result
 
 
+def _skip_reason(report: pytest.TestReport | pytest.CollectReport) -> str:
+    # Pytest's skip representation carries location and reason separately.
+    # Do not persist arbitrary tracebacks or captured output.
+    value = report.longrepr
+    if not isinstance(value, tuple) or len(value) != 3 or type(value[2]) is not str:
+        raise ValueError("missing pytest skip reason")
+    return value[2]
+
+
+def _phase_report(report: pytest.TestReport) -> tuple[str, str, str | None]:
+    status: str = report.outcome
+    reason: str | None = None
+    xfail = getattr(report, "wasxfail", None)
+    if xfail is not None and status in ("passed", "skipped"):
+        status = "xpassed" if status == "passed" else "xfailed"
+        reason = xfail
+    elif status == "skipped":
+        reason = _skip_reason(report)
+    return report.when, status, reason
+
+
+def _complete_phases(value: object) -> bool:
+    # A finish notification alone is not execution. Preserve actual skip,
+    # xfail and non-strict xpass outcomes rather than describing them as passes.
+    if type(value) is not list or len(value) not in (2, 3):
+        return False
+    phases: list[tuple[str, str]] = []
+    for row in value:
+        if type(row) not in (list, tuple) or len(row) != 3:
+            return False
+        phase, status, reason = row
+        if type(phase) is not str or type(status) is not str:
+            return False
+        if status == "passed":
+            if reason is not None:
+                return False
+        elif status not in ("skipped", "xfailed", "xpassed") or type(reason) is not str:
+            return False
+        phases.append(
+            (phase, {"xfailed": "skipped", "xpassed": "passed"}.get(status, status))
+        )
+    if phases[-1] not in (("teardown", "passed"), ("teardown", "skipped")):
+        return False
+    if phases[0] == ("setup", "skipped"):
+        return len(phases) == 2
+    return (
+        len(phases) == 3
+        and phases[0] == ("setup", "passed")
+        and phases[1] in (("call", "passed"), ("call", "skipped"))
+    )
+
+
+def _collection_skip_roster(value: object) -> list[tuple[str, str]]:
+    if type(value) is not list:
+        raise ValueError("invalid collection skip roster")
+    rows: list[tuple[str, str]] = []
+    for row in value:
+        if (
+            type(row) not in (tuple, list)
+            or len(row) != 2
+            or type(row[0]) is not str
+            or not row[0]
+            or type(row[1]) is not str
+        ):
+            raise ValueError("invalid collection skip entry")
+        rows.append((row[0], row[1]))
+    if len({nodeid for nodeid, _ in rows}) != len(rows):
+        raise ValueError("duplicate collection skip node ID")
+    return sorted(rows)
+
+
 def verify_reports(
-    directory: Path, *, count: int, head: str, expected_items: Sequence[str]
+    directory: Path,
+    *,
+    count: int,
+    head: str,
+    expected_items: Sequence[str],
+    expected_collection_skips: Sequence[tuple[str, str]] = (),
 ) -> int:
-    """Require all disjoint completed IDs to reproduce every full collection."""
+    """Verify disjoint completion, phase evidence and independent collection skips."""
     _validate_count(count)
     _validate_head(head)
     files = sorted(directory.glob("*/core-shard.json"))
@@ -111,6 +187,7 @@ def verify_reports(
     indices: set[int] = set()
     all_items: list[str] = []
     fingerprints: set[tuple[int, str]] = set()
+    expected_skips = _collection_skip_roster(list(expected_collection_skips))
     for file in files:
         try:
             record = json.loads(
@@ -127,6 +204,8 @@ def verify_reports(
             "collection_count",
             "collection_digest",
             "completed",
+            "phase_reports",
+            "collection_skips",
         }:
             raise ValueError("invalid shard receipt schema")
         index, declared_count = record["index"], record["count"]
@@ -154,6 +233,17 @@ def verify_reports(
         items = _canonical_items(completed)
         if any(shard_index(item, count) != index for item in items):
             raise ValueError("item assigned to wrong shard")
+        reports = record["phase_reports"]
+        if (
+            type(reports) is not dict
+            or set(reports) != set(items)
+            or any(not _complete_phases(phases) for phases in reports.values())
+        ):
+            raise ValueError("invalid or incomplete phase reports")
+        if _collection_skip_roster(record["collection_skips"]) != expected_skips:
+            raise ValueError(
+                "collection skip roster differs from independent collection"
+            )
         indices.add(index)
         fingerprints.add((size, digest))
         all_items.extend(items)
@@ -172,7 +262,12 @@ class _ShardRun:
         self.full: list[str] = []
         self.selected: list[str] = []
         self.completed: list[str] = []
-        self.phases: dict[str, list[tuple[str, str]]] = {}
+        self.phases: dict[str, list[tuple[str, str, str | None]]] = {}
+        self.collection_skips: list[tuple[str, str]] = []
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        if report.skipped:
+            self.collection_skips.append((report.nodeid, _skip_reason(report)))
 
     @pytest.hookimpl(trylast=True)
     def pytest_collection_modifyitems(
@@ -190,28 +285,10 @@ class _ShardRun:
         config.hook.pytest_deselected(items=drop)
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
-        self.phases.setdefault(report.nodeid, []).append((report.when, report.outcome))
+        self.phases.setdefault(report.nodeid, []).append(_phase_report(report))
 
     def pytest_runtest_logfinish(self, nodeid: str) -> None:
         self.completed.append(nodeid)
-
-    @staticmethod
-    def _complete_phases(phases: list[tuple[str, str]]) -> bool:
-        # A finish notification alone is not execution: setup-only/plan or
-        # another protocol hook can finish a node without a call report.
-        # Preserve legitimate pytest setup skips (including xfail run=False)
-        # and call skips/xfails, while requiring actual teardown reports.
-        if len(phases) not in (2, 3):
-            return False
-        if phases[-1] not in (("teardown", "passed"), ("teardown", "skipped")):
-            return False
-        if phases[0] == ("setup", "skipped"):
-            return len(phases) == 2
-        return (
-            len(phases) == 3
-            and phases[0] == ("setup", "passed")
-            and phases[1] in (("call", "passed"), ("call", "skipped"))
-        )
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
@@ -221,7 +298,7 @@ class _ShardRun:
             not self.selected
             or sorted(self.completed) != self.selected
             or sorted(self.phases) != self.selected
-            or any(not self._complete_phases(phases) for phases in self.phases.values())
+            or any(not _complete_phases(phases) for phases in self.phases.values())
         ):
             print(
                 "CI shard failed: not every selected test completed its execution phases",
@@ -237,6 +314,8 @@ class _ShardRun:
             "collection_count": len(self.full),
             "collection_digest": collection_digest(self.full),
             "completed": self.selected,
+            "phase_reports": self.phases,
+            "collection_skips": _collection_skip_roster(self.collection_skips),
         }
         # Never overwrite a receipt from another execution.
         with self.report.open("x", encoding="utf-8") as stream:
@@ -288,18 +367,25 @@ def pytest_configure(config: pytest.Config) -> None:
 class _FullCollection:
     def __init__(self) -> None:
         self.items: list[str] = []
+        self.collection_skips: list[tuple[str, str]] = []
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        if report.skipped:
+            self.collection_skips.append((report.nodeid, _skip_reason(report)))
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         self.items = [item.nodeid for item in session.items]
 
 
-def collect_full_suite() -> list[str]:
+def collect_full_suite() -> tuple[list[str], list[tuple[str, str]]]:
     """Use ordinary pytest collection, without the shard selection plugin."""
     collector = _FullCollection()
     result = pytest.main(["--collect-only", "-qq", "tests"], plugins=[collector])
     if result != pytest.ExitCode.OK or not collector.items:
         raise ValueError("independent full collection failed or is empty")
-    return _canonical_items(collector.items)
+    return _canonical_items(collector.items), _collection_skip_roster(
+        collector.collection_skips
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -309,11 +395,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
     try:
+        items, collection_skips = collect_full_suite()
         total = verify_reports(
             args.directory,
             count=args.count,
             head=args.head,
-            expected_items=collect_full_suite(),
+            expected_items=items,
+            expected_collection_skips=collection_skips,
         )
     except ValueError as error:
         parser.exit(1, f"CI shard verification failed: {error}\n")

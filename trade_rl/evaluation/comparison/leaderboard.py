@@ -132,8 +132,8 @@ def build_family_leaderboard(
     not out-of-sample evidence and authorises nothing.
     """
 
-    if not isinstance(ledger, TrialLedger):
-        raise TrialLedgerError("ledger must be a TrialLedger")
+    if type(ledger) is not TrialLedger:
+        raise TrialLedgerError("ledger must be a TrialLedger of the native type")
     if type(family) is not str:
         raise TrialLedgerError("family must be a string of the native type")
     # Freeze the full roster once: a concurrent append must not change the

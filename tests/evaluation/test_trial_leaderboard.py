@@ -316,3 +316,15 @@ def test_family_selection_refuses_foreign_text_before_equality(entrypoint):
         else:
             build_family_leaderboard(ledger, family)
     assert [record.trial_id for record in ledger.family_records("fam")] == ["a"]
+
+
+def test_leaderboard_refuses_foreign_roster_before_snapshot():
+    class ForeignLedger(TrialLedger):
+        @property
+        def records(self):
+            return (_completed("a", 0.05), _completed("b", 0.12))
+
+    ledger = ForeignLedger()
+    assert len(ledger) == 0
+    with pytest.raises(TrialLedgerError, match="native type"):
+        build_family_leaderboard(ledger, "fam")

@@ -15,6 +15,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple, Protocol
 
+from tools.github_workflow_ref_guard import _valid_branch_name
+
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _RUN_STATES = frozenset(
     {
@@ -144,6 +146,8 @@ def _run_identity(raw: Any, *, run_id: int) -> _RunIdentity:
         raise ValueError("workflow run id changed")
     attempt = _positive_int(run.get("run_attempt"), "run attempt")
     branch = _text(run.get("head_branch"), "workflow head branch")
+    if not _valid_branch_name(branch):
+        raise ValueError("workflow head branch is malformed")
     head = _sha(run.get("head_sha"), "workflow head SHA")
     status, conclusion = validate_workflow_state(run, name="run")
     updated = _text(run.get("updated_at"), "workflow update time")

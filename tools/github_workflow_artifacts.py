@@ -14,6 +14,7 @@ import re
 from typing import Any, NamedTuple, Protocol
 
 from tools.github_workflow_attempts import validate_workflow_state
+from tools.github_workflow_ref_guard import _valid_branch_name
 
 _REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -76,6 +77,8 @@ def _run(api: ArtifactReadApi, run_id: int, repository_id: int) -> _Run:
         raise ValueError("workflow run id changed")
     attempt = _positive(raw.get("run_attempt"), "run attempt")
     branch = _text(raw.get("head_branch"), "run head branch")
+    if not _valid_branch_name(branch):
+        raise ValueError("run head branch is malformed")
     sha = raw.get("head_sha")
     if type(sha) is not str or not _SHA.fullmatch(sha):
         raise ValueError("run head SHA must be an exact Git SHA")

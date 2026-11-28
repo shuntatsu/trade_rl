@@ -120,6 +120,9 @@ _FEATURES = (
         "stoch", FeatureKind.STOCHASTIC_D, lookback=5, stochastic_smoothing_period=4
     ),
     FeatureSpec("atrc", FeatureKind.ATR_CHANGE, lookback=5),
+    FeatureSpec("adx", FeatureKind.ADX, lookback=5),
+    FeatureSpec("adx_causal", FeatureKind.ADX_CAUSAL, lookback=5),
+    FeatureSpec("plus_di", FeatureKind.PLUS_DI, lookback=5),
 )
 _CONFIG = MarketBuildConfig(
     base_timeframe="1h", features=_FEATURES, cross_asset_reference_symbol="BTC"

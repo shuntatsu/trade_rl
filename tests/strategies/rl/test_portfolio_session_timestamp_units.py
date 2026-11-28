@@ -36,7 +36,9 @@ def test_session_gym_and_forward_binding_use_actual_utc_boundaries(unit, signed)
     assert dataset.timestamps.dtype == np.dtype(f"datetime64[{unit}]")
 
     def make_env(data, start, stop):
-        cost = _cost(allow_short=True, borrow_rate_multiplier=1.0) if signed else _cost()
+        cost = (
+            _cost(allow_short=True, borrow_rate_multiplier=1.0) if signed else _cost()
+        )
         return SharedPortfolioGymEnv(
             data,
             start_index=start,

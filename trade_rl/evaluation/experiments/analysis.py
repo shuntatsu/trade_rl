@@ -17,7 +17,10 @@ from trade_rl.evaluation.comparison.seed_robustness import (
 )
 from trade_rl.evaluation.experiments.contracts import StudyPlan
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
-from trade_rl.evaluation.runs import LoadedCandidateRun
+from trade_rl.evaluation.runs import (
+    LoadedCandidateRun,
+    supports_shared_cash_result_schema,
+)
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 _ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
@@ -141,6 +144,15 @@ def _shared_cash_ppo_metrics(run: LoadedCandidateRun) -> dict[str, object]:
     if values is None:
         raise ArtifactIntegrityError("shared-cash PPO return series is missing")
     series = _return_series(values, metrics)
+    if supports_shared_cash_result_schema(run.summary.get("schema_version")):
+        evaluation = run.summary.get("evaluation")
+        expected_periods = (
+            evaluation.get("expected_periods")
+            if isinstance(evaluation, Mapping)
+            else None
+        )
+        if type(expected_periods) is not int or expected_periods != len(series.values):
+            raise ArtifactIntegrityError("shared-cash PPO return coverage is incomplete")
     wealth = 1.0
     peak = 1.0
     maximum_drawdown = 0.0

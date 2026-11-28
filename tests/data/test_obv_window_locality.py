@@ -152,6 +152,9 @@ def test_obv_acceleration_preserves_half_window_cancellation() -> None:
         [0.0, 1e17, 1.0, 1e17, 2.0],
     )
     assert valid[-1] and source_start[-1] == 0
-    expected = float(Fraction(1, 200000000000000003))
+    # The contract rounds the volume sum to binary64 before division.
+    # Derive its rounding independently from the exact rational total.
+    rounded_volume = float(Fraction(200000000000000003))
+    expected = float(Fraction(1) / Fraction(rounded_volume))
     assert values[-1] == expected
     assert np.float32(values[-1]) != 0.0

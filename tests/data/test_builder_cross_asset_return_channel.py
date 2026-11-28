@@ -152,3 +152,75 @@ def test_cross_asset_columns_are_independent_of_public_return_specs(
     assert other.feature_names == tuple(spec.name for spec in public) + tuple(
         spec.name for spec in _cross_specs()
     )
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_cross_asset_consumes_new_close_even_when_age_is_unchanged(
+    native: bool,
+) -> None:
+    import math
+
+    from tests.data.test_multitimeframe_builder import (
+        MemoryMultiTimeframeSource,
+        _series,
+    )
+
+    # Both delayed ETH selections at consecutive decisions have the same age,
+    # but are distinct close events. BTC is on time. The statistic consumes
+    # simultaneous newly selected events at the decision, not an age proxy.
+    base_times = [f"2026-01-01T{i:02d}:00:00" for i in range(6)]
+    btc = _series(base_times, [100.0, 101.0, 103.0, 107.0, 111.0, 113.0])
+    if native:
+        times = [f"2026-01-01T{i // 4:02d}:{(i % 4) * 15:02d}:00" for i in range(21)]
+        delayed = [str(np.datetime64(t, "ns") + np.timedelta64(30, "m")) for t in times]
+        btc_native = _series(times, [100.0 + i for i in range(21)])
+        eth_close = [100.0 + i * i for i in range(21)]
+        eth_native = _series(times, eth_close, available_at=delayed)
+        source = MemoryMultiTimeframeSource(
+            {
+                ("BTC", "1h"): btc,
+                ("ETH", "1h"): btc,
+                ("BTC", "15m"): btc_native,
+                ("ETH", "15m"): eth_native,
+            }
+        )
+        expected = math.log(eth_close[6] / eth_close[5]) - math.log(108.0 / 107.0)
+        row = 2
+        expected_age = 0.5
+        timeframe = "15m"
+    else:
+        eth = _series(
+            base_times,
+            [100.0, 101.0, 104.0, 109.0, 116.0, 125.0],
+            available_at=[
+                base_times[0],
+                base_times[1],
+                *base_times[3:],
+                "2026-01-01T06:00:00",
+            ],
+        )
+        source = MemoryMultiTimeframeSource({("BTC", "1h"): btc, ("ETH", "1h"): eth})
+        expected = math.log(104.0 / 101.0) - math.log(107.0 / 103.0)
+        row = 3
+        expected_age = 1.0
+        timeframe = None
+
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(
+            FeatureSpec(
+                "relative",
+                FeatureKind.RELATIVE_RETURN_TO_BTC,
+                timeframe=timeframe,
+                max_staleness_hours=4.0,
+            ),
+        ),
+        cross_asset_reference_symbol="BTC",
+    )
+    dataset = MarketDatasetBuilder(config).build(
+        source,
+        tuple(InstrumentContract(symbol, listed_at=_T0) for symbol in ("BTC", "ETH")),
+    )
+    assert dataset.feature_available[row, 1, 0]
+    assert dataset.features[row, 1, 0] == pytest.approx(expected, abs=1e-8)
+    assert dataset.feature_staleness_hours[row, 1, 0] == expected_age

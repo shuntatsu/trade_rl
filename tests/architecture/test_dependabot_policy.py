@@ -427,3 +427,54 @@ def test_update_recipe_allows_comment_only_changes() -> None:
     _require_update_recipe(
         section, strategy="lockfile-only", groups=(("compatible-lockfile", None),)
     )
+
+
+def test_repo_owned_uv_proposals_are_main_only_and_read_only() -> None:
+    workflow = (ROOT / ".github/workflows/uv-lock-proposals.yml").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "on:\n"
+        "  push:\n"
+        "    branches:\n"
+        "      - main\n"
+        "    paths:\n"
+        "      - .github/workflows/uv-lock-proposals.yml\n"
+        "      - tools/uv_lock_proposal.py\n"
+        "      - tools/uv_advisory_audit.py\n"
+        "      - pyproject.toml\n"
+        "  schedule:",
+        'cron: "45 19 * * 1"',
+        "workflow_dispatch:",
+        "permissions:\n  contents: read",
+        "github.repository == 'shuntatsu/trade_rl' && github.ref == 'refs/heads/main'",
+        "persist-credentials: false",
+        'version: "0.13.10"',
+        "enable-cache: false",
+        "ref: " + chr(36) + "{{ github.sha }}",
+        "REQUESTED_PACKAGES: " + chr(36) + "{{ inputs.packages }}",
+        'python -m tools.uv_lock_proposal --head "$SOURCE_HEAD"',
+        '--packages "$REQUESTED_PACKAGES"',
+        '--output "$RUNNER_TEMP/uv-lock-proposal"',
+        "git diff --exit-code HEAD -- pyproject.toml uv.lock",
+        "path: " + chr(36) + "{{ runner.temp }}/uv-lock-proposal",
+        "if-no-files-found: error",
+    ):
+        assert required in workflow
+    for forbidden in (
+        "contents: write",
+        "pull-requests: write",
+        "pull_request_target:",
+        "secrets.",
+        "continue-on-error",
+        "uv sync",
+        "git push",
+        "gh pr",
+    ):
+        assert forbidden not in workflow
+    assert workflow.index("Verify original checkout") < workflow.index(
+        "Upload review-only proposal"
+    )
+    upload = workflow.split("Upload review-only proposal", 1)[1]
+    assert "if: always()" not in upload
+    _require_version_update_limit(_ecosystem_sections()["uv"], 0)

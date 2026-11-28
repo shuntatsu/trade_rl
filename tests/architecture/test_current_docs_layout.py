@@ -185,6 +185,7 @@ def test_only_permanent_workflows_remain() -> None:
         "deploy-guide.yml",
         "m1-optional-platform-coverage.yml",
         "ci-uv-advisory-audit.yml",
+        "uv-lock-proposals.yml",
     }
 
 

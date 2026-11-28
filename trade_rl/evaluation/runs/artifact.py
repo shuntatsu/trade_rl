@@ -67,11 +67,9 @@ _SHARED_CASH_RESULT_SCHEMAS = frozenset(
 
 
 def supports_shared_cash_result_schema(result_schema: object) -> bool:
-    """Return whether a candidate result schema carries shared-cash evidence."""
+    """Accept only native shared-cash schema strings, not overridden aliases."""
 
-    return (
-        isinstance(result_schema, str) and result_schema in _SHARED_CASH_RESULT_SCHEMAS
-    )
+    return type(result_schema) is str and result_schema in _SHARED_CASH_RESULT_SCHEMAS
 
 
 _SUPPORTED_RESULT_SCHEMAS = frozenset(
@@ -211,7 +209,7 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if not isinstance(schema, str) or schema not in {
+        if type(schema) is not str or schema not in {
             _RESULT_SCHEMA_V6,
             _RESULT_SCHEMA_V7,
             _RESULT_SCHEMA_V8,
@@ -241,11 +239,7 @@ class LoadedCandidateRun:
         ):
             return False
         expected_periods = evaluation.get("expected_periods")
-        if (
-            isinstance(expected_periods, bool)
-            or not isinstance(expected_periods, int)
-            or expected_periods <= 0
-        ):
+        if type(expected_periods) is not int or expected_periods <= 0:
             return False
         for symbol in by_symbol:
             strategies = (
@@ -266,8 +260,7 @@ class LoadedCandidateRun:
                 )
                 if (
                     values is None
-                    or isinstance(n_periods, bool)
-                    or not isinstance(n_periods, int)
+                    or type(n_periods) is not int
                     or n_periods != expected_periods
                     or values.size != expected_periods
                 ):
@@ -286,8 +279,7 @@ class LoadedCandidateRun:
             )
             if (
                 values is None
-                or isinstance(n_periods, bool)
-                or not isinstance(n_periods, int)
+                or type(n_periods) is not int
                 or n_periods != expected_periods
                 or values.size != expected_periods
             ):

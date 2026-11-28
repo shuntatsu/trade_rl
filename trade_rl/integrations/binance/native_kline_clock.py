@@ -35,6 +35,8 @@ def validate_native_kline_times(
     authenticity or data access authorization. No legacy source policy or
     Dataset admission is changed.
     """
+    if type(clock) is not NativeBarClock:
+        raise ValueError("clock must be a NativeBarClock")
     if timestamp_unit not in ("ms", "us"):
         raise ValueError("Binance native timestamp unit must be ms or us")
     tick_ns = 1_000_000 if timestamp_unit == "ms" else 1_000

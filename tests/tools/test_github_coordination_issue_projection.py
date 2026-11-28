@@ -272,3 +272,231 @@ def test_extra_comment_after_declared_full_page_is_rejected(
     api.issue["comments"] = count
     with pytest.raises(ValueError, match="pagination"):
         _read(api)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "bad", "error"),
+    [
+        ("issue", "node_id", "wrong-node", "Issue identity"),
+        (
+            "issue",
+            "repository_url",
+            "https://api.github.com/repos/other/repo",
+            "Issue identity",
+        ),
+        ("issue", "state", "closed", "Issue identity"),
+        ("issue", "updated_at", "now", "Issue updated_at"),
+        ("comment", "body", render_status_comment(STATUS), "Issue comment body"),
+        ("comment", "updated_at", "now", "Issue comment body"),
+    ],
+)
+def test_foreign_projection_text_rejected_before_hooks(section, field, bad, error):
+    calls = []
+
+    class ForeignText(str):
+        def __eq__(self, other):
+            calls.append("eq")
+            return True
+
+        def __ne__(self, other):
+            calls.append("ne")
+            return False
+
+        def strip(self, *args):
+            calls.append("strip")
+            return super().strip(*args)
+
+        def __contains__(self, other):
+            calls.append("contains")
+            return super().__contains__(other)
+
+        def __format__(self, spec):
+            calls.append("format")
+            return super().__format__(spec)
+
+        def __str__(self):
+            calls.append("str")
+            return super().__str__()
+
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+        def __bool__(self):
+            calls.append("bool")
+            return True
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            if section == "issue" and query is None:
+                result[field] = ForeignText(bad)
+            if section == "comment" and query is not None:
+                result[0][field] = ForeignText(bad)
+            return result
+
+    with pytest.raises(ValueError, match=error):
+        _read(Api())
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("section", "error"),
+    [
+        ("issue", "Issue must be an object"),
+        ("comment", "Issue comment must be an object"),
+        ("publisher", "comment publisher must be an object"),
+        ("page", "Issue comments pagination"),
+    ],
+)
+def test_foreign_projection_containers_rejected_before_hooks(section, error):
+    calls = []
+
+    class ForeignDict(dict):
+        def get(self, *args):
+            calls.append("get")
+            return super().get(*args)
+
+        def __iter__(self):
+            calls.append("dict iter")
+            return super().__iter__()
+
+        def __getitem__(self, key):
+            calls.append("dict getitem")
+            return super().__getitem__(key)
+
+        def __contains__(self, key):
+            calls.append("dict contains")
+            return super().__contains__(key)
+
+        def __bool__(self):
+            calls.append("dict bool")
+            return True
+
+        def keys(self):
+            calls.append("dict keys")
+            return super().keys()
+
+    class ForeignList(list):
+        def __len__(self):
+            calls.append("len")
+            return super().__len__()
+
+        def __iter__(self):
+            calls.append("list iter")
+            return super().__iter__()
+
+        def __getitem__(self, key):
+            calls.append("list getitem")
+            return super().__getitem__(key)
+
+        def __bool__(self):
+            calls.append("list bool")
+            return True
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            if query is None and section == "issue":
+                return ForeignDict(result)
+            if query is not None:
+                if section == "page":
+                    return ForeignList(result)
+                if section == "comment":
+                    result[0] = ForeignDict(result[0])
+                if section == "publisher":
+                    result[0]["user"] = ForeignDict(result[0]["user"])
+            return result
+
+    with pytest.raises(ValueError, match=error):
+        _read(Api())
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "error"),
+    [
+        ("issue", "node_id", "Issue must be an object"),
+        ("comment", "body", "Issue comment must be an object"),
+        ("publisher", "id", "comment publisher must be an object"),
+    ],
+)
+def test_foreign_projection_key_rejected_before_lookup(section, key, error):
+    calls = []
+
+    class ForeignKey(str):
+        def __hash__(self):
+            calls.append("hash")
+            return super().__hash__()
+
+        def __eq__(self, other):
+            calls.append("eq")
+            return super().__eq__(other)
+
+        def __str__(self):
+            calls.append("str")
+            return super().__str__()
+
+    class Api(FakeApi):
+        def _request_json(self, method, suffix, *, query=None):
+            result = super()._request_json(method, suffix, query=query)
+            row = None
+            if query is None and section == "issue":
+                row = result
+            elif query is not None:
+                if section == "comment":
+                    row = result[0]
+                elif section == "publisher":
+                    row = result[0]["user"]
+            if row is not None:
+                row[ForeignKey(key)] = row.pop(key)
+                # Dict insertion necessarily hashes the key. Check only the
+                # consumer boundary, after the adversarial fixture is built.
+                calls.clear()
+            return result
+
+    with pytest.raises(ValueError, match=error):
+        _read(Api())
+    assert calls == []
+
+
+def test_foreign_projection_record_rejected_before_requests():
+    class ForeignProjection(EnrollmentProjection):
+        pass
+
+    api = FakeApi()
+    with pytest.raises(ValueError, match="EnrollmentProjection"):
+        observe_issue_projection(
+            api,
+            projection=ForeignProjection(REPO, ISSUE, NODE, STATUS),
+            expected_publisher_user_id=AUTHOR,
+        )
+    assert api.requests == []
+
+
+@pytest.mark.parametrize(
+    ("field", "error"),
+    [
+        ("repository", "repository must be owner/name"),
+        ("issue_node_id", "issue reference must have an immutable node ID"),
+    ],
+)
+def test_projection_constructor_rejects_foreign_identity_text(field, error):
+    calls = []
+
+    class ForeignText(str):
+        def __str__(self):
+            calls.append("str")
+            return super().__str__()
+
+        def __format__(self, spec):
+            calls.append("format")
+            return super().__format__(spec)
+
+        def strip(self, *args):
+            calls.append("strip")
+            return super().strip(*args)
+
+    with pytest.raises(ValueError, match=error):
+        replace(PROJECTION, **{field: ForeignText(getattr(PROJECTION, field))})
+    assert calls == []

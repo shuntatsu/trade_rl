@@ -509,6 +509,10 @@ def _ridge_forecast_diagnostics(
     price_available_at = (
         dataset.resolved_array("available_at").astype("datetime64[ns]").astype(np.int64)
     )
+    # A close is a scoring endpoint only on a row the Dataset marks as
+    # information available (row present, active and published on time); a
+    # missing row carries the previous close forward and is never observed.
+    information_available = dataset.resolved_array("information_available")
     selected_indices = list(model.feature_indices)
     forecasts_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
     targets_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
@@ -533,7 +537,10 @@ def _ridge_forecast_diagnostics(
             ):
                 symbol_exclusions["feature_unavailable_or_nonfinite"] += 1
                 continue
-            if price_available_at[decision_index, symbol_index] > decision_ns:
+            if (
+                not information_available[decision_index, symbol_index]
+                or price_available_at[decision_index, symbol_index] > decision_ns
+            ):
                 symbol_exclusions["starting_close_unavailable_at_decision"] += 1
                 continue
 
@@ -546,7 +553,10 @@ def _ridge_forecast_diagnostics(
             if endpoint_index is None or endpoint_index <= decision_index:
                 symbol_exclusions["target_not_mature_by_scoring_as_of"] += 1
                 continue
-            if price_available_at[endpoint_index, symbol_index] > scoring_as_of_ns:
+            if (
+                not information_available[endpoint_index, symbol_index]
+                or price_available_at[endpoint_index, symbol_index] >= scoring_as_of_ns
+            ):
                 symbol_exclusions["target_close_unavailable_by_scoring_as_of"] += 1
                 continue
             start_price = _finite_float(

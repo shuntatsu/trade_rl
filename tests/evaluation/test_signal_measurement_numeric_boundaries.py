@@ -18,7 +18,9 @@ def test_extreme_finite_closes_have_finite_log_differences() -> None:
     expected = math.log(1e300) - math.log(1e-300)
 
     with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-        result = forward_log_returns(closes, 1)
+        result = forward_log_returns(
+            closes, 1, information_available=np.ones(closes.shape, dtype=np.bool_)
+        )
 
     assert result.shape == closes.shape
     assert np.isfinite(result[:2]).all()
@@ -70,7 +72,11 @@ def test_subnormal_intermediate_ratio_preserves_log_return_precision(
 ) -> None:
     """A finite subnormal ratio must not round away significant log information."""
     with np.errstate(over="ignore", under="ignore", divide="ignore"):
-        calculated = forward_log_returns(np.array([[initial], [final]]), 1)
+        calculated = forward_log_returns(
+            np.array([[initial], [final]]),
+            1,
+            information_available=np.ones((2, 1), dtype=np.bool_),
+        )
     expected = math.log(final) - math.log(initial)
     assert calculated[0, 0] == pytest.approx(expected, abs=5e-13, rel=0)
     assert np.isnan(calculated[1, 0])
@@ -96,7 +102,11 @@ def test_near_unity_return_preserves_direct_ratio_precision() -> None:
     expected = math.log(final / initial)
     assert expected > 0.0
     assert math.log(final) - math.log(initial) == 0.0
-    actual = forward_log_returns(np.array([[initial], [final]]), 1)
+    actual = forward_log_returns(
+        np.array([[initial], [final]]),
+        1,
+        information_available=np.ones((2, 1), dtype=np.bool_),
+    )
     assert actual[0, 0] == expected
     assert np.isnan(actual[1, 0])
 
@@ -117,7 +127,11 @@ def test_subnormal_boundary_selects_the_intended_log_path(
     if not ratio_is_normal:
         # A wrong-branch mutant must not pass because two oracles accidentally agree.
         assert math.log(ratio) != math.log(final) - math.log(initial)
-    result = forward_log_returns(np.array([[initial], [final]]), 1)
+    result = forward_log_returns(
+        np.array([[initial], [final]]),
+        1,
+        information_available=np.ones((2, 1), dtype=np.bool_),
+    )
     # The reference is the log of the *exact* finite binary64 operands,
     # evaluated at higher precision instead of requiring bitwise equality
     # between platform math.log and vectorized NumPy ufunc implementations.

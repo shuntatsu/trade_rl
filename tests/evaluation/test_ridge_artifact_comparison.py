@@ -616,6 +616,43 @@ def test_forecast_diagnostics_excludes_target_close_late_at_scoring_as_of() -> N
     assert diagnostics.by_symbol[1].eligible_count == 1
 
 
+def test_forecast_diagnostics_never_score_a_missing_row_close() -> None:
+    # A missing bar keeps available_at == timestamp but carries the previous
+    # close forward; it is neither a scoring start nor a scoring target.
+    api = _comparison_api()
+    base = _dataset()
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + (
+        np.arange(6, dtype=np.int64) * np.timedelta64(1, "h")
+    )
+    information_available = np.ones((6, 2), dtype=np.bool_)
+    information_available[2, 0] = False
+    information_available[4, 1] = False
+    dataset = replace(
+        base,
+        timestamps=timestamps,
+        available_at=np.repeat(timestamps[:, None], 2, axis=1),
+        information_available=information_available,
+        identity_payload_json=None,
+    ).with_content_identity({"fixture": "missing-row-closes"})
+    model = replace(_model(dataset), horizon_hours=1)
+
+    diagnostics = api._ridge_forecast_diagnostics(
+        dataset,
+        model,
+        _config(api, include_forecast_diagnostics=True),
+    )
+
+    assert diagnostics.eligible_count == 2
+    assert dict(diagnostics.excluded_counts) == {
+        "feature_unavailable_or_nonfinite": 0,
+        "starting_close_unavailable_at_decision": 1,
+        "target_not_mature_by_scoring_as_of": 0,
+        "target_close_unavailable_by_scoring_as_of": 1,
+    }
+    assert diagnostics.by_symbol[0].eligible_count == 1
+    assert diagnostics.by_symbol[1].eligible_count == 1
+
+
 def test_forecast_diagnostics_leave_zero_baseline_skill_undefined(
     tmp_path: Path,
 ) -> None:

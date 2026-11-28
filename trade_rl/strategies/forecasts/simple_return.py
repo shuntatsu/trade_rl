@@ -197,7 +197,6 @@ def fit_simple_return_ridge(
         fit_symbol_indices=fit_symbol_indices,
         cutoff=cutoff,
         horizon_hours=horizon_hours,
-        strict_publication=True,
     )
     start_close = np.asarray(
         [dataset.close[start, symbol] for symbol, start, _ in rows.source_rows],

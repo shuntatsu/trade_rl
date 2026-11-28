@@ -603,14 +603,12 @@ def test_training_set_rejects_unrepresentable_horizon_metadata() -> None:
         replace(training, horizon_hours=max_safe_hours + 1)
 
 
-@pytest.mark.parametrize(
-    ("available_hour", "expected_included"),
-    ((9, False), (8, True), (7, True)),
-)
-def test_training_label_endpoint_price_must_be_available_by_fit_cutoff(
+@pytest.mark.parametrize("available_hour", (9, 8, 7))
+def test_training_label_endpoint_price_must_be_published_on_time(
     available_hour: int,
-    expected_included: bool,
 ) -> None:
+    # A row published after its own timestamp is not information on time,
+    # whether it arrives after, exactly at, or before the fit cutoff.
     dataset = market()
     timestamps = dataset.timestamps.astype("datetime64[ns]")
     available_at = dataset.resolved_array("available_at").copy()
@@ -630,12 +628,101 @@ def test_training_label_endpoint_price_must_be_available_by_fit_cutoff(
         horizon_hours=2,
     )
 
-    endpoint_row_present = bool(np.any(training.features[:, 0] == 2.0))
-    assert endpoint_row_present is expected_included
-    if expected_included:
-        expected_return = np.log(dataset.close[4, 0] / dataset.close[2, 0])
-        endpoint_position = int(np.flatnonzero(training.features[:, 0] == 2.0)[0])
-        assert training.labels[endpoint_position] == pytest.approx(expected_return)
+    # Row 4 is the end of 2->4 and the start of 4->6; neither is admitted.
+    np.testing.assert_array_equal(training.features[:, 0], [0.0, 1.0, 3.0, 5.0])
+    assert not np.any(training.label_end_times == timestamps[4])
+
+
+@pytest.mark.parametrize("gap_row", (2, 4, 5))
+def test_training_labels_never_start_or_end_on_a_missing_row(gap_row: int) -> None:
+    # A missing bar keeps ``available_at == timestamp`` but is not
+    # information_available: its close is carried forward, not observed.
+    dataset = market()
+    information_available = dataset.resolved_array("information_available").copy()
+    information_available[gap_row, 0] = False
+    dataset = replace(dataset, information_available=information_available)
+    timestamps = dataset.timestamps.astype("datetime64[ns]")
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0, 1),
+        fit_cutoff=timestamps[8],
+        horizon_hours=2,
+    )
+
+    starts = training.features[:, 0].astype(np.int64)
+    ends = starts + 2
+    assert gap_row not in set(starts.tolist())
+    assert gap_row not in set(ends.tolist())
+    expected_starts = [s for s in range(6) if gap_row not in (s, s + 2)]
+    np.testing.assert_array_equal(starts, expected_starts)
+    np.testing.assert_allclose(
+        training.labels,
+        np.log(dataset.close[ends, 0] / dataset.close[starts, 0]),
+    )
+
+
+def test_builder_gap_rows_are_never_label_endpoints() -> None:
+    from datetime import UTC, datetime
+
+    from trade_rl.data.build.builder import MarketDatasetBuilder
+    from trade_rl.data.contracts import InstrumentContract
+    from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+
+    n_bars = 60
+    gaps = {20, 21, 40}
+    rng = np.random.default_rng(5)
+
+    def series(hours: list[int]) -> RawMarketSeries:
+        timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.asarray(
+            hours
+        ) * np.timedelta64(1, "h")
+        close = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, len(hours))))
+        return RawMarketSeries(
+            timestamps=timestamps,
+            open=close.copy(),
+            high=close * 1.001,
+            low=close * 0.999,
+            close=close,
+            volume=np.full(len(hours), 100.0),
+            funding_rate=np.zeros(len(hours)),
+            funding_available=np.zeros(len(hours), dtype=np.bool_),
+            tradable=np.ones(len(hours), dtype=np.bool_),
+        )
+
+    source = InMemoryMarketDataSource(
+        {
+            "BTCUSDT": series(list(range(n_bars))),
+            "ETHUSDT": series([h for h in range(n_bars) if h not in gaps]),
+        }
+    )
+    contracts = tuple(
+        InstrumentContract(symbol, listed_at=datetime(2025, 1, 1, tzinfo=UTC))
+        for symbol in ("BTCUSDT", "ETHUSDT")
+    )
+    config = MarketBuildConfig(
+        base_timeframe="1h",
+        features=(FeatureSpec("ret1", FeatureKind.LOG_RETURN, lookback=1),),
+    )
+    dataset = MarketDatasetBuilder(config).build(source, contracts)
+    information = dataset.resolved_array("information_available")
+    assert not information[sorted(gaps), 1].any()
+    timestamps = dataset.timestamps.astype("datetime64[ns]")
+
+    training = build_causal_forecast_training_set(
+        dataset,
+        feature_indices=(0,),
+        fit_symbol_indices=(1,),
+        fit_cutoff=timestamps[55],
+        horizon_hours=3,
+    )
+
+    ends = np.searchsorted(timestamps, training.label_end_times)
+    starts = ends - 3
+    assert information[ends, 1].all()
+    assert information[starts, 1].all()
+    assert not (set(ends.tolist()) & gaps)
+    assert not (set(starts.tolist()) & gaps)
 
 
 def test_training_label_start_price_must_be_available_by_fit_cutoff() -> None:

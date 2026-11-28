@@ -572,23 +572,37 @@ def test_unusable_decision_inputs_fail_closed() -> None:
     assert packets[1] is None
 
 
-def test_lagged_availability_activation_delay_only_covers_label_availability() -> None:
+def test_lagged_availability_is_never_a_label_endpoint_even_with_a_delay() -> None:
     dataset = market(available_lag_hours=1)
     decision = START + 30 * DAY
-    # Labels become available exactly at the cutoff, so a zero delay fails closed.
-    with pytest.raises(ValueError, match="strictly before the fit time"):
+    # Every bar is published one hour after its timestamp, so no row is
+    # information available on time and no label can be built.  An activation
+    # delay models fit latency only and cannot readmit late-published labels.
+    with pytest.raises(ValueError, match="at least two eligible training rows"):
         source(dataset).vintage_for(decision)
-    # A one-hour activation delay makes the vintage fit-able and servable...
     delayed = source(dataset, sched=schedule(activation_delay_hours=1))
-    vintage = delayed.vintage_for(decision)
-    assert vintage.fit_cutoff == START + 20 * DAY
-    assert vintage.fit_time == START + 20 * DAY + HOUR
-    assert vintage.max_training_label_available_at == START + 20 * DAY
-    # ...but the delay does not make a decision row available earlier: a bar
-    # whose availability lags its timestamp is never a decision row, and the
-    # packet fails closed instead of serving look-ahead features.
+    with pytest.raises(ValueError, match="at least two eligible training rows"):
+        delayed.vintage_for(decision)
+    # The delay does not make a decision row available earlier either.
     with pytest.raises(ValueError, match="decision row is not available"):
         delayed.packet(0, decision)
+
+
+def test_late_label_end_row_is_excluded_instead_of_forcing_a_delay() -> None:
+    dataset = market()
+    cutoff_row = int((20 * DAY) // HOUR)
+    available_at = dataset.resolved_array("available_at").copy()
+    information = dataset.resolved_array("information_available").copy()
+    # The last bar before the cutoff is published exactly at the cutoff; it is
+    # not on-time information, so the zero-delay vintage simply excludes it.
+    available_at[cutoff_row - 1, :] = dataset.timestamps[cutoff_row]
+    information[cutoff_row - 1, :] = False
+    late = replace(
+        dataset, available_at=available_at, information_available=information
+    )
+    vintage = source(late).vintage_for(START + 30 * DAY)
+    assert vintage.fit_time == vintage.fit_cutoff == START + 20 * DAY
+    assert vintage.max_training_label_available_at == START + 20 * DAY - 2 * HOUR
 
 
 def test_lightgbm_fitter_goes_through_the_shared_training_rows(monkeypatch) -> None:  # type: ignore[no-untyped-def]

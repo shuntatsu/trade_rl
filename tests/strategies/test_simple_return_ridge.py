@@ -163,15 +163,15 @@ def test_direct_simple_ridge_matches_independent_oracle_for_all_twelve_vintages(
     assert len(model.training_scope_sha256) == 64
 
 
-def test_strict_publication_and_information_masks_are_not_legacy_log_semantics():
+def test_simple_and_log_fits_share_one_on_time_publication_row_selection():
     from trade_rl.strategies.forecasts.simple_return import fit_simple_return_ridge
 
     data = _market()
     cutoff = data.timestamps[110]
     available_at = data.available_at.copy()
     information = data.information_available.copy()
-    # Both exact-cutoff publication and late-but-before-cutoff rows must be
-    # excluded from the archived strict simple-return selection.
+    # Exact-cutoff publication, late-but-before-cutoff publication and a
+    # missing row are all excluded from both the simple and the log selection.
     for row, publication in ((30, cutoff), (35, data.timestamps[80])):
         available_at[row, 0] = publication
         information[row, 0] = False
@@ -188,7 +188,7 @@ def test_strict_publication_and_information_masks_are_not_legacy_log_semantics()
     direct = fit_simple_return_ridge(changed, **kwargs)
     log_rows = build_causal_forecast_training_set(changed, **kwargs)
     expected = _oracle(changed, cutoff, 24, 1.0)
-    assert direct.n_samples == expected[-1] < log_rows.n_samples
+    assert direct.n_samples == expected[-1] == log_rows.n_samples
     np.testing.assert_allclose(
         direct.coefficients, expected[2][1:], atol=1e-12, rtol=1e-10
     )

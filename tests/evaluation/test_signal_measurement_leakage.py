@@ -58,7 +58,9 @@ def causal_expanding_standardise(prices: np.ndarray) -> np.ndarray:
 def leaky_forward_return(prices: np.ndarray) -> np.ndarray:
     """A direct copy of the matured label: ``ln(p[t+h] / p[t])``."""
 
-    return forward_log_returns(prices, HORIZON)
+    return forward_log_returns(
+        prices, HORIZON, information_available=np.ones(prices.shape, dtype=np.bool_)
+    )
 
 
 def leaky_one_step_lookahead(prices: np.ndarray) -> np.ndarray:
@@ -164,7 +166,9 @@ def test_a_label_copy_is_flagged_by_the_identity_screen_but_a_subtle_leak_is_not
     None
 ):
     prices = _prices()
-    label = forward_log_returns(prices, HORIZON)
+    label = forward_log_returns(
+        prices, HORIZON, information_available=np.ones(prices.shape, dtype=np.bool_)
+    )
 
     assert affine_label_copy(leaky_forward_return(prices), label) is True
     assert affine_label_copy(np.exp(5.0 * leaky_forward_return(prices)), label) is True
@@ -177,7 +181,9 @@ def test_a_label_copy_is_flagged_by_the_identity_screen_but_a_subtle_leak_is_not
 
 def test_the_leaky_feature_earns_a_spectacular_ic_the_causal_one_does_not() -> None:
     prices = _prices()
-    label = forward_log_returns(prices, HORIZON)
+    label = forward_log_returns(
+        prices, HORIZON, information_available=np.ones(prices.shape, dtype=np.bool_)
+    )
 
     leaky_ic = rank_ic(leaky_forward_return(prices).ravel(), label.ravel())
     causal_ic = rank_ic(causal_momentum(prices).ravel(), label.ravel())

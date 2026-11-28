@@ -162,8 +162,17 @@ def _select_causal_forecast_rows(
     fit_symbol_indices: tuple[int, ...] | None,
     cutoff: np.datetime64,
     horizon_hours: int,
-    strict_publication: bool,
 ) -> _SelectedForecastRows:
+    """Select exact-horizon rows whose both label endpoints are observed prices.
+
+    A label endpoint is admitted only when the Dataset marks that row
+    ``information_available`` (which already requires ``row_present``, an
+    active asset and on-time publication ``available_at <= timestamp``) and
+    its publication time is strictly before ``fit_cutoff``.  Gap rows carry the
+    last close forward, so admitting them would train on a fabricated price.
+    The cutoff is a half-open boundary for both event time and publication
+    time: ``label_end_time < fit_cutoff`` and ``available_at < fit_cutoff``.
+    """
     # Callers validate the exact cutoff and horizon before entering the selector.
     indices, symbols = validated_training_scope(
         dataset,
@@ -173,9 +182,7 @@ def _select_causal_forecast_rows(
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     price_available_at = dataset.resolved_array("available_at")
-    information_available = (
-        dataset.resolved_array("information_available") if strict_publication else None
-    )
+    information_available = dataset.resolved_array("information_available")
     horizon_ns = horizon_hours * _NANOSECONDS_PER_HOUR
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
     rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]
@@ -197,19 +204,12 @@ def _select_causal_forecast_rows(
                 continue
             start_available = price_available_at[start_index, symbol_index]
             end_available = price_available_at[end_index, symbol_index]
-            if strict_publication:
-                # Task18's original simple-return selector admitted only
-                # information available on its source row and published strictly
-                # before the fit cutoff. Do not change legacy log-label admission.
-                assert information_available is not None
-                if (
-                    not information_available[start_index, symbol_index]
-                    or not information_available[end_index, symbol_index]
-                    or start_available >= cutoff
-                    or end_available >= cutoff
-                ):
-                    continue
-            elif start_available > cutoff or end_available > cutoff:
+            if (
+                not information_available[start_index, symbol_index]
+                or not information_available[end_index, symbol_index]
+                or start_available >= cutoff
+                or end_available >= cutoff
+            ):
                 continue
             if not bool(np.all(availability[start_index, feature_columns])):
                 continue
@@ -282,7 +282,6 @@ def build_causal_forecast_training_set(
         fit_symbol_indices=fit_symbol_indices,
         cutoff=cutoff,
         horizon_hours=horizon_hours,
-        strict_publication=False,
     )
     labels = [
         math.log(

@@ -571,3 +571,32 @@ def test_record_identity_refuses_foreign_performance_type():
     moments = ForeignMoments(0.1, 250, -0.5, 4.0)
     with pytest.raises(TrialLedgerError, match="performance"):
         replace(_completed(), performance=moments)
+
+
+def test_decoder_refuses_overridden_raw_bytes_before_digest_validation():
+    ledger = TrialLedger([_completed()])
+    canonical = encode_trial_ledger_jsonl(ledger)
+
+    class ForeignBytes(bytes):
+        def decode(self, *args, **kwargs):
+            return canonical.decode(*args, **kwargs)
+
+    raw = ForeignBytes(b"not the recorded ledger\n")
+    assert sha256(raw).hexdigest() != ledger.digest()
+    with pytest.raises(TrialLedgerError, match="native bytes"):
+        decode_trial_ledger_jsonl(raw, expected_digest=ledger.digest())
+    assert (
+        decode_trial_ledger_jsonl(canonical, expected_digest=ledger.digest()).records
+        == ledger.records
+    )
+
+
+def test_encoder_refuses_foreign_roster_that_would_emit_duplicate_ids():
+    class ForeignLedger(TrialLedger):
+        @property
+        def records(self):
+            record = _completed()
+            return (record, record)
+
+    with pytest.raises(TrialLedgerError, match="native type"):
+        encode_trial_ledger_jsonl(ForeignLedger())

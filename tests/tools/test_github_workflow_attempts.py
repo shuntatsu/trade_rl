@@ -479,7 +479,8 @@ def test_attempt_observation_refuses_foreign_json_containers(location):
 
 
 @pytest.mark.parametrize(
-    "branch", ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"]
+    "branch",
+    ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"],
 )
 @pytest.mark.parametrize("readback", [False, True])
 def test_attempt_rejects_malformed_head_ref(branch: str, readback: bool) -> None:
@@ -489,7 +490,9 @@ def test_attempt_rejects_malformed_head_ref(branch: str, readback: bool) -> None
     else:
         for run in reader.runs:
             run["head_branch"] = branch
-        reader.pages = [{"total_count": 1, "jobs": [{**_job(1), "head_branch": branch}]}]
+        reader.pages = [
+            {"total_count": 1, "jobs": [{**_job(1), "head_branch": branch}]}
+        ]
     with pytest.raises(ValueError, match="workflow head branch is malformed"):
         observe_workflow_attempt(reader, run_id=RUN_ID)
     if not readback:

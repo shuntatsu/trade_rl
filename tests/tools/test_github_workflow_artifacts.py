@@ -667,7 +667,8 @@ def test_artifact_repo_preserves_ascii_case_insensitive_identity(
 
 
 @pytest.mark.parametrize(
-    "branch", ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"]
+    "branch",
+    ["bad\0ref", "bad\nref", "bad\ud800ref", "bad//ref", "bad..ref", "bad.lock"],
 )
 @pytest.mark.parametrize("readback", [False, True])
 def test_artifact_observation_rejects_malformed_head_ref(
@@ -690,7 +691,9 @@ def test_artifact_observation_rejects_malformed_head_ref(
 
 
 @pytest.mark.parametrize("branch", ["main", "feature/日本語", "v1.2.3", "a" * 40])
-def test_artifact_observation_accepts_valid_head_ref_without_authority(branch: str) -> None:
+def test_artifact_observation_accepts_valid_head_ref_without_authority(
+    branch: str,
+) -> None:
     api = FakeGet()
     api.run["head_branch"] = branch
     for artifact in api.artifacts:

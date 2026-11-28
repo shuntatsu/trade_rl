@@ -125,14 +125,20 @@ def build_family_leaderboard(
     an unknown family, an inadmissible ``V``, and any trial whose PSR
     variance term is not positive.
 
+    The full ledger is snapshotted once, binding the digest and scores to
+    the same roster even if another caller appends while scoring.
+
     The table carries no claim. A high DSR on known-used data is
     not out-of-sample evidence and authorises nothing.
     """
 
     if not isinstance(ledger, TrialLedger):
         raise TrialLedgerError("ledger must be a TrialLedger")
-    if not isinstance(family, str):
-        raise TrialLedgerError("family must be a string")
+    if type(family) is not str:
+        raise TrialLedgerError("family must be a string of the native type")
+    # Freeze the full roster once: a concurrent append must not change the
+    # digest independently of the trials counted and scored below.
+    ledger = TrialLedger(ledger.records)
     members = ledger.family_records(family)
     if not members:
         raise TrialLedgerError(f"family {family!r} has no recorded trials")

@@ -29,13 +29,13 @@ class GitObjectReadApi(Protocol):
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be an object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{name} must be an object with native string keys")
     return value
 
 
 def _oid(value: Any, name: str) -> str:
-    if not isinstance(value, str) or not _OID_RE.fullmatch(value) or value == "0" * 40:
+    if type(value) is not str or not _OID_RE.fullmatch(value) or value == "0" * 40:
         raise ValueError(f"{name} must be an exact lowercase Git commit SHA")
     return value
 
@@ -48,8 +48,9 @@ def _size(value: Any, name: str) -> int:
 
 def _path(value: str) -> str:
     if (
-        not isinstance(value, str)
+        type(value) is not str
         or not value
+        or "\x00" in value
         or "\\" in value
         or any(component in ("", ".", "..") for component in value.split("/"))
         or any(character.isspace() for character in value)
@@ -68,7 +69,7 @@ class GitHubRegistryObjectReader:
         expected_repository: str,
         registry_path: str,
     ) -> None:
-        if not isinstance(expected_repository, str) or not _REPOSITORY_RE.fullmatch(
+        if type(expected_repository) is not str or not _REPOSITORY_RE.fullmatch(
             expected_repository
         ):
             raise ValueError("expected repository must use owner/name form")
@@ -79,7 +80,7 @@ class GitHubRegistryObjectReader:
     def read_registry_bytes(self, repository: str, commit_oid: str) -> bytes:
         """Fail closed on absent/drifting objects; never update a GitHub ref."""
 
-        if repository != self._repository:
+        if type(repository) is not str or repository != self._repository:
             raise ValueError("requested repository differs from reader repository")
         commit_oid = _oid(commit_oid, "commit SHA")
 
@@ -87,7 +88,8 @@ class GitHubRegistryObjectReader:
             self._api._request_json("GET", f"git/commits/{commit_oid}"),
             "commit",
         )
-        if commit.get("sha") != commit_oid:
+        observed_commit = commit.get("sha")
+        if type(observed_commit) is not str or observed_commit != commit_oid:
             raise ValueError("commit SHA changed during object read")
         tree_node = _mapping(commit.get("tree"), "commit tree")
         tree_sha = _oid(tree_node.get("sha"), "commit tree SHA")
@@ -97,25 +99,33 @@ class GitHubRegistryObjectReader:
             ),
             "tree",
         )
-        if tree.get("sha") != tree_sha:
+        observed_tree = tree.get("sha")
+        if type(observed_tree) is not str or observed_tree != tree_sha:
             raise ValueError("tree SHA changed during object read")
         if tree.get("truncated") is not False:
             raise ValueError("tree truncated state is missing or true")
         entries = tree.get("tree")
-        if not isinstance(entries, list):
+        if type(entries) is not list:
             raise ValueError("tree entries must be a list")
         matches = []
         for item in entries:
             entry = _mapping(item, "tree entry")
             path = entry.get("path")
-            if not isinstance(path, str) or not path:
-                raise ValueError("tree entry path must be a nonempty string")
+            if type(path) is not str or not path or "\x00" in path:
+                raise ValueError("tree entry path must be nonempty text without NUL")
             if path == self._registry_path:
                 matches.append(entry)
         if len(matches) != 1:
             raise ValueError("registry path must exist exactly once in Git tree")
         target = matches[0]
-        if target.get("type") != "blob" or target.get("mode") != "100644":
+        kind = target.get("type")
+        mode = target.get("mode")
+        if (
+            type(kind) is not str
+            or type(mode) is not str
+            or kind != "blob"
+            or mode != "100644"
+        ):
             raise ValueError("registry path must be an ordinary blob (100644)")
         blob_sha = _oid(target.get("sha"), "tree blob SHA")
         tree_size = _size(target.get("size"), "tree blob size")
@@ -123,15 +133,17 @@ class GitHubRegistryObjectReader:
             raise ValueError("tree blob size exceeds registry payload limit")
 
         blob = _mapping(self._api._request_json("GET", f"git/blobs/{blob_sha}"), "blob")
-        if blob.get("sha") != blob_sha:
+        observed_blob = blob.get("sha")
+        if type(observed_blob) is not str or observed_blob != blob_sha:
             raise ValueError("blob SHA differs from tree reference")
         blob_size = _size(blob.get("size"), "blob size")
         if blob_size > _MAX_PAYLOAD_BYTES:
             raise ValueError("blob size exceeds registry payload limit")
-        if blob.get("encoding") != "base64":
+        encoding = blob.get("encoding")
+        if type(encoding) is not str or encoding != "base64":
             raise ValueError("blob encoding must be base64")
         content = blob.get("content")
-        if not isinstance(content, str) or len(content) > 2 * _MAX_PAYLOAD_BYTES:
+        if type(content) is not str or len(content) > 2 * _MAX_PAYLOAD_BYTES:
             raise ValueError("blob content must be bounded base64")
         encoded = content.replace("\r", "").replace("\n", "")
         try:

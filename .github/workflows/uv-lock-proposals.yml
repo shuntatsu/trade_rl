@@ -1,0 +1,80 @@
+name: Python lockfile update proposals
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/uv-lock-proposals.yml
+      - tools/uv_lock_proposal.py
+      - tools/uv_advisory_audit.py
+      - pyproject.toml
+  schedule:
+    - cron: "45 19 * * 1"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Space-separated locked package names (empty means all)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON_PREFERENCE: only-system
+  UV_PYTHON_DOWNLOADS: never
+
+concurrency:
+  group: uv-lock-proposals
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    name: Resolve review-only lockfile candidate
+    if: github.repository == 'shuntatsu/trade_rl' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up runner Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          check-latest: false
+
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          version: "0.13.10"
+          enable-cache: false
+
+      - name: Generate candidate in an isolated source archive
+        env:
+          SOURCE_HEAD: ${{ github.sha }}
+          REQUESTED_PACKAGES: ${{ inputs.packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.uv_lock_proposal --head "$SOURCE_HEAD" \
+            --packages "$REQUESTED_PACKAGES" \
+            --output "$RUNNER_TEMP/uv-lock-proposal" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify original checkout
+        if: always()
+        run: git diff --exit-code HEAD -- pyproject.toml uv.lock
+
+      - name: Upload review-only proposal
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: uv-lock-proposal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uv-lock-proposal
+          if-no-files-found: error
+          retention-days: 14

@@ -124,6 +124,13 @@ def session_elapsed(market: MarketDataset, boundaries: tuple[int, ...]) -> None:
         payload = session_elapsed_return_payload(market, result.returns, start_index=0)
         assert_type(load_session_elapsed_return_payload(market, payload), SessionElapsedReturnSeries)
         assert_type(evaluate_session_elapsed_annualization(result.returns.values, boundaries_ns=result.returns.boundaries_ns), NativeAnnualization)
+def session_carry_learning(market: MarketDataset, bound: BoundObjectiveClock, boundaries: tuple[int, ...]) -> None:
+    env = assert_type(SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_session_linear_carry=True), SharedPortfolioGymEnv)
+    assert_type(env.native_session_linear_carry, bool)
+    transform = assert_type(fit_portfolio_observation_transform(env), PortfolioObservationTransform)
+    assert_type(transform.native_session_linear_carry, bool)
+    assert_type(runtime_execution_policy_digest(ExecutionCostConfig(), funding_price_rate_present=True, native_session_linear_carry=True), str)
+    assert_type(run_session_elapsed_portfolio_replay(market, policy, start_index=0, stop_index=2, expected_boundaries_ns=boundaries, expected_nominal_bar_seconds=3600, initial_capital=1000., execution_cost=ExecutionCostConfig(), native_session_linear_carry=True), SharedCashPortfolioReplayResult)
 def fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
     env = assert_type(SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry=True), SharedPortfolioGymEnv)
     assert_type(env.native_fixed_linear_carry, bool)
@@ -154,6 +161,9 @@ def clock_and_training(market: MarketDataset, native: ClockedNativeSource, clock
     assert_type(macd.macd_periods, MACDPeriods | None)
     stochastic = FeatureSpec("stoch", FeatureKind.STOCHASTIC_D, lookback=14, stochastic_smoothing_period=5)
     assert_type(stochastic.stochastic_smoothing_period, int | None)
+    adx = FeatureSpec("adx", FeatureKind.ADX_CAUSAL, lookback=14)
+    assert_type(adx.requires_complete_native_rows, bool)
+    assert_type(ClockedNativeFeatureGroup(clock, (native,), (adx,)), ClockedNativeFeatureGroup)
     assert_type(ClockedNativeFeatureGroup(clock, (native,), (macd, stochastic)), ClockedNativeFeatureGroup)
     assert_type(ClockedNativeFeatureGroup(clock, (native,), (cloud,)), ClockedNativeFeatureGroup)
     group = ClockedNativeFeatureGroup(clock, (native,), (spec,))
@@ -227,10 +237,12 @@ def bad_session(market: MarketDataset) -> None:
 def bad_fixed_carry_learning(market: MarketDataset, bound: BoundObjectiveClock) -> None:
     SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_fixed_linear_carry="yes")  # expect: arg-type
     SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_calendar_month_linear_carry="yes")  # expect: arg-type
+    SharedPortfolioGymEnv(market, start_index=0, stop_index=2, bound=bound, target_abs_weights=(0.25,), execution_cost=ExecutionCostConfig(), risk_config=PreTradeRiskConfig(), native_session_linear_carry="yes")  # expect: arg-type
 def bad_replay(market: MarketDataset) -> None:
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_fixed_linear_carry="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_calendar_month_linear_carry="yes")  # expect: arg-type
+    run_shared_portfolio_replay(market, policy, start_index=0, stop_index=2, native_session_linear_carry="yes")  # expect: arg-type
     run_shared_portfolio_replay(market, WrongPolicy(), start_index=0, stop_index=2)  # expect: arg-type
 """
 )

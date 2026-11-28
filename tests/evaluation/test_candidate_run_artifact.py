@@ -740,3 +740,143 @@ def test_noncompleted_candidate_preserves_exact_residue_evidence(
     assert loaded.summary["shared_cash_ppo"]["ledger_evidence"][
         "terminal_exact_quantities"
     ] == ("0", str(exact))
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(np.zeros((3, 1)), id="two-dimensional"),
+        pytest.param(np.array([0.0, np.nan, 0.0]), id="nan"),
+        pytest.param(np.array([0.0, np.inf, 0.0]), id="inf"),
+        pytest.param(np.array([0j, 1j, 0j]), id="complex"),
+        pytest.param(np.zeros(3, dtype=np.bool_), id="bool"),
+        pytest.param(np.array(["0"] * 3), id="text"),
+    ],
+)
+def test_shared_cash_coverage_refuses_invalid_direct_return_arrays(
+    shared_cash_candidate_artifact, values: np.ndarray
+) -> None:
+    from trade_rl.evaluation.runs.artifact import (
+        LoadedCandidateRun,
+        load_candidate_run_artifact,
+    )
+
+    loaded = load_candidate_run_artifact(shared_cash_candidate_artifact.root)
+    assert loaded.has_verified_full_evaluation_coverage
+    direct = LoadedCandidateRun(
+        root=loaded.root,
+        summary=loaded.summary,
+        returns={**loaded.returns, "shared_cash_ppo": values},
+        provenance=loaded.provenance,
+    )
+    assert not direct.has_verified_full_evaluation_coverage
+
+
+@pytest.mark.parametrize("version", [7, 9, 10])
+@pytest.mark.parametrize("mutation", ["missing", "null", "colliding_key"])
+def test_shared_cash_candidate_roster_rejects_invalid_evidence_before_decode(
+    shared_cash_candidate_artifact, monkeypatch, version, mutation
+) -> None:
+    artifact = shared_cash_candidate_artifact
+    summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
+    summary["schema_version"] = f"lean_candidate_result_v{version}"
+    if version < 10:
+        summary["candidate_config"].pop("forecast_switch_cost")
+    if version < 9:
+        summary["candidate_config"].pop("supervised_forecast_horizon_hours")
+    if version == 10 and mutation == "missing":
+        # v10 permits per-symbol-only evidence, but the extra NPZ member must
+        # still be refused by the reader.
+        summary.pop("shared_cash_ppo")
+        match = "return keys"
+    elif mutation == "missing":
+        summary.pop("shared_cash_ppo")
+        match = "candidate coverage"
+    elif mutation == "null":
+        summary["shared_cash_ppo"] = None
+        match = "candidate coverage"
+    else:
+        summary["shared_cash_ppo"]["return_key"] = summary["by_symbol"][0][
+            "strategies"
+        ][0]["return_key"]
+        match = "candidate coverage"
+    artifact.summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    def forbidden_decode(*args, **kwargs):
+        raise AssertionError("malformed roster reached return array decoding")
+
+    monkeypatch.setattr(np.lib.npyio.NpzFile, "__getitem__", forbidden_decode)
+    for reader in (
+        candidate_artifact.load_candidate_run_artifact,
+        candidate_artifact.inspect_candidate_run_artifact,
+    ):
+        with pytest.raises(ValueError, match=match):
+            reader(artifact.root)
+
+
+@pytest.mark.parametrize("scope", ["per_symbol", "shared_cash"])
+@pytest.mark.parametrize("n_periods", [2, 4])
+def test_candidate_writer_rejects_mismatched_return_period_count(
+    tmp_path, shared_cash_candidate_result, scope: str, n_periods: int
+) -> None:
+    result = shared_cash_candidate_result
+    comparison = result.comparison
+    if scope == "per_symbol":
+        symbol = comparison.by_symbol[0]
+        entry = symbol.comparison.entries[0]
+        assert len(entry.replay.returns.values) == 3
+        entry = replace(entry, metrics=replace(entry.metrics, n_periods=n_periods))
+        symbol = replace(
+            symbol, comparison=replace(symbol.comparison, entries=(entry,))
+        )
+        comparison = replace(comparison, by_symbol=(symbol, *comparison.by_symbol[1:]))
+    else:
+        shared = comparison.shared_cash_ppo
+        assert shared is not None and len(shared.replay.returns.values) == 3
+        comparison = replace(
+            comparison,
+            shared_cash_ppo=replace(
+                shared, metrics=replace(shared.metrics, n_periods=n_periods)
+            ),
+        )
+    result = replace(result, comparison=comparison)
+    destination = tmp_path / "unreadable-run"
+    with pytest.raises(ValueError, match="return period count is inconsistent"):
+        candidate_artifact.publish_candidate_run(
+            destination, result, build_candidate_run_provenance()
+        )
+    assert not destination.exists()
+
+
+def test_candidate_writer_preserves_valid_short_per_symbol_replay(
+    tmp_path, shared_cash_candidate_result
+) -> None:
+    result = shared_cash_candidate_result
+    comparison = result.comparison
+    symbol = comparison.by_symbol[0]
+    entry = symbol.comparison.entries[0]
+    shortened = replace(entry.replay.returns, values=(0.0, 0.0))
+    entry = replace(
+        entry,
+        replay=replace(entry.replay, returns=shortened),
+        metrics=replace(entry.metrics, n_periods=2),
+    )
+    symbol = replace(symbol, comparison=replace(symbol.comparison, entries=(entry,)))
+    result = replace(
+        result,
+        comparison=replace(comparison, by_symbol=(symbol, *comparison.by_symbol[1:])),
+    )
+    artifact = candidate_artifact.publish_candidate_run(
+        tmp_path / "short-run", result, build_candidate_run_provenance()
+    )
+    loaded = candidate_artifact.load_candidate_run_artifact(artifact.root)
+    assert not loaded.has_verified_full_evaluation_coverage
+    np.testing.assert_array_equal(loaded.returns["symbol_0_strategy_0"], np.zeros(2))
+    assert (
+        loaded.summary["by_symbol"][0]["strategies"][0]["terminal_settlement_complete"]
+        is False
+    )
+    assert (
+        candidate_artifact.inspect_candidate_run_artifact(artifact.root).artifact_digest
+        == loaded.artifact_digest
+    )

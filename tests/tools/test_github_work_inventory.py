@@ -384,7 +384,7 @@ def test_work_inventory_rejects_pr_created_during_readback() -> None:
         return [
             {
                 "number": 1057,
-                "head": {"sha": "a" * 40, "ref": "feature/new"},
+                "head": {"sha": "a" * 40, "ref": "feature/new", "repo": None},
                 "base": {
                     "ref": "main",
                     "sha": "a" * 40,
@@ -1191,3 +1191,102 @@ def test_inventory_rejects_foreign_branch_or_adapter_identity(
         monkeypatch.setattr(api, "branches", lambda: list(api.branch_rows))
     with pytest.raises(ValueError, match="native"):
         build_inventory(api)  # type: ignore[arg-type]
+
+
+def _roster_pr(
+    repository: str, base_name: str, head_repo: dict[str, str] | None
+) -> dict[str, object]:
+    return {
+        "number": 123,
+        "head": {
+            "ref": "feature/unregistered",
+            "sha": "b" * 40,
+            "repo": head_repo,
+        },
+        "base": {
+            "ref": base_name,
+            "sha": "d" * 40,
+            "repo": {"full_name": repository},
+        },
+    }
+
+
+@pytest.mark.parametrize("head_kind", ["local", "fork", "unavailable"])
+@pytest.mark.parametrize("base_exists", [False, True])
+def test_work_inventory_requires_existing_base_ref_not_current_base_sha(
+    head_kind: str, base_exists: bool
+) -> None:
+    api = FakeWorkApi()
+    head_repo = {
+        "local": {"full_name": api.repository},
+        "fork": {"full_name": "other/fork"},
+        "unavailable": None,
+    }[head_kind]
+    base_name = "main" if base_exists else "feature/missing"
+    api.pull_rows = [_roster_pr(api.repository, base_name, head_repo)]
+    if not base_exists:
+        with pytest.raises(RuntimeError, match="PR base ref is absent"):
+            build_inventory(api)  # type: ignore[arg-type]
+        return
+    report = build_inventory(api)  # type: ignore[arg-type]
+    assert report["pull_requests"][0]["base_sha"] == "d" * 40
+    assert report["main_sha"] == "a" * 40
+    assert report["cleanup_authorized"] is False
+
+
+@pytest.mark.parametrize("phase", ["issues", "workflows"])
+@pytest.mark.parametrize("change", ["created", "closed", "retargeted", "stable"])
+def test_work_inventory_rechecks_pr_roster_after_late_reads(
+    monkeypatch: pytest.MonkeyPatch, phase: str, change: str
+) -> None:
+    api = FakeWorkApi()
+    api.branch_rows += (BranchInfo("stack/base", "e" * 40, False),)
+    original = _roster_pr(api.repository, "main", {"full_name": api.repository})
+    api.pull_rows = [] if change == "created" else [original]
+    initial_rows = list(api.pull_rows)
+    if change == "created":
+        final_rows = [original]
+    elif change == "closed":
+        final_rows = []
+    elif change == "retargeted":
+        final_rows = [
+            _roster_pr(api.repository, "stack/base", {"full_name": api.repository})
+        ]
+    else:
+        final_rows = initial_rows
+
+    original_issues = api.open_issues
+    issue_reads = 0
+    pull_reads = 0
+
+    def read_issues() -> list[dict[str, object]]:
+        nonlocal issue_reads
+        issue_reads += 1
+        if phase == "issues" and issue_reads == 2:
+            api.pull_rows = final_rows
+        return original_issues()
+
+    def read_workflows() -> frozenset[str]:
+        api.pull_rows = final_rows
+        return frozenset({"main"})
+
+    def read_pulls() -> list[dict[str, object]]:
+        nonlocal pull_reads
+        pull_reads += 1
+        return api.pull_rows
+
+    monkeypatch.setattr(api, "open_issues", read_issues)
+    monkeypatch.setattr(api, "open_pulls", read_pulls)
+    monkeypatch.setattr(
+        api, "unfinished_workflow_branch_names", read_workflows, raising=False
+    )
+    scan = phase == "workflows"
+    if change != "stable":
+        with pytest.raises(RuntimeError, match="open PR refs changed"):
+            build_inventory(api, include_workflow_refs=scan)  # type: ignore[arg-type]
+    else:
+        report = build_inventory(api, include_workflow_refs=scan)  # type: ignore[arg-type]
+        assert report["open_pr_count"] == 1
+        assert report["cleanup_authorized"] is False
+        assert report["task_registry_complete"] is False
+    assert pull_reads == 3

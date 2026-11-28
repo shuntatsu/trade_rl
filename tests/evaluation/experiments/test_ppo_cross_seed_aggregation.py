@@ -21,7 +21,10 @@ from trade_rl.evaluation.experiments import (
     run_experiment,
     verify_experiment,
 )
-from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
+from trade_rl.evaluation.experiments.analysis import (
+    analyze_evidence_set,
+    compare_evidence_sets,
+)
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.inspection import (
     _experiment_dir,
@@ -635,3 +638,173 @@ def test_inspection_replays_persisted_v1_factor_effect_with_legacy_semantics(
 
     rebuilt = inspect_study(root)
     assert rebuilt.experiment_sequences == (1,)
+
+
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+@pytest.mark.parametrize("operation", ["analysis", "comparison"])
+def test_shared_cash_requires_independent_return_key(
+    schema: str, operation: str
+) -> None:
+    runs = {}
+    for seed in (0, 1):
+        run = _with_shared_cash_portfolio(_run(seed), (0.0,) * 4)
+        summary = to_json_value(run.summary)
+        assert isinstance(summary, dict)
+        summary["schema_version"] = schema
+        summary["evaluation"] = {"expected_periods": 4}
+        for row in summary["by_symbol"]:
+            for strategy in row["strategies"]:
+                strategy["terminal_settlement_complete"] = True
+        runs[seed] = LoadedCandidateRun(
+            root=run.root,
+            summary=summary,
+            returns=run.returns,
+            provenance=run.provenance,
+        )
+
+    def analyze(runs_to_check):
+        if operation == "analysis":
+            return analyze_evidence_set(
+                runs_to_check, n_bootstrap=32, bootstrap_seed=13
+            )
+        return compare_evidence_sets(
+            runs,
+            runs_to_check,
+            n_bootstrap=32,
+            bootstrap_seed=13,
+            schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+        )
+
+    # Independent portfolio evidence may be numerically identical to a per-symbol series.
+    analyze(runs)
+    run = runs[0]
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    summary["shared_cash_ppo"]["return_key"] = "symbol_0_strategy_0"
+    returns = dict(run.returns)
+    returns.pop("shared_cash_ppo")
+    aliased = LoadedCandidateRun(
+        root=run.root, summary=summary, returns=returns, provenance=run.provenance
+    )
+    assert not aliased.has_verified_full_evaluation_coverage
+    with pytest.raises(
+        ArtifactIntegrityError, match="candidate return evidence is duplicated"
+    ):
+        analyze({**runs, 0: aliased})
+
+
+def _modern_shared_cash_runs(
+    version: int, evaluation: object, portfolio_periods: int
+) -> dict[int, LoadedCandidateRun]:
+    runs = {}
+    for seed in (0, 1):
+        run = _with_shared_cash_portfolio(
+            _with_terminal_settlement(_run(seed)), (0.0,) * portfolio_periods
+        )
+        summary = to_json_value(run.summary)
+        assert isinstance(summary, dict)
+        summary["schema_version"] = f"lean_candidate_result_v{version}"
+        if evaluation is None:
+            summary.pop("evaluation")
+        else:
+            summary["evaluation"] = evaluation
+        runs[seed] = LoadedCandidateRun(
+            root=run.root,
+            summary=summary,
+            returns=run.returns,
+            provenance=run.provenance,
+        )
+    return runs
+
+
+@pytest.mark.parametrize("version", [7, 9, 10])
+@pytest.mark.parametrize(
+    ("evaluation", "portfolio_periods"),
+    [
+        pytest.param({"expected_periods": 4}, 3, id="short"),
+        pytest.param({"expected_periods": 4}, 5, id="overlong"),
+        pytest.param({"expected_periods": True}, 1, id="bool"),
+        pytest.param({"expected_periods": 4.0}, 4, id="float"),
+        pytest.param({}, 4, id="missing-count"),
+        pytest.param(None, 4, id="missing-evaluation"),
+        pytest.param({"expected_periods": 0}, 4, id="zero"),
+    ],
+)
+def test_shared_cash_comparison_requires_declared_portfolio_coverage(
+    version: int, evaluation: object, portfolio_periods: int
+) -> None:
+    runs = _modern_shared_cash_runs(version, evaluation, portfolio_periods)
+    # Equal malformed coverage across all arms and seeds must not certify it.
+    assert all(not run.has_verified_full_evaluation_coverage for run in runs.values())
+    with pytest.raises(
+        ArtifactIntegrityError, match="shared-cash PPO return coverage is incomplete"
+    ):
+        compare_evidence_sets(
+            runs,
+            runs,
+            n_bootstrap=32,
+            bootstrap_seed=13,
+            schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+        )
+
+
+@pytest.mark.parametrize("version", [7, 9, 10])
+@pytest.mark.parametrize("portfolio_periods", [4, 5])
+def test_shared_cash_comparison_preserves_complete_portfolio(
+    version: int, portfolio_periods: int
+) -> None:
+    runs = _modern_shared_cash_runs(
+        version, {"expected_periods": portfolio_periods}, portfolio_periods
+    )
+    # The per-symbol fixture always has four returns. Shorter per-symbol
+    # replays are auxiliary evidence, not missing shared-cash returns.
+    assert all(
+        run.has_verified_full_evaluation_coverage == (portfolio_periods == 4)
+        for run in runs.values()
+    )
+    payload = compare_evidence_sets(
+        runs,
+        runs,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+    portfolio = payload["cross_seed"]["shared_cash_ppo"]
+    assert portfolio["baseline_terminal_settlement_complete_seed_count"] == 2
+    assert portfolio["candidate_terminal_settlement_complete_seed_count"] == 2
+    assert all(
+        row["return_period_count"] == portfolio_periods
+        for row in portfolio["by_seed"].values()
+    )
+
+
+@pytest.mark.parametrize("version", [6, 8, 11])
+def test_shared_cash_comparison_rejects_unsupported_modern_schema(
+    version: int,
+) -> None:
+    runs = _modern_shared_cash_runs(version, {"expected_periods": 4}, 4)
+    with pytest.raises(ArtifactIntegrityError, match="shared-cash PPO result schema"):
+        compare_evidence_sets(
+            runs,
+            runs,
+            n_bootstrap=32,
+            bootstrap_seed=13,
+            schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+        )
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5])
+def test_shared_cash_comparison_preserves_legacy_direct_analysis(
+    version: int,
+) -> None:
+    runs = _modern_shared_cash_runs(version, {"expected_periods": 4}, 4)
+    payload = compare_evidence_sets(
+        runs,
+        runs,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+    assert payload["cross_seed"]["shared_cash_ppo"]["seed_count"] == 2

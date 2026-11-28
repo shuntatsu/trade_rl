@@ -50,6 +50,7 @@ def run_published_portfolio_inference_replay(
     capture_ledger_evidence: bool,
     native_fixed_linear_carry: bool = False,
     native_calendar_month_linear_carry: bool = False,
+    native_session_linear_carry: bool = False,
 ) -> tuple[PublishedDatasetArtifact, SharedCashPortfolioReplayResult]:
     """Load one verified Dataset, validate one policy shell, and replay once.
 
@@ -88,6 +89,8 @@ def run_published_portfolio_inference_replay(
         raise TypeError("native_fixed_linear_carry must be a boolean")
     if type(native_calendar_month_linear_carry) is not bool:
         raise TypeError("native_calendar_month_linear_carry must be a boolean")
+    if type(native_session_linear_carry) is not bool:
+        raise TypeError("native_session_linear_carry must be a boolean")
     if type(capture_ledger_evidence) is not bool:
         raise TypeError("capture_ledger_evidence must be a boolean")
 
@@ -114,6 +117,7 @@ def run_published_portfolio_inference_replay(
         market_order_profile=market_order_profile,
         native_fixed_linear_carry=native_fixed_linear_carry,
         native_calendar_month_linear_carry=native_calendar_month_linear_carry,
+        native_session_linear_carry=native_session_linear_carry,
     )
     policy = load_portfolio_inference_bundle(
         bundle_root,
@@ -135,6 +139,7 @@ def run_published_portfolio_inference_replay(
             initial_capital=resolved_capital,
             execution_cost=execution_cost,
             risk=PreTradeRisk(risk_config),
+            native_session_linear_carry=native_session_linear_carry,
         )
         return artifact, (
             session_replay

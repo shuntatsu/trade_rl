@@ -121,7 +121,7 @@ def parse_report(
     return AuditReport(len(packages), tuple(sorted(found)), len(adverse))
 
 
-def _required_version(project: bytes) -> str:
+def required_uv_version(project: bytes) -> str:
     uv = tomllib.loads(project.decode("utf-8"))["tool"]["uv"]
     if not isinstance(uv, dict):
         raise ValueError("invalid uv configuration")
@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     lock = Path("uv.lock")
     try:
         before = (manifest.read_bytes(), lock.read_bytes())
-        expected_uv = _required_version(before[0])
+        expected_uv = required_uv_version(before[0])
         packages = locked_packages(before[1].decode("utf-8"))
         # The explicit, pin-enforcing config prevents host/user uv settings
         # from silently filtering packages or suppressing known advisories.

@@ -95,6 +95,62 @@ FileEvidence = tuple[str, int]
 ArtifactFileEvidence = tuple[FileEvidence, FileEvidence, FileEvidence]
 
 
+def _require_coverage_roster(summary: Mapping[str, object]) -> frozenset[str]:
+    """Bind full-coverage evidence to the declared ordered comparison matrix."""
+    symbols = summary.get("symbols")
+    by_symbol = summary.get("by_symbol")
+    if (
+        not isinstance(symbols, (list, tuple))
+        or not symbols
+        or any(not isinstance(symbol, str) or not symbol for symbol in symbols)
+        or len(symbols) != len(set(symbols))
+        or not isinstance(by_symbol, (list, tuple))
+        or len(by_symbol) != len(symbols)
+    ):
+        raise ValueError("candidate coverage symbol roster is incomplete or malformed")
+    keys: set[str] = set()
+    expected_names: tuple[str, ...] | None = None
+    for index, (symbol, row) in enumerate(zip(symbols, by_symbol, strict=True)):
+        if (
+            not isinstance(row, Mapping)
+            or row.get("symbol") != symbol
+            or type(row.get("symbol_index")) is not int
+            or row.get("symbol_index") != index
+        ):
+            raise ValueError("candidate coverage symbol row does not match roster")
+        strategies = row.get("strategies")
+        if not isinstance(strategies, (list, tuple)) or not strategies:
+            raise ValueError("candidate coverage strategy roster is empty or malformed")
+        names: list[str] = []
+        for strategy in strategies:
+            if not isinstance(strategy, Mapping):
+                raise ValueError("candidate coverage strategy row is malformed")
+            name = strategy.get("name")
+            key = strategy.get("return_key")
+            if not isinstance(name, str) or not name or name in names:
+                raise ValueError("candidate coverage strategy names must be unique")
+            if not isinstance(key, str) or not key or key in keys:
+                raise ValueError("candidate coverage return keys must be unique")
+            names.append(name)
+            keys.add(key)
+        if expected_names is None:
+            expected_names = tuple(names)
+        elif tuple(names) != expected_names:
+            raise ValueError("candidate coverage strategy rosters do not match")
+    schema = summary.get("schema_version")
+    if schema in (_RESULT_SCHEMA_V7, _RESULT_SCHEMA_V9) or "shared_cash_ppo" in summary:
+        portfolio = summary.get("shared_cash_ppo")
+        if not supports_shared_cash_result_schema(schema) or not isinstance(
+            portfolio, Mapping
+        ):
+            raise ValueError("candidate coverage shared-cash row is malformed")
+        key = portfolio.get("return_key")
+        if not isinstance(key, str) or not key or key in keys:
+            raise ValueError("candidate coverage return keys must be unique")
+        keys.add(key)
+    return frozenset(keys)
+
+
 @dataclass(frozen=True, slots=True)
 class PublishedCandidateRun:
     """Paths of one immutably published candidate comparison run."""
@@ -154,13 +210,19 @@ class LoadedCandidateRun:
     def has_verified_full_evaluation_coverage(self) -> bool:
         """Whether this artifact schema verifies every requested evaluation period."""
         schema = self.summary.get("schema_version")
-        if schema not in {
+        if not isinstance(schema, str) or schema not in {
             _RESULT_SCHEMA_V6,
             _RESULT_SCHEMA_V7,
             _RESULT_SCHEMA_V8,
             _RESULT_SCHEMA_V9,
             _RESULT_SCHEMA_V10,
         }:
+            return False
+        try:
+            keys = _require_coverage_roster(self.summary)
+        except ValueError:
+            return False
+        if keys != set(self.returns):
             return False
         evaluation = self.summary.get("evaluation")
         by_symbol = self.summary.get("by_symbol")
@@ -480,6 +542,7 @@ def _result_payload(
                 "terminal_exact_quantities": list(ledger.terminal_exact_quantities),
             },
         }
+    _require_coverage_roster(summary)
     return summary, returns
 
 
@@ -850,6 +913,7 @@ def _validate_replay_evidence(
         raise ValueError("candidate replay evidence is malformed")
     expected_periods: int | None = None
     if require_full_coverage:
+        _require_coverage_roster(summary)
         raw_expected_periods = evaluation.get("expected_periods")
         if (
             isinstance(raw_expected_periods, bool)
@@ -1503,7 +1567,10 @@ def _load_with_evidence(
 
     summary = _read_json_object(summary_bytes, label="summary")
     result_schema = summary.get("schema_version")
-    if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
+    if (
+        not isinstance(result_schema, str)
+        or result_schema not in _SUPPORTED_RESULT_SCHEMAS
+    ):
         raise ValueError("unsupported candidate result schema")
     candidate_config = summary.get("candidate_config")
     if (

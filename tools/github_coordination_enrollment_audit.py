@@ -29,8 +29,8 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _object(value: Any, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must be a GitHub response object")
+    if type(value) is not dict or any(type(key) is not str for key in value):
+        raise ValueError(f"{label} must be a GitHub response object with native keys")
     return value
 
 
@@ -48,9 +48,11 @@ def _text(value: Any, label: str) -> str:
 
 def _repository_state(api: GitObjectReadApi, repository: str) -> tuple[int, str]:
     row = _object(api._request_json("GET", ""), "repository")
-    if row.get("full_name") != repository:
+    name = row.get("full_name")
+    if type(name) is not str or name != repository:
         raise ValueError("repository identity differs from expected repository")
-    if row.get("default_branch") != "main":
+    default_branch = row.get("default_branch")
+    if type(default_branch) is not str or default_branch != "main":
         raise ValueError("repository default branch must remain main")
     return (
         _positive_id(row.get("id"), "repository id"),
@@ -62,11 +64,16 @@ def _issue_state(
     api: GitObjectReadApi, repository: str, issue_number: int
 ) -> tuple[int, int, str, str]:
     row = _object(api._request_json("GET", f"issues/{issue_number}"), "Issue")
+    number = row.get("number")
+    state = row.get("state")
+    repository_url = row.get("repository_url")
     if (
-        type(row.get("number")) is not int
-        or row.get("number") != issue_number
-        or row.get("state") != "open"
-        or row.get("repository_url") != f"https://api.github.com/repos/{repository}"
+        type(number) is not int
+        or number != issue_number
+        or type(state) is not str
+        or state != "open"
+        or type(repository_url) is not str
+        or repository_url != f"https://api.github.com/repos/{repository}"
         or "pull_request" in row
     ):
         raise ValueError("Issue identity, repository, open state or kind differs")
@@ -79,19 +86,22 @@ def _issue_state(
 
 
 def _commit_ref(api: GitObjectReadApi, ref_name: str) -> str:
-    if not isinstance(ref_name, str) or not ref_name.startswith("refs/heads/"):
+    if type(ref_name) is not str or not ref_name.startswith("refs/heads/"):
         raise ValueError("GitHub ref must be a branch ref")
     row = _object(
         api._request_json("GET", f"git/ref/{ref_name.removeprefix('refs/')}"),
         "GitHub branch ref",
     )
-    if row.get("ref") != ref_name:
+    observed_ref = row.get("ref")
+    if type(observed_ref) is not str or observed_ref != ref_name:
         raise ValueError("GitHub branch ref identity differs from requested ref")
     target = _object(row.get("object"), "GitHub branch ref target")
     sha = target.get("sha")
+    kind = target.get("type")
     if (
-        target.get("type") != "commit"
-        or not isinstance(sha, str)
+        type(kind) is not str
+        or kind != "commit"
+        or type(sha) is not str
         or not _SHA.fullmatch(sha)
         or sha == "0" * 40
     ):
@@ -161,7 +171,7 @@ def audit_task_enrollment(
         or type(status) is not TaskStatusRecord
     ):
         raise ValueError("Task, lease and status must use their native contracts")
-    if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository):
+    if type(repository) is not str or not _REPOSITORY.fullmatch(repository):
         raise ValueError("repository must use owner/name form")
     if type(packet.parent_issue) is not int or packet.parent_issue < 1:
         raise ValueError("Task requires a concrete parent Issue")

@@ -141,3 +141,17 @@ def test_obv_is_unaffected_by_large_flow_before_source_start(
         assert values[-1] == float(Fraction(2, 6))
     else:
         assert values[-1] == 1.0
+
+
+def test_obv_acceleration_preserves_half_window_cancellation() -> None:
+    # Each half separately rounds to 1e17, but the signed sum is exactly 1.
+    values, valid, source_start = _literal(
+        FeatureKind.OBV_ACCELERATION,
+        2,
+        [1.0, 2.0, 3.0, 4.0, 5.0],
+        [0.0, 1e17, 1.0, 1e17, 2.0],
+    )
+    assert valid[-1] and source_start[-1] == 0
+    expected = float(Fraction(1, 200000000000000003))
+    assert values[-1] == expected
+    assert np.float32(values[-1]) != 0.0

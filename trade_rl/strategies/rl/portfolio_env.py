@@ -127,12 +127,15 @@ class SharedPortfolioGymEnv(gym.Env):
         risk_config: PreTradeRiskConfig,
         market_order_profile: MarketOrderProfile | None = None,
         native_fixed_linear_carry: bool = False,
+        native_calendar_month_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
     ) -> None:
         super().__init__()
         if type(native_fixed_linear_carry) is not bool:
             raise ValueError("native_fixed_linear_carry must be boolean")
+        if type(native_calendar_month_linear_carry) is not bool:
+            raise ValueError("native_calendar_month_linear_carry must be boolean")
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
         if not isinstance(bound, BoundObjectiveClock):
@@ -196,6 +199,7 @@ class SharedPortfolioGymEnv(gym.Env):
         self.execution_observer = execution_observer
         self.initial_capital = objective.capital.total_initial_capital
         self._native_fixed_linear_carry = native_fixed_linear_carry
+        self._native_calendar_month_linear_carry = native_calendar_month_linear_carry
         self._session_elapsed_mode = isinstance(
             bound.clock, SessionFinancialClockContract
         )
@@ -258,6 +262,11 @@ class SharedPortfolioGymEnv(gym.Env):
     def native_fixed_linear_carry(self) -> bool:
         """Immutable opt-in to the declared signed fixed-grid execution model."""
         return self._native_fixed_linear_carry
+
+    @property
+    def native_calendar_month_linear_carry(self) -> bool:
+        """Immutable opt-in to declared signed UTC-month execution."""
+        return self._native_calendar_month_linear_carry
 
     @staticmethod
     def _validate_financial_window(
@@ -353,7 +362,11 @@ class SharedPortfolioGymEnv(gym.Env):
                 "session financial clock mode cannot change within an environment"
             )
         if isinstance(clock, SessionFinancialClockContract):
-            if self.native_fixed_linear_carry or self.market_order_profile is not None:
+            if (
+                self.native_fixed_linear_carry
+                or self.native_calendar_month_linear_carry
+                or self.market_order_profile is not None
+            ):
                 raise ValueError(
                     "session learning requires Spot without a separate order profile"
                 )
@@ -375,6 +388,8 @@ class SharedPortfolioGymEnv(gym.Env):
                     self.bound.clock, CalendarMonthFinancialClockContract
                 ),
                 native_fixed_linear_carry=self.native_fixed_linear_carry,
+                native_calendar_month_linear_carry=self.native_calendar_month_linear_carry,
+                market_order_profile_present=self.market_order_profile is not None,
             )
         if self.dataset.native_clock is not None or self._session_elapsed_mode:
             _require_risk_execution_limits(
@@ -438,6 +453,7 @@ class SharedPortfolioGymEnv(gym.Env):
             execution_trace_observer=self._capture_execution_trace,
             native_calendar_month=self.dataset.native_calendar_month,
             native_fixed_linear_carry=self.native_fixed_linear_carry,
+            native_calendar_month_linear_carry=self.native_calendar_month_linear_carry,
         )
         self._session = session
         self._episode_done = False

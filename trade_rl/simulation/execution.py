@@ -668,6 +668,8 @@ def _preflight_native_learning_execution_window(
     stop_index: int,
     native_calendar_month: bool = False,
     native_fixed_linear_carry: bool = False,
+    native_calendar_month_linear_carry: bool = False,
+    market_order_profile_present: bool = False,
 ) -> None:
     """Refuse unsupported native learning inputs before reserving work."""
     if (
@@ -677,23 +679,34 @@ def _preflight_native_learning_execution_window(
         raise ValueError("calendar month execution is not supported by fixed-clock Gym")
     if type(native_fixed_linear_carry) is not bool:
         raise ValueError("native_fixed_linear_carry must be boolean")
-    if native_fixed_linear_carry:
-        _require_native_linear_carry_dataset(dataset)
+    if type(native_calendar_month_linear_carry) is not bool:
+        raise ValueError("native_calendar_month_linear_carry must be boolean")
+    if native_fixed_linear_carry and native_calendar_month_linear_carry:
+        raise ValueError("fixed and calendar month linear carry modes are exclusive")
+    linear_carry = native_fixed_linear_carry or native_calendar_month_linear_carry
+    if linear_carry:
+        _require_native_linear_carry_dataset(
+            dataset, calendar_month=native_calendar_month_linear_carry
+        )
     if dataset.native_clock is None:
         return
     if not dataset.identity_verified:
         raise ValueError("native fixed execution requires a verified Dataset identity")
-    _require_calendar_month_spot_roster(dataset)
-    if native_fixed_linear_carry:
-        _require_native_linear_carry_configuration(cost)
+    if linear_carry:
+        _require_native_linear_carry_configuration(
+            cost,
+            calendar_month=native_calendar_month_linear_carry,
+            market_order_profile_present=market_order_profile_present,
+        )
     else:
+        _require_calendar_month_spot_roster(dataset)
         _require_native_execution_cost(dataset, cost)
     _require_execution_margin_roster(dataset, cost)
     _require_native_execution_rows(
         dataset,
         start_index=start_index,
         stop_index=stop_index,
-        native_linear_carry=native_fixed_linear_carry,
+        native_linear_carry=linear_carry,
     )
 
 

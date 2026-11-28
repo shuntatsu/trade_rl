@@ -152,7 +152,9 @@ def _shared_cash_ppo_metrics(run: LoadedCandidateRun) -> dict[str, object]:
             else None
         )
         if type(expected_periods) is not int or expected_periods != len(series.values):
-            raise ArtifactIntegrityError("shared-cash PPO return coverage is incomplete")
+            raise ArtifactIntegrityError(
+                "shared-cash PPO return coverage is incomplete"
+            )
     wealth = 1.0
     peak = 1.0
     maximum_drawdown = 0.0

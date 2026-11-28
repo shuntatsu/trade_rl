@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
+from trade_rl._validation import _ordered_ns_durations, _require_nominal_session_seconds
 from trade_rl.data.market import MarketDataset, _require_available_marks_at_row
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.diagnostics.fill_cash import NativeFillCashObservation
@@ -208,6 +210,7 @@ def _require_native_execution_rows(
     start_index: int,
     stop_index: int,
     native_linear_carry: bool = False,
+    native_session_linear_carry: bool = False,
 ) -> None:
     """Check the complete declared native window without invoking an actor.
 
@@ -224,6 +227,18 @@ def _require_native_execution_rows(
         raise ValueError("native execution window is outside the Dataset")
     span = slice(start_index, stop_index + 1)
     processing = slice(start_index + 1, stop_index + 1)
+    if native_session_linear_carry:
+        nominal_hours = dataset.bar_hours
+        seconds = nominal_hours * 3600
+        if not math.isfinite(seconds):
+            raise ValueError("session requires finite whole-second nominal bars")
+        nominal_seconds = round(seconds)
+        if nominal_seconds / 3600 != nominal_hours:
+            raise ValueError("session requires whole-second nominal bars")
+        boundaries = tuple(int(x) for x in dataset.timestamps[span].view(np.int64))
+        _require_nominal_session_seconds(
+            nominal_seconds, _ordered_ns_durations(boundaries)
+        )
     unavailable = np.any(
         (dataset.resolved_array("available_at")[span] > dataset.timestamps[span, None])
         | ~dataset.resolved_array("information_available")[span],
@@ -248,7 +263,8 @@ def _require_native_execution_rows(
         or np.any(dataset.resolved_array("cash_rate")[processing] < 0.0)
     ):
         raise ValueError(
-            "native fixed execution refuses unsupported funding, corporate actions, gaps or negative carry"
+            ("native session" if native_session_linear_carry else "native fixed")
+            + " execution refuses unsupported funding, corporate actions, gaps or negative carry"
         )
     if native_linear_carry:
         _require_close_assigned_linear_funding_rows(dataset, processing)
@@ -281,13 +297,14 @@ def _execute_stateful_orders_impl(
 
     executor._validate_native_fixed_configuration()
     native_fixed = dataset.native_clock is not None
-    if native_fixed:
+    if native_fixed or executor.native_session_linear_carry:
         if executor._native_linear_carry:
             _require_native_execution_rows(
                 dataset,
                 start_index=start_index,
                 stop_index=start_index + bars,
                 native_linear_carry=True,
+                native_session_linear_carry=executor.native_session_linear_carry,
             )
         else:
             book.require_nonnegative_spot_cash()

@@ -330,9 +330,7 @@ class MarketDatasetBuilder:
             contract: InstrumentContract,
             *,
             include_event_indices: bool = False,
-        ) -> tuple[
-            np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None
-        ]:
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
             native_timeframe = spec.resolved_timeframe(self.config.base_timeframe)
             if native_timeframe == self.config.base_timeframe:
                 # Events are computed on every physically present row, then

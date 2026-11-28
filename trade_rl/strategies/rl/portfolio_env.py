@@ -24,7 +24,7 @@ from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     _preflight_native_learning_execution_window,
-    _preflight_session_spot_execution_window,
+    _preflight_session_execution_window,
 )
 from trade_rl.simulation.native_transition import _require_risk_execution_limits
 from trade_rl.simulation.objectives.binding import BoundObjectiveClock
@@ -128,6 +128,7 @@ class SharedPortfolioGymEnv(gym.Env):
         market_order_profile: MarketOrderProfile | None = None,
         native_fixed_linear_carry: bool = False,
         native_calendar_month_linear_carry: bool = False,
+        native_session_linear_carry: bool = False,
         execution_observer: Callable[[StatefulExecutionObservation], None]
         | None = None,
     ) -> None:
@@ -136,6 +137,8 @@ class SharedPortfolioGymEnv(gym.Env):
             raise ValueError("native_fixed_linear_carry must be boolean")
         if type(native_calendar_month_linear_carry) is not bool:
             raise ValueError("native_calendar_month_linear_carry must be boolean")
+        if type(native_session_linear_carry) is not bool:
+            raise ValueError("native_session_linear_carry must be boolean")
         if not isinstance(dataset, MarketDataset):
             raise TypeError("dataset must be a MarketDataset")
         if not isinstance(bound, BoundObjectiveClock):
@@ -200,6 +203,7 @@ class SharedPortfolioGymEnv(gym.Env):
         self.initial_capital = objective.capital.total_initial_capital
         self._native_fixed_linear_carry = native_fixed_linear_carry
         self._native_calendar_month_linear_carry = native_calendar_month_linear_carry
+        self._native_session_linear_carry = native_session_linear_carry
         self._session_elapsed_mode = isinstance(
             bound.clock, SessionFinancialClockContract
         )
@@ -267,6 +271,11 @@ class SharedPortfolioGymEnv(gym.Env):
     def native_calendar_month_linear_carry(self) -> bool:
         """Immutable opt-in to declared signed UTC-month execution."""
         return self._native_calendar_month_linear_carry
+
+    @property
+    def native_session_linear_carry(self) -> bool:
+        """Immutable opt-in to declared signed session execution."""
+        return self._native_session_linear_carry
 
     @staticmethod
     def _validate_financial_window(
@@ -368,17 +377,22 @@ class SharedPortfolioGymEnv(gym.Env):
                 or self.market_order_profile is not None
             ):
                 raise ValueError(
-                    "session learning requires Spot without a separate order profile"
+                    "session learning excludes fixed/calendar carry and separate order profiles"
                 )
-            _preflight_session_spot_execution_window(
+            _preflight_session_execution_window(
                 self.dataset,
                 self.execution_cost,
                 start_index=self.start_index,
                 stop_index=self.stop_index,
                 expected_boundaries_ns=clock.boundaries_ns,
                 expected_nominal_bar_seconds=clock.nominal_bar_seconds,
+                native_session_linear_carry=self.native_session_linear_carry,
             )
         else:
+            if self.native_session_linear_carry:
+                raise ValueError(
+                    "native session linear carry requires a session financial clock"
+                )
             _preflight_native_learning_execution_window(
                 self.dataset,
                 self.execution_cost,
@@ -448,12 +462,14 @@ class SharedPortfolioGymEnv(gym.Env):
             risk=PreTradeRisk(self.risk_config),
             market_order_profile=self.market_order_profile,
             settle_terminal_position=True,
-            strict_spot_cash=self._session_elapsed_mode,
+            strict_spot_cash=self._session_elapsed_mode
+            and not self.native_session_linear_carry,
             execution_observer=self.execution_observer,
             execution_trace_observer=self._capture_execution_trace,
             native_calendar_month=self.dataset.native_calendar_month,
             native_fixed_linear_carry=self.native_fixed_linear_carry,
             native_calendar_month_linear_carry=self.native_calendar_month_linear_carry,
+            native_session_linear_carry=self.native_session_linear_carry,
         )
         self._session = session
         self._episode_done = False

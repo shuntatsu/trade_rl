@@ -778,3 +778,33 @@ def test_shared_cash_comparison_preserves_complete_portfolio(
         row["return_period_count"] == portfolio_periods
         for row in portfolio["by_seed"].values()
     )
+
+
+@pytest.mark.parametrize("version", [6, 8, 11])
+def test_shared_cash_comparison_rejects_unsupported_modern_schema(
+    version: int,
+) -> None:
+    runs = _modern_shared_cash_runs(version, {"expected_periods": 4}, 4)
+    with pytest.raises(ArtifactIntegrityError, match="shared-cash PPO result schema"):
+        compare_evidence_sets(
+            runs,
+            runs,
+            n_bootstrap=32,
+            bootstrap_seed=13,
+            schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+        )
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5])
+def test_shared_cash_comparison_preserves_legacy_direct_analysis(
+    version: int,
+) -> None:
+    runs = _modern_shared_cash_runs(version, {"expected_periods": 4}, 4)
+    payload = compare_evidence_sets(
+        runs,
+        runs,
+        n_bootstrap=32,
+        bootstrap_seed=13,
+        schema_version=SHARED_CASH_HOLDING_PROTOCOL_SCHEMA,
+    )
+    assert payload["cross_seed"]["shared_cash_ppo"]["seed_count"] == 2

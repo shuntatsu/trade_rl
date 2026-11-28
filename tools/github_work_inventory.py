@@ -270,6 +270,8 @@ def build_inventory(
             raise RuntimeError(f"duplicate open PR number: {number}")
         seen_pr_numbers.add(number)
         pull_identities.append((number, head_sha, base_name, base_sha, head_name))
+        if base_name not in branch_tips:
+            raise RuntimeError(f"PR base ref is absent: #{number}")
         open_names.add(base_name)
         if head_name is not None:
             if branch_tips.get(head_name) != head_sha:
@@ -340,11 +342,14 @@ def build_inventory(
 
     # The second/third Issue reads and full comment reread catch ordinary
     # changes before publication, but are not an atomic GitHub snapshot.
-    if sorted(pull_identities) != sorted(
-        _pull_identity(item, repository)
-        for item in _native_rows(api.open_pulls(), "open PR roster")
-    ):
-        raise RuntimeError("open PR refs changed during inventory")
+    def check_pull_roster() -> None:
+        if sorted(pull_identities) != sorted(
+            _pull_identity(item, repository)
+            for item in _native_rows(api.open_pulls(), "open PR roster")
+        ):
+            raise RuntimeError("open PR refs changed during inventory")
+
+    check_pull_roster()
     expected_issues = sorted(issue_identities.values())
 
     def reread_issue_identities() -> list[tuple[int, int, str, str, int, str]]:
@@ -384,6 +389,10 @@ def build_inventory(
             sorted(_branch_snapshot(api.branches()), key=lambda b: b.name)
         ) != tuple(sorted(branches, key=lambda b: b.name)):
             raise RuntimeError("branch tips or protection changed during workflow scan")
+
+    # Existing refs can acquire or lose PRs during Issue/workflow reads even
+    # if every branch tip stays unchanged. Recheck the complete PR roster.
+    check_pull_roster()
 
     final_default = api.repository_default_branch()
     if type(final_default) is not str or final_default != default:

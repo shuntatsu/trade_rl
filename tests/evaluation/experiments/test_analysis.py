@@ -402,3 +402,71 @@ def test_analysis_rejects_non_native_integer_period_metadata(
     )
     with pytest.raises(ArtifactIntegrityError, match=f"candidate {field}"):
         analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)
+
+class _ForgedReturnKind(str):
+    def __hash__(self) -> int:
+        return hash("base_bar")
+
+    def __eq__(self, other: object) -> bool:
+        return other == "base_bar"
+
+
+class _ForgedIntegerMetric(int):
+    def __float__(self) -> float:
+        return 0.0
+
+
+class _ForgedFloatMetric(float):
+    def __float__(self) -> float:
+        return 0.0
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "message"),
+    [
+        pytest.param(
+            "return_kind",
+            _ForgedReturnKind("unsupported"),
+            "candidate return kind",
+            id="return-kind-alias",
+        ),
+        pytest.param(
+            "total_cost",
+            _ForgedIntegerMetric(7),
+            "candidate metric total_cost",
+            id="integer-cost-conversion",
+        ),
+        pytest.param(
+            "total_cost",
+            _ForgedFloatMetric(0.75),
+            "candidate metric total_cost",
+            id="float-cost-conversion",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "schema", ["lean_candidate_result_v1", "lean_candidate_result_v10"]
+)
+def test_analysis_rejects_forged_return_kind_and_metric_numbers(
+    schema: str, field: str, invalid: object, message: str
+) -> None:
+    from trade_rl.artifacts.canonical import to_json_value
+
+    run = _run(0)
+    summary = to_json_value(run.summary)
+    assert isinstance(summary, dict)
+    summary["schema_version"] = schema
+    summary["evaluation"] = {"expected_periods": 4}
+    strategy = summary["by_symbol"][0]["strategies"][-1]
+    assert strategy["name"] == "ppo"
+    strategy["metrics"][field] = invalid
+    broken = LoadedCandidateRun(
+        root=run.root,
+        summary=summary,
+        returns=run.returns,
+        provenance=run.provenance,
+    )
+    stored = broken.summary["by_symbol"][0]["strategies"][-1]["metrics"][field]
+    assert type(stored) is type(invalid)
+    with pytest.raises(ArtifactIntegrityError, match=message):
+        analyze_evidence_set({0: broken, 1: _run(1)}, n_bootstrap=100, bootstrap_seed=7)

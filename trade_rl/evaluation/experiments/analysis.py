@@ -78,7 +78,8 @@ def _paired_payload(
 
 def _require_metric_number(metrics: Mapping[str, object], field: str) -> float:
     value = metrics.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    # Direct in-memory summaries must not override native JSON number conversion.
+    if type(value) is not int and type(value) is not float:
         raise ArtifactIntegrityError(f"candidate metric {field} is malformed")
     try:
         resolved = float(value)
@@ -106,7 +107,7 @@ def _return_series(
     kind_raw = metrics.get("return_kind")
     periods_raw = metrics.get("periods_per_year")
     n_periods_raw = metrics.get("n_periods")
-    if not isinstance(kind_raw, str):
+    if type(kind_raw) is not str:
         raise ArtifactIntegrityError("candidate return kind is malformed")
     try:
         kind = ReturnKind(kind_raw)

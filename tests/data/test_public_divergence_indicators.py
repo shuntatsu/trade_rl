@@ -443,3 +443,90 @@ def test_public_divergence_refuses_unverifiable_array_owners(kind, field):
         detect_divergences(
             high=price, low=price, close=price, indicators={"RSI": oscillator}
         )
+
+
+_ALL_BANK_NAMES = (
+    "RSI",
+    "MACD",
+    "MACD_HIST",
+    "MACD_SIGNAL",
+    "STOCH_K",
+    "STOCH_D",
+    "CCI",
+    "MFI",
+    "CMF",
+    "WILLR",
+    "OBV_SLOPE",
+    "DI_SPREAD",
+    "MOM",
+    "ROC",
+    "OBV",
+    "VWMACD",
+    "PPO",
+    "AWESOME",
+    "ICHIMOKU_TENKAN",
+    "ICHIMOKU_KIJUN",
+)
+
+
+def _replace_raw(raw: RawMarketSeries, **changes: np.ndarray) -> RawMarketSeries:
+    fields = {
+        "timestamps": raw.timestamps,
+        "available_at": raw.available_at,
+        "open": raw.open,
+        "high": raw.high,
+        "low": raw.low,
+        "close": raw.close,
+        "volume": raw.volume,
+        "funding_rate": raw.funding_rate,
+        "tradable": raw.tradable,
+    }
+    fields.update(changes)
+    return RawMarketSeries(**fields)
+
+
+def test_stoch_d_is_a_14_period_k_with_3_period_smoothing() -> None:
+    raw = _bars(80)
+    stoch_d = build_divergence_bank(raw, names=("STOCH_D",))["STOCH_D"]
+
+    # 14-bar %K needs 14 rows and the 3-bar mean two more: first value at 15.
+    assert np.isnan(stoch_d[:15]).all()
+    assert np.isfinite(stoch_d[15:]).all()
+
+    def k(index: int) -> float:
+        highest = float(np.max(raw.high[index - 13 : index + 1]))
+        lowest = float(np.min(raw.low[index - 13 : index + 1]))
+        return 2.0 * (float(raw.close[index]) - lowest) / (highest - lowest) - 1.0
+
+    for index in (15, 40, 79):
+        expected = (k(index - 2) + k(index - 1) + k(index)) / 3.0
+        assert stoch_d[index] == pytest.approx(expected, abs=1e-12)
+
+
+def test_late_published_row_is_a_gap_for_every_bank_indicator() -> None:
+    raw = _bars(220)
+    late_row = 120
+    available_at = np.array(raw.available_at, copy=True)
+    available_at[late_row] = raw.timestamps[late_row] + np.timedelta64(1, "ns")
+    late = _replace_raw(raw, available_at=available_at)
+    tradable = np.array(raw.tradable, copy=True)
+    tradable[late_row] = False
+    blocked = _replace_raw(raw, tradable=tradable)
+
+    actual = build_divergence_bank(late, names=_ALL_BANK_NAMES)
+    expected = build_divergence_bank(blocked, names=_ALL_BANK_NAMES)
+    clean = build_divergence_bank(raw, names=_ALL_BANK_NAMES)
+    for name in _ALL_BANK_NAMES:
+        # A row is never read before it is published, and the calculation
+        # restarts after it instead of bridging the unpublished row.
+        np.testing.assert_array_equal(actual[name], expected[name], strict=True)
+        assert np.isnan(actual[name][late_row]), name
+        np.testing.assert_array_equal(actual[name][:late_row], clean[name][:late_row])
+    assert np.isnan(actual["RSI"][late_row + 1 : late_row + 15]).all()
+    assert np.isfinite(actual["RSI"][late_row + 15])
+
+
+def test_a_uniformly_delayed_series_yields_no_bank_values() -> None:
+    bank = build_divergence_bank(_bars(200, delayed=True), names=_ALL_BANK_NAMES)
+    for name, values in bank.items():
+        assert np.isnan(values).all(), name

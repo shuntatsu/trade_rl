@@ -2,7 +2,12 @@
 
 No second RSI/MACD/MFI/CCI formula is introduced. Invalid warm-up, gaps and
 non-tradable rows are represented by NaN rather than valid zero observations.
-Existing Dataset profiles and their immutable identities are unchanged.
+A row published after its own timestamp (``available_at > timestamp``) is not
+information at that bar: like the Dataset builder's ``row_present &
+information_available`` rule, it is treated as a missing row, so no value reads
+it and every calculation restarts after it instead of bridging it.  The bank
+cannot see a native timestamp missing from ``raw``; callers pass a complete
+native grid or mark such rows non-tradable.
 """
 
 from __future__ import annotations
@@ -27,7 +32,8 @@ DIVERGENCE_INDICATOR_SPECS = MappingProxyType(
         "MACD_HIST": (FeatureKind.MACD_HISTOGRAM, 35),
         "MACD_SIGNAL": (FeatureKind.MACD_SIGNAL, 35),
         "STOCH_K": (FeatureKind.STOCHASTIC_K, 14),
-        "STOCH_D": (FeatureKind.STOCHASTIC_D, 17),
+        # 14-period %K smoothed by an explicit 3-period mean (14/3).
+        "STOCH_D": (FeatureKind.STOCHASTIC_D, 14),
         "CCI": (FeatureKind.CCI, 20),
         "MFI": (FeatureKind.MFI, 14),
         "CMF": (FeatureKind.CMF, 21),
@@ -36,6 +42,7 @@ DIVERGENCE_INDICATOR_SPECS = MappingProxyType(
         "DI_SPREAD": (FeatureKind.DI_SPREAD, 14),
     }
 )
+_STOCHASTIC_D_SMOOTHING_PERIOD = 3
 DEFAULT_DIVERGENCE_INDICATORS = (
     "RSI",
     "MACD_HIST",
@@ -64,13 +71,27 @@ def build_divergence_bank(
     if unknown:
         raise ValueError(f"unsupported divergence indicators: {sorted(unknown)}")
     assert raw.funding_available is not None
+    assert raw.available_at is not None
+    published_on_time = raw.available_at.astype("datetime64[ns]") <= (
+        raw.timestamps.astype("datetime64[ns]")
+    )
+    usable = raw.tradable & published_on_time
     bank: dict[str, np.ndarray] = {}
     for name in chosen:
         if name in EXTRA_INDICATOR_NAMES:
             continue
         kind, lookback = DIVERGENCE_INDICATOR_SPECS[name]
         values, valid, _ = calculate_feature_events(
-            FeatureSpec(name=f"divergence_{name}", kind=kind, lookback=lookback),
+            FeatureSpec(
+                name=f"divergence_{name}",
+                kind=kind,
+                lookback=lookback,
+                stochastic_smoothing_period=(
+                    _STOCHASTIC_D_SMOOTHING_PERIOD
+                    if kind is FeatureKind.STOCHASTIC_D
+                    else None
+                ),
+            ),
             open_price=raw.open,
             high=raw.high,
             low=raw.low,
@@ -78,7 +99,7 @@ def build_divergence_bank(
             volume=raw.volume,
             funding_rate=raw.funding_rate,
             funding_available=raw.funding_available,
-            row_present=np.ones(len(raw.close), dtype=np.bool_),
+            row_present=published_on_time,
             active=raw.tradable,
         )
         selected = np.where(valid, values, np.nan)
@@ -86,7 +107,9 @@ def build_divergence_bank(
         bank[name] = selected
     bank.update(
         build_extra_indicators(
-            raw, names=(name for name in chosen if name in EXTRA_INDICATOR_NAMES)
+            raw,
+            names=(name for name in chosen if name in EXTRA_INDICATOR_NAMES),
+            usable=usable,
         )
     )
     return {name: bank[name] for name in chosen}

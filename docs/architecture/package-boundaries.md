@@ -1088,6 +1088,8 @@ import先とsignatureを維持対象とする。別の実行engineや会計adapt
 | `trade_rl.evaluation.equity_path` | `daily_equity`, `daily_returns`, `max_drawdown`, `per_year_returns`, `performance_summary`, `EquityPathSummary` |
 | `trade_rl.evaluation.comparison.overlapping_blocks` | `moving_block_indices`, `bootstrap_excess`, `BootstrapInterval` |
 
+`build_divergence_bank` treats a raw row published after its own timestamp (`available_at > timestamp`) like a missing row: no indicator reads it and every calculation restarts after it (no gap bridging), matching the Dataset builder's `row_present & information_available` rule; the extra oscillators restart at the same rows. `STOCH_D` is a 14-period %K with an explicit 3-period `stochastic_smoothing_period` (14/3; until 2026-11-28 it was registered as a 17-bar %K by mistake and changed without a compatibility mode). The bank cannot detect a native timestamp absent from `RawMarketSeries`; the caller supplies a complete native grid or marks such rows non-tradable.
+
 The opt-in external source record (external_source_provenance_v1) verifies
 two explicitly pinned package closures: reviewed repository/commit/tree,
 whole-wheel digest/size, and a complete sorted raw-byte file manifest for

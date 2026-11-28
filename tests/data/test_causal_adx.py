@@ -39,9 +39,7 @@ def test_causal_adx_seed_does_not_need_a_future_row(period, direction):
     present = np.ones(len(close), dtype=bool)
     spec = FeatureSpec("adx", FeatureKind.ADX_CAUSAL, lookback=period)
     legacy = replace(spec, kind=FeatureKind.ADX)
-    values, valid, starts = _events(
-        spec, close[:seed_rows], present[:seed_rows]
-    )
+    values, valid, starts = _events(spec, close[:seed_rows], present[:seed_rows])
     assert valid.tolist() == [False] * (seed_rows - 1) + [True]
     assert starts.tolist() == [-1] * (seed_rows - 1) + [0]
     # A one-row Wilder seed has zero directional movement. Larger monotone
@@ -52,9 +50,7 @@ def test_causal_adx_seed_does_not_need_a_future_row(period, direction):
     for expected, actual in zip((values, valid, starts), full, strict=True):
         np.testing.assert_array_equal(expected, actual[:seed_rows])
     # Complete long legacy segments keep their exact historical arithmetic.
-    for expected, actual in zip(
-        _events(legacy, close, present), full, strict=True
-    ):
+    for expected, actual in zip(_events(legacy, close, present), full, strict=True):
         np.testing.assert_array_equal(expected, actual)
 
 
@@ -80,9 +76,7 @@ def test_causal_adx_every_prefix_and_future_mask_mutation(period):
 
 
 def test_causal_adx_publication_binds_all_rows_after_each_gap():
-    times = np.datetime64("2024-01-02", "ns") + np.arange(12) * np.timedelta64(
-        1, "h"
-    )
+    times = np.datetime64("2024-01-02", "ns") + np.arange(12) * np.timedelta64(1, "h")
     receipts = times.copy()
     receipts[1] = times[4] + np.timedelta64(1, "ns")
     raw = _source(times, receipts)
@@ -116,9 +110,8 @@ def test_causal_adx_requires_positive_native_lookback(lookback):
 def test_causal_adx_config_roundtrip_binds_distinct_kind(tmp_path):
     spec = FeatureSpec("adx", FeatureKind.ADX_CAUSAL, lookback=14)
     legacy = replace(spec, kind=FeatureKind.ADX)
-    assert legacy.canonical_payload() | {"kind": "adx_causal_v1"} == (
-        spec.canonical_payload()
-    )
+    expected = legacy.canonical_payload() | {"kind": "adx_causal_v1"}
+    assert spec.canonical_payload() == expected
     assert legacy.kind.value == "adx"
     assert spec.kind.value == "adx_causal_v1"
     assert not legacy.requires_complete_native_rows
@@ -162,9 +155,7 @@ def test_causal_adx_native_dataset_identity_and_artifact_roundtrip(tmp_path):
     legacy = build(replace(spec, kind=FeatureKind.ADX))
     assert dataset.feature_available.all()
     np.testing.assert_array_equal(dataset.features, legacy.features)
-    np.testing.assert_array_equal(
-        dataset.feature_available, legacy.feature_available
-    )
+    np.testing.assert_array_equal(dataset.feature_available, legacy.feature_available)
     assert dataset.feature_config_digest != legacy.feature_config_digest
     assert dataset.dataset_id != legacy.dataset_id
     write_market_dataset_files(tmp_path / "artifact", dataset)

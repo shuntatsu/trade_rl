@@ -92,6 +92,14 @@ def _return_series(
     values: np.ndarray,
     metrics: Mapping[str, object],
 ) -> ReturnSeries:
+    if (
+        values.ndim != 1
+        or values.dtype.kind not in {"i", "u", "f"}
+        or not np.isfinite(values).all()
+    ):
+        raise ArtifactIntegrityError(
+            "candidate return array must be a finite real numeric vector"
+        )
     kind_raw = metrics.get("return_kind")
     periods_raw = metrics.get("periods_per_year")
     n_periods_raw = metrics.get("n_periods")
@@ -183,6 +191,7 @@ def _run_matrix(
 
     matrix: dict[tuple[str, str], _Cell] = {}
     used_return_keys: set[str] = set()
+    full_coverage = run.has_verified_full_evaluation_coverage
     for symbol_index, (expected_symbol, symbol_entry) in enumerate(
         zip(symbols, by_symbol, strict=True)
     ):
@@ -190,7 +199,10 @@ def _run_matrix(
             raise ArtifactIntegrityError("candidate symbol evidence is malformed")
         if symbol_entry.get("symbol") != expected_symbol:
             raise ArtifactIntegrityError("candidate symbol matrix ordering mismatch")
-        if symbol_entry.get("symbol_index") not in (None, symbol_index):
+        raw_index = symbol_entry.get("symbol_index")
+        if raw_index is not None and (
+            type(raw_index) is not int or raw_index != symbol_index
+        ):
             raise ArtifactIntegrityError("candidate symbol index mismatch")
         strategies = symbol_entry.get("strategies")
         if (
@@ -228,8 +240,6 @@ def _run_matrix(
                 )
             metrics = cast(Mapping[str, object], metrics_raw)
             terminal_settlement_complete = strategy.get("terminal_settlement_complete")
-            if not run.has_verified_full_evaluation_coverage:
-                terminal_settlement_complete = False
             if terminal_settlement_complete is not None and not isinstance(
                 terminal_settlement_complete,
                 bool,
@@ -237,6 +247,8 @@ def _run_matrix(
                 raise ArtifactIntegrityError(
                     "candidate terminal-settlement state is malformed"
                 )
+            if not full_coverage:
+                terminal_settlement_complete = False
             matrix[key] = _Cell(
                 symbol=expected_symbol,
                 strategy=name,
@@ -256,6 +268,8 @@ def _run_matrix(
         portfolio_key = portfolio.get("return_key")
         if not isinstance(portfolio_key, str) or portfolio_key not in run.returns:
             raise ArtifactIntegrityError("shared-cash PPO return evidence is missing")
+        if portfolio_key in used_return_keys:
+            raise ArtifactIntegrityError("candidate return evidence is duplicated")
         used_return_keys.add(portfolio_key)
     if set(run.returns) != used_return_keys:
         raise ArtifactIntegrityError("candidate return evidence has extra matrix cells")

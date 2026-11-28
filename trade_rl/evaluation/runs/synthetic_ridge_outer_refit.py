@@ -482,7 +482,9 @@ def _synthetic_dataset(variant: SyntheticFixtureVariant) -> MarketDataset:
     high = prices.copy()
     low = prices.copy()
     volume = np.ones((_N_BARS, len(_SYMBOLS)), dtype=np.float64)
-    volume[_STOP_INDEX, :] = 10_000.0
+    # The terminal settlement fills at the _STOP_INDEX open; its causal
+    # capacity pool is the completed bar before it, which carries the depth.
+    volume[_STOP_INDEX - 1, :] = 10_000.0
     dataset = MarketDataset(
         dataset_id="0" * 64,
         symbols=_SYMBOLS,

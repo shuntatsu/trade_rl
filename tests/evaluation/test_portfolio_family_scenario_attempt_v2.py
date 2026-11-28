@@ -72,8 +72,9 @@ def test_v2_identity_has_a_separate_canonical_digest_vector() -> None:
     assert payload["common_input_declaration"]["schema_version"] == (
         "four_family_portfolio_attempt_identity_v1"
     )
+    # Default execution cost uses causal previous-completed-bar capacity.
     assert four_family_portfolio_scenario_attempt_identity_v2_digest(identity) == (
-        "2a33fcbd6afea218014ac3b367d658cc1202a5e04ecaadcb6d19f9b785968735"
+        "7cb9855bba79d3389a7f6e590f786569aacd0147727fae46bb190a7032699007"
     )
     assert not any(key.endswith("_root") for key in payload)
 

@@ -18,18 +18,21 @@ from trade_rl.strategies.rl.intent import PPO_OBSERVATION_SCHEMA_V3
 
 
 def _execution_cost_for_overlay(execution_overlay: str) -> ExecutionCostConfig:
-    dataset_authoritative_cost = replace(
+    # Both overlays now run the causal previous-completed-bar capacity pool
+    # (the ExecutionCostConfig default since 2026-11-28). The zero overlay used
+    # to inherit the same-bar default implicitly; it is fixed in place rather
+    # than kept as a look-ahead mode. The overlay names remain distinct run
+    # identities but no longer differ in execution.
+    if execution_overlay not in (
+        LEGACY_DATASET_EXECUTION_OVERLAY,
+        CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY,
+    ):
+        raise ValueError(f"unsupported execution_overlay: {execution_overlay}")
+    return replace(
         ExecutionCostConfig.zero(),
         borrow_rate_multiplier=1.0,
+        processing_bar_volume_capacity=False,
     )
-    if execution_overlay == LEGACY_DATASET_EXECUTION_OVERLAY:
-        return dataset_authoritative_cost
-    if execution_overlay == CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY:
-        return replace(
-            dataset_authoritative_cost,
-            processing_bar_volume_capacity=False,
-        )
-    raise ValueError(f"unsupported execution_overlay: {execution_overlay}")
 
 
 @dataclass(frozen=True, slots=True)

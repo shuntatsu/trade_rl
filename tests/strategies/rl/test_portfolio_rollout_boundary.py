@@ -39,8 +39,10 @@ def _delayed_event_env(
     close[payoff_transition:, 0] = 101.5
     open_price = np.vstack((close[0], close[:-1]))
     volume = np.zeros((n_bars, 1), dtype=np.float64)
-    volume[1, 0] = 1_000_000.0
-    volume[_TERMINAL_ROW, 0] = 1_000_000.0
+    volume[0, 0] = (
+        1_000_000.0  # causal capacity pool: the completed bar before the fill
+    )
+    volume[_TERMINAL_ROW - 1, 0] = 1_000_000.0
     cue = np.ones((n_bars, 1, 1), dtype=np.float32)
     zeros = np.zeros((n_bars, 1), dtype=np.float64)
     dataset = MarketDataset(

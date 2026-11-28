@@ -113,7 +113,7 @@ def test_unchanged_intent_uses_mark_prices_to_preserve_quantity(
 @pytest.mark.parametrize("route", ["training", "single", "shared"])
 def test_split_preserves_unfilled_entry_proposal(route: str) -> None:
     volume = np.full((6, 1), 1_000_000.0)
-    volume[1, 0] = 1.0
+    volume[0, 0] = 1.0  # causal capacity pool: the completed bar before the fill
     book = held_book(
         replace(split_market(2.0), volume=volume), route, PositionIntent.LONG
     )

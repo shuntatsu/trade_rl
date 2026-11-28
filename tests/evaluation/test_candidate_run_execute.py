@@ -72,7 +72,8 @@ def resolved_spec(dataset: MarketDataset):
 @pytest.mark.parametrize(
     ("execution_overlay", "expected_capacity"),
     [
-        (LEGACY_DATASET_EXECUTION_OVERLAY, True),
+        # Both overlays use causal previous-completed-bar capacity.
+        (LEGACY_DATASET_EXECUTION_OVERLAY, False),
         (CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY, False),
     ],
 )

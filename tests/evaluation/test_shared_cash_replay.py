@@ -272,7 +272,7 @@ def test_scripted_hold_preserves_exact_lot_quantity_across_repeated_bars() -> No
 
 def test_scripted_hold_cancels_unfilled_order_from_actual_flat_position() -> None:
     volume = np.full((5, 1), 1_000_000.0)
-    volume[1, 0] = 0.0
+    volume[0, 0] = 0.0  # causal capacity pool: the completed bar before the fill
     result = replay_module.run_scripted_shared_cash_replay(
         _market(np.full((5, 1), 100.0), volume=volume),
         actions_by_symbol={
@@ -310,7 +310,7 @@ def test_scripted_hold_cancels_unfilled_order_from_actual_flat_position() -> Non
 
 def test_scripted_hold_cancels_partial_remainder_and_keeps_exact_fill() -> None:
     volume = np.full((5, 1), 1_000_000.0)
-    volume[1, 0] = 1.0
+    volume[0, 0] = 1.0  # causal capacity pool: the completed bar before the fill
     result = replay_module.run_scripted_shared_cash_replay(
         _market(np.full((5, 1), 100.0), volume=volume),
         actions_by_symbol={
@@ -347,7 +347,7 @@ def test_scripted_hold_cancels_partial_remainder_and_keeps_exact_fill() -> None:
 
 def test_scripted_none_preserves_pending_target_and_native_fill_progression() -> None:
     volume = np.full((5, 1), 1_000_000.0)
-    volume[1:3, 0] = 1.0
+    volume[0:2, 0] = 1.0  # causal capacity pool: the completed bar before the fill
     result = replay_module.run_scripted_shared_cash_replay(
         _market(np.full((5, 1), 100.0), volume=volume),
         actions_by_symbol={
@@ -672,7 +672,7 @@ def test_shared_cash_terminal_settlement_preserves_residual_when_capacity_is_zer
     close = np.tile(np.asarray([[100.0, 200.0]]), (6, 1))
     close[4:, :] = (120.0, 240.0)
     volume = np.full((6, 2), 1_000_000.0)
-    volume[5, :] = 0.0
+    volume[4, :] = 0.0  # causal capacity pool: the completed bar before the fill
     dataset = _market(close, volume=volume)
     risk = PreTradeRisk(
         PreTradeRiskConfig(
@@ -929,8 +929,8 @@ def test_shared_cash_hold_age_uses_partial_fill_and_cancels_unfilled_remainder()
         np.full((6, 1), 100.0),
         volume=np.asarray(
             [
-                [1_000_000.0],
                 [2.0],
+                [1_000_000.0],
                 [1_000_000.0],
                 [1_000_000.0],
                 [1_000_000.0],
@@ -1432,8 +1432,8 @@ def test_shared_cash_partial_reversal_locks_actual_short_fill_and_cancels_remain
                 [1_000_000.0],
                 [1_000_000.0],
                 [1_000_000.0],
-                [1_000_000.0],
                 [6.0],
+                [1_000_000.0],
                 [1_000_000.0],
                 [1_000_000.0],
             ]
@@ -1497,8 +1497,8 @@ def test_shared_cash_locked_partial_fill_is_reduced_by_cross_symbol_hard_risk(
         np.full((6, 2), 100.0),
         volume=np.asarray(
             [
-                [1_000_000.0, 1_000_000.0],
                 [2.0, 1_000_000.0],
+                [1_000_000.0, 1_000_000.0],
                 [1_000_000.0, 1_000_000.0],
                 [1_000_000.0, 1_000_000.0],
                 [1_000_000.0, 1_000_000.0],

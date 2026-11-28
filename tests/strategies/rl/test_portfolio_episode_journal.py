@@ -116,7 +116,7 @@ def _trace_environment(
 ) -> SharedPortfolioGymEnv:
     close = np.full((6, 2), 100.0, dtype=np.float64)
     volume = np.full_like(close, 1_000_000.0)
-    volume[1, :] = 2.0
+    volume[0, :] = 2.0  # causal capacity pool: the completed bar before the fill
     zeros = np.zeros_like(close)
     borrow_available = np.ones_like(close, dtype=np.bool_)
     if borrow_unavailable:

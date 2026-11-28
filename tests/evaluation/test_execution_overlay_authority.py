@@ -101,7 +101,7 @@ def test_execution_overlay_is_identity_bound_without_changing_raw_candidate_conf
         )
 
 
-def test_execution_overlay_controls_runtime_capacity_mode(monkeypatch) -> None:
+def test_every_execution_overlay_runs_causal_capacity(monkeypatch) -> None:
     from trade_rl.evaluation.runs import execute as execute_module
 
     observed: list[bool] = []
@@ -123,7 +123,8 @@ def test_execution_overlay_controls_runtime_capacity_mode(monkeypatch) -> None:
     )
     execute_candidate_run(causal_dataset, causal)
 
-    assert observed == [True, False]
+    # The zero overlay no longer inherits same-bar (look-ahead) capacity.
+    assert observed == [False, False]
 
 
 def test_candidate_summary_records_actual_execution_overlay() -> None:

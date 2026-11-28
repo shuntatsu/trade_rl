@@ -537,6 +537,11 @@ class BookState:
             for quantity, factor in zip(self._quantity_values(), factors, strict=True)
         )
         projected = np.array([project_quantity(value) for value in exact_after])
+        if any(
+            exact != 0 and quantity == 0.0
+            for exact, quantity in zip(exact_after, projected, strict=True)
+        ):
+            raise ValueError("nonzero split quantity cannot be represented")
         with np.errstate(
             over="ignore", under="ignore", divide="ignore", invalid="ignore"
         ):

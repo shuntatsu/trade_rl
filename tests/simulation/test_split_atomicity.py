@@ -89,3 +89,38 @@ def test_split_does_not_overwrite_aliased_contract_multipliers() -> None:
     np.testing.assert_array_equal(book.contract_multipliers, [10.0])
     assert book.cash == 100.0
     assert book.portfolio_value == 300.0
+
+
+@pytest.mark.parametrize("n_symbols", [1, 9])
+@pytest.mark.parametrize("direction", [1, -1])
+@pytest.mark.parametrize("mode", ["ignore", "raise"])
+def test_split_refuses_nonzero_exact_quantity_that_projects_to_zero(
+    n_symbols: int, direction: int, mode: str
+) -> None:
+    # The minimum positive binary64 quantity has a meaningful nonzero value
+    # at this finite mark. Halving it cannot be reported by the book's
+    # conservative float projection, although its exact rational is nonzero.
+    quantities = np.zeros(n_symbols)
+    quantities[0] = direction * float.fromhex("0x0.0000000000001p-1022")
+    marks = np.ones(n_symbols)
+    marks[0] = 1e307
+    book = BookState(
+        quantities=quantities,
+        cash=1e-16,
+        mark_prices=marks,
+        peak_value=2e-16,
+    )
+    before = book.clone()
+    assert before.position_values[0] != 0.0
+    factors = np.ones(n_symbols)
+    factors[0] = 0.5
+    with (
+        np.errstate(all=mode),
+        pytest.raises(ValueError, match="split.*quantity.*represented"),
+    ):
+        book.apply_split(factors)
+    assert book.cash == before.cash
+    assert book.exact_quantities == before.exact_quantities
+    np.testing.assert_array_equal(book.quantities, before.quantities)
+    np.testing.assert_array_equal(book.mark_prices, before.mark_prices)
+    assert book.portfolio_value == before.portfolio_value

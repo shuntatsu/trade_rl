@@ -16,6 +16,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
+from threading import Lock
 from typing import Final
 
 from trade_rl.artifacts.canonical import canonical_json_bytes, strict_json_loads
@@ -62,7 +63,7 @@ class TrialStatus(StrEnum):
 
 
 def _text(value: object, *, name: str, max_length: int) -> str:
-    if not isinstance(value, str) or not value:
+    if type(value) is not str or not value:
         raise TrialLedgerError(f"{name} must be a non-empty string")
     if value != value.strip() or not value.isprintable() or len(value) > max_length:
         raise TrialLedgerError(
@@ -73,7 +74,7 @@ def _text(value: object, *, name: str, max_length: int) -> str:
 
 def _validate_digest(value: object, *, name: str = "config_digest") -> str:
     if (
-        not isinstance(value, str)
+        type(value) is not str
         or len(value) != 64
         or not frozenset(value) <= _HEX_DIGITS
     ):
@@ -91,6 +92,9 @@ class TrialRecord:
     neither and must give a ``reason``. ``evaluation_data_label`` is optional
     free text describing the data the numbers came from; the core does not
     interpret it, and recording it makes no claim about the data's status.
+
+    Identity text and performance use native str and SharpeMoments values
+    rather than subclasses whose hooks could change the recorded identity.
 
     Numeric values in ``returns`` follow the same rule as the statistics in
     ``multiple_testing``: any finite ``numbers.Real`` except ``bool`` is
@@ -119,6 +123,8 @@ class TrialRecord:
             self, "method", _text(self.method, name="method", max_length=_ID_MAX)
         )
         object.__setattr__(self, "config_digest", _validate_digest(self.config_digest))
+        if type(self.status) not in (str, TrialStatus):
+            raise TrialLedgerError("status must be a native string or TrialStatus")
         try:
             status = TrialStatus(self.status)
         except ValueError as exc:
@@ -155,9 +161,7 @@ class TrialRecord:
             raise TrialLedgerError(
                 "COMPLETED trials need exactly one of performance or returns"
             )
-        if self.performance is not None and not isinstance(
-            self.performance, SharpeMoments
-        ):
+        if self.performance is not None and type(self.performance) is not SharpeMoments:
             raise TrialLedgerError("performance must be SharpeMoments")
         if self.returns is not None:
             raw_items: object = self.returns
@@ -193,64 +197,88 @@ class TrialRecord:
 class TrialLedger:
     """Append-only, order-preserving collection of unique trial records.
 
-    Appending an identical record again is an idempotent no-op; appending a
-    different record under an existing ``trial_id`` is refused. Records are
-    never removed or replaced, so a family's trial count cannot shrink.
+    Appending canonically identical content again is an idempotent no-op;
+    different canonical content under an existing trial_id is refused.
+    Records are never removed or replaced, so a family's trial count cannot
+    shrink. Append and snapshot acquisition are serialized; each read uses
+    one ordered record snapshot.
     """
 
-    __slots__ = ("_by_id", "_order")
+    __slots__ = ("_by_id", "_lock")
 
     def __init__(self, records: Iterable[TrialRecord] = ()) -> None:
         self._by_id: dict[str, TrialRecord] = {}
-        self._order: list[TrialRecord] = []
+        self._lock = Lock()
         for record in records:
             self.append(record)
 
     def append(self, record: TrialRecord) -> bool:
-        """Add ``record``; return ``False`` when an identical one was present."""
+        """Add a record; return False only for canonically identical content."""
 
-        if not isinstance(record, TrialRecord):
-            raise TrialLedgerError("ledger accepts only TrialRecord values")
-        existing = self._by_id.get(record.trial_id)
-        if existing is not None:
-            if existing == record:
-                return False
+        if type(record) is not TrialRecord:
             raise TrialLedgerError(
-                f"trial_id {record.trial_id!r} already recorded with different content"
+                "ledger accepts only TrialRecord values of the native type"
             )
-        self._by_id[record.trial_id] = record
-        self._order.append(record)
-        return True
+        trial_id = record.trial_id
+        if type(trial_id) is not str:
+            raise TrialLedgerError("trial_id must be a native string")
+        with self._lock:
+            existing = self._by_id.get(trial_id)
+            if existing is None:
+                # Insertion order is the sole ledger roster, so lookup and
+                # snapshot cannot disagree during an append.
+                self._by_id[trial_id] = record
+                return True
+        # Existing records cannot be replaced. Compare canonical bytes outside
+        # the lock, without holding up unrelated appends during serialization.
+        # Dataclass equality alone collapses the sign of zero.
+        if existing is record or canonical_json_bytes(
+            _record_payload(existing)
+        ) == canonical_json_bytes(_record_payload(record)):
+            return False
+        raise TrialLedgerError(
+            f"trial_id {trial_id!r} already recorded with different content"
+        )
 
     @property
     def records(self) -> tuple[TrialRecord, ...]:
-        return tuple(self._order)
+        with self._lock:
+            return tuple(self._by_id.values())
 
     def __len__(self) -> int:
-        return len(self._order)
+        with self._lock:
+            return len(self._by_id)
 
     def __iter__(self) -> Iterator[TrialRecord]:
-        return iter(tuple(self._order))
+        return iter(self.records)
 
     def __contains__(self, trial_id: object) -> bool:
-        return trial_id in self._by_id
+        if type(trial_id) is not str:
+            return False
+        with self._lock:
+            return trial_id in self._by_id
 
     def get(self, trial_id: str) -> TrialRecord | None:
-        return self._by_id.get(trial_id)
+        if type(trial_id) is not str:
+            return None
+        with self._lock:
+            return self._by_id.get(trial_id)
 
     def family_records(self, family: str) -> tuple[TrialRecord, ...]:
-        return tuple(item for item in self._order if item.family == family)
+        if type(family) is not str:
+            raise TrialLedgerError("family must be a string of the native type")
+        return tuple(item for item in self.records if item.family == family)
 
     def family_counts(self) -> dict[str, int]:
         """Trials per family, FAILED and ABANDONED included (a fresh dict)."""
 
         counts: dict[str, int] = {}
-        for item in self._order:
+        for item in self.records:
             counts[item.family] = counts.get(item.family, 0) + 1
         return dict(sorted(counts.items()))
 
     def digest(self) -> str:
-        """SHA-256 hex of the canonical JSONL bytes (order-sensitive)."""
+        """SHA-256 hex of one bounded canonical JSONL snapshot (order-sensitive)."""
 
         return sha256(encode_trial_ledger_jsonl(self)).hexdigest()
 
@@ -282,11 +310,18 @@ def encode_trial_ledger_jsonl(ledger: TrialLedger) -> bytes:
     """Deterministic canonical JSONL: one sorted-key compact object per line.
 
     Lines keep append order and each ends with ``\\n``; an empty ledger is
-    empty bytes.
+    empty bytes. Refuse output beyond the decoder's byte limit, before
+    accumulating a line that would exceed it.
     """
 
-    lines = [canonical_json_bytes(_record_payload(item)) for item in ledger.records]
-    return b"".join(line + b"\n" for line in lines)
+    encoded = bytearray()
+    for item in ledger.records:
+        line = canonical_json_bytes(_record_payload(item))
+        if len(encoded) + len(line) + 1 > MAX_LEDGER_BYTES:
+            raise TrialLedgerError("ledger data exceeds the size limit")
+        encoded.extend(line)
+        encoded.extend(b"\n")
+    return bytes(encoded)
 
 
 def _float(value: object, *, name: str) -> float:

@@ -275,3 +275,44 @@ def test_exact_ties_still_break_by_trial_id() -> None:
         "a",
         "b",
     ]
+
+
+@pytest.mark.parametrize("late_family", ["fam", "other"])
+def test_leaderboard_digest_binds_one_snapshot_during_append(monkeypatch, late_family):
+    ledger = TrialLedger([_completed("a", 0.05), _completed("b", 0.12)])
+    expected = build_family_leaderboard(ledger, "fam")
+    original = TrialRecord.moments
+    inserted = False
+
+    def moments(record):
+        nonlocal inserted
+        if not inserted:
+            inserted = True
+            assert ledger.append(_failed("late", family=late_family))
+        return original(record)
+
+    # Deterministic interleaving: the writer appends after scoring has begun.
+    monkeypatch.setattr(TrialRecord, "moments", moments)
+    actual = build_family_leaderboard(ledger, "fam")
+    assert inserted and len(ledger) == 3
+    assert ledger.digest() != expected.ledger_digest
+    assert actual == expected
+    updated = build_family_leaderboard(ledger, "fam")
+    assert updated.n_trials == (3 if late_family == "fam" else 2)
+    assert updated.ledger_digest == ledger.digest()
+
+
+@pytest.mark.parametrize("entrypoint", ["family_records", "leaderboard"])
+def test_family_selection_refuses_foreign_text_before_equality(entrypoint):
+    class ForeignFamily(str):
+        def __eq__(self, other):
+            pytest.fail("foreign family equality must not run")
+
+    ledger = TrialLedger([_completed("a", 0.05), _completed("b", 0.12, family="other")])
+    family = ForeignFamily("absent")
+    with pytest.raises(TrialLedgerError, match="family"):
+        if entrypoint == "family_records":
+            ledger.family_records(family)
+        else:
+            build_family_leaderboard(ledger, family)
+    assert [record.trial_id for record in ledger.family_records("fam")] == ["a"]

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import FrozenInstanceError
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import FrozenInstanceError, replace
 from hashlib import sha256
+from threading import Barrier
 
 import pytest
 
@@ -440,3 +442,132 @@ def test_huge_n_obs_in_ledger_input_is_a_ledger_or_value_error() -> None:
     huge = _line().replace('"n_obs":250', '"n_obs":' + "9" * 400)
     with pytest.raises(TrialLedgerError, match="n_obs"):
         decode_trial_ledger_jsonl(huge.encode())
+
+
+@pytest.mark.parametrize("field", ["performance", "returns"])
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+def test_duplicate_id_requires_identical_canonical_content(field, sign):
+    if field == "performance":
+        first = _completed(sharpe=math.copysign(0.0, sign))
+        other = _completed(sharpe=math.copysign(0.0, -sign))
+    else:
+        first = replace(
+            _with_returns(), returns=(0.01, -0.02, math.copysign(0.0, sign))
+        )
+        other = replace(first, returns=(0.01, -0.02, math.copysign(0.0, -sign)))
+    ledger = TrialLedger([first])
+    before = ledger.digest()
+    assert first == other  # Numeric equality erases the sign of zero.
+    assert encode_trial_ledger_jsonl(ledger) != encode_trial_ledger_jsonl(
+        TrialLedger([other])
+    )
+    with pytest.raises(TrialLedgerError, match="different content"):
+        ledger.append(other)
+    assert ledger.records == (first,)
+    assert ledger.digest() == before
+
+
+def test_encoder_enforces_decoder_byte_limit(monkeypatch):
+    from trade_rl.evaluation.comparison import trial_ledger as module
+
+    ledger = TrialLedger([_completed("t1"), _failed("t2")])
+    encoded = encode_trial_ledger_jsonl(ledger)
+    monkeypatch.setattr(module, "MAX_LEDGER_BYTES", len(encoded))
+    assert encode_trial_ledger_jsonl(ledger) == encoded
+    assert decode_trial_ledger_jsonl(encoded).records == ledger.records
+    monkeypatch.setattr(module, "MAX_LEDGER_BYTES", len(encoded) - 1)
+    with pytest.raises(TrialLedgerError, match="size limit"):
+        encode_trial_ledger_jsonl(ledger)
+    with pytest.raises(TrialLedgerError, match="size limit"):
+        ledger.digest()
+
+
+def test_conflicting_parallel_appends_keep_one_record():
+    ledger = TrialLedger()
+    start = Barrier(8, timeout=10)
+
+    def append(index):
+        record = _completed("same", sharpe=float(index))
+        start.wait()
+        try:
+            return record, ledger.append(record)
+        except TrialLedgerError:
+            return record, False
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = tuple(pool.map(append, range(8)))
+    inserted = [record for record, ok in outcomes if ok]
+    assert len(inserted) == 1
+    assert ledger.records == (inserted[0],)
+    assert ledger.get("same") is inserted[0]
+    assert len(ledger) == 1
+    assert ledger.family_counts() == {"fam": 1}
+    assert decode_trial_ledger_jsonl(encode_trial_ledger_jsonl(ledger)).records == (
+        inserted[0],
+    )
+
+
+def test_index_refuses_foreign_key_hooks():
+    class ForeignKey(str):
+        def __hash__(self):
+            pytest.fail("foreign hash must not run in the ledger")
+
+        def __eq__(self, other):
+            pytest.fail("foreign equality must not run in the ledger")
+
+    key = ForeignKey("t1")
+    ledger = TrialLedger([_completed()])
+    with pytest.raises(TrialLedgerError, match="trial_id"):
+        _completed(trial_id=key)
+    assert key not in ledger
+    assert ledger.get(key) is None
+    assert ledger.get("t1") is ledger.records[0]
+
+
+def test_index_refuses_foreign_record_type():
+    class ForeignRecord(TrialRecord):
+        pass
+
+    record = ForeignRecord(
+        "t1", "fam", "m", DIGEST_A, TrialStatus.FAILED, reason="stopped"
+    )
+    ledger = TrialLedger()
+    with pytest.raises(TrialLedgerError, match="native type"):
+        ledger.append(record)
+    assert not ledger.records
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["family", "method", "reason", "evaluation_data_label", "config_digest", "status"],
+)
+def test_record_identity_rejects_foreign_text_before_hooks(field):
+    class ForeignText(str):
+        def __hash__(self):
+            pytest.fail("foreign hash must not run")
+
+        def __eq__(self, other):
+            pytest.fail("foreign equality must not run")
+
+        def strip(self, *args):
+            pytest.fail("foreign strip must not run")
+
+    record = _completed()
+    value = (
+        "a" * 64
+        if field == "config_digest"
+        else "COMPLETED"
+        if field == "status"
+        else "valid"
+    )
+    with pytest.raises(TrialLedgerError, match=field):
+        replace(record, **{field: ForeignText(value)})
+
+
+def test_record_identity_refuses_foreign_performance_type():
+    class ForeignMoments(SharpeMoments):
+        pass
+
+    moments = ForeignMoments(0.1, 250, -0.5, 4.0)
+    with pytest.raises(TrialLedgerError, match="performance"):
+        replace(_completed(), performance=moments)
